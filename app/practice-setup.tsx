@@ -59,9 +59,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   }
 
   function toggleBank(bankId: string) {
-    const next = bankIds.includes(bankId)
-      ? bankIds.length > 1 ? bankIds.filter((id) => id !== bankId) : bankIds
-      : [...bankIds, bankId];
+    const next = bankIds.includes(bankId) ? bankIds.filter((id) => id !== bankId) : [...bankIds, bankId];
     setBankIds(next);
     onBankChange(next);
   }

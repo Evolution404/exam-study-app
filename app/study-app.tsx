@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  BookOpen, Brain, Check, ChevronLeft, ChevronRight, CircleAlert, Cloud, CloudDownload,
+  BookOpen, Brain, Check, ChevronLeft, ChevronRight, Cloud, CloudDownload,
   CircleHelp, FileUp, GitBranch, Grid3X3, Home, Library, Link2, ListFilter,
-  LoaderCircle, Menu, NotebookPen, Pencil, Play, RefreshCw, RotateCcw, Search,
+  LoaderCircle, Menu, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Target, X,
 } from "lucide-react";
 import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
@@ -13,9 +13,12 @@ import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-
 import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
+import { SearchView, type SearchPracticeOptions } from "@/app/search-view";
+import { BankLibraryView, type BankQuickMode } from "@/app/bank-library-view";
+import { KnowledgeView } from "@/app/knowledge-view";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
-type View = "home" | "banks" | "wrong" | "relations" | "practiceSetup" | "preferences" | "settings" | "practice";
+type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice";
 
 interface PracticePreferences {
   autoNextCorrect: boolean;
@@ -67,10 +70,6 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(value));
 }
 
-function formatFullDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
-}
-
 function shuffle<T>(values: T[]) {
   const copy = [...values];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -95,8 +94,11 @@ const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断"];
 function loadSelectedBankIds() {
   if (typeof window === "undefined") return [];
   try {
-    const saved = JSON.parse(localStorage.getItem("study-current-banks") ?? "[]") as string[];
-    if (Array.isArray(saved) && saved.length) return saved;
+    const raw = localStorage.getItem("study-current-banks");
+    if (raw !== null) {
+      const saved = JSON.parse(raw) as string[];
+      if (Array.isArray(saved)) return saved;
+    }
   } catch { /* use legacy selection */ }
   const legacy = localStorage.getItem("study-current-bank");
   return legacy ? [legacy] : [];
@@ -115,15 +117,15 @@ async function questionsInOriginalOrder(bankId: string) {
   return questions.sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.normalizedStem.localeCompare(b.normalizedStem, "zh-CN"));
 }
 
-function quickFilter(mode: "random30" | "wrong", bankIds: string[]): PracticeFilter {
+function quickFilter(bankIds: string[], mode: BankQuickMode = "random30"): PracticeFilter {
   return {
     bankIds,
     mode,
     types: TYPE_ORDER,
     tags: [],
     tagMatch: "any",
-    status: mode === "wrong" ? "wrong" : "all",
-    order: mode === "random30" ? "random" : "sequential",
+    status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : "all",
+    order: mode === "random30" ? "random" : mode === "difficult" ? "difficulty" : "sequential",
     limit: mode === "random30" ? 30 : null,
     keyword: "",
     keywordMode: "plain",
@@ -143,9 +145,13 @@ export function StudyApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [searchQuestionId, setSearchQuestionId] = useState<string>();
+  const [searchRevision, setSearchRevision] = useState(0);
+  const [relationQuestionId, setRelationQuestionId] = useState<string>();
   const [practiceSession, setPracticeSession] = useState<PracticeSession | null>(null);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const [preferences, setPreferences] = useState<PracticePreferences>(loadPreferences);
+  const [discardedSession, setDiscardedSession] = useState<PracticeSession | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
@@ -153,8 +159,7 @@ export function StudyApp() {
 
   const banks = useLiveQuery(() => db.banks.orderBy("importedAt").reverse().toArray(), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
-  const activeBankIds = validSelectedBankIds.length ? validSelectedBankIds : banks[0] ? [banks[0].id] : [];
-  const selectedBanks = banks.filter((bank) => activeBankIds.includes(bank.id));
+  const activeBankIds = validSelectedBankIds;
   const savedSession = useLiveQuery(() => db.sessions.get("active"), []);
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
   const activeQuestion = useLiveQuery(() => activeQuestionId ? db.questions.get(activeQuestionId) : undefined, [activeQuestionId]);
@@ -193,13 +198,27 @@ export function StudyApp() {
     const unique = [...new Set(bankIds)];
     setSelectedBankIds(unique);
     localStorage.setItem("study-current-banks", JSON.stringify(unique));
+    localStorage.removeItem("study-current-bank");
   }
 
   function toggleBank(bankId: string) {
-    const next = activeBankIds.includes(bankId)
-      ? activeBankIds.length > 1 ? activeBankIds.filter((id) => id !== bankId) : activeBankIds
-      : [...activeBankIds, bankId];
+    const next = activeBankIds.includes(bankId) ? activeBankIds.filter((id) => id !== bankId) : [...activeBankIds, bankId];
     selectBanks(next);
+  }
+
+  async function discardSavedPractice() {
+    if (!savedSession) return;
+    setDiscardedSession(savedSession);
+    await clearPracticeSession();
+    setPracticeSession(null);
+    setNotice("已放弃上次练习");
+  }
+
+  async function undoDiscardPractice() {
+    if (!discardedSession) return;
+    await savePracticeSession(discardedSession);
+    setDiscardedSession(null);
+    setNotice("已恢复上次练习");
   }
 
   function updatePreferences(value: PracticePreferences) {
@@ -304,7 +323,7 @@ export function StudyApp() {
     setView("practice");
   }
 
-  async function startSearchPractice(questions: Question[], questionId: string) {
+  async function startSearchPractice({ questions, label, shuffleOptions }: SearchPracticeOptions, questionId?: string) {
     const practiceBanks = banks.filter((bank) => questions.some((question) => question.bankId === bank.id));
     if (!questions.length || !practiceBanks.length) return;
     const now = new Date().toISOString();
@@ -315,13 +334,13 @@ export function StudyApp() {
       bankIds: practiceBanks.map((bank) => bank.id),
       bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
       mode: "advanced",
-      modeLabel: `搜索“${query.trim()}”`,
+      modeLabel: label,
       questionIds: questions.map((question) => question.id),
       questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
       currentIndex: Math.max(0, questions.findIndex((question) => question.id === questionId)),
       answers: {},
-      shuffleOptions: preferences.shuffleOptions,
-      optionOrders: preferences.shuffleOptions ? Object.fromEntries(questions.map((question) => [
+      shuffleOptions,
+      optionOrders: shuffleOptions ? Object.fromEntries(questions.map((question) => [
         question.id,
         question.type === "判断"
           ? question.options.map((_, index) => index)
@@ -333,8 +352,21 @@ export function StudyApp() {
     };
     await savePracticeSession(session);
     setPracticeSession(session);
-    setQuery("");
     setView("practice");
+  }
+
+  function openSearch(questionId?: string) {
+    const keyword = query.trim();
+    if (keyword) {
+      try {
+        const previous = JSON.parse(localStorage.getItem("study-search-history") ?? "[]") as unknown;
+        const history = Array.isArray(previous) ? previous.filter((item): item is string => typeof item === "string") : [];
+        localStorage.setItem("study-search-history", JSON.stringify([keyword, ...history.filter((item) => item !== keyword)].slice(0, 10)));
+      } catch { localStorage.setItem("study-search-history", JSON.stringify([keyword])); }
+    }
+    setSearchQuestionId(questionId);
+    setSearchRevision((revision) => revision + 1);
+    setView("search");
   }
 
   function changeSession(mutator: (session: PracticeSession) => PracticeSession) {
@@ -391,9 +423,8 @@ export function StudyApp() {
   const navItems = [
     { id: "home" as const, label: "今日", icon: Home },
     { id: "banks" as const, label: "题库", icon: Library },
-    { id: "wrong" as const, label: "错题", icon: RotateCcw },
     { id: "practiceSetup" as const, label: "练习", icon: ListFilter },
-    { id: "relations" as const, label: "关联", icon: Link2 },
+    { id: "relations" as const, label: "知识整理", icon: Link2 },
     { id: "preferences" as const, label: "配置", icon: Settings2 },
     { id: "settings" as const, label: "同步", icon: Cloud },
   ];
@@ -405,7 +436,7 @@ export function StudyApp() {
         <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "nav-active" : ""} onClick={() => { setView(id); setSidebarOpen(false); }}>
+            <button key={id} className={view === id ? "nav-active" : ""} onClick={() => { if (id === "relations") setRelationQuestionId(undefined); setView(id); setSidebarOpen(false); }}>
               <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
             </button>
           ))}
@@ -420,21 +451,21 @@ export function StudyApp() {
       <section className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <div className="searchbox"><Search size={17} /><input aria-label="搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} placeholder="搜索题目、知识点或解析" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds} onChoose={(questions, questionId) => void startSearchPractice(questions, questionId)} /></div>
+          <div className="searchbox"><Search size={17} /><input aria-label="搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter" && query.trim()) { event.currentTarget.blur(); openSearch(); } }} placeholder="搜索题目、知识点或解析" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
           <button className="sync-pill" onClick={() => setView("settings")}><Cloud size={16} />{stats.pending ? `待同步 ${stats.pending}` : "已保存"}</button>
         </header>
 
-        {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span><button onClick={() => setNotice("")}><X size={15} /></button></div>}
+        {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className="content">
-          {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter("random30", activeBankIds))} onResume={resumePractice} onMoreModes={() => setView("practiceSetup")} />}
-          {view === "banks" && <BanksView banks={banks} selectedBankIds={activeBankIds} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBanks([bankId]); void startPractice(quickFilter("random30", [bankId])); }} />}
-          {view === "wrong" && <WrongView bankIds={activeBankIds} bankName={selectedBanks.length === 1 ? selectedBanks[0].name : `${selectedBanks.length} 个题库`} wrongRemovalStreak={preferences.wrongRemovalStreak} onStart={() => activeBankIds.length && void startPractice(quickFilter("wrong", activeBankIds))} />}
+          {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "banks" && <BankLibraryView banks={banks} selectedBankIds={activeBankIds} wrongRemovalStreak={preferences.wrongRemovalStreak} onToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={(bankId, mode) => void startPractice(quickFilter([bankId], mode))} onAdvanced={(bankId) => { selectBanks([bankId]); setView("practiceSetup"); }} />}
           {view === "practiceSetup" && <PracticeSetupView banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} />}
-          {view === "relations" && <RelationsView />}
+          {view === "relations" && <KnowledgeView initialQuestionId={relationQuestionId} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential"), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
+          {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} hasActiveSession={Boolean(savedSession)} onStart={(options) => startSearchPractice(options)} onRelate={(questionId) => { setRelationQuestionId(questionId); setView("relations"); }} onNotice={setNotice} />}
           {view === "practice" && practiceSession && activeQuestion && (
             <Practice key={activeQuestion.id} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} />
           )}
@@ -444,11 +475,11 @@ export function StudyApp() {
   );
 }
 
-function SearchResults({ query, bankIds, onChoose }: { query: string; bankIds: string[]; onChoose: (questions: Question[], questionId: string) => void }) {
+function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
   const bankKey = bankIds.join("|");
   const results = useLiveQuery(async () => {
-    if (!normalizedQuery || !bankIds.length) return [];
+    if (!normalizedQuery || !bankIds.length) return { items: [] as Question[], total: 0 };
     const [questions, notes] = await Promise.all([
       Promise.all(bankIds.map((bankId) => db.questions.where("bankId").equals(bankId).toArray())).then((rows) => rows.flat()),
       db.notes.toArray(),
@@ -460,14 +491,15 @@ function SearchResults({ query, bankIds, onChoose }: { query: string; bankIds: s
       ...question.tags,
       notesByQuestion.get(question.id) ?? "",
     ].join("\n").toLocaleLowerCase("zh-CN").includes(normalizedQuery));
-    return TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type)).slice(0, 30);
+    const grouped = TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type));
+    return { items: grouped.slice(0, 8), total: grouped.length };
   }, [normalizedQuery, bankKey]);
 
   if (!normalizedQuery) return null;
   if (results === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   return <section className="search-results" aria-label="搜索结果">
-    <header><strong>搜索结果</strong><span>{results.length ? `显示 ${results.length} 道匹配题目` : "没有匹配题目"}</span></header>
-    {results.length ? <div>{results.map((question) => <button key={question.id} onClick={() => onChoose(results, question.id)}><span className="search-type">{question.type}</span><span><strong>{question.stem}</strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div> : <div className="search-state">试试更短的关键词，搜索范围为首页已选题库。</div>}
+    <header><strong>快速结果</strong><span>{results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目"}</span></header>
+    {results.items.length ? <><div>{results.items.map((question) => <button key={question.id} onClick={() => onChoose(question.id)}><span className="search-type">{question.type}</span><span><strong>{question.stem}</strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div><button className="search-view-all" onClick={onViewAll}>查看全部 {results.total} 道结果<ChevronRight size={16} /></button></> : <div className="search-state">试试更短的关键词，搜索范围为首页已选题库。</div>}
   </section>;
 }
 
@@ -524,13 +556,13 @@ function PullToRefresh() {
   return <div className={`pull-refresh ${refreshing ? "refreshing" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 72 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
-function Dashboard({ stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onMoreModes }: {
+function Dashboard({ stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
   stats: { questions: number; attempts: number; correct: number; pending: number; notes: number; last?: string };
   banks: Array<{ id: string; name: string; questionCount: number }>;
   savedSession?: PracticeSession;
   selectedBankIds: string[];
   onBankToggle: (bankId: string) => void;
-  onImport: () => void; onStart: () => void; onResume: () => void; onMoreModes: () => void;
+  onImport: () => void; onStart: () => void; onResume: () => void; onDiscardResume: () => void; onMoreModes: () => void;
 }) {
   const accuracy = stats.attempts ? Math.round(stats.correct / stats.attempts * 100) : 0;
   const selectedBanks = banks.filter((bank) => selectedBankIds.includes(bank.id));
@@ -538,10 +570,10 @@ function Dashboard({ stats, banks, savedSession, selectedBankIds, onBankToggle, 
   const answeredInSession = savedSession ? Object.values(savedSession.answers).filter((answer) => answer.submitted).length : 0;
   return <>
     <div className="home-heading"><p className="eyebrow">今天也向前一点</p><h1>把知识，练成下意识。</h1><p>自由组合题库，记录每一次选择，随时从中断处继续。</p></div>
-    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>至少保留一个</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</p><button className="primary" onClick={onStart}><Brain size={18} />开始随机 30 题</button></div></section> : <EmptyImport onImport={onImport} />}
-    {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
+    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 30 题</button></div></section> : <EmptyImport onImport={onImport} />}
+    {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={onDiscardResume}><X size={16} /></button><button className="resume-continue" onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
     <section className="home-feature-grid">
-      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 30 题</h2><p>从已选题库随机抽题，再按单选、多选、判断分组。</p><div><button onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>30</strong><small>题</small></span></article>
+      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 30 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>30</strong><small>题</small></span></article>
       <article className="memory-card"><span>记忆提示</span><blockquote>“先遮住答案，努力回忆，再用反馈纠正。”</blockquote><small>主动回忆比重复阅读更可靠</small></article>
     </section>
     <section className="stat-grid">
@@ -560,39 +592,6 @@ function Stat({ icon, label, value, foot }: { icon: React.ReactNode; label: stri
 
 function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>数据直接写入本机，不经过第三方服务器</small></div><ChevronRight size={18} /></button>;
-}
-
-function BanksView({ banks, selectedBankIds, onImport, onStart }: { banks: Array<{ id: string; name: string; questionCount: number; importedAt: string }>; selectedBankIds: string[]; onImport: () => void; onStart: (bankId: string) => void }) {
-  return <><div className="page-heading compact"><div><p className="eyebrow">我的资料</p><h1>题库</h1><p>导入、版本化并随时开始一组练习。</p></div><button className="primary" onClick={onImport}><FileUp size={18} />导入题库</button></div>
-    {banks.length ? <div className="library-grid">{banks.map((bank, index) => { const selected = selectedBankIds.includes(bank.id); return <article className={`library-card ${selected ? "current" : ""}`} key={bank.id}><span className={`bank-icon large tone-${index % 3}`}><Library size={22} /></span><span className="bank-ready">{selected ? "已选范围" : "本地可用"}</span><h2>{bank.name}</h2><p>{bank.questionCount.toLocaleString()} 道题 · 导入时间：{formatFullDate(bank.importedAt)}</p><button onClick={() => onStart(bank.id)}>仅练此题库<ChevronRight size={17} /></button></article>; })}</div> : <EmptyImport onImport={onImport} />}
-  </>;
-}
-
-function WrongView({ bankIds, bankName, wrongRemovalStreak, onStart }: { bankIds: string[]; bankName?: string; wrongRemovalStreak: number; onStart: () => void }) {
-  const bankKey = bankIds.join("|");
-  const count = useLiveQuery(async () => {
-    const allRows = (await Promise.all(bankIds.map((bankId) => db.attempts.where("bankId").equals(bankId).toArray()))).flat();
-    const rowsByQuestion = new Map<string, typeof allRows>();
-    allRows.forEach((row) => {
-      const questionRows = rowsByQuestion.get(row.questionId);
-      if (questionRows) questionRows.push(row);
-      else rowsByQuestion.set(row.questionId, [row]);
-    });
-    return [...rowsByQuestion.values()].filter((rows) => rows.some((row) => !row.correct) && needsWrongReview(rows, wrongRemovalStreak)).length;
-  }, [bankKey, wrongRemovalStreak]) ?? 0;
-  return <div className="center-panel"><span className="center-icon warning"><CircleAlert /></span><p className="eyebrow">错题回炉 · {bankName ?? "已选题库"}</p><h1>{count ? `${count} 道题等你攻克` : "已选题库还没有错题"}</h1><p>{count ? `连续答对 ${wrongRemovalStreak} 次后自动移出错题。` : "每次作答都会自动记录，不会和答错的题会出现在这里。"}</p><button className="primary" onClick={onStart} disabled={!count}><RotateCcw size={18} />开始错题练习</button></div>;
-}
-
-function RelationsView() {
-  const tags = useLiveQuery(async () => {
-    const questions = await db.questions.toArray();
-    const counts = new Map<string, number>();
-    questions.flatMap((question) => question.tags).forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1));
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, []) ?? [];
-  return <><div className="page-heading compact"><div><p className="eyebrow">知识网络</p><h1>题目关联</h1><p>先按知识点聚合，再逐步标记易混、相似和前置关系。</p></div></div>
-    <div className="topic-grid">{tags.length ? tags.map(([tag, count], index) => <article key={tag}><span>{String(index + 1).padStart(2, "0")}</span><h2>{tag}</h2><p>{count} 道相关题</p><div className="topic-line"><i style={{ width: `${Math.min(100, 25 + count)}%` }} /></div></article>) : <div className="center-panel small"><Link2 /><h2>还没有用户标签</h2><p>练习时编辑题目并添加标签，就能在这里形成知识点索引。</p></div>}</div>
-  </>;
 }
 
 function PreferencesView({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {

@@ -100,7 +100,7 @@ export interface Relation {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "attempt.created" | "note.upserted" | "relation.created" | "question.updated";
+  type: "bank.imported" | "attempt.created" | "note.upserted" | "relation.created" | "relation.deleted" | "question.updated";
   payload: unknown;
   deviceId: string;
   createdAt: string;

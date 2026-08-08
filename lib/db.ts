@@ -191,6 +191,47 @@ export async function clearLegacyGeneratedTags() {
   return legacy.length;
 }
 
+export async function saveRelation(fromQuestionId: string, toQuestionId: string, type: Relation["type"], relationId?: string) {
+  if (fromQuestionId === toQuestionId) throw new Error("不能把题目关联到自身。");
+  const relation: Relation = {
+    id: relationId ?? makeId("relation"),
+    fromQuestionId,
+    toQuestionId,
+    type,
+    createdAt: new Date().toISOString(),
+    deviceId: getDeviceId(),
+  };
+  const event: SyncEvent = {
+    id: makeId("evt"),
+    type: "relation.created",
+    payload: relation,
+    deviceId: relation.deviceId,
+    createdAt: relation.createdAt,
+    synced: 0,
+  };
+  await db.transaction("rw", db.relations, db.events, async () => {
+    await db.relations.put(relation);
+    await db.events.put(event);
+  });
+  return relation;
+}
+
+export async function deleteRelation(relationId: string) {
+  const createdAt = new Date().toISOString();
+  const event: SyncEvent = {
+    id: makeId("evt"),
+    type: "relation.deleted",
+    payload: { id: relationId },
+    deviceId: getDeviceId(),
+    createdAt,
+    synced: 0,
+  };
+  await db.transaction("rw", db.relations, db.events, async () => {
+    await db.relations.delete(relationId);
+    await db.events.put(event);
+  });
+}
+
 export async function resetLocalDatabase() {
   await db.delete();
   await db.open();
@@ -289,6 +330,8 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           if (!current || incoming.updatedAt > current.updatedAt) await db.notes.put(incoming);
         } else if (event.type === "relation.created") {
           await db.relations.put(event.payload as Relation);
+        } else if (event.type === "relation.deleted") {
+          await db.relations.delete((event.payload as { id: string }).id);
         } else if (event.type === "question.updated") {
           const incoming = event.payload as Question;
           const current = await db.questions.get(incoming.id);
