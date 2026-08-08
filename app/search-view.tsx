@@ -64,7 +64,6 @@ export function SearchView({
   onFocusHandled,
   wrongRemovalStreak,
   defaultShuffleOptions,
-  hasActiveSession,
   onStart,
   onGroup,
   onNotice,
@@ -77,7 +76,6 @@ export function SearchView({
   onFocusHandled: () => void;
   wrongRemovalStreak: number;
   defaultShuffleOptions: boolean;
-  hasActiveSession: boolean;
   onStart: (options: SearchPracticeOptions) => Promise<void>;
   onGroup: (questionIds: string[]) => void;
   onNotice: (message: string) => void;
@@ -220,7 +218,7 @@ export function SearchView({
       {visibleCount < result.entries.length && <button className="search-load-more" onClick={() => setVisibleCount(visibleCount + 50)}>继续加载（已显示 {visibleEntries.length} / {result.entries.length}）</button>}
     </> : <div className="search-no-result"><Search /><h2>没有符合条件的题目</h2><p>可以缩短关键词或减少筛选条件。</p></div>}
     {detailQuestionId && <SearchQuestionDetail questionId={detailQuestionId} onClose={() => { setDetailQuestionId(undefined); onFocusHandled(); }} onStart={(question) => setPracticeSource({ questions: [question], label: "单题练习" })} onGroup={(questionId) => onGroup([questionId])} onNotice={onNotice} />}
-    {practiceSource && <SearchPracticeDialog source={practiceSource} defaultShuffleOptions={defaultShuffleOptions} hasActiveSession={hasActiveSession} onClose={() => setPracticeSource(undefined)} onStart={async (options) => { await onStart(options); setPracticeSource(undefined); }} />}
+    {practiceSource && <SearchPracticeDialog source={practiceSource} defaultShuffleOptions={defaultShuffleOptions} onClose={() => setPracticeSource(undefined)} onStart={async (options) => { await onStart(options); setPracticeSource(undefined); }} />}
   </div>;
 }
 
@@ -233,7 +231,7 @@ function SearchQuestionDetail({ questionId, onClose, onStart, onGroup, onNotice 
   return <div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><h1><MathText text={question.stem} /></h1><ol>{question.options.map((option, index) => <li className={question.answer.includes(String.fromCharCode(65 + index)) ? "answer" : ""} key={`${option}-${index}`}><span>{String.fromCharCode(65 + index)}</span><MathText text={option} />{question.answer.includes(String.fromCharCode(65 + index)) && <Check size={16} />}</li>)}</ol><section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p><MathText text={answerText(question)} /></p></section><div className="search-detail-metrics"><span><strong>{metric?.total ?? 0}</strong>作答</span><span><strong>{metric?.correct ?? 0}</strong>正确</span><span><strong>{metric?.wrong ?? 0}</strong>错误</span><span><strong>{metric?.difficulty ?? 50}</strong>难度 · {difficultyLabel(metric?.difficulty ?? 50)}</span></div><section className="search-detail-note"><strong>个人解析</strong><p>{note?.content || "还没有个人解析，可以通过编辑题目或练习页面继续整理。"}</p></section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div><footer><button onClick={async () => { const updated = await toggleQuestionFavorite(question.id); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button><button onClick={() => onGroup(question.id)}><GitBranch size={16} />加入题组</button><button className="primary" onClick={() => onStart(question)}><Play size={16} />只练这一题</button></footer>{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes: QuestionChanges) => { await updateQuestion(question.id, changes); setEditing(false); onNotice("题目和标签已保存"); }} />}</aside></div>;
 }
 
-function SearchPracticeDialog({ source, defaultShuffleOptions, hasActiveSession, onClose, onStart }: { source: { questions: Question[]; label: string }; defaultShuffleOptions: boolean; hasActiveSession: boolean; onClose: () => void; onStart: (options: SearchPracticeOptions) => Promise<void> }) {
+function SearchPracticeDialog({ source, defaultShuffleOptions, onClose, onStart }: { source: { questions: Question[]; label: string }; defaultShuffleOptions: boolean; onClose: () => void; onStart: (options: SearchPracticeOptions) => Promise<void> }) {
   const [count, setCount] = useState("");
   const [order, setOrder] = useState<"sequential" | "random">("sequential");
   const [shuffleOptions, setShuffleOptions] = useState(defaultShuffleOptions);
@@ -256,5 +254,5 @@ function SearchPracticeDialog({ source, defaultShuffleOptions, hasActiveSession,
     try { await onStart({ questions: ordered, label: source.label, shuffleOptions }); }
     finally { setStarting(false); }
   }
-  return <div className="search-practice-backdrop" role="presentation"><section className="search-practice-dialog" role="dialog" aria-modal="true" aria-label="搜索练习配置"><header><div><span className="section-kicker">确认后才进入练习</span><h2>配置搜索练习</h2></div><button className="icon-button" aria-label="关闭练习配置" onClick={onClose}><X size={18} /></button></header><div><p>共有 <strong>{source.questions.length}</strong> 道可练题目，题型始终按“单选 → 多选 → 判断”排列。</p><label>练习数量<input type="number" min="1" max={source.questions.length} value={count} onChange={(event) => setCount(event.target.value)} placeholder={`全部 ${source.questions.length} 题`} /></label><label>题型组内顺序<select value={order} onChange={(event) => setOrder(event.target.value as "sequential" | "random")}><option value="sequential">当前结果顺序</option><option value="random">组内随机</option></select></label><label className="search-dialog-toggle"><span><strong>选项顺序随机</strong><small>判断题仍保持“正确、错误”</small></span><input aria-label="选项顺序随机" type="checkbox" checked={shuffleOptions} onChange={(event) => setShuffleOptions(event.target.checked)} /></label>{hasActiveSession && <p className="search-session-warning"><CircleAlert size={16} />开始后将用本次搜索练习替换当前中断进度。</p>}</div><footer><button className="secondary-action" onClick={onClose}>取消</button><button className="primary" disabled={starting || !finalCount} onClick={() => void start()}>{starting ? <LoaderCircle className="spin" size={17} /> : <Play size={17} />}开始练习 {finalCount} 题</button></footer></section></div>;
+  return <div className="search-practice-backdrop" role="presentation"><section className="search-practice-dialog" role="dialog" aria-modal="true" aria-label="搜索练习配置"><header><div><span className="section-kicker">确认后才进入练习</span><h2>配置搜索练习</h2></div><button className="icon-button" aria-label="关闭练习配置" onClick={onClose}><X size={18} /></button></header><div><p>共有 <strong>{source.questions.length}</strong> 道可练题目，题型始终按“单选 → 多选 → 判断”排列。</p><label>练习数量<input type="number" min="1" max={source.questions.length} value={count} onChange={(event) => setCount(event.target.value)} placeholder={`全部 ${source.questions.length} 题`} /></label><label>题型组内顺序<select value={order} onChange={(event) => setOrder(event.target.value as "sequential" | "random")}><option value="sequential">当前结果顺序</option><option value="random">组内随机</option></select></label><label className="search-dialog-toggle"><span><strong>选项顺序随机</strong><small>判断题仍保持“正确、错误”</small></span><input aria-label="选项顺序随机" type="checkbox" checked={shuffleOptions} onChange={(event) => setShuffleOptions(event.target.checked)} /></label></div><footer><button className="secondary-action" onClick={onClose}>取消</button><button className="primary" disabled={starting || !finalCount} onClick={() => void start()}>{starting ? <LoaderCircle className="spin" size={17} /> : <Play size={17} />}开始练习 {finalCount} 题</button></footer></section></div>;
 }
