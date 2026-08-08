@@ -43,6 +43,15 @@ export async function getGitHubLogin(token: string) {
   return user.login;
 }
 
+export async function verifyGitHubVault(settings: GitHubSettings, token: string) {
+  const branch = settings.branch || "main";
+  const tree = await request<{ tree: Array<{ path: string; type: string }> }>(
+    `${api}/repos/${settings.owner}/${settings.repo}/git/trees/${branch}?recursive=1`,
+    token,
+  );
+  return tree.tree.filter((entry) => entry.type === "blob" && /^events\/.+\.json$/.test(entry.path)).length;
+}
+
 export async function syncWithGitHub(settings: GitHubSettings, token: string) {
   const branch = settings.branch || "main";
   const tree = await request<{

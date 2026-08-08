@@ -33,10 +33,12 @@ export interface PracticeSession {
   id: "active";
   runId: string;
   bankId: string;
+  bankIds?: string[];
   bankName: string;
   mode: PracticeMode;
   modeLabel: string;
   questionIds: string[];
+  questionTypes?: Record<string, QuestionType>;
   currentIndex: number;
   answers: Record<string, PracticeAnswerState>;
   shuffleOptions?: boolean;
@@ -47,7 +49,7 @@ export interface PracticeSession {
 }
 
 export interface PracticeFilter {
-  bankId: string;
+  bankIds: string[];
   mode: PracticeMode;
   types: QuestionType[];
   tags: string[];

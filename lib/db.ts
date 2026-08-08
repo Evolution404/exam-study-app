@@ -193,6 +193,11 @@ export async function clearPracticeSession() {
   await db.sessions.delete("active");
 }
 
+export async function resetLocalDatabase() {
+  await db.delete();
+  await db.open();
+}
+
 export async function updateQuestion(
   questionId: string,
   changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags">,

@@ -7,29 +7,30 @@ import { db } from "@/lib/db";
 import type { Bank, PracticeFilter, PracticeMode, QuestionType } from "@/lib/types";
 
 const modes: Array<{ id: PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
-  { id: "random30", title: "随机 30 题", detail: "从当前题库随机抽取一组", icon: Shuffle },
+  { id: "random30", title: "随机 30 题", detail: "从已选题库随机抽取一组", icon: Shuffle },
   { id: "sequential", title: "全量顺序练习", detail: "按题库原有顺序练完全部题目", icon: ListOrdered },
   { id: "wrong", title: "错题模式", detail: "集中练习曾经答错的题目", icon: RotateCcw },
   { id: "tag", title: "标签模式", detail: "按一个或多个知识标签练习", icon: Tags },
   { id: "advanced", title: "高级筛选", detail: "组合题型、状态、标签和数量", icon: Filter },
 ];
 
-const questionTypes: QuestionType[] = ["判断", "单选", "多选"];
+const questionTypes: QuestionType[] = ["单选", "多选", "判断"];
 
-export function PracticeSetupView({ banks, currentBankId, onBankChange, onStart }: {
+export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart }: {
   banks: Bank[];
-  currentBankId: string;
-  onBankChange: (bankId: string) => void;
+  currentBankIds: string[];
+  onBankChange: (bankIds: string[]) => void;
   onStart: (filter: PracticeFilter) => void;
 }) {
-  const [bankId, setBankId] = useState(currentBankId);
+  const [bankIds, setBankIds] = useState(currentBankIds);
   const [mode, setMode] = useState<PracticeMode>("sequential");
   const [types, setTypes] = useState<QuestionType[]>(questionTypes);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [status, setStatus] = useState<PracticeFilter["status"]>("all");
   const [order, setOrder] = useState<PracticeFilter["order"]>("sequential");
   const [limit, setLimit] = useState<number | null>(null);
-  const questions = useLiveQuery(() => bankId ? db.questions.where("bankId").equals(bankId).toArray() : [], [bankId]) ?? [];
+  const bankKey = bankIds.join("|");
+  const questions = useLiveQuery(async () => (await Promise.all(bankIds.map((bankId) => db.questions.where("bankId").equals(bankId).toArray()))).flat(), [bankKey]) ?? [];
   const tags = [...new Set(questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN"));
 
   function toggleType(type: QuestionType) {
@@ -40,9 +41,17 @@ export function PracticeSetupView({ banks, currentBankId, onBankChange, onStart 
     setSelectedTags(selectedTags.includes(tag) ? selectedTags.filter((item) => item !== tag) : [...selectedTags, tag]);
   }
 
+  function toggleBank(bankId: string) {
+    const next = bankIds.includes(bankId)
+      ? bankIds.length > 1 ? bankIds.filter((id) => id !== bankId) : bankIds
+      : [...bankIds, bankId];
+    setBankIds(next);
+    onBankChange(next);
+  }
+
   function start() {
     const filter: PracticeFilter = {
-      bankId,
+      bankIds,
       mode,
       types: mode === "advanced" ? types : questionTypes,
       tags: mode === "tag" || mode === "advanced" ? selectedTags : [],
@@ -53,11 +62,11 @@ export function PracticeSetupView({ banks, currentBankId, onBankChange, onStart 
     onStart(filter);
   }
 
-  const disabled = !bankId || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && !types.length);
+  const disabled = !bankIds.length || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && !types.length);
   return <>
     <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>
     <section className="practice-setup-card">
-      <label className="setup-bank"><span>练习题库</span><select value={bankId} onChange={(event) => { setBankId(event.target.value); onBankChange(event.target.value); }}>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}（{bank.questionCount} 题）</option>)}</select></label>
+      <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
       <div className="mode-grid">{modes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{title}</strong><small>{detail}</small></button>)}</div>
 
       {(mode === "tag" || mode === "advanced") && <div className="filter-section"><div className="filter-title"><Tags size={17} /><strong>知识标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : "请选择标签"}</small></div>{tags.length ? <div className="chip-list">{tags.map((tag) => <button key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div> : <p className="filter-empty">当前题库还没有标签，可在练习中编辑题目并添加标签。</p>}</div>}
@@ -69,7 +78,7 @@ export function PracticeSetupView({ banks, currentBankId, onBankChange, onStart 
         <label>练习数量<select value={limit ?? "all"} onChange={(event) => setLimit(event.target.value === "all" ? null : Number(event.target.value))}><option value="all">全部符合条件的题</option><option value="30">30 题</option><option value="50">50 题</option><option value="100">100 题</option></select></label>
       </div>}
 
-      <div className="setup-footer"><div><strong>{questions.length.toLocaleString()}</strong><span>当前题库题目</span></div><button className="primary" disabled={disabled} onClick={start}>开始练习<ChevronRight size={18} /></button></div>
+      <div className="setup-footer"><div><strong>{questions.length.toLocaleString()}</strong><span>已选题库题目</span></div><button className="primary" disabled={disabled} onClick={start}>开始练习<ChevronRight size={18} /></button></div>
     </section>
   </>;
 }
