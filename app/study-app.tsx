@@ -214,6 +214,7 @@ export function StudyApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
   const [searchQuestionId, setSearchQuestionId] = useState<string>();
   const [searchRevision, setSearchRevision] = useState(0);
   const [groupQuestionIds, setGroupQuestionIds] = useState<string[]>([]);
@@ -225,8 +226,19 @@ export function StudyApp() {
   const [resultRunId, setResultRunId] = useState<string>();
   const [quickSyncing, setQuickSyncing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
+
+  useEffect(() => {
+    if (!quickSearchOpen) return;
+    const closeQuickSearch = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && !searchBoxRef.current?.contains(target)) setQuickSearchOpen(false);
+    };
+    document.addEventListener("pointerdown", closeQuickSearch);
+    return () => document.removeEventListener("pointerdown", closeQuickSearch);
+  }, [quickSearchOpen]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -547,6 +559,7 @@ export function StudyApp() {
     }
     setSearchQuestionId(questionId);
     setSearchRevision((revision) => revision + 1);
+    setQuickSearchOpen(false);
     setView("search");
   }
 
@@ -708,7 +721,7 @@ export function StudyApp() {
       <section ref={workspaceRef} className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <div className="searchbox"><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
+          <div ref={searchBoxRef} className={`searchbox ${quickSearchOpen && query.trim() ? "results-open" : ""}`}><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onFocus={() => setQuickSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setQuickSearchOpen(true); }} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); setQuickSearchOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => { setQuery(""); setQuickSearchOpen(false); }}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
           <button className={`sync-pill quick-sync ${quickSyncing ? "syncing" : ""}`} disabled={quickSyncing} aria-label="立即与 GitHub 同步" onClick={() => void quickSync()}>{quickSyncing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{quickSyncing ? "同步中…" : stats.pending ? `同步 ${stats.pending}` : "立即同步"}</button>
         </header>
 

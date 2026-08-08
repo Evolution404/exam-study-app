@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Check, ChevronRight, CircleAlert, Filter, GitBranch, History, ListChecks, LoaderCircle,
@@ -240,13 +240,21 @@ function SearchPracticeDialog({ source, defaultShuffleOptions, hasActiveSession,
   const [starting, setStarting] = useState(false);
   const limit = numberOrNull(count);
   const finalCount = limit === null ? source.questions.length : Math.min(source.questions.length, Math.max(1, Math.floor(limit)));
+  useEffect(() => {
+    const workspace = document.querySelector<HTMLElement>(".workspace");
+    if (!workspace) return;
+    const previousOverflow = workspace.style.overflow;
+    workspace.style.overflow = "hidden";
+    return () => { workspace.style.overflow = previousOverflow; };
+  }, []);
   async function start() {
     setStarting(true);
     const ordered = TYPE_ORDER.flatMap((type) => {
       const group = source.questions.filter((question) => question.type === type);
       return order === "random" ? shuffle(group) : group;
     }).slice(0, finalCount);
-    await onStart({ questions: ordered, label: source.label, shuffleOptions });
+    try { await onStart({ questions: ordered, label: source.label, shuffleOptions }); }
+    finally { setStarting(false); }
   }
   return <div className="search-practice-backdrop" role="presentation"><section className="search-practice-dialog" role="dialog" aria-modal="true" aria-label="搜索练习配置"><header><div><span className="section-kicker">确认后才进入练习</span><h2>配置搜索练习</h2></div><button className="icon-button" aria-label="关闭练习配置" onClick={onClose}><X size={18} /></button></header><div><p>共有 <strong>{source.questions.length}</strong> 道可练题目，题型始终按“单选 → 多选 → 判断”排列。</p><label>练习数量<input type="number" min="1" max={source.questions.length} value={count} onChange={(event) => setCount(event.target.value)} placeholder={`全部 ${source.questions.length} 题`} /></label><label>题型组内顺序<select value={order} onChange={(event) => setOrder(event.target.value as "sequential" | "random")}><option value="sequential">当前结果顺序</option><option value="random">组内随机</option></select></label><label className="search-dialog-toggle"><span><strong>选项顺序随机</strong><small>判断题仍保持“正确、错误”</small></span><input aria-label="选项顺序随机" type="checkbox" checked={shuffleOptions} onChange={(event) => setShuffleOptions(event.target.checked)} /></label>{hasActiveSession && <p className="search-session-warning"><CircleAlert size={16} />开始后将用本次搜索练习替换当前中断进度。</p>}</div><footer><button className="secondary-action" onClick={onClose}>取消</button><button className="primary" disabled={starting || !finalCount} onClick={() => void start()}>{starting ? <LoaderCircle className="spin" size={17} /> : <Play size={17} />}开始练习 {finalCount} 题</button></footer></section></div>;
 }
