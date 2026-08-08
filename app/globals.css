@@ -208,6 +208,11 @@ button { color:inherit; }
 @media(max-width:760px) and (prefers-reduced-motion:reduce){.content:not(.practice-content)>*{animation:none}.mobile-tabbar button,.practice-actions button{transition:none}}
 @media(max-width:390px){.practice-content .practice-actions{left:14px;right:14px}}
 
+/* iOS Safari zooms focused form controls whose computed font size is below 16px. */
+@media(max-width:760px){
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),textarea,select{font-size:16px!important}
+}
+
 /* Appearance preferences */
 .theme-setting{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.theme-setting button{position:relative;min-height:92px;border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-items:center;gap:5px 10px;text-align:left;color:var(--ink);background:#fff;cursor:pointer}.theme-setting button>span{grid-row:1/3;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#476b58;background:#e7eee9}.theme-setting button strong,.theme-setting button small{display:block}.theme-setting button strong{font-size:12px}.theme-setting button small{color:var(--muted);font-size:9px}.theme-setting button>svg{position:absolute;right:9px;top:9px;color:#fff;border-radius:50%;padding:2px;background:#3e7057}.theme-setting button.active{border-color:#4d7a61;background:#edf4ef;box-shadow:0 0 0 2px #4d7a6114}.theme-setting button:focus-visible{outline:3px solid #78958255;outline-offset:2px}
 @media(max-width:520px){.theme-setting{grid-template-columns:1fr}.theme-setting button{min-height:70px}}
@@ -387,3 +392,16 @@ html[data-theme="dark"] .bank-detail-heading>div:last-child .danger-button{borde
 html[data-theme="dark"] .bank-profile-strip>span:last-child{color:#b9d8c5;background:#274233}
 html[data-theme="dark"] .daily-goal-progress{background:#343b35}
 html[data-theme="dark"] .daily-goal-progress i{background:#6ca283}
+html[data-theme="dark"] .question-manager-search{border-color:#3a493f;color:#aab6ae;background:#111813}
+html[data-theme="dark"] .question-manager-search input{color:var(--ink);background:transparent!important}
+html[data-theme="dark"] .managed-question-list>article>span{color:#b9d8c5;background:#26352c}
+html[data-theme="dark"] :is(.managed-question-list em,.managed-question-list i){color:#b6c9bd;background:#25342b}
+html[data-theme="dark"] .managed-question-list>article>div button{border-color:#3a493f;color:#b7c3bb;background:#141c17}
+html[data-theme="dark"] .managed-question-list>article>div button:last-child{border-color:#654438;color:#e4a089;background:#38251f}
+html[data-theme="dark"] .bank-detail-tabs span{color:#b2bdb6;background:#29332d}
+html[data-theme="dark"] .search-results{border-color:#35423a;color:var(--ink);background:#151d18;box-shadow:0 22px 55px #0008}
+html[data-theme="dark"] .search-results>header{border-color:#35423a;background:#18201b}
+html[data-theme="dark"] .search-results>div{background:#121914}
+html[data-theme="dark"] .search-results>div>button{border-color:#303c35;color:var(--ink);background:#121914}
+html[data-theme="dark"] :is(.search-results>div>button:hover,.search-results>div>button:focus-visible){color:var(--ink);background:#202d25}
+html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
