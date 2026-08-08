@@ -422,7 +422,6 @@ export function StudyApp() {
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <div className="searchbox"><Search size={17} /><input aria-label="搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} placeholder="搜索题目、知识点或解析" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds} onChoose={(questions, questionId) => void startSearchPractice(questions, questionId)} /></div>
           <button className="sync-pill" onClick={() => setView("settings")}><Cloud size={16} />{stats.pending ? `待同步 ${stats.pending}` : "已保存"}</button>
-          <button className="avatar" aria-label="个人设置">Y</button>
         </header>
 
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span><button onClick={() => setNotice("")}><X size={15} /></button></div>}
