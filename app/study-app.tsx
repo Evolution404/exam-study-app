@@ -29,8 +29,8 @@ const DEFAULT_PREFERENCES: PracticePreferences = {
   autoNextCorrect: true,
   showAnswerOnWrong: true,
   swipeNavigation: true,
-  shuffleOptions: false,
-  wrongRemovalStreak: 2,
+  shuffleOptions: true,
+  wrongRemovalStreak: 3,
 };
 
 function loadPreferences() {
