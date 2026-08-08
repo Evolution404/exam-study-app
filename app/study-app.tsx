@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { clearLegacyGeneratedTags, clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-sync";
 import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
@@ -560,9 +560,40 @@ export function StudyApp() {
     });
   }
 
-  async function resumePractice() {
-    if (!savedSession?.questionIds.length) return;
+  async function resumePractice(runId?: string, preferredIndex?: number) {
     let session = savedSession;
+    if (runId) {
+      const run = await db.practiceRuns.get(runId);
+      if (!run || run.status !== "in_progress" || !run.questionIds.length) {
+        setNotice("这次练习已经结束或记录不存在");
+        return;
+      }
+      const firstUnanswered = run.questionIds.findIndex((questionId) => !run.answers[questionId]?.submitted);
+      const currentIndex = preferredIndex ?? (firstUnanswered >= 0 ? firstUnanswered : Math.max(0, run.questionIds.length - 1));
+      session = {
+        id: "active",
+        runId: run.id,
+        bankId: run.bankId,
+        bankIds: run.bankIds,
+        bankName: run.bankName,
+        mode: run.mode,
+        modeLabel: run.modeLabel,
+        questionIds: run.questionIds,
+        questionTypes: run.questionTypes,
+        currentIndex: Math.min(Math.max(0, currentIndex), run.questionIds.length - 1),
+        answers: run.answers,
+        shuffleOptions: run.shuffleOptions,
+        optionOrders: run.optionOrders,
+        startedAt: run.startedAt,
+        updatedAt: new Date().toISOString(),
+        revision: run.revision + 1,
+      };
+      await savePracticeSession(session);
+    }
+    if (!session?.questionIds.length) {
+      setNotice("没有可以继续的练习记录");
+      return;
+    }
     if (!session.questionTypes || Object.keys(session.questionTypes).length !== session.questionIds.length) {
       const questions = await db.questions.bulkGet(session.questionIds);
       session = {
@@ -576,6 +607,26 @@ export function StudyApp() {
     setPracticeSession(session);
     selectBanks(session.bankIds?.length ? session.bankIds : [session.bankId]);
     setView("practice");
+  }
+
+  async function abandonHistoryRun(runId: string) {
+    const run = await db.practiceRuns.get(runId);
+    if (!run || run.status !== "in_progress") return;
+    await setPracticeRunStatus(runId, "abandoned", run.answers);
+    const active = await db.sessions.get("active");
+    if (active?.runId === runId) {
+      await clearPracticeSession();
+      if (practiceSession?.runId === runId) setPracticeSession(null);
+    }
+    setNotice("已放弃这次练习，记录仍会保留");
+  }
+
+  async function removeHistoryRun(runId: string) {
+    const removed = await deletePracticeRun(runId);
+    if (!removed) return;
+    if (practiceSession?.runId === runId) setPracticeSession(null);
+    if (resultRunId === runId) setResultRunId(undefined);
+    setNotice("练习记录已删除，并加入同步队列");
   }
 
   function movePractice(offset: number) {
@@ -667,12 +718,12 @@ export function StudyApp() {
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}>
           {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
-          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} hasActiveSession={Boolean(savedSession)} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
-          {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
+          {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
           {view === "practice" && practiceSession && activeQuestion && (
             <Practice key={activeQuestion.id} runId={practiceSession.runId} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />
           )}

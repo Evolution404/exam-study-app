@@ -427,6 +427,21 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
   return run;
 }
 
+export async function deletePracticeRun(runId: string) {
+  const current = await db.practiceRuns.get(runId);
+  if (!current) return false;
+  const now = new Date().toISOString();
+  await db.transaction("rw", db.practiceRuns, db.sessions, db.events, async () => {
+    const active = await db.sessions.get("active");
+    if (active?.runId === runId) await db.sessions.delete("active");
+    await db.practiceRuns.delete(runId);
+    const pendingSaves = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === runId).toArray();
+    if (pendingSaves.length) await db.events.bulkDelete(pendingSaves.map((event) => event.id));
+    await db.events.put({ id: makeId("run-delete"), type: "practice.run.deleted", payload: { id: runId }, deviceId: getDeviceId(), createdAt: now, synced: 0 });
+  });
+  return true;
+}
+
 export async function clearPracticeSession() {
   await db.sessions.delete("active");
 }
@@ -613,6 +628,11 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           const incoming = event.payload as PracticeRun;
           const current = await db.practiceRuns.get(incoming.id);
           if (!current || incoming.revision >= current.revision) await db.practiceRuns.put(incoming);
+        } else if (event.type === "practice.run.deleted") {
+          const runId = (event.payload as { id: string }).id;
+          const active = await db.sessions.get("active");
+          if (active?.runId === runId) await db.sessions.delete("active");
+          await db.practiceRuns.delete(runId);
         } else if (event.type === "questionGroup.saved") {
           const incoming = event.payload as QuestionGroup;
           const items = [];

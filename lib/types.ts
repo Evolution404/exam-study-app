@@ -149,7 +149,7 @@ export interface QuestionGroup {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.saved" | "questionGroup.saved" | "questionGroup.deleted";
+  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.saved" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
   createdAt: string;
