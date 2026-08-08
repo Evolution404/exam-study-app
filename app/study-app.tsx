@@ -597,7 +597,7 @@ function RelationsView() {
 
 function PreferencesView({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {
   const items: Array<{ key: "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions"; title: string; detail: string }> = [
-    { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选择正确答案后自动前进；多选题仍需确认。" },
+    { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
     { key: "swipeNavigation", title: "左右滑动切换题目", detail: "向左滑进入下一题，向右滑返回上一题。" },
     { key: "shuffleOptions", title: "随机排列选项", detail: "仅随机单选题和多选题；判断题始终保持“正确、错误”。" },
@@ -679,7 +679,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     }
     setSubmitted(true);
     onStateChange({ selected: valueList, submitted: true, correct: isCorrect });
-    if (isCorrect && question.type !== "多选" && preferences.autoNextCorrect) {
+    if (isCorrect && preferences.autoNextCorrect) {
       setAutoAdvancing(true);
       autoNextTimer.current = window.setTimeout(onNext, 650);
     }
