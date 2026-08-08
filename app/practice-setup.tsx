@@ -6,8 +6,8 @@ import {
 import { db } from "@/lib/db";
 import type { Bank, PracticeFilter, PracticeMode, QuestionType } from "@/lib/types";
 
-const modes: Array<{ id: PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
-  { id: "random30", title: "随机 30 题", detail: "从已选题库随机抽取一组", icon: Shuffle },
+const baseModes: Array<{ id: PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
+  { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle },
   { id: "sequential", title: "全量顺序练习", detail: "按题库原有顺序练完全部题目", icon: ListOrdered },
   { id: "wrong", title: "练习错题", detail: "集中练习尚未攻克的错题", icon: RotateCcw },
   { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star },
@@ -22,12 +22,13 @@ function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));
 }
 
-export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false }: {
+export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30 }: {
   banks: Bank[];
   currentBankIds: string[];
   onBankChange: (bankIds: string[]) => void;
   onStart: (filter: PracticeFilter) => void;
   hideHeading?: boolean;
+  groupSize?: number;
 }) {
   const [bankIds, setBankIds] = useState(currentBankIds);
   const [mode, setMode] = useState<PracticeMode>("sequential");
@@ -74,7 +75,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
       tagMatch,
       status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : mode === "advanced" ? status : "all",
       order: mode === "random30" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
-      limit: mode === "random30" ? 30 : mode === "advanced" ? limit : null,
+      limit: mode === "random30" ? groupSize : mode === "advanced" ? limit : null,
       keyword: mode === "advanced" ? keyword : "",
       keywordMode,
       totalAttemptsMin: mode === "advanced" ? metricValue(totalAttemptsMin) : null,
@@ -114,7 +115,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>}
     <section className="practice-setup-card">
       <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
-      <div className="mode-grid">{modes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{title}</strong><small>{detail}</small></button>)}</div>
+      <div className="mode-grid">{baseModes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{id === "random30" ? `随机 ${groupSize} 题` : title}</strong><small>{id === "random30" ? `${detail} ${groupSize} 题` : detail}</small></button>)}</div>
 
       {(mode === "tag" || mode === "advanced") && <div className="filter-section"><div className="filter-title"><Tags size={17} /><strong>用户标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : mode === "tag" ? "请选择标签" : "不限制标签"}</small></div>{tags.length ? <><div className="chip-list">{tags.map((tag) => <button key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div>{selectedTags.length > 1 && <div className="tag-match-control"><span>多个标签：</span><button className={tagMatch === "any" ? "selected" : ""} onClick={() => setTagMatch("any")}>符合任意一个</button><button className={tagMatch === "all" ? "selected" : ""} onClick={() => setTagMatch("all")}>同时符合全部</button></div>}</> : <p className="filter-empty">当前题库还没有用户标签，可在练习中编辑题目并添加。</p>}</div>}
 

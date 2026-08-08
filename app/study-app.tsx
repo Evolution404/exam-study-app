@@ -27,6 +27,7 @@ interface PracticePreferences {
   swipeNavigation: boolean;
   shuffleOptions: boolean;
   wrongRemovalStreak: number;
+  groupSize: number;
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
@@ -35,12 +36,14 @@ const DEFAULT_PREFERENCES: PracticePreferences = {
   swipeNavigation: true,
   shuffleOptions: true,
   wrongRemovalStreak: 3,
+  groupSize: 30,
 };
 
 function loadPreferences() {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
-    return { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("practice-preferences") ?? "{}") } as PracticePreferences;
+    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("practice-preferences") ?? "{}") } as PracticePreferences;
+    return { ...saved, groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))) };
   } catch {
     return DEFAULT_PREFERENCES;
   }
@@ -81,7 +84,7 @@ function shuffle<T>(values: T[]) {
 }
 
 const modeLabels = {
-  random30: "随机 30 题",
+  random30: "随机一组",
   sequential: "全量顺序练习",
   wrong: "错题模式",
   favorite: "收藏题模式",
@@ -118,7 +121,7 @@ async function questionsInOriginalOrder(bankId: string) {
   return questions.sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.normalizedStem.localeCompare(b.normalizedStem, "zh-CN"));
 }
 
-function quickFilter(bankIds: string[], mode: BankQuickMode = "random30"): PracticeFilter {
+function quickFilter(bankIds: string[], mode: BankQuickMode = "random30", groupSize = 30): PracticeFilter {
   return {
     bankIds,
     mode,
@@ -127,7 +130,7 @@ function quickFilter(bankIds: string[], mode: BankQuickMode = "random30"): Pract
     tagMatch: "any",
     status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : "all",
     order: mode === "random30" ? "random" : mode === "difficult" ? "difficulty" : "sequential",
-    limit: mode === "random30" ? 30 : null,
+    limit: mode === "random30" ? groupSize : null,
     keyword: "",
     keywordMode: "plain",
     totalAttemptsMin: null,
@@ -306,7 +309,7 @@ export function StudyApp() {
       bankIds: practiceBanks.map((bank) => bank.id),
       bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
       mode: filter.mode,
-      modeLabel: modeLabels[filter.mode],
+      modeLabel: filter.mode === "random30" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode],
       questionIds: questions.map((question) => question.id),
       questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
       currentIndex: 0,
@@ -473,10 +476,10 @@ export function StudyApp() {
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className="content">
-          {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
-          {view === "banks" && <BankLibraryView banks={banks} selectedBankIds={activeBankIds} wrongRemovalStreak={preferences.wrongRemovalStreak} onToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={(bankId, mode) => void startPractice(quickFilter([bankId], mode))} onAdvanced={(bankId) => { selectBanks([bankId]); setView("practiceSetup"); }} />}
-          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
-          {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential"), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
+          {view === "home" && <Dashboard groupSize={preferences.groupSize} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "banks" && <BankLibraryView groupSize={preferences.groupSize} banks={banks} selectedBankIds={activeBankIds} wrongRemovalStreak={preferences.wrongRemovalStreak} onToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={(bankId, mode) => void startPractice(quickFilter([bankId], mode, preferences.groupSize))} onAdvanced={(bankId) => { selectBanks([bankId]); setView("practiceSetup"); }} />}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
+          {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} hasActiveSession={Boolean(savedSession)} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
@@ -571,7 +574,8 @@ function PullToRefresh() {
   return <div className={`pull-refresh ${refreshing ? "refreshing" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 72 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
-function Dashboard({ stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
+function Dashboard({ groupSize, stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
+  groupSize: number;
   stats: { questions: number; attempts: number; correct: number; pending: number; notes: number; last?: string };
   banks: Array<{ id: string; name: string; questionCount: number }>;
   savedSession?: PracticeSession;
@@ -585,10 +589,10 @@ function Dashboard({ stats, banks, savedSession, selectedBankIds, onBankToggle, 
   const answeredInSession = savedSession ? Object.values(savedSession.answers).filter((answer) => answer.submitted).length : 0;
   return <>
     <div className="home-heading"><p className="eyebrow">今天也向前一点</p><h1>把知识，练成下意识。</h1><p>自由组合题库，记录每一次选择，随时从中断处继续。</p></div>
-    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 30 题</button></div></section> : <EmptyImport onImport={onImport} />}
+    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
     {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={onDiscardResume}><X size={16} /></button><button className="resume-continue" onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
     <section className="home-feature-grid">
-      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 30 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>30</strong><small>题</small></span></article>
+      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
       <article className="memory-card"><span>记忆提示</span><blockquote>“先遮住答案，努力回忆，再用反馈纠正。”</blockquote><small>主动回忆比重复阅读更可靠</small></article>
     </section>
     <section className="stat-grid">
@@ -618,10 +622,20 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
   ];
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
     <section className="preference-card"><div className="settings-title"><span><Settings2 /></span><div><h2>答题交互</h2><p>根据自己的背题节奏随时调整。</p></div></div>
-      <div className="preference-list">{items.map((item) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={preferences[item.key]} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>)}<label className="preference-row streak-preference"><div><strong>连续答对后移出错题</strong><p>题目答错或选择“不会”后进入错题；达到连续正确次数后自动移除。</p></div><select aria-label="连续答对后移出错题" value={preferences.wrongRemovalStreak} onChange={(event) => onChange({ ...preferences, wrongRemovalStreak: Number(event.target.value) })}><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次</option><option value="5">5 次</option></select></label></div>
+      <div className="preference-list"><GroupSizeSetting value={preferences.groupSize} onChange={(groupSize) => onChange({ ...preferences, groupSize })} />{items.map((item) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={preferences[item.key]} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>)}<label className="preference-row streak-preference"><div><strong>连续答对后移出错题</strong><p>题目答错或选择“不会”后进入错题；达到连续正确次数后自动移除。</p></div><select aria-label="连续答对后移出错题" value={preferences.wrongRemovalStreak} onChange={(event) => onChange({ ...preferences, wrongRemovalStreak: Number(event.target.value) })}><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次</option><option value="5">5 次</option></select></label></div>
     </section>
     <section className="gesture-guide"><span><ChevronLeft size={19} />右滑</span><p>上一题</p><i /><p>下一题</p><span>左滑<ChevronRight size={19} /></span></section>
   </>;
+}
+
+function GroupSizeSetting({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  function commit() {
+    const next = Math.min(500, Math.max(1, Math.floor(Number(draft) || value || 30)));
+    setDraft(String(next));
+    onChange(next);
+  }
+  return <label className="preference-row number-preference"><div><strong>每组题目数量</strong><p>用于首页推荐和“随机一组”练习；可填写 1–500 题。</p></div><span className="number-setting"><input aria-label="每组题目数量" type="number" min="1" max="500" step="1" inputMode="numeric" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><em>题</em></span></label>;
 }
 
 function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onEdit, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
