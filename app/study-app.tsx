@@ -223,6 +223,12 @@ export function StudyApp() {
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
 
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(""), notice === "已放弃上次练习" ? 6000 : 3000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
 
   const banks = useLiveQuery(async () => (await db.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
