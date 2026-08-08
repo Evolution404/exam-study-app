@@ -454,12 +454,13 @@ function SearchResults({ query, bankIds, onChoose }: { query: string; bankIds: s
       db.notes.toArray(),
     ]);
     const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
-    return questions.filter((question) => [
+    const matched = questions.filter((question) => [
       question.stem,
       ...question.options,
       ...question.tags,
       notesByQuestion.get(question.id) ?? "",
-    ].join("\n").toLocaleLowerCase("zh-CN").includes(normalizedQuery)).slice(0, 30);
+    ].join("\n").toLocaleLowerCase("zh-CN").includes(normalizedQuery));
+    return TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type)).slice(0, 30);
   }, [normalizedQuery, bankKey]);
 
   if (!normalizedQuery) return null;
