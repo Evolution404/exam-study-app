@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, CloudDownload, Copy,
@@ -21,6 +21,8 @@ import { MathText } from "@/app/math-text";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
+
+const SCROLL_RESTORABLE_VIEWS: View[] = ["home", "banks", "relations", "practiceSetup", "preferences", "settings", "search"];
 
 interface PracticePreferences {
   autoNextCorrect: boolean;
@@ -220,6 +222,24 @@ export function StudyApp() {
   const [resultRunId, setResultRunId] = useState<string>();
   const [quickSyncing, setQuickSyncing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
+
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const positions = viewScrollPositions.current;
+    workspace.scrollTop = SCROLL_RESTORABLE_VIEWS.includes(view) ? positions[view] ?? 0 : 0;
+  }, [view]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace || !SCROLL_RESTORABLE_VIEWS.includes(view)) return;
+    const positions = viewScrollPositions.current;
+    const rememberPosition = () => { positions[view] = workspace.scrollTop; };
+    workspace.addEventListener("scroll", rememberPosition, { passive: true });
+    return () => workspace.removeEventListener("scroll", rememberPosition);
+  }, [view]);
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
 
@@ -552,6 +572,18 @@ export function StudyApp() {
     { id: "settings" as const, label: "同步", icon: Cloud },
   ];
 
+  const mobileNavItems = navItems.filter(({ id }) => id !== "settings").map((item) => item.id === "relations" ? { ...item, label: "整理" } : item);
+
+  function openMainView(nextView: View) {
+    if (nextView === "relations") setGroupQuestionIds([]);
+    if (nextView === view) workspaceRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    else {
+      if (SCROLL_RESTORABLE_VIEWS.includes(view) && workspaceRef.current) viewScrollPositions.current[view] = workspaceRef.current.scrollTop;
+      setView(nextView);
+    }
+    setSidebarOpen(false);
+  }
+
   return (
     <main className={`app-shell font-${preferences.fontSize}`}>
       <PullToRefresh />
@@ -559,7 +591,7 @@ export function StudyApp() {
         <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "nav-active" : ""} onClick={() => { if (id === "relations") setGroupQuestionIds([]); setView(id); setSidebarOpen(false); }}>
+            <button key={id} className={view === id ? "nav-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
               <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
             </button>
           ))}
@@ -571,7 +603,7 @@ export function StudyApp() {
       </aside>
       <button className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`} aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
 
-      <section className="workspace">
+      <section ref={workspaceRef} className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <div className="searchbox"><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
@@ -595,6 +627,14 @@ export function StudyApp() {
           )}
         </div>
       </section>
+      <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
+        {mobileNavItems.map(({ id, label, icon: Icon }) => (
+          <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
+            <Icon size={20} strokeWidth={view === id ? 2.2 : 1.8} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
     </main>
   );
 }
