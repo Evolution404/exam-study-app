@@ -17,11 +17,12 @@ export interface Question {
   options: string[];
   type: QuestionType;
   tags: string[];
+  favorite?: boolean;
   userUpdatedAt?: string;
   userUpdatedBy?: string;
 }
 
-export type PracticeMode = "random30" | "sequential" | "wrong" | "tag" | "advanced";
+export type PracticeMode = "random30" | "sequential" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 
 export interface PracticeAnswerState {
   selected: string[];
@@ -54,8 +55,8 @@ export interface PracticeFilter {
   types: QuestionType[];
   tags: string[];
   tagMatch: "any" | "all";
-  status: "all" | "unanswered" | "wrong";
-  order: "sequential" | "random";
+  status: "all" | "unanswered" | "wrong" | "favorite";
+  order: "sequential" | "random" | "difficulty";
   limit: number | null;
   keyword: string;
   keywordMode: "plain" | "regex";
@@ -63,6 +64,8 @@ export interface PracticeFilter {
   totalAttemptsMax: number | null;
   wrongAttemptsMin: number | null;
   wrongAttemptsMax: number | null;
+  difficultyMin: number | null;
+  difficultyMax: number | null;
   lastAttemptFrom: string;
   lastAttemptTo: string;
 }

@@ -234,6 +234,31 @@ export async function updateQuestion(
   return question;
 }
 
+export async function toggleQuestionFavorite(questionId: string) {
+  const current = await db.questions.get(questionId);
+  if (!current) throw new Error("题目不存在或已被删除。");
+  const updatedAt = new Date().toISOString();
+  const question: Question = {
+    ...current,
+    favorite: !current.favorite,
+    userUpdatedAt: updatedAt,
+    userUpdatedBy: getDeviceId(),
+  };
+  const event: SyncEvent = {
+    id: makeId("question"),
+    type: "question.updated",
+    payload: question,
+    deviceId: question.userUpdatedBy,
+    createdAt: updatedAt,
+    synced: 0,
+  };
+  await db.transaction("rw", db.questions, db.events, async () => {
+    await db.questions.put(question);
+    await db.events.put(event);
+  });
+  return question;
+}
+
 export async function applyRemoteEvents(events: SyncEvent[]) {
   await db.transaction(
     "rw",
