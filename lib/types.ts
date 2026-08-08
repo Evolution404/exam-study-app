@@ -3,8 +3,25 @@ export type QuestionType = "判断" | "单选" | "多选";
 export interface Bank {
   id: string;
   name: string;
+  displayName?: string;
+  description?: string;
+  color?: string;
+  folderId?: string;
+  sortOrder?: number;
+  updatedAt?: string;
+  deviceId?: string;
   questionCount: number;
   importedAt: string;
+}
+
+export interface BankFolder {
+  id: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deviceId: string;
 }
 
 export interface Question {
@@ -132,7 +149,7 @@ export interface QuestionGroup {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "attempt.created" | "note.upserted" | "question.updated" | "practice.run.saved" | "questionGroup.saved" | "questionGroup.deleted";
+  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.saved" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
   createdAt: string;

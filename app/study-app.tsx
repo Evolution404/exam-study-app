@@ -17,24 +17,45 @@ import { SearchView, type SearchPracticeOptions } from "@/app/search-view";
 import { BankLibraryView, type BankQuickMode } from "@/app/bank-library-view";
 import { KnowledgeView } from "@/app/knowledge-view";
 import { PracticeHistory, PracticeRunResult } from "@/app/practice-history";
+import { MathText } from "@/app/math-text";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
 
 interface PracticePreferences {
   autoNextCorrect: boolean;
+  autoNextDelayMs: 0 | 500 | 1000 | 2000;
   showAnswerOnWrong: boolean;
   swipeNavigation: boolean;
   shuffleOptions: boolean;
+  randomTypeBalance: "natural" | "balanced";
+  wrongReappearance: "immediate" | "end" | "next";
+  defaultOrder: PracticeFilter["order"];
+  fontSize: "small" | "standard" | "large" | "xlarge";
+  requireAllAnswered: boolean;
+  feedbackSound: boolean;
+  feedbackHaptics: boolean;
+  dailyGoalCount: number;
+  dailyGoalAccuracy: number;
   wrongRemovalStreak: number;
   groupSize: number;
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
   autoNextCorrect: true,
+  autoNextDelayMs: 500,
   showAnswerOnWrong: true,
   swipeNavigation: true,
   shuffleOptions: true,
+  randomTypeBalance: "balanced",
+  wrongReappearance: "end",
+  defaultOrder: "sequential",
+  fontSize: "standard",
+  requireAllAnswered: true,
+  feedbackSound: true,
+  feedbackHaptics: true,
+  dailyGoalCount: 30,
+  dailyGoalAccuracy: 80,
   wrongRemovalStreak: 3,
   groupSize: 30,
 };
@@ -43,7 +64,12 @@ function loadPreferences() {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
     const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("practice-preferences") ?? "{}") } as PracticePreferences;
-    return { ...saved, groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))) };
+    return {
+      ...saved,
+      groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))),
+      dailyGoalCount: Math.min(1000, Math.max(1, Math.floor(Number(saved.dailyGoalCount) || 30))),
+      dailyGoalAccuracy: Math.min(100, Math.max(1, Math.floor(Number(saved.dailyGoalAccuracy) || 80))),
+    };
   } catch {
     return DEFAULT_PREFERENCES;
   }
@@ -81,6 +107,39 @@ function shuffle<T>(values: T[]) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function balancedRandomSample(questions: Question[], limit: number) {
+  const groups = TYPE_ORDER.map((type) => shuffle(questions.filter((question) => question.type === type)));
+  const picked: Question[] = [];
+  while (picked.length < limit && groups.some((group) => group.length)) {
+    for (const group of groups) {
+      const question = group.shift();
+      if (question) picked.push(question);
+      if (picked.length >= limit) break;
+    }
+  }
+  return picked;
+}
+
+function playAnswerFeedback(correct: boolean, preferences: PracticePreferences) {
+  if (preferences.feedbackHaptics && "vibrate" in navigator) navigator.vibrate(correct ? 35 : [45, 35, 45]);
+  if (!preferences.feedbackSound) return;
+  try {
+    const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = correct ? 720 : 230;
+    gain.gain.setValueAtTime(0.055, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + (correct ? .11 : .18));
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + (correct ? .11 : .18));
+    oscillator.addEventListener("ended", () => void context.close());
+  } catch { /* Browsers may block audio until the next gesture. */ }
 }
 
 const modeLabels = {
@@ -163,7 +222,7 @@ export function StudyApp() {
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
 
 
-  const banks = useLiveQuery(() => db.banks.orderBy("importedAt").reverse().toArray(), []) ?? [];
+  const banks = useLiveQuery(async () => (await db.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
   const activeBankIds = validSelectedBankIds;
   const savedSession = useLiveQuery(() => db.sessions.get("active"), []);
@@ -175,15 +234,20 @@ export function StudyApp() {
       db.events.where("synced").equals(0).count(), db.notes.count(),
     ]);
     const last = await db.attempts.orderBy("createdAt").last();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayRows = attemptRows.filter((row) => new Date(row.createdAt).getTime() >= todayStart.getTime());
     return {
       questions,
       attempts: attemptRows.length,
       correct: attemptRows.filter((row) => row.correct).length,
+      todayAttempts: todayRows.length,
+      todayCorrect: todayRows.filter((row) => row.correct).length,
       pending,
       notes,
       last: last?.createdAt,
     };
-  }, []) ?? { questions: 0, attempts: 0, correct: 0, pending: 0, notes: 0, last: undefined };
+  }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
 
   async function onImport(file?: File) {
     if (!file) return;
@@ -284,11 +348,12 @@ export function StudyApp() {
     });
     let limitApplied = false;
     if (filter.order === "random") {
-      questions = shuffle(questions);
       if (filter.limit) {
-        questions = questions.slice(0, filter.limit);
+        questions = preferences.randomTypeBalance === "balanced"
+          ? balancedRandomSample(questions, filter.limit)
+          : shuffle(questions).slice(0, filter.limit);
         limitApplied = true;
-      }
+      } else questions = shuffle(questions);
     }
     questions = TYPE_ORDER.flatMap((type) => {
       const group = questions.filter((question) => question.type === type);
@@ -307,7 +372,7 @@ export function StudyApp() {
       runId: crypto.randomUUID(),
       bankId: practiceBanks[0].id,
       bankIds: practiceBanks.map((bank) => bank.id),
-      bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
+      bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
       mode: filter.mode,
       modeLabel: filter.mode === "random30" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode],
       questionIds: questions.map((question) => question.id),
@@ -341,7 +406,7 @@ export function StudyApp() {
       runId: crypto.randomUUID(),
       bankId: practiceBanks[0].id,
       bankIds: practiceBanks.map((bank) => bank.id),
-      bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
+      bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
       mode: "advanced",
       modeLabel: label,
       questionIds: orderedQuestions.map((question) => question.id),
@@ -421,6 +486,12 @@ export function StudyApp() {
   async function finishPractice() {
     if (!practiceSession) return;
     const answered = Object.values(practiceSession.answers).filter((answer) => answer.submitted).length;
+    if (answered < practiceSession.questionIds.length && preferences.requireAllAnswered) {
+      const firstUnanswered = practiceSession.questionIds.findIndex((id) => !practiceSession.answers[id]?.submitted);
+      if (firstUnanswered >= 0) jumpPractice(firstUnanswered);
+      setNotice(`还有 ${practiceSession.questionIds.length - answered} 道题未作答，已定位到第一道未答题`);
+      return;
+    }
     if (answered < practiceSession.questionIds.length && !window.confirm(`还有 ${practiceSession.questionIds.length - answered} 道题未作答，仍然结束并查看结果吗？`)) return;
     await setPracticeRunStatus(practiceSession.runId, "completed", practiceSession.answers);
     await clearPracticeSession();
@@ -447,7 +518,7 @@ export function StudyApp() {
   ];
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell font-${preferences.fontSize}`}>
       <PullToRefresh />
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
@@ -468,7 +539,7 @@ export function StudyApp() {
       <section className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <div className="searchbox"><Search size={17} /><input aria-label="搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter" && query.trim()) { event.currentTarget.blur(); openSearch(); } }} placeholder="搜索题目、知识点或解析" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
+          <div className="searchbox"><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
           <button className="sync-pill" onClick={() => setView("settings")}><Cloud size={16} />{stats.pending ? `待同步 ${stats.pending}` : "已保存"}</button>
         </header>
 
@@ -476,9 +547,9 @@ export function StudyApp() {
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className="content">
-          {view === "home" && <Dashboard groupSize={preferences.groupSize} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
-          {view === "banks" && <BankLibraryView groupSize={preferences.groupSize} banks={banks} selectedBankIds={activeBankIds} wrongRemovalStreak={preferences.wrongRemovalStreak} onToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={(bankId, mode) => void startPractice(quickFilter([bankId], mode, preferences.groupSize))} onAdvanced={(bankId) => { selectBanks([bankId]); setView("practiceSetup"); }} />}
-          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
+          {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "banks" && <BankLibraryView banks={banks} onImport={() => fileRef.current?.click()} onNotice={setNotice} />}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
@@ -494,10 +565,12 @@ export function StudyApp() {
 }
 
 function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
-  const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+  const normalizedQuery = query.trim();
   const bankKey = bankIds.join("|");
   const results = useLiveQuery(async () => {
-    if (!normalizedQuery || !bankIds.length) return { items: [] as Question[], total: 0 };
+    if (!normalizedQuery || !bankIds.length) return { items: [] as Question[], total: 0, error: "" };
+    let pattern: RegExp;
+    try { pattern = new RegExp(normalizedQuery, "i"); } catch { return { items: [] as Question[], total: 0, error: "正则表达式格式不完整" }; }
     const [questions, notes] = await Promise.all([
       Promise.all(bankIds.map((bankId) => db.questions.where("bankId").equals(bankId).toArray())).then((rows) => rows.flat()),
       db.notes.toArray(),
@@ -508,16 +581,16 @@ function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string;
       ...question.options,
       ...question.tags,
       notesByQuestion.get(question.id) ?? "",
-    ].join("\n").toLocaleLowerCase("zh-CN").includes(normalizedQuery));
+    ].join("\n").match(pattern));
     const grouped = TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type));
-    return { items: grouped.slice(0, 8), total: grouped.length };
+    return { items: grouped.slice(0, 8), total: grouped.length, error: "" };
   }, [normalizedQuery, bankKey]);
 
   if (!normalizedQuery) return null;
   if (results === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   return <section className="search-results" aria-label="搜索结果">
-    <header><strong>快速结果</strong><span>{results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目"}</span></header>
-    {results.items.length ? <><div>{results.items.map((question) => <button key={question.id} onClick={() => onChoose(question.id)}><span className="search-type">{question.type}</span><span><strong>{question.stem}</strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div><button className="search-view-all" onClick={onViewAll}>查看全部 {results.total} 道结果<ChevronRight size={16} /></button></> : <div className="search-state">试试更短的关键词，搜索范围为首页已选题库。</div>}
+    <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>
+    {results.items.length ? <><div>{results.items.map((question) => <button key={question.id} onClick={() => onChoose(question.id)}><span className="search-type">{question.type}</span><span><strong><MathText text={question.stem} /></strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div><button className="search-view-all" onClick={onViewAll}>查看全部 {results.total} 道结果<ChevronRight size={16} /></button></> : <div className="search-state">{results.error || "试试“弧垂|导线”这类表达式，搜索范围为首页已选题库。"}</div>}
   </section>;
 }
 
@@ -574,26 +647,32 @@ function PullToRefresh() {
   return <div className={`pull-refresh ${refreshing ? "refreshing" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 72 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
-function Dashboard({ groupSize, stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
+function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
   groupSize: number;
-  stats: { questions: number; attempts: number; correct: number; pending: number; notes: number; last?: string };
-  banks: Array<{ id: string; name: string; questionCount: number }>;
+  dailyGoalCount: number;
+  dailyGoalAccuracy: number;
+  stats: { questions: number; attempts: number; correct: number; todayAttempts: number; todayCorrect: number; pending: number; notes: number; last?: string };
+  banks: Array<{ id: string; name: string; displayName?: string; questionCount: number }>;
   savedSession?: PracticeSession;
   selectedBankIds: string[];
   onBankToggle: (bankId: string) => void;
   onImport: () => void; onStart: () => void; onResume: () => void; onDiscardResume: () => void; onMoreModes: () => void;
 }) {
   const accuracy = stats.attempts ? Math.round(stats.correct / stats.attempts * 100) : 0;
+  const todayAccuracy = stats.todayAttempts ? Math.round(stats.todayCorrect / stats.todayAttempts * 100) : 0;
+  const countProgress = Math.min(100, Math.round(stats.todayAttempts / dailyGoalCount * 100));
   const selectedBanks = banks.filter((bank) => selectedBankIds.includes(bank.id));
   const selectedQuestions = selectedBanks.reduce((total, bank) => total + bank.questionCount, 0);
   const answeredInSession = savedSession ? Object.values(savedSession.answers).filter((answer) => answer.submitted).length : 0;
   return <>
     <div className="home-heading"><p className="eyebrow">今天也向前一点</p><h1>把知识，练成下意识。</h1><p>自由组合题库，记录每一次选择，随时从中断处继续。</p></div>
-    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
+    {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
     {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={onDiscardResume}><X size={16} /></button><button className="resume-continue" onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
     <section className="home-feature-grid">
       <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
-      <article className="memory-card"><span>记忆提示</span><blockquote>“先遮住答案，努力回忆，再用反馈纠正。”</blockquote><small>主动回忆比重复阅读更可靠</small></article>
+      <article className="memory-card daily-goal-card"><span>今日目标</span><blockquote>{stats.todayAttempts} / {dailyGoalCount} 题</blockquote><div className="daily-goal-progress"><i style={{ width: `${countProgress}%` }} /></div><small>今日正确率 {todayAccuracy}% · 目标 {dailyGoalAccuracy}%</small>
+        <p className={stats.todayAttempts >= dailyGoalCount && todayAccuracy >= dailyGoalAccuracy ? "achieved" : ""}>{stats.todayAttempts >= dailyGoalCount && todayAccuracy >= dailyGoalAccuracy ? "今日目标已达成" : stats.todayAttempts < dailyGoalCount ? `还差 ${dailyGoalCount - stats.todayAttempts} 题` : `正确率还差 ${Math.max(0, dailyGoalAccuracy - todayAccuracy)}%`}</p>
+      </article>
     </section>
     <section className="stat-grid">
       <Stat icon={<BookOpen />} label="题目总数" value={stats.questions.toLocaleString()} foot={`${banks.length} 个题库`} />
@@ -614,18 +693,46 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
 }
 
 function PreferencesView({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {
-  const items: Array<{ key: "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions"; title: string; detail: string }> = [
+  const interactionItems: Array<{ key: "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions"; title: string; detail: string }> = [
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
     { key: "swipeNavigation", title: "左右滑动切换题目", detail: "向左滑进入下一题，向右滑返回上一题。" },
     { key: "shuffleOptions", title: "随机排列选项", detail: "仅随机单选题和多选题；判断题始终保持“正确、错误”。" },
   ];
+  const feedbackItems: Array<{ key: "feedbackSound" | "feedbackHaptics"; title: string; detail: string }> = [
+    { key: "feedbackSound", title: "答题提示音", detail: "用轻提示音区分答对和答错；系统静音时可能不播放。" },
+    { key: "feedbackHaptics", title: "答题振动反馈", detail: "支持振动的手机会在判题后给出轻触反馈。" },
+  ];
+  const toggleRow = (item: { key: keyof Pick<PracticePreferences, "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "feedbackSound" | "feedbackHaptics" | "requireAllAnswered">; title: string; detail: string }) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={Boolean(preferences[item.key])} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>;
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
     <section className="preference-card"><div className="settings-title"><span><Settings2 /></span><div><h2>答题交互</h2><p>根据自己的背题节奏随时调整。</p></div></div>
-      <div className="preference-list"><GroupSizeSetting value={preferences.groupSize} onChange={(groupSize) => onChange({ ...preferences, groupSize })} />{items.map((item) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={preferences[item.key]} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>)}<label className="preference-row streak-preference"><div><strong>连续答对后移出错题</strong><p>题目答错或选择“不会”后进入错题；达到连续正确次数后自动移除。</p></div><select aria-label="连续答对后移出错题" value={preferences.wrongRemovalStreak} onChange={(event) => onChange({ ...preferences, wrongRemovalStreak: Number(event.target.value) })}><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次</option><option value="5">5 次</option></select></label></div>
+      <div className="preference-list">
+        <GroupSizeSetting value={preferences.groupSize} onChange={(groupSize) => onChange({ ...preferences, groupSize })} />
+        {interactionItems.map(toggleRow)}
+        <PreferenceSelect title="自动下一题等待时间" detail="答对后留出查看反馈的时间；选择立即可最快连续刷题。" value={String(preferences.autoNextDelayMs)} onChange={(value) => onChange({ ...preferences, autoNextDelayMs: Number(value) as PracticePreferences["autoNextDelayMs"] })} options={[['0','立即'],['500','0.5 秒'],['1000','1 秒'],['2000','2 秒']]} />
+      </div>
     </section>
-    <section className="gesture-guide"><span><ChevronLeft size={19} />右滑</span><p>上一题</p><i /><p>下一题</p><span>左滑<ChevronRight size={19} /></span></section>
+    <section className="preference-card"><div className="settings-title"><span><ListFilter /></span><div><h2>出题与复习</h2><p>控制抽题分布、默认顺序和错题复习节奏。</p></div></div><div className="preference-list">
+      <PreferenceSelect title="随机组题型分布" detail="均衡抽取会尽量平均包含单选、多选、判断；不足的题型由其他题型补足。" value={preferences.randomTypeBalance} onChange={(value) => onChange({ ...preferences, randomTypeBalance: value as PracticePreferences["randomTypeBalance"] })} options={[['balanced','尽量均衡'],['natural','按题库自然比例']]} />
+      <PreferenceSelect title="默认题目顺序" detail="进入练习中心和高级筛选时默认使用的题目顺序。" value={preferences.defaultOrder} onChange={(value) => onChange({ ...preferences, defaultOrder: value as PracticePreferences["defaultOrder"] })} options={[['sequential','题库顺序'],['random','随机打乱'],['difficulty','难题优先']]} />
+      <PreferenceSelect title="答错后的复习方式" detail="立即重答会在当前题显示按钮；本组结束可在成绩页集中重练；留到下次进入错题练习。" value={preferences.wrongReappearance} onChange={(value) => onChange({ ...preferences, wrongReappearance: value as PracticePreferences["wrongReappearance"] })} options={[['immediate','立即重答'],['end','本组结束集中重练'],['next','留到下次错题练习']]} />
+      <PreferenceSelect title="连续答对后移出错题" detail="题目答错或选择“不会”后进入错题；达到连续正确次数后自动移除。" value={String(preferences.wrongRemovalStreak)} onChange={(value) => onChange({ ...preferences, wrongRemovalStreak: Number(value) })} options={[['1','1 次'],['2','2 次'],['3','3 次'],['5','5 次']]} />
+      {toggleRow({ key: "requireAllAnswered", title: "必须答完才能结束", detail: "打开后点击查看结果会自动定位到第一道未答题，不允许带着空题结束。" })}
+    </div></section>
+    <section className="preference-card"><div className="settings-title"><span><Target /></span><div><h2>阅读、反馈与目标</h2><p>调整显示密度，设置每天的练习目标。</p></div></div><div className="preference-list">
+      <PreferenceSelect title="答题字号" detail="只调整题干与选项的阅读字号，不影响题目内容。" value={preferences.fontSize} onChange={(value) => onChange({ ...preferences, fontSize: value as PracticePreferences["fontSize"] })} options={[['small','较小'],['standard','标准'],['large','较大'],['xlarge','特大']]} />
+      <GoalSetting count={preferences.dailyGoalCount} accuracy={preferences.dailyGoalAccuracy} onChange={(dailyGoalCount, dailyGoalAccuracy) => onChange({ ...preferences, dailyGoalCount, dailyGoalAccuracy })} />
+      {feedbackItems.map(toggleRow)}
+    </div></section>
   </>;
+}
+
+function PreferenceSelect({ title, detail, value, options, onChange }: { title: string; detail: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) {
+  return <label className="preference-row select-preference"><div><strong>{title}</strong><p>{detail}</p></div><select aria-label={title} value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, label]) => <option value={optionValue} key={optionValue}>{label}</option>)}</select></label>;
+}
+
+function GoalSetting({ count, accuracy, onChange }: { count: number; accuracy: number; onChange: (count: number, accuracy: number) => void }) {
+  return <div className="preference-row goal-preference"><div><strong>每日练习目标</strong><p>首页按当天实际作答次数与正确率显示完成进度。</p></div><span><label>题数<input aria-label="每日目标题数" type="number" min="1" max="1000" value={count} onChange={(event) => onChange(Math.min(1000, Math.max(1, Number(event.target.value) || 1)), accuracy)} /></label><label>正确率<input aria-label="每日目标正确率" type="number" min="1" max="100" value={accuracy} onChange={(event) => onChange(count, Math.min(100, Math.max(1, Number(event.target.value) || 1)))} /><em>%</em></label></span></div>;
 }
 
 function GroupSizeSetting({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -713,9 +820,10 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     }
     setSubmitted(true);
     onStateChange({ selected: valueList, submitted: true, correct: isCorrect });
+    playAnswerFeedback(isCorrect, preferences);
     if (isCorrect && preferences.autoNextCorrect && !isLast) {
       setAutoAdvancing(true);
-      autoNextTimer.current = window.setTimeout(onNext, 650);
+      autoNextTimer.current = window.setTimeout(onNext, preferences.autoNextDelayMs);
     }
   }
 
@@ -731,6 +839,16 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     setSelected([]);
     setSubmitted(true);
     onStateChange({ selected: [], submitted: true, correct: false });
+    playAnswerFeedback(false, preferences);
+  }
+
+  function retryQuestion() {
+    window.clearTimeout(autoNextTimer.current);
+    answering.current = false;
+    setSelected([]);
+    setSubmitted(false);
+    setAutoAdvancing(false);
+    onStateChange({ selected: [], submitted: false });
   }
 
   async function copyQuestion() {
@@ -780,16 +898,19 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   }
 
   return <><div className="practice-layout"><section className="question-card" onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }} onTouchEnd={handleTouchEnd}><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className="difficulty-chip">难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1>{question.stem}</h1><div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
-      {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜{answerText(question, displayOrder)}</p> : <p>正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyLabel(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className="difficulty-chip">难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1><MathText text={question.stem} /></h1><div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p><MathText text={option} /></p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
+      {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜<MathText text={answerText(question, displayOrder)} /></p> : <p>正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyLabel(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
-    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
+    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary-action retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
     <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside></div>{overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
 }
 
 function QuestionOverview({ questionIds, questionTypes, answers, currentIndex, onClose, onJump }: { questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; currentIndex: number; onClose: () => void; onJump: (index: number) => void }) {
   const answered = Object.values(answers).filter((answer) => answer.submitted).length;
-  return <div className="overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="question-overview" role="dialog" aria-modal="true" aria-label="题目总览"><header><div><span className="section-kicker">练习导航</span><h2>题目总览</h2><p>已作答 {answered} / {questionIds.length}，点击题号快速切换。</p></div><button className="icon-button" aria-label="关闭题目总览" onClick={onClose}><X size={19} /></button></header><div className="overview-legend"><span><i className="correct" />正确</span><span><i className="wrong" />错误</span><span><i className="pending" />已选择</span><span><i />未作答</span></div><div className="overview-groups">{TYPE_ORDER.map((type) => { const group = questionIds.map((id, questionIndex) => ({ id, questionIndex })).filter(({ id }) => questionTypes[id] === type); return <section className="overview-group" key={type}><div><h3>{type}</h3><span>{group.length} 题</span></div>{group.length ? <div className="overview-number-grid">{group.map(({ id, questionIndex }) => { const answer = answers[id]; const state = answer?.submitted ? answer.correct ? "correct" : "wrong" : answer?.selected.length ? "pending" : "blank"; return <button key={id} className={`${state} ${questionIndex === currentIndex ? "current" : ""}`} aria-label={`第 ${questionIndex + 1} 题，${type}`} aria-current={questionIndex === currentIndex ? "true" : undefined} onClick={() => onJump(questionIndex)}>{questionIndex + 1}</button>; })}</div> : <p className="overview-empty">本次练习没有{type}题</p>}</section>; })}</div></section></div>;
+  const correct = Object.values(answers).filter((answer) => answer.submitted && answer.correct).length;
+  const wrong = answered - correct;
+  const accuracy = answered ? Math.round(correct / answered * 100) : 0;
+  return <div className="overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="question-overview" role="dialog" aria-modal="true" aria-label="题目总览"><header><div><span className="section-kicker">练习导航</span><h2>题目总览</h2><p>已作答 {answered} / {questionIds.length}，点击题号快速切换。</p></div><button className="icon-button" aria-label="关闭题目总览" onClick={onClose}><X size={19} /></button></header><div className="overview-score"><span><strong>{correct}</strong>正确</span><span><strong>{wrong}</strong>错误</span><span><strong>{accuracy}%</strong>正确率</span></div><div className="overview-legend"><span><i className="correct" />正确</span><span><i className="wrong" />错误</span><span><i className="pending" />已选择</span><span><i />未作答</span></div><div className="overview-groups">{TYPE_ORDER.map((type) => { const group = questionIds.map((id, questionIndex) => ({ id, questionIndex })).filter(({ id }) => questionTypes[id] === type); return <section className="overview-group" key={type}><div><h3>{type}</h3><span>{group.length} 题</span></div>{group.length ? <div className="overview-number-grid">{group.map(({ id, questionIndex }) => { const answer = answers[id]; const state = answer?.submitted ? answer.correct ? "correct" : "wrong" : answer?.selected.length ? "pending" : "blank"; return <button key={`${id}-${questionIndex}`} className={`${state} ${questionIndex === currentIndex ? "current" : ""}`} aria-label={`第 ${questionIndex + 1} 题，${type}`} aria-current={questionIndex === currentIndex ? "true" : undefined} onClick={() => onJump(questionIndex)}>{questionIndex + 1}</button>; })}</div> : <p className="overview-empty">本次练习没有{type}题</p>}</section>; })}</div></section></div>;
 }
 
 function SyncView({ pending, onNotice }: { pending: number; onNotice: (message: string) => void }) {

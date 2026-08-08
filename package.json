@@ -15,6 +15,7 @@
   "dependencies": {
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
+    "katex": "^0.18.2",
     "lucide-react": "^1.30.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"

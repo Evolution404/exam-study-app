@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from "dexie";
 import type {
   Attempt,
   Bank,
+  BankFolder,
   Note,
   PracticeRun,
   PracticeSession,
@@ -13,6 +14,7 @@ import type {
 
 class StudyDatabase extends Dexie {
   banks!: EntityTable<Bank, "id">;
+  bankFolders!: EntityTable<BankFolder, "id">;
   questions!: EntityTable<Question, "id">;
   attempts!: EntityTable<Attempt, "id">;
   notes!: EntityTable<Note, "questionId">;
@@ -94,6 +96,21 @@ class StudyDatabase extends Dexie {
       ]);
       if (bankEvents.length) await transaction.table("events").bulkPut(bankEvents);
     });
+    this.version(5).stores({
+      banks: "id, folderId, sortOrder, importedAt, updatedAt",
+      bankFolders: "id, sortOrder, updatedAt",
+      questions: "id, bankId, type, *tags, normalizedStem",
+      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
+      notes: "questionId, updatedAt",
+      practiceRuns: "id, status, startedAt, updatedAt",
+      questionGroups: "id, type, updatedAt",
+      events: "id, synced, createdAt, deviceId",
+      syncFiles: "path, sha, appliedAt",
+      sessions: "id, bankId, updatedAt",
+    }).upgrade(async (transaction) => {
+      const banks = await transaction.table<Bank>("banks").toArray();
+      await transaction.table<Bank>("banks").bulkPut(banks.map((bank, index) => ({ ...bank, sortOrder: bank.sortOrder ?? index })));
+    });
   }
 }
 
@@ -142,6 +159,8 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
     throw new Error("当前版本只保留送电线路工的初级工、中级工、高级工和技师题库。");
   }
   const bankId = await sha256(`${bankName}:${JSON.stringify(source)}`);
+  const existingBank = await db.banks.get(bankId);
+  const importedDisplayName = existingBank?.displayName?.trim() || bankName;
   const questions: Question[] = [];
 
   for (const item of source) {
@@ -161,7 +180,7 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
     questions.push({
       id,
       bankId,
-      bankName,
+      bankName: importedDisplayName,
       stem,
       normalizedStem,
       answer: answer.toUpperCase().replace(/[^A-Z]/g, ""),
@@ -171,28 +190,147 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
     });
   }
   if (!questions.length) throw new Error("题库中没有可导入的有效题目。");
+  const existingQuestions = await db.questions.bulkGet(questions.map((question) => question.id));
+  const mergedQuestions = questions.map((question, index) => existingQuestions[index]?.userUpdatedAt ? existingQuestions[index]! : question);
 
   const bank: Bank = {
+    ...existingBank,
     id: bankId,
     name: bankName,
     questionCount: questions.length,
+    sortOrder: existingBank?.sortOrder ?? await db.banks.count(),
     importedAt: new Date().toISOString(),
   };
   const deviceId = getDeviceId();
   const event: SyncEvent = {
     id: makeId("bank"),
     type: "bank.imported",
-    payload: { bank, questions },
+    payload: { bank, questions: mergedQuestions },
     deviceId,
     createdAt: new Date().toISOString(),
     synced: 0,
   };
   await db.transaction("rw", db.banks, db.questions, db.events, async () => {
     await db.banks.put(bank);
-    await db.questions.bulkPut(questions);
+    await db.questions.bulkPut(mergedQuestions);
     await db.events.put(event);
   });
   return bank;
+}
+
+function bankTitle(bank: Bank) {
+  return bank.displayName?.trim() || bank.name;
+}
+
+async function putSyncEvent(type: SyncEvent["type"], payload: unknown, createdAt = new Date().toISOString()) {
+  await db.events.put({ id: makeId("evt"), type, payload, deviceId: getDeviceId(), createdAt, synced: 0 });
+}
+
+export async function saveBank(bankId: string, changes: Pick<Bank, "displayName" | "description" | "color" | "folderId" | "sortOrder">) {
+  const current = await db.banks.get(bankId);
+  if (!current) throw new Error("题库不存在或已被删除。");
+  const now = new Date().toISOString();
+  const bank: Bank = { ...current, ...changes, displayName: changes.displayName?.trim() || undefined, description: changes.description?.trim() || undefined, updatedAt: now, deviceId: getDeviceId() };
+  await db.transaction("rw", db.banks, db.questions, db.events, async () => {
+    await db.banks.put(bank);
+    await db.questions.where("bankId").equals(bankId).modify({ bankName: bankTitle(bank) });
+    await putSyncEvent("bank.updated", bank, now);
+  });
+  return bank;
+}
+
+export async function reorderBanks(bankIds: string[], folderId?: string) {
+  const banks = (await db.banks.bulkGet(bankIds)).filter((bank): bank is Bank => Boolean(bank));
+  await Promise.all(banks.map((bank, index) => saveBank(bank.id, { displayName: bank.displayName, description: bank.description, color: bank.color, folderId, sortOrder: index })));
+}
+
+export async function saveBankFolder(input: Pick<BankFolder, "name" | "description"> & { id?: string }) {
+  const current = input.id ? await db.bankFolders.get(input.id) : undefined;
+  const now = new Date().toISOString();
+  const name = input.name.trim();
+  if (!name) throw new Error("请输入文件夹名称。");
+  const folder: BankFolder = { id: input.id ?? makeId("folder"), name, description: input.description.trim(), sortOrder: current?.sortOrder ?? await db.bankFolders.count(), createdAt: current?.createdAt ?? now, updatedAt: now, deviceId: getDeviceId() };
+  await db.transaction("rw", db.bankFolders, db.events, async () => { await db.bankFolders.put(folder); await putSyncEvent("bankFolder.saved", folder, now); });
+  return folder;
+}
+
+export async function deleteBankFolder(folderId: string) {
+  const now = new Date().toISOString();
+  const banks = await db.banks.where("folderId").equals(folderId).toArray();
+  await db.transaction("rw", db.bankFolders, db.banks, db.questions, db.events, async () => {
+    await db.bankFolders.delete(folderId);
+    for (const bank of banks) {
+      const updated = { ...bank, folderId: undefined, updatedAt: now, deviceId: getDeviceId() };
+      await db.banks.put(updated);
+      await putSyncEvent("bank.updated", updated, now);
+    }
+    await putSyncEvent("bankFolder.deleted", { id: folderId }, now);
+  });
+}
+
+export async function createQuestion(bankId: string, changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags">) {
+  const bank = await db.banks.get(bankId);
+  if (!bank) throw new Error("题库不存在或已被删除。");
+  const stem = changes.stem.trim();
+  const options = changes.options.map((item) => item.trim());
+  const answer = changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!stem || options.length < 2 || options.some((item) => !item)) throw new Error("题干和所有选项都不能为空。");
+  if (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length)) throw new Error("正确答案超出了现有选项范围。");
+  if (changes.type !== "多选" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
+  if (changes.type === "判断" && (options.length !== 2 || options[0] !== "正确" || options[1] !== "错误")) throw new Error("判断题选项必须依次为“正确、错误”。");
+  const now = new Date().toISOString();
+  const question: Question = { id: makeId("question"), bankId, bankName: bankTitle(bank), stem, normalizedStem: normalizeStem(stem), answer, options, type: changes.type, tags: [...new Set(changes.tags.map((tag) => tag.trim()).filter(Boolean))], userUpdatedAt: now, userUpdatedBy: getDeviceId() };
+  const updatedBank = { ...bank, questionCount: bank.questionCount + 1, updatedAt: now, deviceId: getDeviceId() };
+  await db.transaction("rw", db.questions, db.banks, db.events, async () => {
+    await db.questions.put(question); await db.banks.put(updatedBank);
+    await putSyncEvent("question.created", question, now); await putSyncEvent("bank.updated", updatedBank, now);
+  });
+  return question;
+}
+
+async function deleteQuestionLocal(questionId: string) {
+  const question = await db.questions.get(questionId);
+  if (!question) return;
+  await db.questions.delete(questionId);
+  await db.attempts.where("questionId").equals(questionId).delete();
+  await db.notes.delete(questionId);
+  const groups = await db.questionGroups.filter((group) => group.items.some((item) => item.questionId === questionId)).toArray();
+  await db.questionGroups.bulkPut(groups.map((group) => ({ ...group, items: group.items.filter((item) => item.questionId !== questionId), updatedAt: new Date().toISOString() })).filter((group) => group.items.length));
+  await db.questionGroups.bulkDelete(groups.filter((group) => group.items.length === 1).map((group) => group.id));
+}
+
+export async function deleteQuestion(questionId: string) {
+  const question = await db.questions.get(questionId);
+  if (!question) return;
+  const now = new Date().toISOString();
+  const bank = await db.banks.get(question.bankId);
+  await db.transaction("rw", db.questions, db.attempts, db.notes, db.questionGroups, db.banks, db.events, async () => {
+    await deleteQuestionLocal(questionId);
+    if (bank) { const updated = { ...bank, questionCount: Math.max(0, bank.questionCount - 1), updatedAt: now, deviceId: getDeviceId() }; await db.banks.put(updated); await putSyncEvent("bank.updated", updated, now); }
+    await putSyncEvent("question.deleted", { id: questionId }, now);
+  });
+}
+
+async function deleteBankLocal(bankId: string) {
+  const questionIds = (await db.questions.where("bankId").equals(bankId).primaryKeys()) as string[];
+  await db.questions.where("bankId").equals(bankId).delete();
+  await db.attempts.where("bankId").equals(bankId).delete();
+  await db.notes.bulkDelete(questionIds);
+  const groups = await db.questionGroups.filter((group) => group.items.some((item) => questionIds.includes(item.questionId))).toArray();
+  for (const group of groups) {
+    const items = group.items.filter((item) => !questionIds.includes(item.questionId));
+    if (items.length) await db.questionGroups.put({ ...group, items, updatedAt: new Date().toISOString() }); else await db.questionGroups.delete(group.id);
+  }
+  const affectedRuns = await db.practiceRuns.filter((run) => run.bankId === bankId || run.bankIds.includes(bankId)).primaryKeys();
+  await db.practiceRuns.bulkDelete(affectedRuns as string[]);
+  const active = await db.sessions.get("active");
+  if (active?.bankIds?.includes(bankId) || active?.bankId === bankId) await db.sessions.delete("active");
+  await db.banks.delete(bankId);
+}
+
+export async function deleteBank(bankId: string) {
+  const now = new Date().toISOString();
+  await db.transaction("rw", db.banks, db.questions, db.attempts, db.notes, db.questionGroups, db.practiceRuns, db.sessions, db.events, async () => { await deleteBankLocal(bankId); await putSyncEvent("bank.deleted", { id: bankId }, now); });
 }
 
 export async function recordAttempt(input: Omit<Attempt, "id" | "createdAt" | "deviceId">) {
@@ -362,6 +500,8 @@ export async function updateQuestion(
   const answer = changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
   if (!stem || options.length < 2 || options.some((item) => !item)) throw new Error("题干和所有选项都不能为空。");
   if (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length)) throw new Error("正确答案超出了现有选项范围。");
+  if (changes.type !== "多选" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
+  if (changes.type === "判断" && (options.length !== 2 || options[0] !== "正确" || options[1] !== "错误")) throw new Error("判断题选项必须依次为“正确、错误”。");
   const updatedAt = new Date().toISOString();
   const question: Question = {
     ...current,
@@ -418,11 +558,13 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
   await db.transaction(
     "rw",
     db.banks,
+    db.bankFolders,
     db.questions,
     db.attempts,
     db.notes,
     db.practiceRuns,
     db.questionGroups,
+    db.sessions,
     db.events,
     async () => {
       for (const event of events) {
@@ -433,14 +575,33 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
             await db.events.put({ ...event, synced: 1 });
             continue;
           }
-          await db.banks.put(payload.bank);
+          const currentBank = await db.banks.get(payload.bank.id);
+          const bank = currentBank ? { ...payload.bank, displayName: currentBank.displayName, description: currentBank.description, color: currentBank.color, folderId: currentBank.folderId, sortOrder: currentBank.sortOrder, updatedAt: currentBank.updatedAt, deviceId: currentBank.deviceId } : payload.bank;
+          await db.banks.put(bank);
           const merged: Question[] = [];
           for (const remoteQuestion of payload.questions) {
-            const incoming = remoteQuestion.userUpdatedAt ? remoteQuestion : { ...remoteQuestion, tags: [] };
+            const incoming = remoteQuestion.userUpdatedAt ? remoteQuestion : { ...remoteQuestion, bankName: bankTitle(bank), tags: [] };
             const current = await db.questions.get(incoming.id);
             merged.push(current?.userUpdatedAt ? current : incoming);
           }
           await db.questions.bulkPut(merged);
+        } else if (event.type === "bank.updated") {
+          const incoming = event.payload as Bank;
+          const current = await db.banks.get(incoming.id);
+          if (!current || (incoming.updatedAt ?? event.createdAt) >= (current.updatedAt ?? "")) {
+            await db.banks.put(incoming);
+            await db.questions.where("bankId").equals(incoming.id).modify({ bankName: bankTitle(incoming) });
+          }
+        } else if (event.type === "bank.deleted") {
+          await deleteBankLocal((event.payload as { id: string }).id);
+        } else if (event.type === "bankFolder.saved") {
+          const incoming = event.payload as BankFolder;
+          const current = await db.bankFolders.get(incoming.id);
+          if (!current || incoming.updatedAt >= current.updatedAt) await db.bankFolders.put(incoming);
+        } else if (event.type === "bankFolder.deleted") {
+          const folderId = (event.payload as { id: string }).id;
+          await db.bankFolders.delete(folderId);
+          await db.banks.where("folderId").equals(folderId).modify({ folderId: undefined });
         } else if (event.type === "attempt.created") {
           const incoming = event.payload as Attempt;
           if (await db.questions.get(incoming.questionId)) await db.attempts.put(incoming);
@@ -462,6 +623,11 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           }
         } else if (event.type === "questionGroup.deleted") {
           await db.questionGroups.delete((event.payload as { id: string }).id);
+        } else if (event.type === "question.created") {
+          const incoming = event.payload as Question;
+          if (await db.banks.get(incoming.bankId)) await db.questions.put(incoming);
+        } else if (event.type === "question.deleted") {
+          await deleteQuestionLocal((event.payload as { id: string }).id);
         } else if (event.type === "question.updated") {
           const incoming = event.payload as Question;
           const current = await db.questions.get(incoming.id);

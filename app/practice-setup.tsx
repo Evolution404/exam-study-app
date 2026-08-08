@@ -22,13 +22,14 @@ function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));
 }
 
-export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30 }: {
+export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30, defaultOrder = "sequential" }: {
   banks: Bank[];
   currentBankIds: string[];
   onBankChange: (bankIds: string[]) => void;
   onStart: (filter: PracticeFilter) => void;
   hideHeading?: boolean;
   groupSize?: number;
+  defaultOrder?: PracticeFilter["order"];
 }) {
   const [bankIds, setBankIds] = useState(currentBankIds);
   const [mode, setMode] = useState<PracticeMode>("sequential");
@@ -36,7 +37,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<PracticeFilter["tagMatch"]>("any");
   const [status, setStatus] = useState<PracticeFilter["status"]>("all");
-  const [order, setOrder] = useState<PracticeFilter["order"]>("sequential");
+  const [order, setOrder] = useState<PracticeFilter["order"]>(defaultOrder);
   const [limit, setLimit] = useState<number | null>(null);
   const [keyword, setKeyword] = useState("");
   const [keywordMode, setKeywordMode] = useState<PracticeFilter["keywordMode"]>("plain");
@@ -114,7 +115,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   return <>
     {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>}
     <section className="practice-setup-card">
-      <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
+      <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
       <div className="mode-grid">{baseModes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{id === "random30" ? `随机 ${groupSize} 题` : title}</strong><small>{id === "random30" ? `${detail} ${groupSize} 题` : detail}</small></button>)}</div>
 
       {(mode === "tag" || mode === "advanced") && <div className="filter-section"><div className="filter-title"><Tags size={17} /><strong>用户标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : mode === "tag" ? "请选择标签" : "不限制标签"}</small></div>{tags.length ? <><div className="chip-list">{tags.map((tag) => <button key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div>{selectedTags.length > 1 && <div className="tag-match-control"><span>多个标签：</span><button className={tagMatch === "any" ? "selected" : ""} onClick={() => setTagMatch("any")}>符合任意一个</button><button className={tagMatch === "all" ? "selected" : ""} onClick={() => setTagMatch("all")}>同时符合全部</button></div>}</> : <p className="filter-empty">当前题库还没有用户标签，可在练习中编辑题目并添加。</p>}</div>}

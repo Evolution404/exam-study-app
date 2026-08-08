@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, BookOpenCheck, CheckCircle2, ChevronRight, Clock3, History, Play, RotateCcw, XCircle } from "lucide-react";
 import { db } from "@/lib/db";
+import { MathText } from "@/app/math-text";
 import type { PracticeRun, Question, QuestionType } from "@/lib/types";
 
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断"];
@@ -54,12 +55,13 @@ export function PracticeRunResult({ runId, onBack, onReview, onRepeat }: { runId
     if (filter === "unanswered") return !answer?.submitted;
     return true;
   });
+  const wrongQuestions = ordered.filter((question) => run.answers[question.id]?.submitted && !run.answers[question.id]?.correct);
   const originalIndex = new Map(run.questionIds.map((id, index) => [id, index]));
   return <section className="run-result">
     <header><button className="back-link" onClick={onBack}><ArrowLeft size={16} />返回练习记录</button><span className={`run-status ${run.status}`}>{statusText[run.status]}</span><h1>{run.modeLabel}</h1><p>{run.bankName} · {formatTime(run.startedAt)}</p></header>
     <div className="result-score"><div><strong>{stats.accuracy}<small>%</small></strong><span>本次正确率</span></div><div className="result-score-grid"><span><b>{run.questionIds.length}</b>计划题目</span><span><b>{stats.answered}</b>已作答</span><span className="correct"><b>{stats.correct}</b>正确</span><span className="wrong"><b>{stats.wrong}</b>错误</span></div></div>
-    <div className="result-actions"><button className="primary" onClick={() => onRepeat(ordered, `重练 · ${run.modeLabel}`)}><RotateCcw size={16} />重练本次题目</button>{onReview && <button onClick={() => onReview(Math.max(0, run.questionIds.findIndex((id) => !run.answers[id]?.submitted)))}><BookOpenCheck size={16} />回到本次练习</button>}</div>
+    <div className="result-actions"><button className="primary" onClick={() => onRepeat(ordered, `重练 · ${run.modeLabel}`)}><RotateCcw size={16} />重练本次题目</button>{wrongQuestions.length > 0 && <button onClick={() => onRepeat(wrongQuestions, `集中重练 ${wrongQuestions.length} 道错题`)}><XCircle size={16} />只练本次错题</button>}{onReview && <button onClick={() => onReview(Math.max(0, run.questionIds.findIndex((id) => !run.answers[id]?.submitted)))}><BookOpenCheck size={16} />回到本次练习</button>}</div>
     <div className="result-filters">{(["all", "wrong", "unanswered"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "全部题目" : item === "wrong" ? "只看错题" : "只看未答"}</button>)}</div>
-    <div className="result-question-groups">{TYPE_ORDER.map((type) => { const questions = visible.filter((question) => question.type === type); if (!questions.length) return null; return <section key={type}><header><h2>{type}</h2><span>{questions.length} 题</span></header><div>{questions.map((question) => { const answer = run.answers[question.id]; const state = !answer?.submitted ? "unanswered" : answer.correct ? "correct" : "wrong"; return <button key={question.id} onClick={() => onReview?.(originalIndex.get(question.id) ?? 0)} disabled={!onReview}><span className={`result-state ${state}`}>{state === "correct" ? <CheckCircle2 /> : state === "wrong" ? <XCircle /> : <Clock3 />}</span><span><strong>{(originalIndex.get(question.id) ?? 0) + 1}. {question.stem}</strong><small>{state === "unanswered" ? "未作答" : `你的答案：${answer.selected.length ? [...answer.selected].sort().join("") : "不会"} · 正确答案：${question.answer}`}</small></span><ChevronRight size={16} /></button>; })}</div></section>; })}</div>
+    <div className="result-question-groups">{TYPE_ORDER.map((type) => { const questions = visible.filter((question) => question.type === type); if (!questions.length) return null; return <section key={type}><header><h2>{type}</h2><span>{questions.length} 题</span></header><div>{questions.map((question) => { const answer = run.answers[question.id]; const state = !answer?.submitted ? "unanswered" : answer.correct ? "correct" : "wrong"; return <button key={question.id} onClick={() => onReview?.(originalIndex.get(question.id) ?? 0)} disabled={!onReview}><span className={`result-state ${state}`}>{state === "correct" ? <CheckCircle2 /> : state === "wrong" ? <XCircle /> : <Clock3 />}</span><span><strong>{(originalIndex.get(question.id) ?? 0) + 1}. <MathText text={question.stem} /></strong><small>{state === "unanswered" ? "未作答" : `你的答案：${answer.selected.length ? [...answer.selected].sort().join("") : "不会"} · 正确答案：${question.answer}`}</small></span><ChevronRight size={16} /></button>; })}</div></section>; })}</div>
   </section>;
 }
