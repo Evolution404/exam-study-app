@@ -67,6 +67,10 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(value));
 }
 
+function formatFullDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+}
+
 function shuffle<T>(values: T[]) {
   const copy = [...values];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -300,6 +304,39 @@ export function StudyApp() {
     setView("practice");
   }
 
+  async function startSearchPractice(questions: Question[], questionId: string) {
+    const practiceBanks = banks.filter((bank) => questions.some((question) => question.bankId === bank.id));
+    if (!questions.length || !practiceBanks.length) return;
+    const now = new Date().toISOString();
+    const session: PracticeSession = {
+      id: "active",
+      runId: crypto.randomUUID(),
+      bankId: practiceBanks[0].id,
+      bankIds: practiceBanks.map((bank) => bank.id),
+      bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
+      mode: "advanced",
+      modeLabel: `搜索“${query.trim()}”`,
+      questionIds: questions.map((question) => question.id),
+      questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
+      currentIndex: Math.max(0, questions.findIndex((question) => question.id === questionId)),
+      answers: {},
+      shuffleOptions: preferences.shuffleOptions,
+      optionOrders: preferences.shuffleOptions ? Object.fromEntries(questions.map((question) => [
+        question.id,
+        question.type === "判断"
+          ? question.options.map((_, index) => index)
+          : shuffle(question.options.map((_, index) => index)),
+      ])) : {},
+      startedAt: now,
+      updatedAt: now,
+      revision: 1,
+    };
+    await savePracticeSession(session);
+    setPracticeSession(session);
+    setQuery("");
+    setView("practice");
+  }
+
   function changeSession(mutator: (session: PracticeSession) => PracticeSession) {
     setPracticeSession((current) => {
       if (!current) return current;
@@ -383,7 +420,7 @@ export function StudyApp() {
       <section className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <div className="searchbox"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索题目、知识点或解析" /></div>
+          <div className="searchbox"><Search size={17} /><input aria-label="搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} placeholder="搜索题目、知识点或解析" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds} onChoose={(questions, questionId) => void startSearchPractice(questions, questionId)} /></div>
           <button className="sync-pill" onClick={() => setView("settings")}><Cloud size={16} />{stats.pending ? `待同步 ${stats.pending}` : "已保存"}</button>
           <button className="avatar" aria-label="个人设置">Y</button>
         </header>
@@ -393,7 +430,7 @@ export function StudyApp() {
 
         <div className="content">
           {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter("random30", activeBankIds))} onResume={resumePractice} onMoreModes={() => setView("practiceSetup")} />}
-          {view === "banks" && <BanksView banks={banks} selectedBankIds={activeBankIds} query={query} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBanks([bankId]); void startPractice(quickFilter("random30", [bankId])); }} />}
+          {view === "banks" && <BanksView banks={banks} selectedBankIds={activeBankIds} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBanks([bankId]); void startPractice(quickFilter("random30", [bankId])); }} />}
           {view === "wrong" && <WrongView bankIds={activeBankIds} bankName={selectedBanks.length === 1 ? selectedBanks[0].name : `${selectedBanks.length} 个题库`} wrongRemovalStreak={preferences.wrongRemovalStreak} onStart={() => activeBankIds.length && void startPractice(quickFilter("wrong", activeBankIds))} />}
           {view === "practiceSetup" && <PracticeSetupView banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} />}
           {view === "relations" && <RelationsView />}
@@ -406,6 +443,32 @@ export function StudyApp() {
       </section>
     </main>
   );
+}
+
+function SearchResults({ query, bankIds, onChoose }: { query: string; bankIds: string[]; onChoose: (questions: Question[], questionId: string) => void }) {
+  const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+  const bankKey = bankIds.join("|");
+  const results = useLiveQuery(async () => {
+    if (!normalizedQuery || !bankIds.length) return [];
+    const [questions, notes] = await Promise.all([
+      Promise.all(bankIds.map((bankId) => db.questions.where("bankId").equals(bankId).toArray())).then((rows) => rows.flat()),
+      db.notes.toArray(),
+    ]);
+    const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
+    return questions.filter((question) => [
+      question.stem,
+      ...question.options,
+      ...question.tags,
+      notesByQuestion.get(question.id) ?? "",
+    ].join("\n").toLocaleLowerCase("zh-CN").includes(normalizedQuery)).slice(0, 30);
+  }, [normalizedQuery, bankKey]);
+
+  if (!normalizedQuery) return null;
+  if (results === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
+  return <section className="search-results" aria-label="搜索结果">
+    <header><strong>搜索结果</strong><span>{results.length ? `显示 ${results.length} 道匹配题目` : "没有匹配题目"}</span></header>
+    {results.length ? <div>{results.map((question) => <button key={question.id} onClick={() => onChoose(results, question.id)}><span className="search-type">{question.type}</span><span><strong>{question.stem}</strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div> : <div className="search-state">试试更短的关键词，搜索范围为首页已选题库。</div>}
+  </section>;
 }
 
 function PullToRefresh() {
@@ -499,10 +562,9 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>数据直接写入本机，不经过第三方服务器</small></div><ChevronRight size={18} /></button>;
 }
 
-function BanksView({ banks, selectedBankIds, query, onImport, onStart }: { banks: Array<{ id: string; name: string; questionCount: number; importedAt: string }>; selectedBankIds: string[]; query: string; onImport: () => void; onStart: (bankId: string) => void }) {
-  const filtered = banks.filter((bank) => bank.name.toLowerCase().includes(query.toLowerCase()));
+function BanksView({ banks, selectedBankIds, onImport, onStart }: { banks: Array<{ id: string; name: string; questionCount: number; importedAt: string }>; selectedBankIds: string[]; onImport: () => void; onStart: (bankId: string) => void }) {
   return <><div className="page-heading compact"><div><p className="eyebrow">我的资料</p><h1>题库</h1><p>导入、版本化并随时开始一组练习。</p></div><button className="primary" onClick={onImport}><FileUp size={18} />导入题库</button></div>
-    {filtered.length ? <div className="library-grid">{filtered.map((bank, index) => { const selected = selectedBankIds.includes(bank.id); return <article className={`library-card ${selected ? "current" : ""}`} key={bank.id}><span className={`bank-icon large tone-${index % 3}`}><Library size={22} /></span><span className="bank-ready">{selected ? "已选范围" : "本地可用"}</span><h2>{bank.name}</h2><p>{bank.questionCount.toLocaleString()} 道题 · {formatDate(bank.importedAt)} 导入</p><button onClick={() => onStart(bank.id)}>仅练此题库<ChevronRight size={17} /></button></article>; })}</div> : <EmptyImport onImport={onImport} />}
+    {banks.length ? <div className="library-grid">{banks.map((bank, index) => { const selected = selectedBankIds.includes(bank.id); return <article className={`library-card ${selected ? "current" : ""}`} key={bank.id}><span className={`bank-icon large tone-${index % 3}`}><Library size={22} /></span><span className="bank-ready">{selected ? "已选范围" : "本地可用"}</span><h2>{bank.name}</h2><p>{bank.questionCount.toLocaleString()} 道题 · 导入时间：{formatFullDate(bank.importedAt)}</p><button onClick={() => onStart(bank.id)}>仅练此题库<ChevronRight size={17} /></button></article>; })}</div> : <EmptyImport onImport={onImport} />}
   </>;
 }
 
