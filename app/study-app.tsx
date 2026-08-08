@@ -155,12 +155,19 @@ export function StudyApp() {
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
   const activeQuestion = useLiveQuery(() => activeQuestionId ? db.questions.get(activeQuestionId) : undefined, [activeQuestionId]);
   const stats = useLiveQuery(async () => {
-    const [questions, attempts, correct, pending, notes] = await Promise.all([
-      db.questions.count(), db.attempts.count(), db.attempts.where("correct").equals(1).count(),
+    const [questions, attemptRows, pending, notes] = await Promise.all([
+      db.questions.count(), db.attempts.toArray(),
       db.events.where("synced").equals(0).count(), db.notes.count(),
     ]);
     const last = await db.attempts.orderBy("createdAt").last();
-    return { questions, attempts, correct, pending, notes, last: last?.createdAt };
+    return {
+      questions,
+      attempts: attemptRows.length,
+      correct: attemptRows.filter((row) => row.correct).length,
+      pending,
+      notes,
+      last: last?.createdAt,
+    };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, pending: 0, notes: 0, last: undefined };
 
   async function onImport(file?: File) {
@@ -502,10 +509,14 @@ function BanksView({ banks, selectedBankIds, query, onImport, onStart }: { banks
 function WrongView({ bankIds, bankName, wrongRemovalStreak, onStart }: { bankIds: string[]; bankName?: string; wrongRemovalStreak: number; onStart: () => void }) {
   const bankKey = bankIds.join("|");
   const count = useLiveQuery(async () => {
-    const rows = await db.attempts.where("correct").equals(0).toArray();
-    const wrongQuestionIds = new Set(rows.filter((row) => bankIds.includes(row.bankId)).map((row) => row.questionId));
-    const allRows = await db.attempts.where("bankId").anyOf(bankIds).toArray();
-    return [...wrongQuestionIds].filter((questionId) => needsWrongReview(allRows.filter((row) => row.questionId === questionId), wrongRemovalStreak)).length;
+    const allRows = (await Promise.all(bankIds.map((bankId) => db.attempts.where("bankId").equals(bankId).toArray()))).flat();
+    const rowsByQuestion = new Map<string, typeof allRows>();
+    allRows.forEach((row) => {
+      const questionRows = rowsByQuestion.get(row.questionId);
+      if (questionRows) questionRows.push(row);
+      else rowsByQuestion.set(row.questionId, [row]);
+    });
+    return [...rowsByQuestion.values()].filter((rows) => rows.some((row) => !row.correct) && needsWrongReview(rows, wrongRemovalStreak)).length;
   }, [bankKey, wrongRemovalStreak]) ?? 0;
   return <div className="center-panel"><span className="center-icon warning"><CircleAlert /></span><p className="eyebrow">错题回炉 · {bankName ?? "已选题库"}</p><h1>{count ? `${count} 道题等你攻克` : "已选题库还没有错题"}</h1><p>{count ? `连续答对 ${wrongRemovalStreak} 次后自动移出错题。` : "每次作答都会自动记录，不会和答错的题会出现在这里。"}</p><button className="primary" onClick={onStart} disabled={!count}><RotateCcw size={18} />开始错题练习</button></div>;
 }
@@ -559,6 +570,25 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
   const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
 
   useEffect(() => () => window.clearTimeout(autoNextTimer.current), []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditingText = target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");
+      if (editing || overviewOpen || isEditingText) return;
+      if (event.key === "ArrowLeft" && index > 0) {
+        event.preventDefault();
+        window.clearTimeout(autoNextTimer.current);
+        onPrevious();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        window.clearTimeout(autoNextTimer.current);
+        onNext();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editing, overviewOpen, index, onNext, onPrevious]);
 
   async function choose(letter: string) {
     if (submitted) return;
