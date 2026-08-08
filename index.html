@@ -8,9 +8,19 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="拾卷" />
+    <script>
+      try {
+        const saved = JSON.parse(localStorage.getItem("practice-preferences") || "{}");
+        const mode = ["system", "light", "dark"].includes(saved.themeMode) ? saved.themeMode : "system";
+        const theme = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#111813" : "#203a2e");
+      } catch {}
+    </script>
     <link rel="icon" type="image/png" sizes="64x64" href="./icons/favicon-64.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png" />
-    <link rel="manifest" href="./manifest.webmanifest?v=3" />
+    <link rel="manifest" href="./manifest.webmanifest?v=4" />
     <title>拾卷 · 本地优先背题</title>
   </head>
   <body>

@@ -5,8 +5,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, CloudDownload, Copy,
   CircleHelp, FileUp, GitBranch, Grid3X3, Home, Library, Link2, ListFilter,
-  LoaderCircle, Menu, NotebookPen, Pencil, Play, RefreshCw, Search,
-  Settings2, Sparkles, Star, Target, X,
+  LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
+  Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
 import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-sync";
@@ -41,6 +41,7 @@ interface PracticePreferences {
   dailyGoalAccuracy: number;
   wrongRemovalStreak: number;
   groupSize: number;
+  themeMode: "system" | "light" | "dark";
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
@@ -60,6 +61,7 @@ const DEFAULT_PREFERENCES: PracticePreferences = {
   dailyGoalAccuracy: 80,
   wrongRemovalStreak: 3,
   groupSize: 30,
+  themeMode: "system",
 };
 
 function loadPreferences() {
@@ -71,6 +73,7 @@ function loadPreferences() {
       groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))),
       dailyGoalCount: Math.min(1000, Math.max(1, Math.floor(Number(saved.dailyGoalCount) || 30))),
       dailyGoalAccuracy: Math.min(100, Math.max(1, Math.floor(Number(saved.dailyGoalAccuracy) || 80))),
+      themeMode: ["system", "light", "dark"].includes(saved.themeMode) ? saved.themeMode : "system",
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -224,6 +227,54 @@ export function StudyApp() {
   const fileRef = useRef<HTMLInputElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    const safeAreaProbe = document.createElement("div");
+    safeAreaProbe.style.cssText = "position:fixed;left:-9999px;bottom:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none";
+    document.body.appendChild(safeAreaProbe);
+    const updateViewportHeight = () => {
+      const visualBottom = window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : 0;
+      const regularHeight = Math.max(window.innerHeight, root.clientHeight, visualBottom);
+      const screenHeight = window.screen.height;
+      const standaloneHeight = standalone && screenHeight >= regularHeight && screenHeight - regularHeight < 180 ? screenHeight : regularHeight;
+      const reportedSafeBottom = Number.parseFloat(getComputedStyle(safeAreaProbe).paddingBottom) || 0;
+      const missingStandaloneArea = standalone ? Math.max(0, standaloneHeight - regularHeight) : 0;
+      root.style.setProperty("--app-viewport-height", `${Math.round(Math.max(regularHeight, standaloneHeight))}px`);
+      root.style.setProperty("--app-safe-bottom", `${Math.round(Math.max(reportedSafeBottom, Math.min(40, missingStandaloneArea)))}px`);
+    };
+    const timers = [0, 250, 800].map((delay) => window.setTimeout(updateViewportHeight, delay));
+    window.addEventListener("resize", updateViewportHeight);
+    window.addEventListener("orientationchange", updateViewportHeight);
+    window.addEventListener("pageshow", updateViewportHeight);
+    window.visualViewport?.addEventListener("resize", updateViewportHeight);
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") updateViewportHeight(); };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("resize", updateViewportHeight);
+      window.removeEventListener("orientationchange", updateViewportHeight);
+      window.removeEventListener("pageshow", updateViewportHeight);
+      window.visualViewport?.removeEventListener("resize", updateViewportHeight);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      safeAreaProbe.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const dark = preferences.themeMode === "dark" || (preferences.themeMode === "system" && media.matches);
+      const resolved = dark ? "dark" : "light";
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.style.colorScheme = resolved;
+      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", dark ? "#111813" : "#203a2e");
+    };
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [preferences.themeMode]);
 
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
@@ -798,6 +849,9 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
   ];
   const toggleRow = (item: { key: keyof Pick<PracticePreferences, "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "feedbackSound" | "feedbackHaptics" | "requireAllAnswered">; title: string; detail: string }) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={Boolean(preferences[item.key])} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>;
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
+    <section className="preference-card"><div className="settings-title"><span><Moon /></span><div><h2>外观主题</h2><p>可以跟随手机或电脑的系统外观，也可以固定使用浅色或深色。</p></div></div>
+      <ThemeSetting value={preferences.themeMode} onChange={(themeMode) => onChange({ ...preferences, themeMode })} />
+    </section>
     <section className="preference-card"><div className="settings-title"><span><Settings2 /></span><div><h2>答题交互</h2><p>根据自己的背题节奏随时调整。</p></div></div>
       <div className="preference-list">
         <GroupSizeSetting value={preferences.groupSize} onChange={(groupSize) => onChange({ ...preferences, groupSize })} />
@@ -818,6 +872,15 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
       {feedbackItems.map(toggleRow)}
     </div></section>
   </>;
+}
+
+function ThemeSetting({ value, onChange }: { value: PracticePreferences["themeMode"]; onChange: (value: PracticePreferences["themeMode"]) => void }) {
+  const choices: Array<{ value: PracticePreferences["themeMode"]; label: string; detail: string; icon: React.ReactNode }> = [
+    { value: "system", label: "跟随系统", detail: "随系统自动切换", icon: <Monitor size={19} /> },
+    { value: "light", label: "浅色", detail: "始终使用浅色", icon: <Sun size={19} /> },
+    { value: "dark", label: "深色", detail: "始终使用夜间模式", icon: <Moon size={19} /> },
+  ];
+  return <div className="theme-setting" role="radiogroup" aria-label="外观主题">{choices.map((choice) => <button type="button" role="radio" aria-checked={value === choice.value} className={value === choice.value ? "active" : ""} key={choice.value} onClick={() => onChange(choice.value)}><span>{choice.icon}</span><strong>{choice.label}</strong><small>{choice.detail}</small>{value === choice.value && <Check size={15} />}</button>)}</div>;
 }
 
 function PreferenceSelect({ title, detail, value, options, onChange }: { title: string; detail: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) {

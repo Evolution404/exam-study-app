@@ -1,4 +1,4 @@
-const CACHE = "shijuan-v4";
+const CACHE = "shijuan-v5";
 const BASE = "/exam-study-app/";
 self.addEventListener("install", (event) => event.waitUntil(Promise.all([self.skipWaiting(), caches.open(CACHE).then((cache) => cache.addAll([
   BASE,
