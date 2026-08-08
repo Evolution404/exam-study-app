@@ -53,9 +53,17 @@ export interface PracticeFilter {
   mode: PracticeMode;
   types: QuestionType[];
   tags: string[];
+  tagMatch: "any" | "all";
   status: "all" | "unanswered" | "wrong";
   order: "sequential" | "random";
   limit: number | null;
+  keyword: string;
+  keywordMode: "plain" | "regex";
+  totalAttemptsMin: number | null;
+  totalAttemptsMax: number | null;
+  wrongAttemptsMin: number | null;
+  wrongAttemptsMax: number | null;
+  lastAttemptRange: "any" | "never" | "within1" | "within7" | "within30" | "within90" | "over7" | "over30" | "over90";
 }
 
 export interface Attempt {

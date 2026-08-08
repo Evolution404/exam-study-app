@@ -69,14 +69,6 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function inferTags(stem: string) {
-  const dictionary = [
-    "弧垂", "导线", "杆塔", "接地", "绝缘子", "安全", "工作票", "测量",
-    "基础", "混凝土", "巡视", "缺陷", "雷电", "无人机", "跨越", "电压",
-  ];
-  return dictionary.filter((tag) => stem.includes(tag));
-}
-
 export async function importQuestionBank(fileName: string, raw: unknown) {
   const source = Array.isArray(raw)
     ? raw
@@ -112,7 +104,7 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
       answer: answer.toUpperCase().replace(/[^A-Z]/g, ""),
       options,
       type,
-      tags: inferTags(stem),
+      tags: [],
     });
   }
   if (!questions.length) throw new Error("题库中没有可导入的有效题目。");
@@ -193,6 +185,12 @@ export async function clearPracticeSession() {
   await db.sessions.delete("active");
 }
 
+export async function clearLegacyGeneratedTags() {
+  const legacy = await db.questions.filter((question) => !question.userUpdatedAt && question.tags.length > 0).toArray();
+  if (legacy.length) await db.questions.bulkPut(legacy.map((question) => ({ ...question, tags: [] })));
+  return legacy.length;
+}
+
 export async function resetLocalDatabase() {
   await db.delete();
   await db.open();
@@ -252,7 +250,8 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           const payload = event.payload as { bank: Bank; questions: Question[] };
           await db.banks.put(payload.bank);
           const merged: Question[] = [];
-          for (const incoming of payload.questions) {
+          for (const remoteQuestion of payload.questions) {
+            const incoming = remoteQuestion.userUpdatedAt ? remoteQuestion : { ...remoteQuestion, tags: [] };
             const current = await db.questions.get(incoming.id);
             merged.push(current?.userUpdatedAt ? current : incoming);
           }

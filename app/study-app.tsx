@@ -7,7 +7,7 @@ import {
   FileUp, GitBranch, Grid3X3, Home, Library, Link2, ListFilter, LoaderCircle, Menu,
   NotebookPen, Pencil, Play, RotateCcw, Search, Settings2, Sparkles, Target, X,
 } from "lucide-react";
-import { clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, updateQuestion } from "@/lib/db";
+import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-sync";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
@@ -111,9 +111,17 @@ function quickFilter(mode: "random30" | "wrong", bankIds: string[]): PracticeFil
     mode,
     types: TYPE_ORDER,
     tags: [],
+    tagMatch: "any",
     status: mode === "wrong" ? "wrong" : "all",
     order: mode === "random30" ? "random" : "sequential",
     limit: mode === "random30" ? 30 : null,
+    keyword: "",
+    keywordMode: "plain",
+    totalAttemptsMin: null,
+    totalAttemptsMax: null,
+    wrongAttemptsMin: null,
+    wrongAttemptsMax: null,
+    lastAttemptRange: "any",
   };
 }
 
@@ -126,6 +134,8 @@ export function StudyApp() {
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const [preferences, setPreferences] = useState<PracticePreferences>(loadPreferences);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { void clearLegacyGeneratedTags(); }, []);
 
 
   const banks = useLiveQuery(() => db.banks.orderBy("importedAt").reverse().toArray(), []) ?? [];
@@ -185,15 +195,52 @@ export function StudyApp() {
     }
     let questions = (await Promise.all(filter.bankIds.map((bankId) => questionsInOriginalOrder(bankId)))).flat();
     questions = questions.filter((question) => filter.types.includes(question.type));
-    if (filter.tags.length) questions = questions.filter((question) => filter.tags.some((tag) => question.tags.includes(tag)));
-    const attempts = (await Promise.all(filter.bankIds.map((bankId) => db.attempts.where("bankId").equals(bankId).toArray()))).flat();
-    if (filter.status === "unanswered") {
-      const answered = new Set(attempts.map((attempt) => attempt.questionId));
-      questions = questions.filter((question) => !answered.has(question.id));
-    } else if (filter.status === "wrong") {
-      const wrong = new Set(attempts.filter((attempt) => !attempt.correct).map((attempt) => attempt.questionId));
-      questions = questions.filter((question) => wrong.has(question.id));
+    if (filter.tags.length) questions = questions.filter((question) => filter.tagMatch === "all"
+      ? filter.tags.every((tag) => question.tags.includes(tag))
+      : filter.tags.some((tag) => question.tags.includes(tag)));
+    if (filter.keyword.trim()) {
+      const keyword = filter.keyword.trim();
+      let pattern: RegExp | null = null;
+      if (filter.keywordMode === "regex") {
+        try { pattern = new RegExp(keyword, "i"); } catch { setNotice("正则表达式格式不正确，请检查后重试"); return; }
+      }
+      questions = questions.filter((question) => {
+        const searchable = [question.stem, ...question.options, ...question.tags].join("\n");
+        return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
+      });
     }
+    const attempts = (await Promise.all(filter.bankIds.map((bankId) => db.attempts.where("bankId").equals(bankId).toArray()))).flat();
+    const attemptStats = new Map<string, { total: number; wrong: number; latest: number | null }>();
+    attempts.forEach((attempt) => {
+      const current = attemptStats.get(attempt.questionId) ?? { total: 0, wrong: 0, latest: null };
+      const createdAt = new Date(attempt.createdAt).getTime();
+      current.total += 1;
+      if (!attempt.correct) current.wrong += 1;
+      if (Number.isFinite(createdAt) && (current.latest === null || createdAt > current.latest)) current.latest = createdAt;
+      attemptStats.set(attempt.questionId, current);
+    });
+    const nowMs = Date.now();
+    const dayMs = 86_400_000;
+    questions = questions.filter((question) => {
+      const metric = attemptStats.get(question.id) ?? { total: 0, wrong: 0, latest: null };
+      if (filter.status === "unanswered" && metric.total !== 0) return false;
+      if (filter.status === "wrong" && metric.wrong === 0) return false;
+      if (filter.totalAttemptsMin !== null && metric.total < filter.totalAttemptsMin) return false;
+      if (filter.totalAttemptsMax !== null && metric.total > filter.totalAttemptsMax) return false;
+      if (filter.wrongAttemptsMin !== null && metric.wrong < filter.wrongAttemptsMin) return false;
+      if (filter.wrongAttemptsMax !== null && metric.wrong > filter.wrongAttemptsMax) return false;
+      if (filter.lastAttemptRange === "never") return metric.latest === null;
+      if (filter.lastAttemptRange === "any") return true;
+      if (metric.latest === null) return false;
+      const ageDays = Math.max(0, (nowMs - metric.latest) / dayMs);
+      if (filter.lastAttemptRange === "within1") return ageDays <= 1;
+      if (filter.lastAttemptRange === "within7") return ageDays <= 7;
+      if (filter.lastAttemptRange === "within30") return ageDays <= 30;
+      if (filter.lastAttemptRange === "within90") return ageDays <= 90;
+      if (filter.lastAttemptRange === "over7") return ageDays > 7;
+      if (filter.lastAttemptRange === "over30") return ageDays > 30;
+      return ageDays > 90;
+    });
     let limitApplied = false;
     if (filter.order === "random") {
       questions = shuffle(questions);
@@ -317,6 +364,7 @@ export function StudyApp() {
           <small>{stats.pending ? `${stats.pending} 条等待同步` : "没有待同步更改"}</small>
         </div>
       </aside>
+      <button className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`} aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
 
       <section className="workspace">
         <header className="topbar">
@@ -333,7 +381,7 @@ export function StudyApp() {
           {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter("random30", activeBankIds))} onResume={resumePractice} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BanksView banks={banks} selectedBankIds={activeBankIds} query={query} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBanks([bankId]); void startPractice(quickFilter("random30", [bankId])); }} />}
           {view === "wrong" && <WrongView bankIds={activeBankIds} bankName={selectedBanks.length === 1 ? selectedBanks[0].name : `${selectedBanks.length} 个题库`} onStart={() => activeBankIds.length && void startPractice(quickFilter("wrong", activeBankIds))} />}
-          {view === "practiceSetup" && <PracticeSetupView key={activeBankIds.join("|") || "empty"} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} />}
+          {view === "practiceSetup" && <PracticeSetupView banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} />}
           {view === "relations" && <RelationsView />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
