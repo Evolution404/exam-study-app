@@ -121,7 +121,8 @@ function quickFilter(mode: "random30" | "wrong", bankIds: string[]): PracticeFil
     totalAttemptsMax: null,
     wrongAttemptsMin: null,
     wrongAttemptsMax: null,
-    lastAttemptRange: "any",
+    lastAttemptFrom: "",
+    lastAttemptTo: "",
   };
 }
 
@@ -219,8 +220,8 @@ export function StudyApp() {
       if (Number.isFinite(createdAt) && (current.latest === null || createdAt > current.latest)) current.latest = createdAt;
       attemptStats.set(attempt.questionId, current);
     });
-    const nowMs = Date.now();
-    const dayMs = 86_400_000;
+    const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
+    const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
     questions = questions.filter((question) => {
       const metric = attemptStats.get(question.id) ?? { total: 0, wrong: 0, latest: null };
       if (filter.status === "unanswered" && metric.total !== 0) return false;
@@ -229,17 +230,10 @@ export function StudyApp() {
       if (filter.totalAttemptsMax !== null && metric.total > filter.totalAttemptsMax) return false;
       if (filter.wrongAttemptsMin !== null && metric.wrong < filter.wrongAttemptsMin) return false;
       if (filter.wrongAttemptsMax !== null && metric.wrong > filter.wrongAttemptsMax) return false;
-      if (filter.lastAttemptRange === "never") return metric.latest === null;
-      if (filter.lastAttemptRange === "any") return true;
-      if (metric.latest === null) return false;
-      const ageDays = Math.max(0, (nowMs - metric.latest) / dayMs);
-      if (filter.lastAttemptRange === "within1") return ageDays <= 1;
-      if (filter.lastAttemptRange === "within7") return ageDays <= 7;
-      if (filter.lastAttemptRange === "within30") return ageDays <= 30;
-      if (filter.lastAttemptRange === "within90") return ageDays <= 90;
-      if (filter.lastAttemptRange === "over7") return ageDays > 7;
-      if (filter.lastAttemptRange === "over30") return ageDays > 30;
-      return ageDays > 90;
+      if ((lastAttemptFrom !== null || lastAttemptTo !== null) && metric.latest === null) return false;
+      if (lastAttemptFrom !== null && metric.latest !== null && metric.latest < lastAttemptFrom) return false;
+      if (lastAttemptTo !== null && metric.latest !== null && metric.latest > lastAttemptTo) return false;
+      return true;
     });
     let limitApplied = false;
     if (filter.order === "random") {
