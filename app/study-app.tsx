@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, ChevronLeft, ChevronRight, CircleAlert, Cloud,
-  FileUp, GitBranch, Home, Library, Link2, LoaderCircle, Menu,
-  NotebookPen, RotateCcw, Search, Settings2, Sparkles, Target, X,
+  FileUp, GitBranch, Home, Library, Link2, ListFilter, LoaderCircle, Menu,
+  NotebookPen, Pencil, Play, RotateCcw, Search, Settings2, Sparkles, Target, X,
 } from "lucide-react";
-import { db, importQuestionBank, recordAttempt, saveNote } from "@/lib/db";
+import { clearPracticeSession, db, importQuestionBank, recordAttempt, saveNote, savePracticeSession, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, syncWithGitHub } from "@/lib/github-sync";
-import type { GitHubSettings, Question } from "@/lib/types";
+import { PracticeSetupView } from "@/app/practice-setup";
+import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
+import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, SyncEvent } from "@/lib/types";
 
-type View = "home" | "banks" | "wrong" | "relations" | "preferences" | "settings" | "practice";
+type View = "home" | "banks" | "wrong" | "relations" | "practiceSetup" | "preferences" | "settings" | "practice";
 
 interface PracticePreferences {
   autoNextCorrect: boolean;
@@ -55,13 +57,45 @@ function shuffle<T>(values: T[]) {
   return copy;
 }
 
+const modeLabels = {
+  random30: "随机 30 题",
+  sequential: "全量顺序练习",
+  wrong: "错题模式",
+  tag: "标签模式",
+  advanced: "高级筛选",
+};
+
+async function questionsInOriginalOrder(bankId: string) {
+  const questions = await db.questions.where("bankId").equals(bankId).toArray();
+  const events = await db.events.orderBy("createdAt").reverse().toArray();
+  const imported = events.find((event) => {
+    if (event.type !== "bank.imported") return false;
+    const payload = event.payload as { bank?: { id?: string } };
+    return payload.bank?.id === bankId;
+  }) as SyncEvent | undefined;
+  const payload = imported?.payload as { questions?: Question[] } | undefined;
+  const order = new Map((payload?.questions ?? []).map((question, index) => [question.id, index]));
+  return questions.sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.normalizedStem.localeCompare(b.normalizedStem, "zh-CN"));
+}
+
+function quickFilter(mode: "random30" | "wrong", bankId: string): PracticeFilter {
+  return {
+    bankId,
+    mode,
+    types: ["判断", "单选", "多选"],
+    tags: [],
+    status: mode === "wrong" ? "wrong" : "all",
+    order: mode === "random30" ? "random" : "sequential",
+    limit: mode === "random30" ? 30 : null,
+  };
+}
+
 export function StudyApp() {
   const [view, setView] = useState<View>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
-  const [queue, setQueue] = useState<Question[]>([]);
-  const [queueIndex, setQueueIndex] = useState(0);
+  const [practiceSession, setPracticeSession] = useState<PracticeSession | null>(null);
   const [currentBankId, setCurrentBankId] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("study-current-bank") ?? "");
   const [preferences, setPreferences] = useState<PracticePreferences>(loadPreferences);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -69,6 +103,9 @@ export function StudyApp() {
 
   const banks = useLiveQuery(() => db.banks.orderBy("importedAt").reverse().toArray(), []) ?? [];
   const currentBank = banks.find((bank) => bank.id === currentBankId) ?? banks[0];
+  const savedSession = useLiveQuery(() => db.sessions.get("active"), []);
+  const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
+  const activeQuestion = useLiveQuery(() => activeQuestionId ? db.questions.get(activeQuestionId) : undefined, [activeQuestionId]);
   const stats = useLiveQuery(async () => {
     const [questions, attempts, correct, pending, notes] = await Promise.all([
       db.questions.count(), db.attempts.count(), db.attempts.where("correct").equals(1).count(),
@@ -103,32 +140,89 @@ export function StudyApp() {
     localStorage.setItem("practice-preferences", JSON.stringify(value));
   }
 
-  async function startPractice(filter: "all" | "wrong" = "all", bankId = currentBank?.id) {
-    if (!bankId) {
+  async function startPractice(filter: PracticeFilter) {
+    const bank = banks.find((item) => item.id === filter.bankId);
+    if (!bank) {
       setNotice("请先选择一个题库");
       return;
     }
-    let questions: Question[];
-    if (filter === "wrong") {
-      const attempts = (await db.attempts.where("correct").equals(0).toArray()).filter((item) => item.bankId === bankId);
-      const ids = [...new Set(attempts.map((item) => item.questionId))];
-      questions = (await db.questions.bulkGet(ids)).filter(Boolean) as Question[];
-    } else {
-      questions = await db.questions.where("bankId").equals(bankId).toArray();
+    let questions = await questionsInOriginalOrder(filter.bankId);
+    questions = questions.filter((question) => filter.types.includes(question.type));
+    if (filter.tags.length) questions = questions.filter((question) => filter.tags.some((tag) => question.tags.includes(tag)));
+    const attempts = await db.attempts.where("bankId").equals(filter.bankId).toArray();
+    if (filter.status === "unanswered") {
+      const answered = new Set(attempts.map((attempt) => attempt.questionId));
+      questions = questions.filter((question) => !answered.has(question.id));
+    } else if (filter.status === "wrong") {
+      const wrong = new Set(attempts.filter((attempt) => !attempt.correct).map((attempt) => attempt.questionId));
+      questions = questions.filter((question) => wrong.has(question.id));
     }
+    if (filter.order === "random") questions = shuffle(questions);
+    if (filter.limit) questions = questions.slice(0, filter.limit);
     if (!questions.length) {
-      setNotice(filter === "wrong" ? "还没有错题" : "请先导入一个题库");
+      setNotice("没有符合当前条件的题目，请调整筛选条件");
       return;
     }
-    setQueue(shuffle(questions).slice(0, 30));
-    setQueueIndex(0);
+    const now = new Date().toISOString();
+    const session: PracticeSession = {
+      id: "active",
+      runId: crypto.randomUUID(),
+      bankId: bank.id,
+      bankName: bank.name,
+      mode: filter.mode,
+      modeLabel: modeLabels[filter.mode],
+      questionIds: questions.map((question) => question.id),
+      currentIndex: 0,
+      answers: {},
+      startedAt: now,
+      updatedAt: now,
+      revision: 1,
+    };
+    await savePracticeSession(session);
+    setPracticeSession(session);
     setView("practice");
+  }
+
+  function changeSession(mutator: (session: PracticeSession) => PracticeSession) {
+    setPracticeSession((current) => {
+      if (!current) return current;
+      const changed = mutator(current);
+      const next = { ...changed, updatedAt: new Date().toISOString(), revision: current.revision + 1 };
+      void savePracticeSession(next);
+      return next;
+    });
+  }
+
+  function resumePractice() {
+    if (!savedSession?.questionIds.length) return;
+    setPracticeSession(savedSession);
+    selectBank(savedSession.bankId);
+    setView("practice");
+  }
+
+  function movePractice(offset: number) {
+    if (!practiceSession) return;
+    const nextIndex = practiceSession.currentIndex + offset;
+    if (nextIndex >= practiceSession.questionIds.length) {
+      void clearPracticeSession();
+      setPracticeSession(null);
+      setNotice("本次练习已完成");
+      setView("home");
+      return;
+    }
+    if (nextIndex < 0) return;
+    changeSession((session) => ({ ...session, currentIndex: nextIndex }));
+  }
+
+  function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
+    changeSession((session) => ({ ...session, answers: { ...session.answers, [questionId]: answerState } }));
   }
 
   const navItems = [
     { id: "home" as const, label: "今日", icon: Home },
     { id: "banks" as const, label: "题库", icon: Library },
     { id: "wrong" as const, label: "错题", icon: RotateCcw },
+    { id: "practiceSetup" as const, label: "练习", icon: ListFilter },
     { id: "relations" as const, label: "关联", icon: Link2 },
     { id: "preferences" as const, label: "配置", icon: Settings2 },
     { id: "settings" as const, label: "同步", icon: Cloud },
@@ -163,17 +257,15 @@ export function StudyApp() {
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className="content">
-          {view === "home" && <Dashboard stats={stats} banks={banks} currentBankId={currentBank?.id ?? ""} onBankChange={selectBank} onImport={() => fileRef.current?.click()} onStart={() => startPractice()} />}
-          {view === "banks" && <BanksView banks={banks} currentBankId={currentBank?.id ?? ""} query={query} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBank(bankId); void startPractice("all", bankId); }} />}
-          {view === "wrong" && <WrongView bankId={currentBank?.id} bankName={currentBank?.name} onStart={() => startPractice("wrong")} />}
+          {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} currentBankId={currentBank?.id ?? ""} onBankChange={selectBank} onImport={() => fileRef.current?.click()} onStart={() => currentBank && void startPractice(quickFilter("random30", currentBank.id))} onResume={resumePractice} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "banks" && <BanksView banks={banks} currentBankId={currentBank?.id ?? ""} query={query} onImport={() => fileRef.current?.click()} onStart={(bankId) => { selectBank(bankId); void startPractice(quickFilter("random30", bankId)); }} />}
+          {view === "wrong" && <WrongView bankId={currentBank?.id} bankName={currentBank?.name} onStart={() => currentBank && void startPractice(quickFilter("wrong", currentBank.id))} />}
+          {view === "practiceSetup" && <PracticeSetupView key={currentBank?.id ?? "empty"} banks={banks} currentBankId={currentBank?.id ?? ""} onBankChange={selectBank} onStart={(filter) => void startPractice(filter)} />}
           {view === "relations" && <RelationsView />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
-          {view === "practice" && queue[queueIndex] && (
-            <Practice key={queue[queueIndex].id} question={queue[queueIndex]} index={queueIndex} total={queue.length} preferences={preferences} onExit={() => setView("home")} onPrevious={() => setQueueIndex(Math.max(0, queueIndex - 1))} onNext={() => {
-              if (queueIndex + 1 >= queue.length) { setNotice("本组练习完成"); setView("home"); }
-              else setQueueIndex(queueIndex + 1);
-            }} />
+          {view === "practice" && practiceSession && activeQuestion && (
+            <Practice key={activeQuestion.id} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} />
           )}
         </div>
       </section>
@@ -181,20 +273,23 @@ export function StudyApp() {
   );
 }
 
-function Dashboard({ stats, banks, currentBankId, onBankChange, onImport, onStart }: {
+function Dashboard({ stats, banks, savedSession, currentBankId, onBankChange, onImport, onStart, onResume, onMoreModes }: {
   stats: { questions: number; attempts: number; correct: number; pending: number; notes: number; last?: string };
   banks: Array<{ id: string; name: string; questionCount: number }>;
+  savedSession?: PracticeSession;
   currentBankId: string;
   onBankChange: (bankId: string) => void;
-  onImport: () => void; onStart: () => void;
+  onImport: () => void; onStart: () => void; onResume: () => void; onMoreModes: () => void;
 }) {
   const accuracy = stats.attempts ? Math.round(stats.correct / stats.attempts * 100) : 0;
   const currentBank = banks.find((bank) => bank.id === currentBankId);
+  const answeredInSession = savedSession ? Object.values(savedSession.answers).filter((answer) => answer.submitted).length : 0;
   return <>
     <div className="page-heading"><div><p className="eyebrow">今天也向前一点</p><h1>把知识，练成下意识。</h1><p>题库留在你的设备里，记录完整，随时继续。</p></div><div className="heading-actions">{banks.length > 0 && <label className="bank-picker"><span>当前题库</span><select value={currentBankId} onChange={(event) => onBankChange(event.target.value)}>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}（{bank.questionCount}题）</option>)}</select></label>}<button className="primary" onClick={onStart}><Brain size={18} />开始练习</button></div></div>
+    {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
     <section className="hero-grid">
       <article className="focus-card">
-        <div className="focus-copy"><span className="section-kicker">今日推荐</span><h2>{currentBank ? "来一组 30 题" : "先导入第一份题库"}</h2><p>{currentBank ? `从「${currentBank.name}」随机抽取，题型混合。` : "支持当前项目的 q / ans / a JSON 格式。"}</p><button onClick={currentBank ? onStart : onImport}>{currentBank ? "开始这一组" : "选择 JSON 文件"}<ChevronRight size={17} /></button></div>
+        <div className="focus-copy"><span className="section-kicker">今日推荐</span><h2>{currentBank ? "来一组 30 题" : "先导入第一份题库"}</h2><p>{currentBank ? `从「${currentBank.name}」随机抽取，题型混合。` : "支持当前项目的 q / ans / a JSON 格式。"}</p><div className="focus-actions"><button onClick={currentBank ? onStart : onImport}>{currentBank ? "开始这一组" : "选择 JSON 文件"}<ChevronRight size={17} /></button>{currentBank && <button className="focus-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button>}</div></div>
         <div className="progress-orbit"><div><strong>{stats.questions ? Math.min(stats.attempts, 30) : 0}</strong><span>/ 30</span></div></div>
       </article>
       <article className="quote-card"><span>记忆提示</span><blockquote>“不要重复阅读答案，<br />先遮住它，再努力想起来。”</blockquote><small>主动回忆比熟悉感更可靠</small></article>
@@ -260,10 +355,11 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
   </>;
 }
 
-function Practice({ question, index, total, preferences, onPrevious, onNext, onExit }: { question: Question; index: number; total: number; preferences: PracticePreferences; onPrevious: () => void; onNext: () => void; onExit: () => void }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [submitted, setSubmitted] = useState(false);
+function Practice({ question, initialState, index, total, modeLabel, preferences, onStateChange, onEdit, onPrevious, onNext, onExit }: { question: Question; initialState?: PracticeAnswerState; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onExit: () => void }) {
+  const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
+  const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const [autoAdvancing, setAutoAdvancing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [startedAt] = useState(() => Date.now());
   const note = useLiveQuery(() => db.notes.get(question.id), [question.id]);
   const [draft, setDraft] = useState<string | null>(null);
@@ -280,11 +376,14 @@ function Practice({ question, index, total, preferences, onPrevious, onNext, onE
   async function choose(letter: string) {
     if (submitted) return;
     if (question.type === "多选") {
-      setSelected(selected.includes(letter) ? selected.filter((item) => item !== letter) : [...selected, letter]);
+      const next = selected.includes(letter) ? selected.filter((item) => item !== letter) : [...selected, letter];
+      setSelected(next);
+      onStateChange({ selected: next, submitted: false });
       return;
     }
     const value = [letter];
     setSelected(value);
+    onStateChange({ selected: value, submitted: false });
     await submit(value);
   }
 
@@ -300,6 +399,7 @@ function Practice({ question, index, total, preferences, onPrevious, onNext, onE
       return;
     }
     setSubmitted(true);
+    onStateChange({ selected: valueList, submitted: true, correct: isCorrect });
     if (isCorrect && question.type !== "多选" && preferences.autoNextCorrect) {
       setAutoAdvancing(true);
       autoNextTimer.current = window.setTimeout(onNext, 650);
@@ -318,12 +418,12 @@ function Practice({ question, index, total, preferences, onPrevious, onNext, onE
     else if (index > 0) onPrevious();
   }
 
-  return <div className="practice-layout"><section className="question-card" onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }} onTouchEnd={handleTouchEnd}><div className="practice-head"><button className="icon-button" onClick={onExit}><X size={19} /></button><div><span>{index + 1} / {total}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><span className="type-chip">{question.type}</span></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}</div><h1>{question.stem}</h1><div className="options">{question.options.map((option, optionIndex) => { const letter = String.fromCharCode(65 + optionIndex); const isAnswer = revealAnswer && question.answer.includes(letter); const isWrong = submitted && selected.includes(letter) && !question.answer.includes(letter); return <button key={letter} className={`${selected.includes(letter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(letter)}><span>{letter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
+  return <><div className="practice-layout"><section className="question-card" onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }} onTouchEnd={handleTouchEnd}><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><span className="type-chip">{question.type}</span></div>
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1>{question.stem}</h1><div className="options">{question.options.map((option, optionIndex) => { const letter = String.fromCharCode(65 + optionIndex); const isAnswer = revealAnswer && question.answer.includes(letter); const isWrong = submitted && selected.includes(letter) && !question.answer.includes(letter); return <button key={letter} className={`${selected.includes(letter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(letter)}><span>{letter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
       {submitted && <div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{question.answer}｜{answerText(question)}</p> : <p>正确答案已按配置隐藏。</p>}</div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
-    </div><div className="practice-actions"><button className="secondary-action" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button>{question.type === "多选" && !submitted ? <button className="primary" disabled={!selected.length} onClick={() => void submit()}>确认答案</button> : submitted && !autoAdvancing ? <button className="primary" onClick={onNext}>下一题<ChevronRight size={18} /></button> : <span className="answer-action-hint">{autoAdvancing ? "正在自动前进…" : "选择答案后立即判定"}</span>}</div></section>
-    <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><small>解析会和题目ID关联，并进入同步队列。</small></aside></div>;
+    </div><div className="practice-actions"><button className="secondary-action" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{autoAdvancing ? <span className="answer-action-hint">正在自动前进…</span> : <button className={submitted ? "primary" : "secondary-action"} onClick={onNext}>{submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
+    <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside></div>{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
 }
 
 function SyncView({ pending, onNotice }: { pending: number; onNotice: (message: string) => void }) {

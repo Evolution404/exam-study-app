@@ -17,6 +17,41 @@ export interface Question {
   options: string[];
   type: QuestionType;
   tags: string[];
+  userUpdatedAt?: string;
+  userUpdatedBy?: string;
+}
+
+export type PracticeMode = "random30" | "sequential" | "wrong" | "tag" | "advanced";
+
+export interface PracticeAnswerState {
+  selected: string[];
+  submitted: boolean;
+  correct?: boolean;
+}
+
+export interface PracticeSession {
+  id: "active";
+  runId: string;
+  bankId: string;
+  bankName: string;
+  mode: PracticeMode;
+  modeLabel: string;
+  questionIds: string[];
+  currentIndex: number;
+  answers: Record<string, PracticeAnswerState>;
+  startedAt: string;
+  updatedAt: string;
+  revision: number;
+}
+
+export interface PracticeFilter {
+  bankId: string;
+  mode: PracticeMode;
+  types: QuestionType[];
+  tags: string[];
+  status: "all" | "unanswered" | "wrong";
+  order: "sequential" | "random";
+  limit: number | null;
 }
 
 export interface Attempt {
@@ -49,7 +84,7 @@ export interface Relation {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "attempt.created" | "note.upserted" | "relation.created";
+  type: "bank.imported" | "attempt.created" | "note.upserted" | "relation.created" | "question.updated";
   payload: unknown;
   deviceId: string;
   createdAt: string;

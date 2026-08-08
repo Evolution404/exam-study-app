@@ -3,6 +3,7 @@ import type {
   Attempt,
   Bank,
   Note,
+  PracticeSession,
   Question,
   Relation,
   SyncEvent,
@@ -17,6 +18,7 @@ class StudyDatabase extends Dexie {
   relations!: EntityTable<Relation, "id">;
   events!: EntityTable<SyncEvent, "id">;
   syncFiles!: EntityTable<SyncFile, "path">;
+  sessions!: EntityTable<PracticeSession, "id">;
 
   constructor() {
     super("memory-line-study");
@@ -28,6 +30,9 @@ class StudyDatabase extends Dexie {
       relations: "id, fromQuestionId, toQuestionId, type",
       events: "id, synced, createdAt, deviceId",
       syncFiles: "path, sha, appliedAt",
+    });
+    this.version(2).stores({
+      sessions: "id, bankId, updatedAt",
     });
   }
 }
@@ -176,6 +181,56 @@ export async function saveNote(questionId: string, content: string) {
   return note;
 }
 
+export async function savePracticeSession(session: PracticeSession) {
+  await db.transaction("rw", db.sessions, async () => {
+    const current = await db.sessions.get(session.id);
+    if (!current || session.runId !== current.runId || session.revision >= current.revision) await db.sessions.put(session);
+  });
+  return session;
+}
+
+export async function clearPracticeSession() {
+  await db.sessions.delete("active");
+}
+
+export async function updateQuestion(
+  questionId: string,
+  changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags">,
+) {
+  const current = await db.questions.get(questionId);
+  if (!current) throw new Error("题目不存在或已被删除。");
+  const stem = changes.stem.trim();
+  const options = changes.options.map((item) => item.trim());
+  const answer = changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!stem || options.length < 2 || options.some((item) => !item)) throw new Error("题干和所有选项都不能为空。");
+  if (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length)) throw new Error("正确答案超出了现有选项范围。");
+  const updatedAt = new Date().toISOString();
+  const question: Question = {
+    ...current,
+    ...changes,
+    stem,
+    normalizedStem: normalizeStem(stem),
+    options,
+    answer,
+    tags: [...new Set(changes.tags.map((tag) => tag.trim()).filter(Boolean))],
+    userUpdatedAt: updatedAt,
+    userUpdatedBy: getDeviceId(),
+  };
+  const event: SyncEvent = {
+    id: makeId("question"),
+    type: "question.updated",
+    payload: question,
+    deviceId: question.userUpdatedBy,
+    createdAt: updatedAt,
+    synced: 0,
+  };
+  await db.transaction("rw", db.questions, db.events, async () => {
+    await db.questions.put(question);
+    await db.events.put(event);
+  });
+  return question;
+}
+
 export async function applyRemoteEvents(events: SyncEvent[]) {
   await db.transaction(
     "rw",
@@ -191,7 +246,12 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
         if (event.type === "bank.imported") {
           const payload = event.payload as { bank: Bank; questions: Question[] };
           await db.banks.put(payload.bank);
-          await db.questions.bulkPut(payload.questions);
+          const merged: Question[] = [];
+          for (const incoming of payload.questions) {
+            const current = await db.questions.get(incoming.id);
+            merged.push(current?.userUpdatedAt ? current : incoming);
+          }
+          await db.questions.bulkPut(merged);
         } else if (event.type === "attempt.created") {
           await db.attempts.put(event.payload as Attempt);
         } else if (event.type === "note.upserted") {
@@ -200,6 +260,12 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           if (!current || incoming.updatedAt > current.updatedAt) await db.notes.put(incoming);
         } else if (event.type === "relation.created") {
           await db.relations.put(event.payload as Relation);
+        } else if (event.type === "question.updated") {
+          const incoming = event.payload as Question;
+          const current = await db.questions.get(incoming.id);
+          if (!current?.userUpdatedAt || (incoming.userUpdatedAt ?? event.createdAt) > current.userUpdatedAt) {
+            await db.questions.put(incoming);
+          }
         }
         await db.events.put({ ...event, synced: 1 });
       }
