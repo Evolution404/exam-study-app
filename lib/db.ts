@@ -3,9 +3,10 @@ import type {
   Attempt,
   Bank,
   Note,
+  PracticeRun,
   PracticeSession,
   Question,
-  Relation,
+  QuestionGroup,
   SyncEvent,
   SyncFile,
 } from "./types";
@@ -15,7 +16,8 @@ class StudyDatabase extends Dexie {
   questions!: EntityTable<Question, "id">;
   attempts!: EntityTable<Attempt, "id">;
   notes!: EntityTable<Note, "questionId">;
-  relations!: EntityTable<Relation, "id">;
+  practiceRuns!: EntityTable<PracticeRun, "id">;
+  questionGroups!: EntityTable<QuestionGroup, "id">;
   events!: EntityTable<SyncEvent, "id">;
   syncFiles!: EntityTable<SyncFile, "path">;
   sessions!: EntityTable<PracticeSession, "id">;
@@ -25,14 +27,72 @@ class StudyDatabase extends Dexie {
     this.version(1).stores({
       banks: "id, importedAt",
       questions: "id, bankId, type, *tags, normalizedStem",
-      attempts: "id, questionId, bankId, correct, createdAt, deviceId",
+      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
       notes: "questionId, updatedAt",
-      relations: "id, fromQuestionId, toQuestionId, type",
+      practiceRuns: "id, status, startedAt, updatedAt",
+      questionGroups: "id, type, updatedAt",
       events: "id, synced, createdAt, deviceId",
       syncFiles: "path, sha, appliedAt",
     });
     this.version(2).stores({
       sessions: "id, bankId, updatedAt",
+    });
+    this.version(3).stores({
+      banks: "id, importedAt",
+      questions: "id, bankId, type, *tags, normalizedStem",
+      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
+      notes: "questionId, updatedAt",
+      practiceRuns: "id, status, startedAt, updatedAt",
+      questionGroups: "id, type, updatedAt",
+      events: "id, synced, createdAt, deviceId",
+      syncFiles: "path, sha, appliedAt",
+      sessions: "id, bankId, updatedAt",
+    }).upgrade(async (transaction) => {
+      const bankEvents = (await transaction.table<SyncEvent>("events").toArray())
+        .filter((event) => event.type === "bank.imported")
+        .map((event) => ({ ...event, synced: 1 as const }));
+      await Promise.all([
+        transaction.table("attempts").clear(),
+        transaction.table("notes").clear(),
+        transaction.table("practiceRuns").clear(),
+        transaction.table("questionGroups").clear(),
+        transaction.table("sessions").clear(),
+        transaction.table("events").clear(),
+      ]);
+      if (bankEvents.length) await transaction.table("events").bulkPut(bankEvents);
+      await transaction.table<Question>("questions").toCollection().modify((question) => {
+        question.tags = [];
+        question.favorite = false;
+        delete question.userUpdatedAt;
+        delete question.userUpdatedBy;
+      });
+    });
+    this.version(4).stores({
+      banks: "id, importedAt",
+      questions: "id, bankId, type, *tags, normalizedStem",
+      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
+      notes: "questionId, updatedAt",
+      practiceRuns: "id, status, startedAt, updatedAt",
+      questionGroups: "id, type, updatedAt",
+      events: "id, synced, createdAt, deviceId",
+      syncFiles: "path, sha, appliedAt",
+      sessions: "id, bankId, updatedAt",
+    }).upgrade(async (transaction) => {
+      const allowedName = (name: string) => /^送电线路工-(初级工|中级工|高级工|技师)$/.test(name);
+      const banks = await transaction.table<Bank>("banks").toArray();
+      const allowedBankIds = new Set(banks.filter((bank) => allowedName(bank.name)).map((bank) => bank.id));
+      await transaction.table<Question>("questions").filter((question) => !allowedBankIds.has(question.bankId)).delete();
+      await transaction.table<Bank>("banks").filter((bank) => !allowedBankIds.has(bank.id)).delete();
+      const bankEvents = (await transaction.table<SyncEvent>("events").toArray()).filter((event) => {
+        if (event.type !== "bank.imported") return false;
+        return allowedName((event.payload as { bank?: Bank }).bank?.name ?? "");
+      }).map((event) => ({ ...event, synced: 1 as const }));
+      await Promise.all([
+        transaction.table("attempts").clear(), transaction.table("notes").clear(),
+        transaction.table("practiceRuns").clear(), transaction.table("questionGroups").clear(),
+        transaction.table("sessions").clear(), transaction.table("events").clear(),
+      ]);
+      if (bankEvents.length) await transaction.table("events").bulkPut(bankEvents);
     });
   }
 }
@@ -78,6 +138,9 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
   if (!source) throw new Error("未找到题目数组。支持数组或 { questions: [] } 格式。");
 
   const bankName = fileName.replace(/\.(json|txt)$/i, "");
+  if (!/^送电线路工-(初级工|中级工|高级工|技师)$/.test(bankName)) {
+    throw new Error("当前版本只保留送电线路工的初级工、中级工、高级工和技师题库。");
+  }
   const bankId = await sha256(`${bankName}:${JSON.stringify(source)}`);
   const questions: Question[] = [];
 
@@ -174,11 +237,56 @@ export async function saveNote(questionId: string, content: string) {
 }
 
 export async function savePracticeSession(session: PracticeSession) {
-  await db.transaction("rw", db.sessions, async () => {
+  const run: PracticeRun = {
+    id: session.runId,
+    bankId: session.bankId,
+    bankIds: session.bankIds?.length ? session.bankIds : [session.bankId],
+    bankName: session.bankName,
+    mode: session.mode,
+    modeLabel: session.modeLabel,
+    questionIds: session.questionIds,
+    questionTypes: session.questionTypes ?? {},
+    answers: session.answers,
+    shuffleOptions: Boolean(session.shuffleOptions),
+    optionOrders: session.optionOrders ?? {},
+    startedAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    status: "in_progress",
+    revision: session.revision,
+  };
+  await db.transaction("rw", db.sessions, db.practiceRuns, db.events, async () => {
     const current = await db.sessions.get(session.id);
     if (!current || session.runId !== current.runId || session.revision >= current.revision) await db.sessions.put(session);
+    const existingRun = await db.practiceRuns.get(run.id);
+    if (!existingRun || run.revision >= existingRun.revision) await db.practiceRuns.put({ ...existingRun, ...run });
+    const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
+    await db.events.put({
+      id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: { ...existingRun, ...run },
+      deviceId: getDeviceId(), createdAt: run.updatedAt, synced: 0,
+    });
   });
   return session;
+}
+
+export async function setPracticeRunStatus(runId: string, status: PracticeRun["status"], answers?: PracticeRun["answers"]) {
+  const current = await db.practiceRuns.get(runId);
+  if (!current) return;
+  const now = new Date().toISOString();
+  const run: PracticeRun = {
+    ...current,
+    answers: answers ?? current.answers,
+    status,
+    updatedAt: now,
+    completedAt: status === "completed" ? now : current.completedAt,
+    abandonedAt: status === "abandoned" ? now : undefined,
+    revision: current.revision + 1,
+  };
+  await db.transaction("rw", db.practiceRuns, db.events, async () => {
+    await db.practiceRuns.put(run);
+    const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
+    await db.events.put({ id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: run, deviceId: getDeviceId(), createdAt: now, synced: 0 });
+  });
+  return run;
 }
 
 export async function clearPracticeSession() {
@@ -191,43 +299,49 @@ export async function clearLegacyGeneratedTags() {
   return legacy.length;
 }
 
-export async function saveRelation(fromQuestionId: string, toQuestionId: string, type: Relation["type"], relationId?: string) {
-  if (fromQuestionId === toQuestionId) throw new Error("不能把题目关联到自身。");
-  const relation: Relation = {
-    id: relationId ?? makeId("relation"),
-    fromQuestionId,
-    toQuestionId,
-    type,
-    createdAt: new Date().toISOString(),
+export async function saveQuestionGroup(input: Pick<QuestionGroup, "name" | "type" | "description" | "items"> & { id?: string }) {
+  const current = input.id ? await db.questionGroups.get(input.id) : undefined;
+  const now = new Date().toISOString();
+  const uniqueItems = input.items.filter((item, index, rows) => rows.findIndex((row) => row.questionId === item.questionId) === index);
+  if (!input.name.trim()) throw new Error("请输入题组名称。");
+  if (!uniqueItems.length) throw new Error("题组至少需要一道题。");
+  const group: QuestionGroup = {
+    id: input.id ?? makeId("group"),
+    name: input.name.trim(),
+    type: input.type,
+    description: input.description.trim(),
+    items: uniqueItems.map((item) => ({ questionId: item.questionId, note: item.note.trim() })),
+    createdAt: current?.createdAt ?? now,
+    updatedAt: now,
     deviceId: getDeviceId(),
   };
   const event: SyncEvent = {
     id: makeId("evt"),
-    type: "relation.created",
-    payload: relation,
-    deviceId: relation.deviceId,
-    createdAt: relation.createdAt,
+    type: "questionGroup.saved",
+    payload: group,
+    deviceId: group.deviceId,
+    createdAt: group.updatedAt,
     synced: 0,
   };
-  await db.transaction("rw", db.relations, db.events, async () => {
-    await db.relations.put(relation);
+  await db.transaction("rw", db.questionGroups, db.events, async () => {
+    await db.questionGroups.put(group);
     await db.events.put(event);
   });
-  return relation;
+  return group;
 }
 
-export async function deleteRelation(relationId: string) {
+export async function deleteQuestionGroup(groupId: string) {
   const createdAt = new Date().toISOString();
   const event: SyncEvent = {
     id: makeId("evt"),
-    type: "relation.deleted",
-    payload: { id: relationId },
+    type: "questionGroup.deleted",
+    payload: { id: groupId },
     deviceId: getDeviceId(),
     createdAt,
     synced: 0,
   };
-  await db.transaction("rw", db.relations, db.events, async () => {
-    await db.relations.delete(relationId);
+  await db.transaction("rw", db.questionGroups, db.events, async () => {
+    await db.questionGroups.delete(groupId);
     await db.events.put(event);
   });
 }
@@ -307,13 +421,18 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
     db.questions,
     db.attempts,
     db.notes,
-    db.relations,
+    db.practiceRuns,
+    db.questionGroups,
     db.events,
     async () => {
       for (const event of events) {
         if (await db.events.get(event.id)) continue;
         if (event.type === "bank.imported") {
           const payload = event.payload as { bank: Bank; questions: Question[] };
+          if (!/^送电线路工-(初级工|中级工|高级工|技师)$/.test(payload.bank.name)) {
+            await db.events.put({ ...event, synced: 1 });
+            continue;
+          }
           await db.banks.put(payload.bank);
           const merged: Question[] = [];
           for (const remoteQuestion of payload.questions) {
@@ -323,15 +442,26 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           }
           await db.questions.bulkPut(merged);
         } else if (event.type === "attempt.created") {
-          await db.attempts.put(event.payload as Attempt);
+          const incoming = event.payload as Attempt;
+          if (await db.questions.get(incoming.questionId)) await db.attempts.put(incoming);
         } else if (event.type === "note.upserted") {
           const incoming = event.payload as Note;
           const current = await db.notes.get(incoming.questionId);
           if (!current || incoming.updatedAt > current.updatedAt) await db.notes.put(incoming);
-        } else if (event.type === "relation.created") {
-          await db.relations.put(event.payload as Relation);
-        } else if (event.type === "relation.deleted") {
-          await db.relations.delete((event.payload as { id: string }).id);
+        } else if (event.type === "practice.run.saved") {
+          const incoming = event.payload as PracticeRun;
+          const current = await db.practiceRuns.get(incoming.id);
+          if (!current || incoming.revision >= current.revision) await db.practiceRuns.put(incoming);
+        } else if (event.type === "questionGroup.saved") {
+          const incoming = event.payload as QuestionGroup;
+          const items = [];
+          for (const item of incoming.items) if (await db.questions.get(item.questionId)) items.push(item);
+          if (items.length) {
+            const current = await db.questionGroups.get(incoming.id);
+            if (!current || incoming.updatedAt >= current.updatedAt) await db.questionGroups.put({ ...incoming, items });
+          }
+        } else if (event.type === "questionGroup.deleted") {
+          await db.questionGroups.delete((event.payload as { id: string }).id);
         } else if (event.type === "question.updated") {
           const incoming = event.payload as Question;
           const current = await db.questions.get(incoming.id);

@@ -60,7 +60,7 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string) {
 
   const remoteEventFiles = tree.tree.filter(
     (entry) => entry.type === "blob" && /^events\/.+\.json$/.test(entry.path),
-  );
+  ).sort((a, b) => Number(!a.path.startsWith("events/seed/")) - Number(!b.path.startsWith("events/seed/")) || a.path.localeCompare(b.path));
   let pulled = 0;
   for (const entry of remoteEventFiles) {
     const seen = await db.syncFiles.get(entry.path);

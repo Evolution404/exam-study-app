@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Target, X,
 } from "lucide-react";
-import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { clearLegacyGeneratedTags, clearPracticeSession, db, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-sync";
 import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
@@ -16,9 +16,10 @@ import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
 import { SearchView, type SearchPracticeOptions } from "@/app/search-view";
 import { BankLibraryView, type BankQuickMode } from "@/app/bank-library-view";
 import { KnowledgeView } from "@/app/knowledge-view";
+import { PracticeHistory, PracticeRunResult } from "@/app/practice-history";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
-type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice";
+type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
 
 interface PracticePreferences {
   autoNextCorrect: boolean;
@@ -147,11 +148,13 @@ export function StudyApp() {
   const [query, setQuery] = useState("");
   const [searchQuestionId, setSearchQuestionId] = useState<string>();
   const [searchRevision, setSearchRevision] = useState(0);
-  const [relationQuestionId, setRelationQuestionId] = useState<string>();
+  const [groupQuestionIds, setGroupQuestionIds] = useState<string[]>([]);
   const [practiceSession, setPracticeSession] = useState<PracticeSession | null>(null);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const [preferences, setPreferences] = useState<PracticePreferences>(loadPreferences);
   const [discardedSession, setDiscardedSession] = useState<PracticeSession | null>(null);
+  const [practiceHubTab, setPracticeHubTab] = useState<"start" | "history">("start");
+  const [resultRunId, setResultRunId] = useState<string>();
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
@@ -210,6 +213,7 @@ export function StudyApp() {
     if (!savedSession) return;
     setDiscardedSession(savedSession);
     await clearPracticeSession();
+    await setPracticeRunStatus(savedSession.runId, "abandoned", savedSession.answers);
     setPracticeSession(null);
     setNotice("已放弃上次练习");
   }
@@ -318,14 +322,16 @@ export function StudyApp() {
       updatedAt: now,
       revision: 1,
     };
+    if (savedSession && savedSession.runId !== session.runId) await setPracticeRunStatus(savedSession.runId, "abandoned", savedSession.answers);
     await savePracticeSession(session);
     setPracticeSession(session);
     setView("practice");
   }
 
   async function startSearchPractice({ questions, label, shuffleOptions }: SearchPracticeOptions, questionId?: string) {
-    const practiceBanks = banks.filter((bank) => questions.some((question) => question.bankId === bank.id));
-    if (!questions.length || !practiceBanks.length) return;
+    const orderedQuestions = TYPE_ORDER.flatMap((type) => questions.filter((question) => question.type === type));
+    const practiceBanks = banks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));
+    if (!orderedQuestions.length || !practiceBanks.length) return;
     const now = new Date().toISOString();
     const session: PracticeSession = {
       id: "active",
@@ -335,12 +341,12 @@ export function StudyApp() {
       bankName: practiceBanks.length === 1 ? practiceBanks[0].name : `${practiceBanks.length} 个题库组合`,
       mode: "advanced",
       modeLabel: label,
-      questionIds: questions.map((question) => question.id),
-      questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
-      currentIndex: Math.max(0, questions.findIndex((question) => question.id === questionId)),
+      questionIds: orderedQuestions.map((question) => question.id),
+      questionTypes: Object.fromEntries(orderedQuestions.map((question) => [question.id, question.type])),
+      currentIndex: Math.max(0, orderedQuestions.findIndex((question) => question.id === questionId)),
       answers: {},
       shuffleOptions,
-      optionOrders: shuffleOptions ? Object.fromEntries(questions.map((question) => [
+      optionOrders: shuffleOptions ? Object.fromEntries(orderedQuestions.map((question) => [
         question.id,
         question.type === "判断"
           ? question.options.map((_, index) => index)
@@ -350,6 +356,7 @@ export function StudyApp() {
       updatedAt: now,
       revision: 1,
     };
+    if (savedSession && savedSession.runId !== session.runId) await setPracticeRunStatus(savedSession.runId, "abandoned", savedSession.answers);
     await savePracticeSession(session);
     setPracticeSession(session);
     setView("practice");
@@ -401,14 +408,21 @@ export function StudyApp() {
     if (!practiceSession) return;
     const nextIndex = practiceSession.currentIndex + offset;
     if (nextIndex >= practiceSession.questionIds.length) {
-      void clearPracticeSession();
-      setPracticeSession(null);
-      setNotice("本次练习已完成");
-      setView("home");
+      setNotice("已到最后一题，可以回顾或查看本次结果");
       return;
     }
     if (nextIndex < 0) return;
     changeSession((session) => ({ ...session, currentIndex: nextIndex }));
+  }
+
+  async function finishPractice() {
+    if (!practiceSession) return;
+    const answered = Object.values(practiceSession.answers).filter((answer) => answer.submitted).length;
+    if (answered < practiceSession.questionIds.length && !window.confirm(`还有 ${practiceSession.questionIds.length - answered} 道题未作答，仍然结束并查看结果吗？`)) return;
+    await setPracticeRunStatus(practiceSession.runId, "completed", practiceSession.answers);
+    await clearPracticeSession();
+    setResultRunId(practiceSession.runId);
+    setView("practiceResult");
   }
 
   function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
@@ -436,7 +450,7 @@ export function StudyApp() {
         <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "nav-active" : ""} onClick={() => { if (id === "relations") setRelationQuestionId(undefined); setView(id); setSidebarOpen(false); }}>
+            <button key={id} className={view === id ? "nav-active" : ""} onClick={() => { if (id === "relations") setGroupQuestionIds([]); setView(id); setSidebarOpen(false); }}>
               <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
             </button>
           ))}
@@ -461,13 +475,14 @@ export function StudyApp() {
         <div className="content">
           {view === "home" && <Dashboard stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BankLibraryView banks={banks} selectedBankIds={activeBankIds} wrongRemovalStreak={preferences.wrongRemovalStreak} onToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={(bankId, mode) => void startPractice(quickFilter([bankId], mode))} onAdvanced={(bankId) => { selectBanks([bankId]); setView("practiceSetup"); }} />}
-          {view === "practiceSetup" && <PracticeSetupView banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} />}
-          {view === "relations" && <KnowledgeView initialQuestionId={relationQuestionId} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential"), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
+          {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential"), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
-          {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} hasActiveSession={Boolean(savedSession)} onStart={(options) => startSearchPractice(options)} onRelate={(questionId) => { setRelationQuestionId(questionId); setView("relations"); }} onNotice={setNotice} />}
+          {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} hasActiveSession={Boolean(savedSession)} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
+          {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
           {view === "practice" && practiceSession && activeQuestion && (
-            <Practice key={activeQuestion.id} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} />
+            <Practice key={activeQuestion.id} runId={practiceSession.runId} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />
           )}
         </div>
       </section>
@@ -609,7 +624,7 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
   </>;
 }
 
-function Practice({ question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onEdit, onPrevious, onNext, onExit }: { question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onExit: () => void }) {
+function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onEdit, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const [autoAdvancing, setAutoAdvancing] = useState(false);
@@ -631,6 +646,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
   const correct = submitted && selectedAnswer === [...question.answer].sort().join("");
   const gaveUp = submitted && selected.length === 0;
   const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
+  const isLast = index === total - 1;
 
   useEffect(() => () => {
     window.clearTimeout(autoNextTimer.current);
@@ -646,7 +662,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
         event.preventDefault();
         window.clearTimeout(autoNextTimer.current);
         onPrevious();
-      } else if (event.key === "ArrowRight") {
+      } else if (event.key === "ArrowRight" && !isLast) {
         event.preventDefault();
         window.clearTimeout(autoNextTimer.current);
         onNext();
@@ -654,7 +670,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [editing, overviewOpen, index, onNext, onPrevious]);
+  }, [editing, overviewOpen, index, isLast, onNext, onPrevious]);
 
   async function choose(letter: string) {
     if (submitted) return;
@@ -676,14 +692,14 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     const value = [...valueList].sort().join("");
     const isCorrect = value === [...question.answer].sort().join("");
     try {
-      await recordAttempt({ questionId: question.id, bankId: question.bankId, selected: value, correct: isCorrect, elapsedMs: Date.now() - startedAt });
+      await recordAttempt({ runId, questionId: question.id, bankId: question.bankId, selected: value, correct: isCorrect, elapsedMs: Date.now() - startedAt });
     } catch {
       answering.current = false;
       return;
     }
     setSubmitted(true);
     onStateChange({ selected: valueList, submitted: true, correct: isCorrect });
-    if (isCorrect && preferences.autoNextCorrect) {
+    if (isCorrect && preferences.autoNextCorrect && !isLast) {
       setAutoAdvancing(true);
       autoNextTimer.current = window.setTimeout(onNext, 650);
     }
@@ -693,7 +709,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     if (submitted || answering.current) return;
     answering.current = true;
     try {
-      await recordAttempt({ questionId: question.id, bankId: question.bankId, selected: "", correct: false, elapsedMs: Date.now() - startedAt });
+      await recordAttempt({ runId, questionId: question.id, bankId: question.bankId, selected: "", correct: false, elapsedMs: Date.now() - startedAt });
     } catch {
       answering.current = false;
       return;
@@ -745,7 +761,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     touchStart.current = null;
     if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return;
     window.clearTimeout(autoNextTimer.current);
-    if (dx < 0) onNext();
+    if (dx < 0 && !isLast) onNext();
     else if (index > 0) onPrevious();
   }
 
@@ -753,7 +769,7 @@ function Practice({ question, initialState, optionOrder, questionIds, questionTy
     <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className="difficulty-chip">难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1>{question.stem}</h1><div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
       {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜{answerText(question, displayOrder)}</p> : <p>正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyLabel(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
-    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={onNext}>{submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
+    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
     <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside></div>{overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
 }
 

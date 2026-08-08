@@ -49,6 +49,28 @@ export interface PracticeSession {
   revision: number;
 }
 
+export type PracticeRunStatus = "in_progress" | "completed" | "abandoned";
+
+export interface PracticeRun {
+  id: string;
+  bankId: string;
+  bankIds: string[];
+  bankName: string;
+  mode: PracticeMode;
+  modeLabel: string;
+  questionIds: string[];
+  questionTypes: Record<string, QuestionType>;
+  answers: Record<string, PracticeAnswerState>;
+  shuffleOptions: boolean;
+  optionOrders: Record<string, number[]>;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  abandonedAt?: string;
+  status: PracticeRunStatus;
+  revision: number;
+}
+
 export interface PracticeFilter {
   bankIds: string[];
   mode: PracticeMode;
@@ -72,6 +94,7 @@ export interface PracticeFilter {
 
 export interface Attempt {
   id: string;
+  runId: string;
   questionId: string;
   bankId: string;
   selected: string;
@@ -89,18 +112,27 @@ export interface Note {
   deviceId: string;
 }
 
-export interface Relation {
+export type QuestionGroupType = "易混" | "相似" | "前置" | "重复" | "专题" | "自定义";
+
+export interface QuestionGroupItem {
+  questionId: string;
+  note: string;
+}
+
+export interface QuestionGroup {
   id: string;
-  fromQuestionId: string;
-  toQuestionId: string;
-  type: "易混" | "相似" | "前置" | "重复";
+  name: string;
+  type: QuestionGroupType;
+  description: string;
+  items: QuestionGroupItem[];
   createdAt: string;
+  updatedAt: string;
   deviceId: string;
 }
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "attempt.created" | "note.upserted" | "relation.created" | "relation.deleted" | "question.updated";
+  type: "bank.imported" | "attempt.created" | "note.upserted" | "question.updated" | "practice.run.saved" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
   createdAt: string;

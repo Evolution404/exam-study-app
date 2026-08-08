@@ -22,11 +22,12 @@ function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));
 }
 
-export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart }: {
+export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false }: {
   banks: Bank[];
   currentBankIds: string[];
   onBankChange: (bankIds: string[]) => void;
   onStart: (filter: PracticeFilter) => void;
+  hideHeading?: boolean;
 }) {
   const [bankIds, setBankIds] = useState(currentBankIds);
   const [mode, setMode] = useState<PracticeMode>("sequential");
@@ -110,7 +111,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const dateError = lastAttemptFrom && lastAttemptTo && lastAttemptFrom > lastAttemptTo ? "开始日期不能晚于结束日期" : "";
   const disabled = !bankIds.length || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && (!types.length || Boolean(regexError) || Boolean(metricError) || Boolean(dateError)));
   return <>
-    <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>
+    {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>}
     <section className="practice-setup-card">
       <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
       <div className="mode-grid">{modes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{title}</strong><small>{detail}</small></button>)}</div>
