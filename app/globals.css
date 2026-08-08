@@ -134,6 +134,7 @@ button { color:inherit; }
 .search-detail-body li>.math-text,.search-detail-body li.answer>.math-text { width:auto; height:auto; min-width:0; flex:1; display:block; place-items:initial; border-radius:0; color:inherit; background:transparent; font-weight:400; }
 .history-filters button { align-items:center; }
 .history-filters button span { min-width:22px; height:22px; padding:0 6px; flex:none; display:inline-grid; place-items:center; line-height:1; }
+.quick-sync { min-width:94px; justify-content:center; font-weight:700; }.quick-sync:disabled { opacity:.72; cursor:wait; }.quick-sync.syncing { color:#315f47; background:#e3eee7; }
 
 @media(max-width:760px){.select-preference,.goal-preference{align-items:flex-start;flex-direction:column}.select-preference select{width:100%}.goal-preference>span{width:100%;display:grid;grid-template-columns:1fr 1fr}.goal-preference>span label{min-width:0}.practice-actions.submitted .retry-question{grid-column:1 / -1;grid-row:1}.practice-actions.submitted .retry-question~.practice-next{grid-row:2}.practice-actions.submitted:has(.retry-question) .practice-previous{grid-row:2}.search-home-query{padding-left:13px}.search-home-query .search-filter-toggle{font-size:0;padding:9px}.latex-formula.block{text-align:left}}
 

@@ -218,6 +218,7 @@ export function StudyApp() {
   const [discardedSession, setDiscardedSession] = useState<PracticeSession | null>(null);
   const [practiceHubTab, setPracticeHubTab] = useState<"start" | "history">("start");
   const [resultRunId, setResultRunId] = useState<string>();
+  const [quickSyncing, setQuickSyncing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
@@ -296,6 +297,33 @@ export function StudyApp() {
   function updatePreferences(value: PracticePreferences) {
     setPreferences(value);
     localStorage.setItem("practice-preferences", JSON.stringify(value));
+  }
+
+  async function quickSync() {
+    if (quickSyncing) return;
+    const token = sessionStorage.getItem("github-token") ?? "";
+    let settings: GitHubSettings;
+    try {
+      settings = JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings;
+    } catch {
+      settings = { owner: "", repo: "exam-study-vault", branch: "main" };
+    }
+    if (!settings.repo || !token) {
+      setNotice("请先在同步页面填写 GitHub 令牌");
+      setView("settings");
+      return;
+    }
+    try {
+      setQuickSyncing(true);
+      const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
+      localStorage.setItem("github-settings", JSON.stringify(resolved));
+      const result = await syncWithGitHub(resolved, token);
+      setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
+    } finally {
+      setQuickSyncing(false);
+    }
   }
 
   async function startPractice(filter: PracticeFilter) {
@@ -541,7 +569,7 @@ export function StudyApp() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <div className="searchbox"><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => setQuery("")}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
-          <button className="sync-pill" onClick={() => setView("settings")}><Cloud size={16} />{stats.pending ? `待同步 ${stats.pending}` : "已保存"}</button>
+          <button className={`sync-pill quick-sync ${quickSyncing ? "syncing" : ""}`} disabled={quickSyncing} aria-label="立即与 GitHub 同步" onClick={() => void quickSync()}>{quickSyncing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{quickSyncing ? "同步中…" : stats.pending ? `同步 ${stats.pending}` : "立即同步"}</button>
         </header>
 
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
