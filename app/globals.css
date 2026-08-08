@@ -167,3 +167,28 @@ button { color:inherit; }
 @media(max-width:1050px){.bank-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bank-dashboard-grid{grid-template-columns:1fr}.bank-performance-grid,.bank-activity-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.question-manager>header{grid-template-columns:minmax(0,1fr) 150px 100px}.question-manager>header .primary{grid-column:1/-1;justify-content:center}}
 @media(max-width:760px){.bank-profile-strip{grid-template-columns:auto minmax(0,1fr)}.bank-profile-strip>span:last-child{grid-column:2;width:max-content}.bank-progress-hero{padding:20px;grid-template-columns:auto minmax(0,1fr);gap:17px}.bank-progress-ring{width:94px;height:94px}.bank-progress-ring>span{width:70px;height:70px}.bank-progress-ring strong{font-size:22px}.bank-progress-copy h2{font-size:18px}.bank-progress-side{grid-column:1/-1;padding:13px 0 0;border-left:0;border-top:1px solid #ffffff26}.bank-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bank-kpi{min-height:94px;padding:10px}.bank-performance-grid,.bank-activity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bank-tag-table>div{grid-template-columns:minmax(0,1fr) 48px 58px 58px}.bank-run-summary{margin:0 0 12px;flex-wrap:wrap}.bank-recent-runs button{grid-template-columns:auto minmax(0,1fr) auto}.bank-recent-runs>button>span:nth-child(3),.bank-recent-runs>button>strong{grid-row:2;grid-column:2}.bank-recent-runs>button>strong{grid-column:3}.bank-recent-runs>button>svg{grid-column:3;grid-row:1}.bank-profile-details{grid-template-columns:repeat(2,minmax(0,1fr))}.question-manager>header{grid-template-columns:1fr 1fr}.question-manager>header .question-manager-search,.question-manager>header .primary{grid-column:1/-1}}
 @media(max-width:430px){.bank-progress-hero{grid-template-columns:1fr}.bank-progress-ring{justify-self:center}.bank-kpi-grid{grid-template-columns:1fr}.bank-kpi{min-height:86px}.bank-priority-grid{grid-template-columns:1fr}.bank-priority-grid button.wide{grid-column:auto}.bank-profile-details{grid-template-columns:1fr}.bank-tag-table>div{padding:8px;grid-template-columns:minmax(0,1fr) 38px 48px 48px}.question-manager>header{grid-template-columns:1fr}.question-manager>header .question-manager-search,.question-manager>header .primary{grid-column:auto}}
+
+/* Native-like mobile shell */
+@media(max-width:760px){
+  html,body,#root{width:100%;height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
+  body{position:fixed;inset:0;touch-action:pan-y}
+  button,a{-webkit-tap-highlight-color:transparent}
+  .app-shell{width:100%;height:100vh;height:100dvh;min-height:0;overflow:hidden}
+  .workspace{width:100%;height:100%;min-height:0;margin-left:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;overscroll-behavior-y:none;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .workspace::-webkit-scrollbar{display:none}
+  .topbar{height:calc(67px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 16px 0;flex:none}
+  .content{min-height:calc(100% - 67px - env(safe-area-inset-top));padding-bottom:calc(60px + env(safe-area-inset-bottom))}
+  .sidebar{height:100%;padding-top:calc(29px + env(safe-area-inset-top));padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+  .toast{top:calc(76px + env(safe-area-inset-top))}
+  .pull-refresh{top:calc(7px + env(safe-area-inset-top));will-change:transform,opacity;transition:transform .2s cubic-bezier(.2,.8,.2,1),opacity .15s}
+  .pull-refresh.pulling{transition:none}
+  .pull-refresh.ready{border-color:#7fa18d;color:#fff;background:#35694f}
+  .practice-content{padding-bottom:calc(138px + env(safe-area-inset-bottom))}
+  .practice-content .question-card{overflow:hidden}
+  .practice-content .practice-head{border-radius:19px 19px 0 0;background:#faf9f5}
+  .practice-content .practice-actions{position:fixed;left:18px;right:18px;bottom:0;z-index:15;padding-bottom:calc(13px + env(safe-area-inset-bottom));border:1px solid #dedbd2;border-bottom:0;border-radius:16px 16px 0 0;background:#faf9f5ed;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -12px 30px #182a201c}
+  .options button:active,.practice-actions button:active,.topbar button:active{transform:scale(.985)}
+  .question-overview{max-height:calc(100dvh - env(safe-area-inset-top));padding-bottom:env(safe-area-inset-bottom)}
+  .overview-groups,.search-detail-body,.editor-body{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+}
+@media(max-width:390px){.practice-content .practice-actions{left:14px;right:14px}}

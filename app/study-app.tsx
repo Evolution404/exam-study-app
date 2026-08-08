@@ -581,7 +581,7 @@ export function StudyApp() {
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
-        <div className="content">
+        <div className={`content ${view === "practice" ? "practice-content" : ""}`}>
           {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={resumePractice} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={() => void resumePractice()} />}</>}
@@ -632,28 +632,44 @@ function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string;
 function PullToRefresh() {
   const [distance, setDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const start = useRef<{ x: number; y: number } | null>(null);
   const currentDistance = useRef(0);
 
   useEffect(() => {
+    const scroller = document.querySelector<HTMLElement>(".workspace");
+    if (!scroller) return;
+    const reset = () => {
+      start.current = null;
+      currentDistance.current = 0;
+      setPulling(false);
+      setDistance(0);
+    };
     const onStart = (event: TouchEvent) => {
-      if (window.scrollY > 0 || event.touches.length !== 1) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (refreshing || scroller.scrollTop > 0 || event.touches.length !== 1 || target?.closest("button, a, input, textarea, select, [role='dialog'], [data-no-pull-refresh], .search-results, .editor-backdrop, .overview-backdrop, .search-detail-backdrop, .simple-dialog-backdrop")) return;
       start.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
     };
     const onMove = (event: TouchEvent) => {
-      if (!start.current || window.scrollY > 0) return;
+      if (!start.current || scroller.scrollTop > 0) return;
       const dx = event.touches[0].clientX - start.current.x;
       const dy = event.touches[0].clientY - start.current.y;
-      if (dy <= 0 || Math.abs(dx) >= dy) return;
-      const next = Math.min(110, dy * .48);
+      if (dy <= 0 || Math.abs(dx) >= dy) {
+        if (Math.abs(dx) > 10 || dy < -4) reset();
+        return;
+      }
+      if (dy < 12) return;
+      event.preventDefault();
+      const next = Math.min(104, (dy - 12) * .42);
       currentDistance.current = next;
+      setPulling(true);
       setDistance(next);
     };
     const onEnd = async () => {
       start.current = null;
-      if (currentDistance.current < 72 || refreshing) {
-        currentDistance.current = 0;
-        setDistance(0);
+      setPulling(false);
+      if (currentDistance.current < 64 || refreshing) {
+        reset();
         return;
       }
       setRefreshing(true);
@@ -669,17 +685,19 @@ function PullToRefresh() {
         window.location.reload();
       }
     };
-    document.addEventListener("touchstart", onStart, { passive: true });
-    document.addEventListener("touchmove", onMove, { passive: true });
-    document.addEventListener("touchend", onEnd, { passive: true });
+    scroller.addEventListener("touchstart", onStart, { passive: true });
+    scroller.addEventListener("touchmove", onMove, { passive: false });
+    scroller.addEventListener("touchend", onEnd, { passive: true });
+    scroller.addEventListener("touchcancel", reset, { passive: true });
     return () => {
-      document.removeEventListener("touchstart", onStart);
-      document.removeEventListener("touchmove", onMove);
-      document.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("touchstart", onStart);
+      scroller.removeEventListener("touchmove", onMove);
+      scroller.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("touchcancel", reset);
     };
   }, [refreshing]);
 
-  return <div className={`pull-refresh ${refreshing ? "refreshing" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 72 ? "松开刷新" : "下拉刷新"}</span></div>;
+  return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
 function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
