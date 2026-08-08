@@ -19,12 +19,14 @@ interface PracticePreferences {
   autoNextCorrect: boolean;
   showAnswerOnWrong: boolean;
   swipeNavigation: boolean;
+  shuffleOptions: boolean;
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
   autoNextCorrect: true,
   showAnswerOnWrong: true,
   swipeNavigation: true,
+  shuffleOptions: false,
 };
 
 function loadPreferences() {
@@ -36,10 +38,23 @@ function loadPreferences() {
   }
 }
 
-function answerText(question: Question) {
+function displayedAnswer(question: Question, optionOrder: number[]) {
   return question.answer
     .split("")
-    .map((letter) => `${letter}. ${question.options[letter.charCodeAt(0) - 65] ?? ""}`)
+    .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
+    .filter((index) => index >= 0)
+    .map((index) => String.fromCharCode(65 + index))
+    .sort()
+    .join("");
+}
+
+function answerText(question: Question, optionOrder: number[]) {
+  return question.answer
+    .split("")
+    .map((letter) => letter.charCodeAt(0) - 65)
+    .map((originalIndex) => ({ originalIndex, displayIndex: optionOrder.indexOf(originalIndex) }))
+    .sort((a, b) => a.displayIndex - b.displayIndex)
+    .map(({ originalIndex, displayIndex }) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`)
     .join("；");
 }
 
@@ -174,6 +189,13 @@ export function StudyApp() {
       questionIds: questions.map((question) => question.id),
       currentIndex: 0,
       answers: {},
+      shuffleOptions: preferences.shuffleOptions,
+      optionOrders: preferences.shuffleOptions ? Object.fromEntries(questions.map((question) => [
+        question.id,
+        question.type === "判断"
+          ? question.options.map((_, index) => index)
+          : shuffle(question.options.map((_, index) => index)),
+      ])) : {},
       startedAt: now,
       updatedAt: now,
       revision: 1,
@@ -265,7 +287,7 @@ export function StudyApp() {
           {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
           {view === "practice" && practiceSession && activeQuestion && (
-            <Practice key={activeQuestion.id} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} />
+            <Practice key={activeQuestion.id} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} />
           )}
         </div>
       </section>
@@ -346,6 +368,7 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选择正确答案后自动前进；多选题仍需确认。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
     { key: "swipeNavigation", title: "左右滑动切换题目", detail: "向左滑进入下一题，向右滑返回上一题。" },
+    { key: "shuffleOptions", title: "随机排列选项", detail: "仅随机单选题和多选题；判断题始终保持“正确、错误”。" },
   ];
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
     <section className="preference-card"><div className="settings-title"><span><Settings2 /></span><div><h2>答题交互</h2><p>根据自己的背题节奏随时调整。</p></div></div>
@@ -355,7 +378,7 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
   </>;
 }
 
-function Practice({ question, initialState, index, total, modeLabel, preferences, onStateChange, onEdit, onPrevious, onNext, onExit }: { question: Question; initialState?: PracticeAnswerState; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onExit: () => void }) {
+function Practice({ question, initialState, optionOrder, index, total, modeLabel, preferences, onStateChange, onEdit, onPrevious, onNext, onExit }: { question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const [autoAdvancing, setAutoAdvancing] = useState(false);
@@ -367,6 +390,8 @@ function Practice({ question, initialState, index, total, modeLabel, preferences
   const answering = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const effectiveDraft = draft ?? note?.content ?? "";
+  const displayOrder = optionOrder?.length === question.options.length ? optionOrder : question.options.map((_, optionIndex) => optionIndex);
+  const displayAnswer = displayedAnswer(question, displayOrder);
   const selectedAnswer = [...selected].sort().join("");
   const correct = submitted && selectedAnswer === [...question.answer].sort().join("");
   const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
@@ -419,8 +444,8 @@ function Practice({ question, initialState, index, total, modeLabel, preferences
   }
 
   return <><div className="practice-layout"><section className="question-card" onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }} onTouchEnd={handleTouchEnd}><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><span className="type-chip">{question.type}</span></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1>{question.stem}</h1><div className="options">{question.options.map((option, optionIndex) => { const letter = String.fromCharCode(65 + optionIndex); const isAnswer = revealAnswer && question.answer.includes(letter); const isWrong = submitted && selected.includes(letter) && !question.answer.includes(letter); return <button key={letter} className={`${selected.includes(letter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(letter)}><span>{letter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
-      {submitted && <div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{question.answer}｜{answerText(question)}</p> : <p>正确答案已按配置隐藏。</p>}</div>}
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1>{question.stem}</h1><div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p>{option}</p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
+      {submitted && <div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜{answerText(question, displayOrder)}</p> : <p>正确答案已按配置隐藏。</p>}</div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
     </div><div className="practice-actions"><button className="secondary-action" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{autoAdvancing ? <span className="answer-action-hint">正在自动前进…</span> : <button className={submitted ? "primary" : "secondary-action"} onClick={onNext}>{submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
     <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside></div>{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;

@@ -39,6 +39,8 @@ export interface PracticeSession {
   questionIds: string[];
   currentIndex: number;
   answers: Record<string, PracticeAnswerState>;
+  shuffleOptions?: boolean;
+  optionOrders?: Record<string, number[]>;
   startedAt: string;
   updatedAt: string;
   revision: number;
