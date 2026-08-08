@@ -966,7 +966,8 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   const autoNextTimer = useRef<number | undefined>(undefined);
   const copyStatusTimer = useRef<number | undefined>(undefined);
   const answering = useRef(false);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const questionCardRef = useRef<HTMLElement>(null);
+  const swipeGesture = useRef<{ startX: number; startY: number; lastX: number; lastY: number; startScrollTop: number; axis: "pending" | "horizontal" | "vertical" } | null>(null);
   const effectiveDraft = draft ?? note?.content ?? "";
   const displayOrder = optionOrder?.length === question.options.length ? optionOrder : question.options.map((_, optionIndex) => optionIndex);
   const displayAnswer = displayedAnswer(question, displayOrder);
@@ -999,6 +1000,70 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [editing, overviewOpen, index, isLast, onNext, onPrevious]);
+
+  useEffect(() => {
+    const card = questionCardRef.current;
+    if (!card || !preferences.swipeNavigation) return;
+    const interactiveSelector = "input, textarea, select, a, [contenteditable='true'], .practice-head button, .question-meta button, .practice-actions button";
+    const resetGesture = () => { swipeGesture.current = null; };
+    const onTouchStart = (event: TouchEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.touches.length !== 1 || target?.closest(interactiveSelector)) {
+        resetGesture();
+        return;
+      }
+      const touch = event.touches[0];
+      const workspace = card.closest<HTMLElement>(".workspace");
+      swipeGesture.current = { startX: touch.clientX, startY: touch.clientY, lastX: touch.clientX, lastY: touch.clientY, startScrollTop: workspace?.scrollTop ?? 0, axis: "pending" };
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const gesture = swipeGesture.current;
+      if (!gesture || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      gesture.lastX = touch.clientX;
+      gesture.lastY = touch.clientY;
+      const dx = touch.clientX - gesture.startX;
+      const dy = touch.clientY - gesture.startY;
+      const horizontalDistance = Math.abs(dx);
+      const verticalDistance = Math.abs(dy);
+      if (gesture.axis === "pending") {
+        if (Math.hypot(dx, dy) < 10) return;
+        if (horizontalDistance > verticalDistance * 1.35) gesture.axis = "horizontal";
+        else if (verticalDistance > horizontalDistance * 1.1) gesture.axis = "vertical";
+        else return;
+      }
+      if (gesture.axis !== "horizontal") return;
+      if (event.cancelable) event.preventDefault();
+      const workspace = card.closest<HTMLElement>(".workspace");
+      if (workspace && workspace.scrollTop !== gesture.startScrollTop) workspace.scrollTop = gesture.startScrollTop;
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      const gesture = swipeGesture.current;
+      resetGesture();
+      if (!gesture || gesture.axis !== "horizontal") return;
+      const touch = event.changedTouches[0];
+      const dx = (touch?.clientX ?? gesture.lastX) - gesture.startX;
+      const dy = (touch?.clientY ?? gesture.lastY) - gesture.startY;
+      const workspace = card.closest<HTMLElement>(".workspace");
+      if (workspace) workspace.scrollTop = gesture.startScrollTop;
+      if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.35) return;
+      window.clearTimeout(autoNextTimer.current);
+      if (dx < 0 && !isLast) onNext();
+      else if (dx > 0 && index > 0) onPrevious();
+      else return;
+      window.requestAnimationFrame(() => workspace?.scrollTo({ top: 0, behavior: "auto" }));
+    };
+    card.addEventListener("touchstart", onTouchStart, { passive: true });
+    card.addEventListener("touchmove", onTouchMove, { passive: false });
+    card.addEventListener("touchend", onTouchEnd, { passive: true });
+    card.addEventListener("touchcancel", resetGesture, { passive: true });
+    return () => {
+      card.removeEventListener("touchstart", onTouchStart);
+      card.removeEventListener("touchmove", onTouchMove);
+      card.removeEventListener("touchend", onTouchEnd);
+      card.removeEventListener("touchcancel", resetGesture);
+    };
+  }, [index, isLast, onNext, onPrevious, preferences.swipeNavigation]);
 
   async function choose(letter: string) {
     if (submitted) return;
@@ -1092,19 +1157,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     copyStatusTimer.current = window.setTimeout(() => setCopyStatus("idle"), 1800);
   }
 
-  function handleTouchEnd(event: React.TouchEvent) {
-    if (!preferences.swipeNavigation || !touchStart.current) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - touchStart.current.x;
-    const dy = touch.clientY - touchStart.current.y;
-    touchStart.current = null;
-    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return;
-    window.clearTimeout(autoNextTimer.current);
-    if (dx < 0 && !isLast) onNext();
-    else if (index > 0) onPrevious();
-  }
-
-  return <><div className="practice-layout"><section className="question-card" onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }} onTouchEnd={handleTouchEnd}><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
+  return <><div className="practice-layout"><section ref={questionCardRef} className="question-card"><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
     <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className="difficulty-chip">难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1><MathText text={question.stem} /></h1><div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p><MathText text={option} /></p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
       {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜<MathText text={answerText(question, displayOrder)} /></p> : <p>正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyLabel(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
