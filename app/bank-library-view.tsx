@@ -15,7 +15,7 @@ import {
 } from "@/lib/db";
 import type { Bank, BankFolder, Question, QuestionType } from "@/lib/types";
 
-export type BankQuickMode = "random30" | "sequential" | "wrong" | "favorite" | "difficult";
+export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
 function bankTitle(bank: Bank) { return bank.displayName?.trim() || bank.name; }
 function fullDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)); }

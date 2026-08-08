@@ -145,6 +145,7 @@ function playAnswerFeedback(correct: boolean, preferences: PracticePreferences) 
 const modeLabels = {
   random30: "随机一组",
   sequential: "全量顺序练习",
+  randomAll: "全量随机练习",
   wrong: "错题模式",
   favorite: "收藏题模式",
   difficult: "难题优先",
@@ -188,7 +189,7 @@ function quickFilter(bankIds: string[], mode: BankQuickMode = "random30", groupS
     tags: [],
     tagMatch: "any",
     status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : "all",
-    order: mode === "random30" ? "random" : mode === "difficult" ? "difficulty" : "sequential",
+    order: mode === "random30" || mode === "randomAll" ? "random" : mode === "difficult" ? "difficulty" : "sequential",
     limit: mode === "random30" ? groupSize : null,
     keyword: "",
     keywordMode: "plain",

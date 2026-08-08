@@ -39,7 +39,7 @@ export interface Question {
   userUpdatedBy?: string;
 }
 
-export type PracticeMode = "random30" | "sequential" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
+export type PracticeMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 
 export interface PracticeAnswerState {
   selected: string[];

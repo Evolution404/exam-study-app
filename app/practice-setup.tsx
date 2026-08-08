@@ -9,6 +9,7 @@ import type { Bank, PracticeFilter, PracticeMode, QuestionType } from "@/lib/typ
 const baseModes: Array<{ id: PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
   { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle },
   { id: "sequential", title: "全量顺序练习", detail: "按题库原有顺序练完全部题目", icon: ListOrdered },
+  { id: "randomAll", title: "全量随机练习", detail: "练习全部题目，各题型组内随机", icon: Shuffle },
   { id: "wrong", title: "练习错题", detail: "集中练习尚未攻克的错题", icon: RotateCcw },
   { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star },
   { id: "difficult", title: "难题优先", detail: "按动态难度值从高到低练习", icon: Gauge },
@@ -75,7 +76,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
       tags: mode === "tag" || mode === "advanced" ? selectedTags : [],
       tagMatch,
       status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : mode === "advanced" ? status : "all",
-      order: mode === "random30" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
+      order: mode === "random30" || mode === "randomAll" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
       limit: mode === "random30" ? groupSize : mode === "advanced" ? limit : null,
       keyword: mode === "advanced" ? keyword : "",
       keywordMode,
