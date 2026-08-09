@@ -229,6 +229,7 @@ export function StudyApp() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
+  const initialSyncStarted = useRef(false);
 
   useEffect(() => {
     if (!quickSearchOpen) return;
@@ -305,6 +306,28 @@ export function StudyApp() {
   }, [view]);
 
   useEffect(() => { void clearLegacyGeneratedTags(); }, []);
+
+  useEffect(() => {
+    if (initialSyncStarted.current) return;
+    const token = sessionStorage.getItem("github-token") ?? "";
+    let settings: GitHubSettings | undefined;
+    try { settings = JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings; } catch { /* wait for manual setup */ }
+    if (!token || !settings?.repo) return;
+    initialSyncStarted.current = true;
+    void (async () => {
+      try {
+        setQuickSyncing(true);
+        const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
+        localStorage.setItem("github-settings", JSON.stringify(resolved));
+        const result = await syncWithGitHub(resolved, token);
+        setNotice(`已自动同步：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}`);
+      } catch (error) {
+        setNotice(error instanceof Error ? `自动同步失败：${error.message}` : "自动同步失败，可点击右上角重试");
+      } finally {
+        setQuickSyncing(false);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
