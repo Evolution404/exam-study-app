@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, getLastRemoteCache, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
-import { difficultyLabel, difficultyTone, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
+import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
 import { SearchView, type SearchPracticeOptions } from "@/app/search-view";
@@ -301,23 +301,23 @@ export function StudyApp() {
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
   const activeQuestion = useLiveQuery(() => activeQuestionId ? db.questions.get(activeQuestionId) : undefined, [activeQuestionId]);
   const stats = useLiveQuery(async () => {
-    const [questions, attemptRows, pending, notes] = await Promise.all([
-      db.questions.count(), db.attempts.toArray(),
+    const today = calendarDate(new Date());
+    const [questions, attemptStats, todayRows, pending, notes] = await Promise.all([
+      db.questions.count(), db.attemptStats.toArray(), db.attemptDailyStats.where("date").equals(today).toArray(),
       db.events.where("synced").equals(0).count(), db.notes.count(),
     ]);
-    const last = await db.attempts.orderBy("createdAt").last();
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayRows = attemptRows.filter((row) => new Date(row.createdAt).getTime() >= todayStart.getTime());
+    const totals = attemptStats.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
+    const todayTotals = todayRows.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
+    const last = [...attemptStats].sort((a, b) => b.latestAttemptAt.localeCompare(a.latestAttemptAt))[0];
     return {
       questions,
-      attempts: attemptRows.length,
-      correct: attemptRows.filter((row) => row.correct).length,
-      todayAttempts: todayRows.length,
-      todayCorrect: todayRows.filter((row) => row.correct).length,
+      attempts: totals.attempts,
+      correct: totals.correct,
+      todayAttempts: todayTotals.attempts,
+      todayCorrect: todayTotals.correct,
       pending,
       notes,
-      last: last?.createdAt,
+      last: last?.latestAttemptAt,
     };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
 
@@ -505,21 +505,16 @@ export function StudyApp() {
         return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
       });
     }
-    const attempts = (await Promise.all(filter.bankIds.map((bankId) => db.attempts.where("bankId").equals(bankId).toArray()))).flat();
-    const attemptsByQuestion = new Map<string, typeof attempts>();
-    attempts.forEach((attempt) => {
-      const rows = attemptsByQuestion.get(attempt.questionId) ?? [];
-      rows.push(attempt);
-      attemptsByQuestion.set(attempt.questionId, rows);
-    });
-    const attemptStats = new Map([...attemptsByQuestion].map(([questionId, rows]) => [questionId, summarizeAttempts(rows)]));
+    const statsRows = (await Promise.all(filter.bankIds.map((bankId) => db.attemptStats.where("bankId").equals(bankId).toArray()))).flat();
+    const statsByQuestion = new Map(statsRows.map((stats) => [stats.questionId, stats]));
+    const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeAttemptStats(stats)]));
     const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
     const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
     questions = questions.filter((question) => {
-      const rows = attemptsByQuestion.get(question.id) ?? [];
-      const metric = attemptStats.get(question.id) ?? summarizeAttempts([]);
+      const stats = statsByQuestion.get(question.id);
+      const metric = attemptMetrics.get(question.id) ?? summarizeAttemptStats();
       if (filter.status === "unanswered" && metric.total !== 0) return false;
-      if (filter.status === "wrong" && !needsWrongReview(rows, preferences.wrongRemovalStreak)) return false;
+      if (filter.status === "wrong" && !statsNeedWrongReview(stats, preferences.wrongRemovalStreak)) return false;
       if (filter.status === "favorite" && !question.favorite) return false;
       if (filter.totalAttemptsMin !== null && metric.total < filter.totalAttemptsMin) return false;
       if (filter.totalAttemptsMax !== null && metric.total > filter.totalAttemptsMax) return false;
@@ -544,7 +539,7 @@ export function StudyApp() {
     questions = TYPE_ORDER.flatMap((type) => {
       const group = questions.filter((question) => question.type === type);
       if (filter.order === "random") return shuffle(group);
-      if (filter.order === "difficulty") return group.sort((a, b) => (attemptStats.get(b.id)?.difficulty ?? 50) - (attemptStats.get(a.id)?.difficulty ?? 50));
+      if (filter.order === "difficulty") return group.sort((a, b) => (attemptMetrics.get(b.id)?.difficulty ?? 50) - (attemptMetrics.get(a.id)?.difficulty ?? 50));
       return group;
     });
     if (filter.limit && !limitApplied) questions = questions.slice(0, filter.limit);
@@ -1073,7 +1068,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [startedAt] = useState(() => Date.now());
   const note = useLiveQuery(() => db.notes.get(question.id), [question.id]);
-  const attemptSummary = useLiveQuery(async () => summarizeAttempts(await db.attempts.where("questionId").equals(question.id).toArray()), [question.id]) ?? summarizeAttempts([]);
+  const attemptSummary = useLiveQuery(async () => summarizeAttemptStats(await db.attemptStats.get(question.id)), [question.id]) ?? summarizeAttemptStats();
   const [draft, setDraft] = useState<string | null>(null);
   const autoNextTimer = useRef<number | undefined>(undefined);
   const copyStatusTimer = useRef<number | undefined>(undefined);

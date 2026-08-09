@@ -34,10 +34,12 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 
 const db = read("lib/db.ts");
 const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-if (databaseVersions.length !== 1 || databaseVersions[0] !== 6) fail("客户端只能声明当前数据库 v6");
+if (databaseVersions.length !== 1 || databaseVersions[0] !== 7) fail("客户端只能声明当前数据库 v7");
 
 const sync = read("lib/github-sync.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
+if (!/formatVersion:\s*3\b/.test(sync) || !/sync\/v3\/events\//.test(sync)) fail("客户端必须使用同步协议 v3 写入路径");
+if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅支持 DB v6 / Sync v2。`);
+console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅写入 DB v7 / Sync v3。`);

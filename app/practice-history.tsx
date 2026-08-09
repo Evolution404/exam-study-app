@@ -34,13 +34,13 @@ export function LatestPracticeBanner({ onOpen, onContinue, onViewAll }: { onOpen
 function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRun; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
   const stats = runStats(run);
   const [offset, setOffset] = useState(0);
-  const drag = useRef<{ x: number; y: number; offset: number; horizontal: boolean }>();
+  const drag = useRef<{ x: number; y: number; offset: number; horizontal: boolean } | null>(null);
   const suppressClick = useRef(false);
   const finishSwipe = () => {
     if (!drag.current) return;
     setOffset((current) => current < -34 ? -68 : 0);
     suppressClick.current = Math.abs(offset - drag.current.offset) > 5;
-    drag.current = undefined;
+    drag.current = null;
   };
   return <article className={offset < 0 ? "swiped" : ""}>
     <button type="button" className="history-delete-action" aria-label={`删除${run.modeLabel}记录`} title="删除这条练习记录" onClick={() => onDelete(run.id)}><Trash2 size={20} /></button>
@@ -53,7 +53,7 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
         const dx = event.clientX - drag.current.x;
         const dy = event.clientY - drag.current.y;
         if (!drag.current.horizontal && Math.abs(dx) < 7) return;
-        if (!drag.current.horizontal && Math.abs(dy) > Math.abs(dx)) { drag.current = undefined; return; }
+        if (!drag.current.horizontal && Math.abs(dy) > Math.abs(dx)) { drag.current = null; return; }
         drag.current.horizontal = true;
         event.currentTarget.setPointerCapture(event.pointerId);
         setOffset(Math.max(-68, Math.min(0, drag.current.offset + dx)));

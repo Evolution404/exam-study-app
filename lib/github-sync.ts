@@ -1,19 +1,33 @@
 import {
   applyRemoteEvents,
+  applySyncCheckpoint,
   applySyncSnapshot,
+  createSyncCheckpoint,
   createSyncSnapshot,
   db,
   getDeviceId,
+  nextSyncSequence,
   resetLocalDatabase,
+  validateSyncCheckpoint,
   validateSyncSnapshot,
 } from "./db";
-import type { GitHubSettings, SyncEvent, SyncManifestV2, SyncSnapshotV2 } from "./types";
+import type {
+  Attempt, GitHubSettings, PracticeRun, SyncArchiveCatalogV3, SyncArchiveSegmentV3,
+  SyncCheckpointV3, SyncEvent, SyncManifestV2, SyncManifestV3, SyncSnapshotV2,
+} from "./types";
+import { calendarDate } from "./practice-metrics";
 
 const api = "https://api.github.com";
 const manifestPath = "sync/manifest.json";
-const uploadBatchSize = 100;
+const v3EventPrefix = "sync/v3/events/";
+const v3CatalogPath = "sync/v3/archive/catalog.json";
+const uploadBatchSize = 250;
+const uploadByteLimit = 2 * 1024 * 1024;
+const eventPageByteLimit = 256 * 1024;
+const downloadByteLimit = 4 * 1024 * 1024;
 const downloadConcurrency = 4;
-const compactionFileThreshold = 120;
+const compactionFileThreshold = 10;
+const archiveSegmentSize = 500;
 const remoteCachePrefix = "__local_remote_cache__/";
 
 interface TreeEntry {
@@ -29,7 +43,7 @@ interface DownloadedEventFile {
   events: SyncEvent[];
 }
 
-interface RemotePackage {
+interface RemotePackageV2 {
   formatVersion: 2;
   manifest: SyncManifestV2;
   manifestSha: string;
@@ -39,13 +53,24 @@ interface RemotePackage {
   eventFiles: DownloadedEventFile[];
 }
 
+interface RemotePackageV3 {
+  formatVersion: 3;
+  manifest: SyncManifestV3;
+  manifestSha: string;
+  checkpoint?: SyncCheckpointV3;
+  checkpointPath: string;
+  checkpointSha: string;
+  eventFiles: DownloadedEventFile[];
+  deferredEventFiles: number;
+}
+
 function remoteCachePath(settings: GitHubSettings) {
   return `${remoteCachePrefix}${encodeURIComponent(settings.owner)}/${encodeURIComponent(settings.repo)}/${encodeURIComponent(settings.branch || "main")}`;
 }
 
 async function cacheCurrentRemoteState(settings: GitHubSettings) {
-  const snapshot = await createSyncSnapshot();
-  validateSyncSnapshot(snapshot);
+  const snapshot = await createSyncCheckpoint();
+  validateSyncCheckpoint(snapshot);
   const cachedAt = new Date().toISOString();
   const path = remoteCachePath(settings);
   const markers = (await db.syncFiles.toArray())
@@ -70,7 +95,7 @@ async function cacheCurrentRemoteState(settings: GitHubSettings) {
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const cached = (await db.syncFiles.get(remoteCachePath(settings)))?.remoteCache;
   if (!cached) return null;
-  validateSyncSnapshot(cached.snapshot);
+  validateSyncCheckpoint(cached.snapshot);
   return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts };
 }
 
@@ -78,7 +103,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings) {
   const cacheFile = await db.syncFiles.get(remoteCachePath(settings));
   const cached = cacheFile?.remoteCache;
   if (!cacheFile || !cached) throw new Error("本机还没有可恢复的远程缓存，请先成功同步一次。");
-  validateSyncSnapshot(cached.snapshot);
+  validateSyncCheckpoint(cached.snapshot);
   const backup = {
     snapshot: await createSyncSnapshot(),
     sessions: await db.sessions.toArray(),
@@ -86,12 +111,12 @@ export async function restoreLastRemoteCache(settings: GitHubSettings) {
     syncFiles: await db.syncFiles.toArray(),
   };
   try {
-    await applySyncSnapshot(cached.snapshot, true);
+    await applySyncCheckpoint(cached.snapshot);
     await db.syncFiles.bulkPut([
       ...cached.markers,
       cacheFile,
     ]);
-    return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 2 as const };
+    return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 3 as const };
   } catch (error) {
     await resetLocalDatabase();
     await applySyncSnapshot(backup.snapshot, true);
@@ -182,7 +207,106 @@ async function mapConcurrent<T, R>(items: T[], limit: number, worker: (item: T) 
   return results;
 }
 
-async function downloadRemotePackage(settings: GitHubSettings, token: string, onlyUnseen = false): Promise<RemotePackage | null> {
+function validateV3Events(value: unknown, path: string): SyncEvent[] {
+  const events = validateEvents(value, path);
+  if (events.some((event) => !Number.isSafeInteger(event.sequence) || event.sequence < 1)) {
+    throw new Error(`远程 v3 事件文件包含无效设备序号：${path}`);
+  }
+  return events;
+}
+
+async function downloadRemotePackageV3(
+  settings: GitHubSettings,
+  token: string,
+  tree: TreeEntry[],
+  manifestEntry: TreeEntry,
+  onlyUnseen = false,
+): Promise<RemotePackageV3> {
+  const manifestText = await readBlob(settings, token, manifestEntry.sha);
+  const manifest = JSON.parse(manifestText) as SyncManifestV3;
+  if (manifest.formatVersion !== 3 || !manifest.checkpoint?.path || !manifest.checkpoint.sha256
+    || manifest.eventPrefix !== v3EventPrefix || !manifest.archiveCatalog?.path || !manifest.archiveCatalog.sha256) {
+    throw new Error("远程 v3 同步清单格式无效。");
+  }
+  const checkpointEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifest.checkpoint.path);
+  if (!checkpointEntry) throw new Error("远程同步清单指向的 v3 检查点不存在。");
+  let checkpoint: SyncCheckpointV3 | undefined;
+  const seenCheckpoint = onlyUnseen ? await db.syncFiles.get(checkpointEntry.path) : undefined;
+  if (!seenCheckpoint || seenCheckpoint.sha !== checkpointEntry.sha) {
+    const checkpointText = await readBlob(settings, token, checkpointEntry.sha);
+    if (await sha256(checkpointText) !== manifest.checkpoint.sha256) throw new Error("远程 v3 检查点校验失败，已停止同步。");
+    const parsed = JSON.parse(checkpointText) as unknown;
+    validateSyncCheckpoint(parsed);
+    checkpoint = parsed;
+  }
+  const allEventEntries = tree
+    .filter((entry) => entry.type === "blob" && entry.path.startsWith(manifest.eventPrefix) && entry.path.endsWith(".json"))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const unseenEntries: TreeEntry[] = [];
+  for (const entry of allEventEntries) {
+    const seen = onlyUnseen ? await db.syncFiles.get(entry.path) : undefined;
+    if (!seen || seen.sha !== entry.sha) unseenEntries.push(entry);
+  }
+  const wantedEntries: TreeEntry[] = [];
+  let selectedBytes = 0;
+  for (const entry of unseenEntries) {
+    const size = Math.max(1, entry.size ?? eventPageByteLimit);
+    if (wantedEntries.length && selectedBytes + size > downloadByteLimit) break;
+    wantedEntries.push(entry);
+    selectedBytes += size;
+  }
+  const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => ({
+    path: entry.path,
+    sha: entry.sha,
+    events: validateV3Events(JSON.parse(await readBlob(settings, token, entry.sha)), entry.path),
+  }));
+  return {
+    formatVersion: 3,
+    manifest,
+    manifestSha: manifestEntry.sha,
+    checkpoint,
+    checkpointPath: checkpointEntry.path,
+    checkpointSha: checkpointEntry.sha,
+    eventFiles,
+    deferredEventFiles: unseenEntries.length - wantedEntries.length,
+  };
+}
+
+async function applyPackageV3(remote: RemotePackageV3) {
+  let pulled = 0;
+  if (remote.checkpoint) {
+    const [pending, sessions, previousFiles] = await Promise.all([
+      db.events.where("synced").equals(0).toArray(), db.sessions.toArray(), db.syncFiles.toArray(),
+    ]);
+    await applySyncCheckpoint(remote.checkpoint);
+    const replay = pending.filter((event) => event.sequence > (remote.checkpoint!.cursors[event.deviceId] ?? 0));
+    if (replay.length) {
+      await applyRemoteEvents(replay);
+      await db.events.bulkPut(replay.map((event) => ({ ...event, synced: 0 as const })));
+    }
+    for (const session of sessions) {
+      const exists = await db.questions.bulkGet(session.questionIds);
+      if (exists.every(Boolean)) await db.sessions.put(session);
+    }
+    if (previousFiles.length) await db.syncFiles.bulkPut(previousFiles);
+    await db.syncFiles.put({ path: remote.checkpointPath, sha: remote.checkpointSha, appliedAt: new Date().toISOString() });
+    pulled += remote.checkpoint.counts.banks + remote.checkpoint.counts.bankFolders + remote.checkpoint.counts.questions
+      + remote.checkpoint.counts.recentAttempts + remote.checkpoint.counts.notes + remote.checkpoint.counts.recentPracticeRuns
+      + remote.checkpoint.counts.questionGroups + remote.checkpoint.counts.tombstones;
+  }
+  const checkpointCursors = remote.checkpoint?.cursors ?? {};
+  const events = remote.eventFiles.flatMap((file) => file.events)
+    .filter((event) => event.sequence > (checkpointCursors[event.deviceId] ?? 0));
+  if (events.length) await applyRemoteEvents(events);
+  for (const file of remote.eventFiles) {
+    await db.syncFiles.put({ path: file.path, sha: file.sha, appliedAt: new Date().toISOString() });
+    pulled += file.events.length;
+  }
+  await db.syncFiles.put({ path: manifestPath, sha: remote.manifestSha, appliedAt: new Date().toISOString() });
+  return pulled;
+}
+
+async function downloadRemotePackageV2(settings: GitHubSettings, token: string, onlyUnseen = false): Promise<RemotePackageV2 | null> {
   const tree = await getTree(settings, token);
   const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (!manifestEntry) {
@@ -227,31 +351,7 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
 
 }
 
-async function initializeGitHubVault(settings: GitHubSettings, token: string) {
-  const branch = settings.branch || "main";
-  const snapshot = await createSyncSnapshot();
-  const snapshotText = JSON.stringify(snapshot);
-  const snapshotPath = `snapshots/v2/${snapshot.generatedAt.replace(/[:.]/g, "-")}-${crypto.randomUUID()}.json`;
-  const manifest: SyncManifestV2 = {
-    formatVersion: 2,
-    generatedAt: snapshot.generatedAt,
-    snapshot: { path: snapshotPath, sha256: await sha256(snapshotText) },
-    eventPrefix: "events/v2/",
-  };
-  for (const [path, content, message] of [
-    [snapshotPath, snapshotText, "sync: initialize v2 snapshot"],
-    [manifestPath, JSON.stringify(manifest, null, 2), "sync: initialize v2 manifest"],
-  ] as const) {
-    await request(contentUrl(settings, path), token, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, content: encodeBase64(content), branch }),
-    });
-  }
-  return manifest;
-}
-
-async function applyPackage(remote: RemotePackage, replace = false) {
+async function applyPackageV2(remote: RemotePackageV2, replace = false) {
   let pulled = 0;
   if (remote.snapshot) {
     await applySyncSnapshot(remote.snapshot, replace);
@@ -270,39 +370,48 @@ async function applyPackage(remote: RemotePackage, replace = false) {
   return pulled;
 }
 
-async function uploadPendingEvents(settings: GitHubSettings, token: string) {
+function takeEventPage(events: SyncEvent[]) {
+  const page: SyncEvent[] = [];
+  for (const event of events.slice(0, uploadBatchSize)) {
+    const candidate = [...page, event];
+    if (page.length && new TextEncoder().encode(JSON.stringify(candidate)).byteLength > eventPageByteLimit) break;
+    page.push(event);
+  }
+  return page;
+}
+
+async function uploadPendingEventsV3(settings: GitHubSettings, token: string) {
   const branch = settings.branch || "main";
   let pushed = 0;
+  let uploadedBytes = 0;
   for (;;) {
-    const pending = await db.events.where("synced").equals(0).limit(uploadBatchSize).toArray();
+    let pending = await db.events.where("synced").equals(0).limit(uploadBatchSize).toArray();
     if (!pending.length) break;
+    const repaired = pending.map((event) => Number.isSafeInteger(event.sequence) && event.sequence > 0
+      ? event
+      : { ...event, deviceId: event.deviceId || getDeviceId(), sequence: nextSyncSequence(event.deviceId || getDeviceId()) });
+    if (repaired.some((event, index) => event !== pending[index])) {
+      await db.events.bulkPut(repaired);
+      pending = repaired;
+    }
+    const page = takeEventPage(pending);
+    const content = JSON.stringify(page);
+    const bytes = new TextEncoder().encode(content).byteLength;
+    if (pushed && uploadedBytes + bytes > uploadByteLimit) break;
     const now = new Date();
     const month = now.toISOString().slice(0, 7);
-    const path = `events/v2/${getDeviceId()}/${month}/${now.getTime()}-${crypto.randomUUID()}.json`;
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await request(contentUrl(settings, path), token, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: `sync: ${pending.length} study events`,
-            content: encodeBase64(JSON.stringify(pending)),
-            branch,
-          }),
-        });
-        await db.events.bulkPut(pending.map((event) => ({ ...event, synced: 1 as const })));
-        pushed += pending.length;
-        lastError = undefined;
-        break;
-      } catch (error) {
-        lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
-      }
-    }
-    if (lastError) throw lastError;
+    const path = `${v3EventPrefix}${getDeviceId()}/${month}/${now.getTime()}-${crypto.randomUUID()}.json`;
+    const uploaded = await request<{ content: { sha: string } }>(contentUrl(settings, path), token, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: `sync: ${page.length} v3 study events`, content: encodeBase64(content), branch }),
+    });
+    await db.syncFiles.put({ path, sha: uploaded.content.sha, appliedAt: new Date().toISOString() });
+    await db.events.bulkPut(page.map((event) => ({ ...event, synced: 1 as const })));
+    pushed += page.length;
+    uploadedBytes += bytes;
   }
-  return pushed;
+  return { pushed, uploadedBytes, remaining: await db.events.where("synced").equals(0).count() };
 }
 
 async function createGitBlob(settings: GitHubSettings, token: string, content: string) {
@@ -314,61 +423,159 @@ async function createGitBlob(settings: GitHubSettings, token: string, content: s
   return blob.sha;
 }
 
-async function compactGitHubVaultIfNeeded(settings: GitHubSettings, token: string) {
-  const firstTree = await getTree(settings, token);
-  if (firstTree.filter((entry) => entry.type === "blob" && entry.path.startsWith("events/v2/") && entry.path.endsWith(".json")).length < compactionFileThreshold) {
-    return { compacted: false, pulled: 0 };
+interface PendingArchiveSegment {
+  meta: SyncArchiveSegmentV3;
+  content: string;
+}
+
+async function buildArchiveSegments<T extends { id: string }>(
+  kind: "attempts" | "practice-runs",
+  rows: T[],
+  getTimestamp: (row: T) => string,
+) {
+  const grouped = new Map<string, T[]>();
+  for (const row of [...rows].sort((a, b) => getTimestamp(a).localeCompare(getTimestamp(b)) || a.id.localeCompare(b.id))) {
+    const month = getTimestamp(row).slice(0, 7);
+    grouped.set(month, [...(grouped.get(month) ?? []), row]);
   }
+  const segments: PendingArchiveSegment[] = [];
+  for (const [month, monthRows] of grouped) {
+    for (let offset = 0; offset < monthRows.length; offset += archiveSegmentSize) {
+      const chunk = monthRows.slice(offset, offset + archiveSegmentSize);
+      const content = JSON.stringify({ formatVersion: 3, kind, rows: chunk });
+      const digest = await sha256(content);
+      const first = chunk[0];
+      const last = chunk[chunk.length - 1];
+      segments.push({
+        content,
+        meta: {
+          path: `sync/v3/archive/${kind}/${month}/${digest.slice(0, 24)}.json`,
+          sha256: digest,
+          month,
+          count: chunk.length,
+          firstId: first.id,
+          lastId: last.id,
+          firstCreatedAt: getTimestamp(first),
+          lastCreatedAt: getTimestamp(last),
+        },
+      });
+    }
+  }
+  return segments;
+}
 
-  const catchUp = await downloadRemotePackage(settings, token, true);
-  if (!catchUp) return { compacted: false, pulled: 0 };
-  const pulled = await applyPackage(catchUp);
-  if (await db.events.where("synced").equals(0).count()) return { compacted: false, pulled };
+async function readV3Catalog(settings: GitHubSettings, token: string, tree: TreeEntry[], manifest?: SyncManifestV3) {
+  if (!manifest) {
+    return {
+      formatVersion: 3,
+      generatedAt: new Date().toISOString(),
+      attemptSegments: [],
+      practiceRunSegments: [],
+      counts: { attempts: 0, practiceRuns: 0 },
+    } satisfies SyncArchiveCatalogV3;
+  }
+  const entry = tree.find((item) => item.type === "blob" && item.path === manifest.archiveCatalog.path);
+  if (!entry) throw new Error("远程 v3 历史目录不存在。");
+  const text = await readBlob(settings, token, entry.sha);
+  if (await sha256(text) !== manifest.archiveCatalog.sha256) throw new Error("远程 v3 历史目录校验失败。");
+  const catalog = JSON.parse(text) as SyncArchiveCatalogV3;
+  if (catalog.formatVersion !== 3 || !Array.isArray(catalog.attemptSegments) || !Array.isArray(catalog.practiceRunSegments)) {
+    throw new Error("远程 v3 历史目录格式无效。");
+  }
+  return catalog;
+}
 
+async function compactGitHubVaultV3(
+  settings: GitHubSettings,
+  token: string,
+  options: { force?: boolean; removeLegacy?: boolean } = {},
+) {
+  const tree = await getTree(settings, token);
+  const eventEntries = tree.filter((entry) => entry.type === "blob" && entry.path.startsWith(v3EventPrefix) && entry.path.endsWith(".json"));
+  if (!options.force && eventEntries.length < compactionFileThreshold) return { compacted: false };
+  for (const entry of eventEntries) {
+    if ((await db.syncFiles.get(entry.path))?.sha !== entry.sha) return { compacted: false };
+  }
+  const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
+  let previousManifest: SyncManifestV3 | undefined;
+  if (manifestEntry) {
+    const parsed = JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as SyncManifestV3 | SyncManifestV2;
+    if (parsed.formatVersion === 3) previousManifest = parsed;
+  }
+  const catalog = await readV3Catalog(settings, token, tree, previousManifest);
+  const checkpoint = await createSyncCheckpoint();
+  const recentAttemptIds = new Set(checkpoint.state.recentAttempts.map((attempt) => attempt.id));
+  const recentRunIds = new Set(checkpoint.state.recentPracticeRuns.map((run) => run.id));
+  const priorAttemptIds = new Set((await db.syncMeta.get("archive-index:attempts"))?.value as string[] ?? []);
+  const priorRunIds = new Set((await db.syncMeta.get("archive-index:practice-runs"))?.value as string[] ?? []);
+  if (options.force && !catalog.attemptSegments.length) priorAttemptIds.clear();
+  if (options.force && !catalog.practiceRunSegments.length) priorRunIds.clear();
+  const attemptsToArchive = (await db.attempts.toArray())
+    .filter((attempt) => !recentAttemptIds.has(attempt.id) && !priorAttemptIds.has(attempt.id));
+  const runsToArchive = (await db.practiceRuns.toArray())
+    .filter((run) => !recentRunIds.has(run.id) && !priorRunIds.has(run.id));
+  const [attemptSegments, runSegments] = await Promise.all([
+    buildArchiveSegments("attempts", attemptsToArchive, (attempt) => attempt.createdAt),
+    buildArchiveSegments("practice-runs", runsToArchive, (run) => run.updatedAt),
+  ]);
+  const generatedAt = checkpoint.generatedAt;
+  const nextCatalog: SyncArchiveCatalogV3 = {
+    formatVersion: 3,
+    generatedAt,
+    attemptSegments: [...catalog.attemptSegments, ...attemptSegments.map((segment) => segment.meta)],
+    practiceRunSegments: [...catalog.practiceRunSegments, ...runSegments.map((segment) => segment.meta)],
+    counts: {
+      attempts: catalog.counts.attempts + attemptsToArchive.length,
+      practiceRuns: catalog.counts.practiceRuns + runsToArchive.length,
+    },
+  };
+  const checkpointText = JSON.stringify(checkpoint);
+  const checkpointPath = `sync/v3/checkpoints/${generatedAt.replace(/[:.]/g, "-")}-${crypto.randomUUID()}.json`;
+  const catalogText = JSON.stringify(nextCatalog);
+  const manifest: SyncManifestV3 = {
+    formatVersion: 3,
+    generatedAt,
+    checkpoint: { path: checkpointPath, sha256: await sha256(checkpointText) },
+    eventPrefix: v3EventPrefix,
+    archiveCatalog: { path: v3CatalogPath, sha256: await sha256(catalogText) },
+  };
+  const archiveBlobs = await mapConcurrent([...attemptSegments, ...runSegments], downloadConcurrency, async (segment) => ({
+    path: segment.meta.path,
+    sha: await createGitBlob(settings, token, segment.content),
+  }));
+  const [checkpointBlob, catalogBlob, manifestBlob] = await Promise.all([
+    createGitBlob(settings, token, checkpointText),
+    createGitBlob(settings, token, catalogText),
+    createGitBlob(settings, token, JSON.stringify(manifest, null, 2)),
+  ]);
   const branch = settings.branch || "main";
   const ref = await request<{ object: { sha: string } }>(`${api}/repos/${settings.owner}/${settings.repo}/git/ref/heads/${encodeURIComponent(branch)}`, token);
   const commit = await request<{ tree: { sha: string } }>(`${api}/repos/${settings.owner}/${settings.repo}/git/commits/${ref.object.sha}`, token);
-  const tree = await request<{ tree: TreeEntry[]; truncated?: boolean }>(`${api}/repos/${settings.owner}/${settings.repo}/git/trees/${commit.tree.sha}?recursive=1`, token);
-  if (tree.truncated) return { compacted: false, pulled };
-  const eventEntries = tree.tree.filter((entry) => entry.type === "blob" && entry.path.startsWith("events/v2/") && entry.path.endsWith(".json"));
-  for (const entry of eventEntries) {
-    if ((await db.syncFiles.get(entry.path))?.sha !== entry.sha) return { compacted: false, pulled };
+  const deletePaths = new Set<string>(eventEntries.map((entry) => entry.path));
+  if (previousManifest?.checkpoint.path && previousManifest.checkpoint.path !== checkpointPath) deletePaths.add(previousManifest.checkpoint.path);
+  if (options.removeLegacy) {
+    for (const entry of tree) {
+      if (entry.type === "blob" && (entry.path.startsWith("events/v2/") || entry.path.startsWith("snapshots/v2/") || /^events\/(?!v2\/).+\.json$/.test(entry.path))) deletePaths.add(entry.path);
+    }
   }
-
-  const snapshot = await createSyncSnapshot();
-  const snapshotText = JSON.stringify(snapshot);
-  const safeTimestamp = snapshot.generatedAt.replace(/[:.]/g, "-");
-  const snapshotPath = `snapshots/v2/${safeTimestamp}.json`;
-  const previousSnapshotPath = catchUp.manifest?.snapshot.path;
-  const manifest: SyncManifestV2 = {
-    formatVersion: 2,
-    generatedAt: snapshot.generatedAt,
-    snapshot: { path: snapshotPath, sha256: await sha256(snapshotText) },
-    eventPrefix: "events/v2/",
-  };
-  const [snapshotBlob, manifestBlob] = await Promise.all([
-    createGitBlob(settings, token, snapshotText),
-    createGitBlob(settings, token, JSON.stringify(manifest, null, 2)),
-  ]);
   const newTree = await request<{ sha: string }>(`${api}/repos/${settings.owner}/${settings.repo}/git/trees`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       base_tree: commit.tree.sha,
       tree: [
-        { path: snapshotPath, mode: "100644", type: "blob", sha: snapshotBlob },
+        ...archiveBlobs.map((blob) => ({ path: blob.path, mode: "100644", type: "blob", sha: blob.sha })),
+        { path: checkpointPath, mode: "100644", type: "blob", sha: checkpointBlob },
+        { path: v3CatalogPath, mode: "100644", type: "blob", sha: catalogBlob },
         { path: manifestPath, mode: "100644", type: "blob", sha: manifestBlob },
-        ...(previousSnapshotPath && previousSnapshotPath !== snapshotPath && tree.tree.some((entry) => entry.path === previousSnapshotPath)
-          ? [{ path: previousSnapshotPath, mode: "100644", type: "blob", sha: null }]
-          : []),
-        ...eventEntries.map((entry) => ({ path: entry.path, mode: "100644", type: "blob", sha: null })),
+        ...[...deletePaths].filter((path) => tree.some((entry) => entry.path === path)).map((path) => ({ path, mode: "100644", type: "blob", sha: null })),
       ],
     }),
   });
   const newCommit = await request<{ sha: string }>(`${api}/repos/${settings.owner}/${settings.repo}/git/commits`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: `sync: compact ${eventEntries.length} event files`, tree: newTree.sha, parents: [ref.object.sha] }),
+    body: JSON.stringify({ message: options.removeLegacy ? "sync: migrate vault to protocol v3" : "sync: compact v3 event pages", tree: newTree.sha, parents: [ref.object.sha] }),
   });
   try {
     await request(`${api}/repos/${settings.owner}/${settings.repo}/git/refs/heads/${encodeURIComponent(branch)}`, token, {
@@ -377,16 +584,30 @@ async function compactGitHubVaultIfNeeded(settings: GitHubSettings, token: strin
       body: JSON.stringify({ sha: newCommit.sha, force: false }),
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("GitHub 422")) return { compacted: false, pulled };
+    if (error instanceof Error && error.message.includes("GitHub 422")) return { compacted: false };
     throw error;
   }
-  await db.syncFiles.bulkDelete(eventEntries.map((entry) => entry.path));
-  if (previousSnapshotPath && previousSnapshotPath !== snapshotPath) await db.syncFiles.delete(previousSnapshotPath);
+  await db.syncFiles.bulkDelete([...deletePaths]);
   await db.syncFiles.bulkPut([
-    { path: snapshotPath, sha: snapshotBlob, appliedAt: new Date().toISOString() },
-    { path: manifestPath, sha: manifestBlob, appliedAt: new Date().toISOString() },
+    { path: checkpointPath, sha: checkpointBlob, appliedAt: generatedAt },
+    { path: v3CatalogPath, sha: catalogBlob, appliedAt: generatedAt },
+    { path: manifestPath, sha: manifestBlob, appliedAt: generatedAt },
   ]);
-  return { compacted: true, pulled };
+  if (options.force) await db.events.clear();
+  else {
+    const syncedIds = (await db.events.where("synced").equals(1).primaryKeys()) as string[];
+    if (syncedIds.length) await db.events.bulkDelete(syncedIds);
+  }
+  await db.syncMeta.bulkPut([
+    { key: "archive-index:attempts", value: [...priorAttemptIds, ...attemptsToArchive.map((attempt) => attempt.id)], updatedAt: generatedAt },
+    { key: "archive-index:practice-runs", value: [...priorRunIds, ...runsToArchive.map((run) => run.id)], updatedAt: generatedAt },
+  ]);
+  if (attemptsToArchive.length) await db.attempts.bulkDelete(attemptsToArchive.map((attempt) => attempt.id));
+  if (runsToArchive.length) await db.practiceRuns.bulkDelete(runsToArchive.map((run) => run.id));
+  const dailyCutoff = new Date();
+  dailyCutoff.setDate(dailyCutoff.getDate() - 34);
+  await db.attemptDailyStats.where("date").below(calendarDate(dailyCutoff)).delete();
+  return { compacted: true };
 }
 
 export async function getGitHubLogin(token: string) {
@@ -396,24 +617,64 @@ export async function getGitHubLogin(token: string) {
 
 export async function verifyGitHubVault(settings: GitHubSettings, token: string) {
   const tree = await getTree(settings, token);
-  return Number(tree.some((entry) => entry.type === "blob" && entry.path === manifestPath));
+  const entry = tree.find((item) => item.type === "blob" && item.path === manifestPath);
+  if (!entry) return 0;
+  const manifest = JSON.parse(await readBlob(settings, token, entry.sha)) as { formatVersion?: number };
+  return manifest.formatVersion === 3 ? 3 : manifest.formatVersion === 2 ? 2 : 0;
+}
+
+async function migrateV2Vault(settings: GitHubSettings, token: string) {
+  const pendingBefore = await db.events.where("synced").equals(0).count();
+  const remote = await downloadRemotePackageV2(settings, token, false);
+  if (!remote) throw new Error("没有找到可迁移的 v2 资料库。");
+  const pulled = await applyPackageV2(remote);
+  const compaction = await compactGitHubVaultV3(settings, token, { force: true, removeLegacy: true });
+  if (!compaction.compacted) throw new Error("远程资料库正在被其他设备更新，本次 v3 迁移未提交，请重新同步。");
+  return { pulled, pushed: pendingBefore };
 }
 
 export async function syncWithGitHub(settings: GitHubSettings, token: string) {
-  const remote = await downloadRemotePackage(settings, token, true);
-  if (!remote) await initializeGitHubVault(settings, token);
-  let pulled = remote ? await applyPackage(remote) : 0;
-  const pushed = await uploadPendingEvents(settings, token);
-  const compaction = await compactGitHubVaultIfNeeded(settings, token);
-  pulled += compaction.pulled;
-  const remaining = await db.events.where("synced").equals(0).count();
-  const cache = remaining ? null : await cacheCurrentRemoteState(settings);
-  return { pulled, pushed, remaining, formatVersion: 2 as const, compacted: compaction.compacted, cachedAt: cache?.cachedAt };
+  const tree = await getTree(settings, token);
+  const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
+  if (!manifestEntry) {
+    const included = await db.events.where("synced").equals(0).count();
+    const initialized = await compactGitHubVaultV3(settings, token, { force: true, removeLegacy: true });
+    if (!initialized.compacted) throw new Error("远程资料库初始化发生并发冲突，请重新同步。");
+    const cache = await cacheCurrentRemoteState(settings);
+    return { pulled: 0, pushed: included, remaining: 0, deferred: 0, formatVersion: 3 as const, compacted: true, migrated: false, cachedAt: cache.cachedAt };
+  }
+  const manifestVersion = (JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as { formatVersion?: number }).formatVersion;
+  if (manifestVersion === 2) {
+    const migrated = await migrateV2Vault(settings, token);
+    const cache = await cacheCurrentRemoteState(settings);
+    return { ...migrated, remaining: 0, deferred: 0, formatVersion: 3 as const, compacted: true, migrated: true, cachedAt: cache.cachedAt };
+  }
+  if (manifestVersion !== 3) throw new Error("远程同步清单版本不受支持。");
+  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, true);
+  const pulled = await applyPackageV3(remote);
+  const upload = await uploadPendingEventsV3(settings, token);
+  let compacted = false;
+  if (!remote.deferredEventFiles && !upload.remaining) compacted = (await compactGitHubVaultV3(settings, token)).compacted;
+  const cache = !remote.deferredEventFiles && !upload.remaining ? await cacheCurrentRemoteState(settings) : null;
+  return {
+    pulled, pushed: upload.pushed, remaining: upload.remaining, deferred: remote.deferredEventFiles,
+    formatVersion: 3 as const, compacted, migrated: false, cachedAt: cache?.cachedAt,
+  };
 }
 
 export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
-  const remote = await downloadRemotePackage(settings, token, false);
-  if (!remote || (!remote.snapshot && !remote.eventFiles.length)) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
+  let tree = await getTree(settings, token);
+  let manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
+  if (!manifestEntry) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
+  const version = (JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as { formatVersion?: number }).formatVersion;
+  if (version === 2) {
+    await migrateV2Vault(settings, token);
+    tree = await getTree(settings, token);
+    manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
+  }
+  if (!manifestEntry) throw new Error("v3 迁移后未找到远程同步清单。");
+  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, false);
+  if (!remote.checkpoint) throw new Error("远程仓库中没有可恢复的 v3 检查点，已保留本地数据。");
   const backup = {
     snapshot: await createSyncSnapshot(),
     sessions: await db.sessions.toArray(),
@@ -421,12 +682,11 @@ export async function restoreFromGitHub(settings: GitHubSettings, token: string)
     syncFiles: await db.syncFiles.toArray(),
   };
   try {
-    await resetLocalDatabase();
-    const pulled = await applyPackage(remote, Boolean(remote.snapshot));
-    const snapshot = await createSyncSnapshot();
-    validateSyncSnapshot(snapshot);
+    const pulled = await applyPackageV3(remote);
+    const snapshot = await createSyncCheckpoint();
+    validateSyncCheckpoint(snapshot);
     await cacheCurrentRemoteState(settings);
-    return { pulled, formatVersion: remote.formatVersion, counts: snapshot.counts };
+    return { pulled, formatVersion: 3 as const, counts: snapshot.counts, deferred: remote.deferredEventFiles };
   } catch (error) {
     await resetLocalDatabase();
     await applySyncSnapshot(backup.snapshot, true);
@@ -435,4 +695,68 @@ export async function restoreFromGitHub(settings: GitHubSettings, token: string)
     await db.syncFiles.bulkPut(backup.syncFiles);
     throw error;
   }
+}
+
+async function downloadArchiveRows<T>(
+  settings: GitHubSettings,
+  token: string,
+  kind: "attempts" | "practice-runs",
+  options: { month?: string; questionId?: string } = {},
+) {
+  const tree = await getTree(settings, token);
+  const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
+  if (!manifestEntry) throw new Error("远程 v3 同步清单不存在。");
+  const manifest = JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as SyncManifestV3;
+  if (manifest.formatVersion !== 3) throw new Error("历史记录按需下载只支持 v3 资料库。");
+  const catalog = await readV3Catalog(settings, token, tree, manifest);
+  const allSegments = kind === "attempts" ? catalog.attemptSegments : catalog.practiceRunSegments;
+  const segments = options.month ? allSegments.filter((segment) => segment.month === options.month) : allSegments;
+  const rows = (await mapConcurrent(segments, downloadConcurrency, async (segment) => {
+    const entry = tree.find((item) => item.type === "blob" && item.path === segment.path);
+    if (!entry) throw new Error(`远程历史分段不存在：${segment.path}`);
+    const text = await readBlob(settings, token, entry.sha);
+    if (await sha256(text) !== segment.sha256) throw new Error(`远程历史分段校验失败：${segment.path}`);
+    const payload = JSON.parse(text) as { formatVersion?: number; kind?: string; rows?: T[] };
+    if (payload.formatVersion !== 3 || payload.kind !== kind || !Array.isArray(payload.rows)) throw new Error(`远程历史分段格式无效：${segment.path}`);
+    return payload.rows;
+  })).flat();
+  const filtered = kind === "attempts" && options.questionId
+    ? (rows as Attempt[]).filter((attempt) => attempt.questionId === options.questionId) as T[]
+    : rows;
+  return { rows: filtered, segments: segments.length };
+}
+
+export async function loadAttemptHistory(
+  settings: GitHubSettings,
+  token: string,
+  options: { month?: string; questionId?: string } = {},
+) {
+  const result = await downloadArchiveRows<Attempt>(settings, token, "attempts", options);
+  if (result.rows.length) await db.attempts.bulkPut(result.rows);
+  const archived = new Set((await db.syncMeta.get("archive-index:attempts"))?.value as string[] ?? []);
+  result.rows.forEach((attempt) => archived.add(attempt.id));
+  await db.syncMeta.put({ key: "archive-index:attempts", value: [...archived], updatedAt: new Date().toISOString() });
+  return { loaded: result.rows.length, segments: result.segments };
+}
+
+export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string) {
+  const quick = await restoreFromGitHub(settings, token);
+  const [attemptHistory, runHistory] = await Promise.all([
+    downloadArchiveRows<Attempt>(settings, token, "attempts"),
+    downloadArchiveRows<PracticeRun>(settings, token, "practice-runs"),
+  ]);
+  await db.transaction("rw", [db.attempts, db.practiceRuns], async () => {
+    if (attemptHistory.rows.length) await db.attempts.bulkPut(attemptHistory.rows);
+    if (runHistory.rows.length) await db.practiceRuns.bulkPut(runHistory.rows);
+  });
+  const now = new Date().toISOString();
+  await db.syncMeta.bulkPut([
+    { key: "archive-index:attempts", value: [...new Set(attemptHistory.rows.map((attempt) => attempt.id))], updatedAt: now },
+    { key: "archive-index:practice-runs", value: [...new Set(runHistory.rows.map((run) => run.id))], updatedAt: now },
+  ]);
+  return {
+    ...quick,
+    archivedAttempts: attemptHistory.rows.length,
+    archivedPracticeRuns: runHistory.rows.length,
+  };
 }

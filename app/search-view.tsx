@@ -9,7 +9,7 @@ import {
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
 import { MathText } from "@/app/math-text";
 import { db, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
-import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
+import { difficultyLabel, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
 import type { Bank, Question, QuestionType } from "@/lib/types";
 
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断"];
@@ -110,32 +110,27 @@ export function SearchView({
       : currentBankIds;
   const bankKey = scopedBankIds.join("|");
   const data = useLiveQuery(async () => {
-    const [questions, attempts, notes] = await Promise.all([
+    const [questions, attemptStats, notes] = await Promise.all([
       Promise.all(scopedBankIds.map((id) => db.questions.where("bankId").equals(id).toArray())).then((rows) => rows.flat()),
-      Promise.all(scopedBankIds.map((id) => db.attempts.where("bankId").equals(id).toArray())).then((rows) => rows.flat()),
+      Promise.all(scopedBankIds.map((id) => db.attemptStats.where("bankId").equals(id).toArray())).then((rows) => rows.flat()),
       db.notes.toArray(),
     ]);
-    return { questions, attempts, notes };
+    return { questions, attemptStats, notes };
   }, [bankKey]);
 
   const tags = useMemo(() => [...new Set((data?.questions ?? []).flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [data?.questions]);
   const result = useMemo(() => {
     const questions = data?.questions ?? [];
-    const attempts = data?.attempts ?? [];
+    const attemptStats = data?.attemptStats ?? [];
     const notes = data?.notes ?? [];
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
-    if (!normalized) return { entries: [] as Array<{ question: Question; metric: ReturnType<typeof summarizeAttempts>; hasNote: boolean }>, counts: { 单选: 0, 多选: 0, 判断: 0 }, error: "" };
+    if (!normalized) return { entries: [] as Array<{ question: Question; metric: ReturnType<typeof summarizeAttemptStats>; hasNote: boolean }>, counts: { 单选: 0, 多选: 0, 判断: 0 }, error: "" };
     let pattern: RegExp | null = null;
     if (keywordMode === "regex") {
       try { pattern = new RegExp(query.trim(), "i"); } catch { return { entries: [], counts: { 单选: 0, 多选: 0, 判断: 0 }, error: "正则表达式格式不正确" }; }
     }
     const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
-    const attemptsByQuestion = new Map<string, typeof attempts>();
-    attempts.forEach((attempt) => {
-      const rows = attemptsByQuestion.get(attempt.questionId) ?? [];
-      rows.push(attempt);
-      attemptsByQuestion.set(attempt.questionId, rows);
-    });
+    const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, stats]));
     const minDifficulty = numberOrNull(difficultyMin);
     const maxDifficulty = numberOrNull(difficultyMax);
     const minAttempts = numberOrNull(attemptsMin);
@@ -145,15 +140,15 @@ export function SearchView({
     const fromTime = lastFrom ? new Date(`${lastFrom}T00:00:00`).getTime() : null;
     const toTime = lastTo ? new Date(`${lastTo}T23:59:59.999`).getTime() : null;
     const base = questions.flatMap((question) => {
-      const rows = attemptsByQuestion.get(question.id) ?? [];
-      const metric = summarizeAttempts(rows);
+      const stats = statsByQuestion.get(question.id);
+      const metric = summarizeAttemptStats(stats);
       const note = notesByQuestion.get(question.id) ?? "";
       const searchable = [question.stem, ...question.options, ...question.tags, note].join("\n");
       const keywordMatches = pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(normalized);
       if (!keywordMatches) return [];
       if (tag !== "all" && !question.tags.includes(tag)) return [];
       if (status === "unanswered" && metric.total) return [];
-      if (status === "wrong" && !needsWrongReview(rows, wrongRemovalStreak)) return [];
+      if (status === "wrong" && !statsNeedWrongReview(stats, wrongRemovalStreak)) return [];
       if (status === "favorite" && !question.favorite) return [];
       if (noteFilter === "with" && !note.trim()) return [];
       if (noteFilter === "without" && note.trim()) return [];
@@ -225,7 +220,7 @@ export function SearchView({
 function SearchQuestionDetail({ questionId, onClose, onStart, onGroup, onNotice }: { questionId: string; onClose: () => void; onStart: (question: Question) => void; onGroup: (questionId: string) => void; onNotice: (message: string) => void }) {
   const question = useLiveQuery(() => db.questions.get(questionId), [questionId]);
   const note = useLiveQuery(() => db.notes.get(questionId), [questionId]);
-  const metric = useLiveQuery(async () => summarizeAttempts(await db.attempts.where("questionId").equals(questionId).toArray()), [questionId]);
+  const metric = useLiveQuery(async () => summarizeAttemptStats(await db.attemptStats.get(questionId)), [questionId]);
   const [editing, setEditing] = useState(false);
   if (!question) return null;
   return <div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><h1><MathText text={question.stem} /></h1><ol>{question.options.map((option, index) => <li className={question.answer.includes(String.fromCharCode(65 + index)) ? "answer" : ""} key={`${option}-${index}`}><span>{String.fromCharCode(65 + index)}</span><MathText text={option} languageText={question.stem} />{question.answer.includes(String.fromCharCode(65 + index)) && <Check size={16} />}</li>)}</ol><section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p><MathText text={answerText(question)} languageText={question.stem} /></p></section><div className="search-detail-metrics"><span><strong>{metric?.total ?? 0}</strong>作答</span><span><strong>{metric?.correct ?? 0}</strong>正确</span><span><strong>{metric?.wrong ?? 0}</strong>错误</span><span><strong>{metric?.difficulty ?? 50}</strong>难度 · {difficultyLabel(metric?.difficulty ?? 50)}</span></div><section className="search-detail-note"><strong>个人解析</strong><p>{note?.content || "还没有个人解析，可以通过编辑题目或练习页面继续整理。"}</p></section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div><footer><button onClick={async () => { const updated = await toggleQuestionFavorite(question.id); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button><button onClick={() => onGroup(question.id)}><GitBranch size={16} />加入题组</button><button className="primary" onClick={() => onStart(question)}><Play size={16} />只练这一题</button></footer>{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes: QuestionChanges) => { await updateQuestion(question.id, changes); setEditing(false); onNotice("题目和标签已保存"); }} />}</aside></div>;

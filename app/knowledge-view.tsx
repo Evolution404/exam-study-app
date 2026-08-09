@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Layers3, Merge, Pencil, Play, Plus, Search, Tags, Trash2, X } from "lucide-react";
 import { db, deleteQuestionGroup, saveQuestionGroup, updateQuestion } from "@/lib/db";
-import { summarizeAttempts } from "@/lib/practice-metrics";
+import { summarizeAttemptStats } from "@/lib/practice-metrics";
 import type { Question, QuestionGroup, QuestionGroupItem, QuestionGroupType } from "@/lib/types";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { MathText } from "@/app/math-text";
@@ -28,17 +28,19 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [activeTag, setActiveTag] = useState<string>();
   const [renameValue, setRenameValue] = useState("");
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
-  const data = useLiveQuery(async () => ({ questions: await db.questions.toArray(), attempts: await db.attempts.toArray() }), []);
+  const data = useLiveQuery(async () => ({ questions: await db.questions.toArray(), attemptStats: await db.attemptStats.toArray() }), []);
   const tags = useMemo(() => {
     const questions = data?.questions ?? [];
-    const attempts = data?.attempts ?? [];
-    const attemptsByQuestion = new Map<string, typeof attempts>();
-    attempts.forEach((attempt) => attemptsByQuestion.set(attempt.questionId, [...(attemptsByQuestion.get(attempt.questionId) ?? []), attempt]));
+    const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, stats]));
     return [...new Set(questions.flatMap((question) => question.tags))].map((name) => {
       const tagged = questions.filter((question) => question.tags.includes(name));
-      const rows = tagged.flatMap((question) => attemptsByQuestion.get(question.id) ?? []);
-      const summary = summarizeAttempts(rows);
-      const difficulty = tagged.length ? Math.round(tagged.reduce((total, question) => total + summarizeAttempts(attemptsByQuestion.get(question.id) ?? []).difficulty, 0) / tagged.length) : 50;
+      const summary = tagged.reduce((result, question) => {
+        const stats = statsByQuestion.get(question.id);
+        result.total += stats?.total ?? 0;
+        result.correct += stats?.correct ?? 0;
+        return result;
+      }, { total: 0, correct: 0 });
+      const difficulty = tagged.length ? Math.round(tagged.reduce((total, question) => total + summarizeAttemptStats(statsByQuestion.get(question.id)).difficulty, 0) / tagged.length) : 50;
       return { name, questions: tagged, count: tagged.length, accuracy: summary.total ? Math.round(summary.correct / summary.total * 100) : 0, difficulty };
     }).filter((item) => item.name.toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
   }, [data, query]);

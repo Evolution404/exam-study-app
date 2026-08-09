@@ -1,51 +1,137 @@
 import Dexie, { type EntityTable } from "dexie";
+import { addAttemptToDailyStats, addAttemptToStats, attemptDailyKey, calendarDate } from "./practice-metrics";
 import type {
   Attempt,
+  AttemptDailyStats,
+  AttemptStats,
   Bank,
   BankFolder,
   Note,
   PracticeRun,
+  PracticeRunStats,
   PracticeSession,
   Question,
   QuestionGroup,
   SyncEvent,
+  SyncCheckpointV3,
   SyncFile,
+  SyncMeta,
   SyncSnapshotV2,
   SyncTombstone,
 } from "./types";
+
+export const SYNC_V3_RETENTION = {
+  recentAttempts: 2_000,
+  recentPracticeRuns: 100,
+  dailyStatsDays: 35,
+} as const;
 
 class StudyDatabase extends Dexie {
   banks!: EntityTable<Bank, "id">;
   bankFolders!: EntityTable<BankFolder, "id">;
   questions!: EntityTable<Question, "id">;
   attempts!: EntityTable<Attempt, "id">;
+  attemptStats!: EntityTable<AttemptStats, "questionId">;
+  attemptDailyStats!: EntityTable<AttemptDailyStats, "key">;
   notes!: EntityTable<Note, "questionId">;
   practiceRuns!: EntityTable<PracticeRun, "id">;
+  practiceRunStats!: EntityTable<PracticeRunStats, "bankId">;
   questionGroups!: EntityTable<QuestionGroup, "id">;
   events!: EntityTable<SyncEvent, "id">;
   syncFiles!: EntityTable<SyncFile, "path">;
   tombstones!: EntityTable<SyncTombstone, "key">;
   sessions!: EntityTable<PracticeSession, "id">;
+  syncMeta!: EntityTable<SyncMeta, "key">;
 
   constructor() {
     super("memory-line-study");
-    this.version(6).stores({
+    this.version(7).stores({
       banks: "id, folderId, sortOrder, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, bankId, type, *tags, normalizedStem",
       attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
+      attemptStats: "questionId, bankId, latestAttemptAt",
+      attemptDailyStats: "key, date, questionId, bankId",
       notes: "questionId, updatedAt",
       practiceRuns: "id, status, startedAt, updatedAt",
+      practiceRunStats: "bankId, latestUpdatedAt",
       questionGroups: "id, type, updatedAt",
       events: "id, synced, createdAt, deviceId",
       syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
       sessions: "id, bankId, updatedAt",
+      syncMeta: "key, updatedAt",
+    }).upgrade(async (transaction) => {
+      const attempts = await transaction.table<Attempt>("attempts").toArray();
+      const events = await transaction.table<SyncEvent>("events").toArray();
+      const runs = await transaction.table<PracticeRun>("practiceRuns").toArray();
+      const stats = new Map<string, AttemptStats>();
+      const daily = new Map<string, AttemptDailyStats>();
+      for (const attempt of attempts.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))) {
+        stats.set(attempt.questionId, addAttemptToStats(stats.get(attempt.questionId), attempt));
+        const key = attemptDailyKey(attempt);
+        daily.set(key, addAttemptToDailyStats(daily.get(key), attempt));
+      }
+      if (stats.size) await transaction.table<AttemptStats>("attemptStats").bulkPut([...stats.values()]);
+      if (daily.size) await transaction.table<AttemptDailyStats>("attemptDailyStats").bulkPut([...daily.values()]);
+      const migratedEvents = events
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+        .map((event, index) => ({
+          ...event,
+          sequence: Number.isSafeInteger(event.sequence) && event.sequence > 0
+            ? event.sequence
+            : Math.min(Number.MAX_SAFE_INTEGER, new Date(event.createdAt).getTime() * 1_000 + index + 1),
+        }));
+      if (migratedEvents.length) await transaction.table<SyncEvent>("events").bulkPut(migratedEvents);
+      const runStats = aggregatePracticeRunRows(runs);
+      if (runStats.length) await transaction.table<PracticeRunStats>("practiceRunStats").bulkPut(runStats);
     });
   }
 }
 
 export const db = new StudyDatabase();
+
+function runBankIds(run: PracticeRun) {
+  return ["__all__", ...new Set(run.bankIds?.length ? run.bankIds : [run.bankId])];
+}
+
+function aggregatePracticeRunRows(runs: PracticeRun[]) {
+  const rows = new Map<string, PracticeRunStats>();
+  for (const run of runs) {
+    for (const bankId of runBankIds(run)) {
+      const current = rows.get(bankId) ?? { bankId, total: 0, completed: 0, inProgress: 0, abandoned: 0, latestUpdatedAt: "" };
+      current.total += 1;
+      if (run.status === "completed") current.completed += 1;
+      else if (run.status === "abandoned") current.abandoned += 1;
+      else current.inProgress += 1;
+      if (run.updatedAt > current.latestUpdatedAt) current.latestUpdatedAt = run.updatedAt;
+      rows.set(bankId, current);
+    }
+  }
+  return [...rows.values()];
+}
+
+async function updatePracticeRunStats(previous: PracticeRun | undefined, next: PracticeRun | undefined) {
+  const bankIds = new Set([...(previous ? runBankIds(previous) : []), ...(next ? runBankIds(next) : [])]);
+  for (const bankId of bankIds) {
+    const current = await db.practiceRunStats.get(bankId) ?? { bankId, total: 0, completed: 0, inProgress: 0, abandoned: 0, latestUpdatedAt: "" };
+    if (previous && runBankIds(previous).includes(bankId)) {
+      current.total = Math.max(0, current.total - 1);
+      if (previous.status === "completed") current.completed = Math.max(0, current.completed - 1);
+      else if (previous.status === "abandoned") current.abandoned = Math.max(0, current.abandoned - 1);
+      else current.inProgress = Math.max(0, current.inProgress - 1);
+    }
+    if (next && runBankIds(next).includes(bankId)) {
+      current.total += 1;
+      if (next.status === "completed") current.completed += 1;
+      else if (next.status === "abandoned") current.abandoned += 1;
+      else current.inProgress += 1;
+      if (next.updatedAt > current.latestUpdatedAt) current.latestUpdatedAt = next.updatedAt;
+    }
+    if (current.total) await db.practiceRunStats.put(current);
+    else await db.practiceRunStats.delete(bankId);
+  }
+}
 
 export function makeId(prefix = "evt") {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID()}`;
@@ -60,6 +146,14 @@ export function getDeviceId() {
     localStorage.setItem(key, value);
   }
   return value;
+}
+
+export function nextSyncSequence(deviceId = getDeviceId()) {
+  if (typeof localStorage === "undefined") return Date.now();
+  const key = `study-sync-sequence:${deviceId}`;
+  const next = Math.max(Date.now() * 1_000, Number(localStorage.getItem(key)) || 0) + 1;
+  localStorage.setItem(key, String(next));
+  return next;
 }
 
 export function normalizeStem(value: string) {
@@ -138,6 +232,7 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
     type: "bank.imported",
     payload: { bank, questions: mergedQuestions },
     deviceId,
+    sequence: nextSyncSequence(deviceId),
     createdAt: new Date().toISOString(),
     synced: 0,
   };
@@ -154,7 +249,8 @@ function bankTitle(bank: Bank) {
 }
 
 async function putSyncEvent(type: SyncEvent["type"], payload: unknown, createdAt = new Date().toISOString()) {
-  await db.events.put({ id: makeId("evt"), type, payload, deviceId: getDeviceId(), createdAt, synced: 0 });
+  const deviceId = getDeviceId();
+  await db.events.put({ id: makeId("evt"), type, payload, deviceId, sequence: nextSyncSequence(deviceId), createdAt, synced: 0 });
 }
 
 function tombstoneKey(entityType: SyncTombstone["entityType"], entityId: string) {
@@ -238,7 +334,7 @@ export async function deleteBankFolder(folderId: string) {
       await putSyncEvent("bank.updated", updated, now);
     }
     await putTombstone("bankFolder", folderId, now, deviceId, eventId);
-    await db.events.put({ id: eventId, type: "bankFolder.deleted", payload: { id: folderId, deletedAt: now }, deviceId, createdAt: now, synced: 0 });
+    await db.events.put({ id: eventId, type: "bankFolder.deleted", payload: { id: folderId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
 }
 
@@ -267,6 +363,8 @@ async function deleteQuestionLocal(questionId: string) {
   if (!question) return;
   await db.questions.delete(questionId);
   await db.attempts.where("questionId").equals(questionId).delete();
+  await db.attemptStats.delete(questionId);
+  await db.attemptDailyStats.where("questionId").equals(questionId).delete();
   await db.notes.delete(questionId);
   const groups = await db.questionGroups.filter((group) => group.items.some((item) => item.questionId === questionId)).toArray();
   await db.questionGroups.bulkPut(groups.map((group) => ({ ...group, items: group.items.filter((item) => item.questionId !== questionId), updatedAt: new Date().toISOString() })).filter((group) => group.items.length));
@@ -280,11 +378,11 @@ export async function deleteQuestion(questionId: string) {
   const deviceId = getDeviceId();
   const eventId = makeId("question-delete");
   const bank = await db.banks.get(question.bankId);
-  await db.transaction("rw", db.questions, db.attempts, db.notes, db.questionGroups, db.banks, db.events, db.tombstones, async () => {
+  await db.transaction("rw", [db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.questionGroups, db.banks, db.events, db.tombstones], async () => {
     await deleteQuestionLocal(questionId);
     if (bank) { const updated = { ...bank, questionCount: Math.max(0, bank.questionCount - 1), updatedAt: now, deviceId: getDeviceId() }; await db.banks.put(updated); await putSyncEvent("bank.updated", updated, now); }
     await putTombstone("question", questionId, now, deviceId, eventId);
-    await db.events.put({ id: eventId, type: "question.deleted", payload: { id: questionId, deletedAt: now }, deviceId, createdAt: now, synced: 0 });
+    await db.events.put({ id: eventId, type: "question.deleted", payload: { id: questionId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
 }
 
@@ -292,14 +390,18 @@ async function deleteBankLocal(bankId: string) {
   const questionIds = (await db.questions.where("bankId").equals(bankId).primaryKeys()) as string[];
   await db.questions.where("bankId").equals(bankId).delete();
   await db.attempts.where("bankId").equals(bankId).delete();
+  await db.attemptStats.where("bankId").equals(bankId).delete();
+  await db.attemptDailyStats.where("bankId").equals(bankId).delete();
   await db.notes.bulkDelete(questionIds);
   const groups = await db.questionGroups.filter((group) => group.items.some((item) => questionIds.includes(item.questionId))).toArray();
   for (const group of groups) {
     const items = group.items.filter((item) => !questionIds.includes(item.questionId));
     if (items.length) await db.questionGroups.put({ ...group, items, updatedAt: new Date().toISOString() }); else await db.questionGroups.delete(group.id);
   }
-  const affectedRuns = await db.practiceRuns.filter((run) => run.bankId === bankId || run.bankIds.includes(bankId)).primaryKeys();
-  await db.practiceRuns.bulkDelete(affectedRuns as string[]);
+  const affectedRuns = await db.practiceRuns.filter((run) => run.bankId === bankId || run.bankIds.includes(bankId)).toArray();
+  for (const run of affectedRuns) await updatePracticeRunStats(run, undefined);
+  await db.practiceRuns.bulkDelete(affectedRuns.map((run) => run.id));
+  await db.practiceRunStats.delete(bankId);
   const active = await db.sessions.get("active");
   if (active?.bankIds?.includes(bankId) || active?.bankId === bankId) await db.sessions.delete("active");
   await db.banks.delete(bankId);
@@ -309,10 +411,10 @@ export async function deleteBank(bankId: string) {
   const now = new Date().toISOString();
   const deviceId = getDeviceId();
   const eventId = makeId("bank-delete");
-  await db.transaction("rw", db.banks, db.questions, db.attempts, db.notes, db.questionGroups, db.practiceRuns, db.sessions, db.events, db.tombstones, async () => {
+  await db.transaction("rw", [db.banks, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.questionGroups, db.practiceRuns, db.practiceRunStats, db.sessions, db.events, db.tombstones], async () => {
     await deleteBankLocal(bankId);
     await putTombstone("bank", bankId, now, deviceId, eventId);
-    await db.events.put({ id: eventId, type: "bank.deleted", payload: { id: bankId, deletedAt: now }, deviceId, createdAt: now, synced: 0 });
+    await db.events.put({ id: eventId, type: "bank.deleted", payload: { id: bankId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
 }
 
@@ -328,11 +430,15 @@ export async function recordAttempt(input: Omit<Attempt, "id" | "createdAt" | "d
     type: "attempt.created",
     payload: attempt,
     deviceId: attempt.deviceId,
+    sequence: nextSyncSequence(attempt.deviceId),
     createdAt: attempt.createdAt,
     synced: 0,
   };
-  await db.transaction("rw", db.attempts, db.events, async () => {
+  await db.transaction("rw", db.attempts, db.attemptStats, db.attemptDailyStats, db.events, async () => {
     await db.attempts.put(attempt);
+    await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(attempt.questionId), attempt));
+    const dailyKey = attemptDailyKey(attempt);
+    await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), attempt));
     await db.events.put(event);
   });
   return attempt;
@@ -351,7 +457,7 @@ export async function saveNote(questionId: string, content: string) {
     await db.notes.put(note);
     await db.events.put({
       id: makeId("evt"), type: "note.upserted", payload: note,
-      deviceId: note.deviceId, createdAt: note.updatedAt, synced: 0,
+      deviceId: note.deviceId, sequence: nextSyncSequence(note.deviceId), createdAt: note.updatedAt, synced: 0,
     });
   });
   return note;
@@ -376,15 +482,20 @@ export async function savePracticeSession(session: PracticeSession) {
     status: "in_progress",
     revision: session.revision,
   };
-  await db.transaction("rw", db.sessions, db.practiceRuns, db.events, async () => {
+  await db.transaction("rw", db.sessions, db.practiceRuns, db.practiceRunStats, db.events, async () => {
     const current = await db.sessions.get(session.id);
     if (!current || session.runId !== current.runId || session.revision >= current.revision) await db.sessions.put(session);
     const existingRun = await db.practiceRuns.get(run.id);
-    if (!existingRun || run.revision >= existingRun.revision) await db.practiceRuns.put({ ...existingRun, ...run });
+    const savedRun = { ...existingRun, ...run };
+    if (!existingRun || run.revision >= existingRun.revision) {
+      await updatePracticeRunStats(existingRun, savedRun);
+      await db.practiceRuns.put(savedRun);
+    }
     const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
+    const deviceId = getDeviceId();
     await db.events.put({
       id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: { ...existingRun, ...run },
-      deviceId: getDeviceId(), createdAt: run.updatedAt, synced: 0,
+      deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: run.updatedAt, synced: 0,
     });
   });
   return session;
@@ -403,10 +514,12 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     abandonedAt: status === "abandoned" ? now : undefined,
     revision: current.revision + 1,
   };
-  await db.transaction("rw", db.practiceRuns, db.events, async () => {
+  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, async () => {
+    await updatePracticeRunStats(current, run);
     await db.practiceRuns.put(run);
     const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
-    await db.events.put({ id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: run, deviceId: getDeviceId(), createdAt: now, synced: 0 });
+    const deviceId = getDeviceId();
+    await db.events.put({ id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: run, deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
   return run;
 }
@@ -417,14 +530,15 @@ export async function deletePracticeRun(runId: string) {
   const now = new Date().toISOString();
   const deviceId = getDeviceId();
   const eventId = makeId("run-delete");
-  await db.transaction("rw", db.practiceRuns, db.sessions, db.events, db.tombstones, async () => {
+  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.sessions, db.events, db.tombstones, async () => {
     const active = await db.sessions.get("active");
     if (active?.runId === runId) await db.sessions.delete("active");
+    await updatePracticeRunStats(current, undefined);
     await db.practiceRuns.delete(runId);
     const pendingSaves = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === runId).toArray();
     if (pendingSaves.length) await db.events.bulkDelete(pendingSaves.map((event) => event.id));
     await putTombstone("practiceRun", runId, now, deviceId, eventId);
-    await db.events.put({ id: eventId, type: "practice.run.deleted", payload: { id: runId, deletedAt: now }, deviceId, createdAt: now, synced: 0 });
+    await db.events.put({ id: eventId, type: "practice.run.deleted", payload: { id: runId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
   return true;
 }
@@ -454,6 +568,7 @@ export async function saveQuestionGroup(input: Pick<QuestionGroup, "name" | "typ
     type: "questionGroup.saved",
     payload: group,
     deviceId: group.deviceId,
+    sequence: nextSyncSequence(group.deviceId),
     createdAt: group.updatedAt,
     synced: 0,
   };
@@ -473,6 +588,7 @@ export async function deleteQuestionGroup(groupId: string) {
     type: "questionGroup.deleted",
     payload: { id: groupId, deletedAt: createdAt },
     deviceId,
+    sequence: nextSyncSequence(deviceId),
     createdAt,
     synced: 0,
   };
@@ -513,11 +629,13 @@ export async function updateQuestion(
     userUpdatedAt: updatedAt,
     userUpdatedBy: getDeviceId(),
   };
+  const deviceId = question.userUpdatedBy ?? getDeviceId();
   const event: SyncEvent = {
     id: makeId("question"),
     type: "question.updated",
     payload: question,
-    deviceId: question.userUpdatedBy,
+    deviceId,
+    sequence: nextSyncSequence(deviceId),
     createdAt: updatedAt,
     synced: 0,
   };
@@ -538,11 +656,13 @@ export async function toggleQuestionFavorite(questionId: string) {
     userUpdatedAt: updatedAt,
     userUpdatedBy: getDeviceId(),
   };
+  const deviceId = question.userUpdatedBy ?? getDeviceId();
   const event: SyncEvent = {
     id: makeId("question"),
     type: "question.updated",
     payload: question,
-    deviceId: question.userUpdatedBy,
+    deviceId,
+    sequence: nextSyncSequence(deviceId),
     createdAt: updatedAt,
     synced: 0,
   };
@@ -602,36 +722,168 @@ export async function createSyncSnapshot(): Promise<SyncSnapshotV2> {
   };
 }
 
+function recentDailyCutoff(days = SYNC_V3_RETENTION.dailyStatsDays) {
+  const date = new Date();
+  date.setDate(date.getDate() - Math.max(0, days - 1));
+  return calendarDate(date);
+}
+
+export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint is SyncCheckpointV3 {
+  if (!checkpoint || typeof checkpoint !== "object" || (checkpoint as SyncCheckpointV3).formatVersion !== 3) {
+    throw new Error("远程检查点格式无效或版本不受支持。");
+  }
+  const value = checkpoint as SyncCheckpointV3;
+  const state = value.state;
+  if (!state || !validSnapshotArray(state.banks) || !validSnapshotArray(state.bankFolders)
+    || !validSnapshotArray(state.questions) || !validSnapshotArray(state.attemptStats)
+    || !validSnapshotArray(state.recentAttemptDailyStats) || !validSnapshotArray(state.recentAttempts)
+    || !validSnapshotArray(state.notes) || !validSnapshotArray(state.recentPracticeRuns) || !validSnapshotArray(state.practiceRunStats)
+    || !validSnapshotArray(state.questionGroups) || !validSnapshotArray(state.tombstones)) {
+    throw new Error("远程检查点缺少必要的数据集合。");
+  }
+  if (!value.cursors || typeof value.cursors !== "object" || Object.values(value.cursors).some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)) {
+    throw new Error("远程检查点的设备游标无效。");
+  }
+  if (state.recentAttempts.length > SYNC_V3_RETENTION.recentAttempts || state.recentPracticeRuns.length > SYNC_V3_RETENTION.recentPracticeRuns) {
+    throw new Error("远程检查点超过 v3 保留上限。");
+  }
+  const bankIds = new Set(state.banks.map((bank) => bank.id));
+  const questionIds = new Set(state.questions.map((question) => question.id));
+  if (state.banks.some((bank) => !bank?.id || !/^送电线路工-(初级工|中级工|高级工|技师)$/.test(bank.name))) throw new Error("远程检查点包含不受支持的题库。");
+  if (state.questions.some((question) => !question?.id || !bankIds.has(question.bankId))) throw new Error("远程检查点中的题目引用了不存在的题库。");
+  if (state.attemptStats.some((stats) => !questionIds.has(stats.questionId) || !bankIds.has(stats.bankId))) throw new Error("远程检查点中的作答汇总引用无效。");
+  if (state.recentAttempts.some((attempt) => !attempt?.id || !questionIds.has(attempt.questionId))) throw new Error("远程检查点中的近期作答引用无效。");
+  const expected = {
+    banks: state.banks.length,
+    bankFolders: state.bankFolders.length,
+    questions: state.questions.length,
+    recentAttempts: state.recentAttempts.length,
+    notes: state.notes.length,
+    recentPracticeRuns: state.recentPracticeRuns.length,
+    questionGroups: state.questionGroups.length,
+    tombstones: state.tombstones.length,
+  };
+  if (!value.counts || Object.entries(expected).some(([key, count]) => value.counts[key as keyof typeof value.counts] !== count)) {
+    throw new Error("远程检查点统计与实际内容不一致。");
+  }
+}
+
+export async function createSyncCheckpoint(): Promise<SyncCheckpointV3> {
+  const [banks, bankFolders, questions, attemptStats, recentAttemptDailyStats, recentAttemptsDescending, notes,
+    recentPracticeRunsDescending, practiceRunStats, questionGroups, tombstones, events, cursorRows] = await Promise.all([
+    db.banks.toArray(), db.bankFolders.toArray(), db.questions.toArray(), db.attemptStats.toArray(),
+    db.attemptDailyStats.where("date").aboveOrEqual(recentDailyCutoff()).toArray(),
+    db.attempts.orderBy("createdAt").reverse().limit(SYNC_V3_RETENTION.recentAttempts).toArray(),
+    db.notes.toArray(), db.practiceRuns.orderBy("updatedAt").reverse().limit(SYNC_V3_RETENTION.recentPracticeRuns).toArray(), db.practiceRunStats.toArray(),
+    db.questionGroups.toArray(), db.tombstones.toArray(), db.events.toArray(),
+    db.syncMeta.where("key").startsWith("cursor:").toArray(),
+  ]);
+  const cursors: Record<string, number> = {};
+  for (const row of cursorRows) cursors[row.key.slice("cursor:".length)] = Number(row.value) || 0;
+  for (const event of events) {
+    if (Number.isSafeInteger(event.sequence) && event.sequence > 0) cursors[event.deviceId] = Math.max(cursors[event.deviceId] ?? 0, event.sequence);
+  }
+  const recentAttempts = recentAttemptsDescending.reverse();
+  const recentPracticeRuns = recentPracticeRunsDescending.reverse();
+  const totalAttempts = attemptStats.reduce((sum, stats) => sum + stats.total, 0);
+  const checkpoint: SyncCheckpointV3 = {
+    formatVersion: 3,
+    generatedAt: new Date().toISOString(),
+    state: { banks, bankFolders, questions, attemptStats, recentAttemptDailyStats, recentAttempts, notes, recentPracticeRuns, practiceRunStats, questionGroups, tombstones },
+    cursors,
+    retention: {
+      recentAttemptLimit: SYNC_V3_RETENTION.recentAttempts,
+      recentPracticeRunLimit: SYNC_V3_RETENTION.recentPracticeRuns,
+      dailyStatsDays: SYNC_V3_RETENTION.dailyStatsDays,
+      oldestRecentAttemptAt: recentAttempts[0]?.createdAt ?? null,
+    },
+    counts: {
+      banks: banks.length, bankFolders: bankFolders.length, questions: questions.length,
+      totalAttempts, recentAttempts: recentAttempts.length, notes: notes.length,
+      totalPracticeRuns: practiceRunStats.find((stats) => stats.bankId === "__all__")?.total ?? recentPracticeRuns.length, recentPracticeRuns: recentPracticeRuns.length,
+      questionGroups: questionGroups.length, tombstones: tombstones.length,
+    },
+  };
+  validateSyncCheckpoint(checkpoint);
+  return checkpoint;
+}
+
+export async function applySyncCheckpoint(checkpoint: SyncCheckpointV3) {
+  validateSyncCheckpoint(checkpoint);
+  const archiveIndexes = await db.syncMeta.where("key").startsWith("archive-index:").toArray();
+  await db.transaction(
+    "rw",
+    [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes,
+      db.practiceRuns, db.practiceRunStats, db.questionGroups, db.tombstones, db.sessions, db.events, db.syncFiles, db.syncMeta],
+    async () => {
+      await Promise.all([
+        db.banks.clear(), db.bankFolders.clear(), db.questions.clear(), db.attempts.clear(), db.attemptStats.clear(),
+        db.attemptDailyStats.clear(), db.notes.clear(), db.practiceRuns.clear(), db.practiceRunStats.clear(), db.questionGroups.clear(),
+        db.tombstones.clear(), db.sessions.clear(), db.events.clear(), db.syncFiles.clear(), db.syncMeta.clear(),
+      ]);
+      const questionIds = new Set(checkpoint.state.questions.map((question) => question.id));
+      const groups = checkpoint.state.questionGroups
+        .map((group) => ({ ...group, items: group.items.filter((item) => questionIds.has(item.questionId)) }))
+        .filter((group) => group.items.length);
+      await Promise.all([
+        db.banks.bulkPut(checkpoint.state.banks), db.bankFolders.bulkPut(checkpoint.state.bankFolders),
+        db.questions.bulkPut(checkpoint.state.questions), db.attempts.bulkPut(checkpoint.state.recentAttempts),
+        db.attemptStats.bulkPut(checkpoint.state.attemptStats), db.attemptDailyStats.bulkPut(checkpoint.state.recentAttemptDailyStats),
+        db.notes.bulkPut(checkpoint.state.notes), db.practiceRuns.bulkPut(checkpoint.state.recentPracticeRuns), db.practiceRunStats.bulkPut(checkpoint.state.practiceRunStats),
+        db.questionGroups.bulkPut(groups), db.tombstones.bulkPut(checkpoint.state.tombstones),
+        db.syncMeta.bulkPut(Object.entries(checkpoint.cursors).map(([deviceId, sequence]) => ({ key: `cursor:${deviceId}`, value: sequence, updatedAt: checkpoint.generatedAt }))),
+        db.syncMeta.put({ key: "remote-counts", value: checkpoint.counts, updatedAt: checkpoint.generatedAt }),
+        db.syncMeta.bulkPut(archiveIndexes),
+      ]);
+    },
+  );
+}
+
 function practiceRunWins(incoming: PracticeRun, current: PracticeRun | undefined, deviceId = "", tie = "") {
   if (!current) return true;
   if (incoming.revision !== current.revision) return incoming.revision > current.revision;
   return compareClock(incoming.updatedAt, incoming.syncDeviceId ?? deviceId, incoming.syncEventId ?? tie, current.updatedAt, current.syncDeviceId, current.syncEventId) > 0;
 }
 
+function aggregateAttemptRows(attempts: Attempt[]) {
+  const stats = new Map<string, AttemptStats>();
+  const daily = new Map<string, AttemptDailyStats>();
+  for (const attempt of [...attempts].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))) {
+    stats.set(attempt.questionId, addAttemptToStats(stats.get(attempt.questionId), attempt));
+    const key = attemptDailyKey(attempt);
+    daily.set(key, addAttemptToDailyStats(daily.get(key), attempt));
+  }
+  return { stats: [...stats.values()], daily: [...daily.values()] };
+}
+
 export async function applySyncSnapshot(snapshot: SyncSnapshotV2, replace = false) {
   validateSyncSnapshot(snapshot);
   await db.transaction(
     "rw",
-    db.banks, db.bankFolders, db.questions, db.attempts, db.notes, db.practiceRuns,
-    db.questionGroups, db.tombstones, db.sessions, db.events, db.syncFiles,
+    [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.practiceRuns, db.practiceRunStats,
+      db.questionGroups, db.tombstones, db.sessions, db.events, db.syncFiles],
     async () => {
       if (replace) {
         await Promise.all([
-          db.banks.clear(), db.bankFolders.clear(), db.questions.clear(), db.attempts.clear(), db.notes.clear(),
-          db.practiceRuns.clear(), db.questionGroups.clear(), db.tombstones.clear(), db.sessions.clear(),
+          db.banks.clear(), db.bankFolders.clear(), db.questions.clear(), db.attempts.clear(), db.attemptStats.clear(), db.attemptDailyStats.clear(), db.notes.clear(),
+          db.practiceRuns.clear(), db.practiceRunStats.clear(), db.questionGroups.clear(), db.tombstones.clear(), db.sessions.clear(),
           db.events.clear(), db.syncFiles.clear(),
         ]);
         const questionIds = new Set(snapshot.state.questions.map((question) => question.id));
         const questionGroups = snapshot.state.questionGroups
           .map((group) => ({ ...group, items: group.items.filter((item) => questionIds.has(item.questionId)) }))
           .filter((group) => group.items.length);
+        const aggregates = aggregateAttemptRows(snapshot.state.attempts);
         await Promise.all([
           db.banks.bulkPut(snapshot.state.banks),
           db.bankFolders.bulkPut(snapshot.state.bankFolders),
           db.questions.bulkPut(snapshot.state.questions),
           db.attempts.bulkPut(snapshot.state.attempts),
+          db.attemptStats.bulkPut(aggregates.stats),
+          db.attemptDailyStats.bulkPut(aggregates.daily),
           db.notes.bulkPut(snapshot.state.notes),
           db.practiceRuns.bulkPut(snapshot.state.practiceRuns),
+          db.practiceRunStats.bulkPut(aggregatePracticeRunRows(snapshot.state.practiceRuns)),
           db.questionGroups.bulkPut(questionGroups),
           db.tombstones.bulkPut(snapshot.state.tombstones),
         ]);
@@ -646,7 +898,11 @@ export async function applySyncSnapshot(snapshot: SyncSnapshotV2, replace = fals
           await db.bankFolders.delete(tombstone.entityId);
           await db.banks.where("folderId").equals(tombstone.entityId).modify({ folderId: undefined });
         } else if (tombstone.entityType === "question") await deleteQuestionLocal(tombstone.entityId);
-        else if (tombstone.entityType === "practiceRun") await db.practiceRuns.delete(tombstone.entityId);
+        else if (tombstone.entityType === "practiceRun") {
+          const run = await db.practiceRuns.get(tombstone.entityId);
+          if (run) await updatePracticeRunStats(run, undefined);
+          await db.practiceRuns.delete(tombstone.entityId);
+        }
         else if (tombstone.entityType === "questionGroup") await db.questionGroups.delete(tombstone.entityId);
       }
       for (const incoming of snapshot.state.banks) {
@@ -667,14 +923,24 @@ export async function applySyncSnapshot(snapshot: SyncSnapshotV2, replace = fals
         const current = await db.questions.get(incoming.id);
         if (!current || compareClock(changedAt, incoming.userUpdatedBy, incoming.syncEventId, current.userUpdatedAt, current.userUpdatedBy, current.syncEventId) > 0) await db.questions.put(incoming);
       }
-      for (const attempt of snapshot.state.attempts) if (await db.questions.get(attempt.questionId)) await db.attempts.put(attempt);
+      for (const attempt of snapshot.state.attempts) {
+        if (!await db.questions.get(attempt.questionId) || await db.attempts.get(attempt.id)) continue;
+        await db.attempts.put(attempt);
+        await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(attempt.questionId), attempt));
+        const dailyKey = attemptDailyKey(attempt);
+        await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), attempt));
+      }
       for (const incoming of snapshot.state.notes) {
         const current = await db.notes.get(incoming.questionId);
         if (!current || compareClock(incoming.updatedAt, incoming.deviceId, incoming.syncEventId, current.updatedAt, current.deviceId, current.syncEventId) > 0) await db.notes.put(incoming);
       }
       for (const incoming of snapshot.state.practiceRuns) {
         if (await isDeletedAfter("practiceRun", incoming.id, incoming.updatedAt)) continue;
-        if (practiceRunWins(incoming, await db.practiceRuns.get(incoming.id), "snapshot", incoming.syncEventId)) await db.practiceRuns.put(incoming);
+        const current = await db.practiceRuns.get(incoming.id);
+        if (practiceRunWins(incoming, current, "snapshot", incoming.syncEventId)) {
+          await updatePracticeRunStats(current, incoming);
+          await db.practiceRuns.put(incoming);
+        }
       }
       for (const incoming of snapshot.state.questionGroups) {
         if (await isDeletedAfter("questionGroup", incoming.id, incoming.updatedAt, incoming.deviceId)) continue;
@@ -690,8 +956,8 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
   const ordered = [...events].sort((a, b) => compareClock(a.createdAt, a.deviceId, a.id, b.createdAt, b.deviceId, b.id));
   await db.transaction(
     "rw",
-    db.banks, db.bankFolders, db.questions, db.attempts, db.notes, db.practiceRuns,
-    db.questionGroups, db.sessions, db.events, db.tombstones,
+    [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.practiceRuns, db.practiceRunStats,
+      db.questionGroups, db.sessions, db.events, db.tombstones, db.syncMeta],
     async () => {
       for (const event of ordered) {
         if (!event?.id || !event.type || !event.createdAt || await db.events.get(event.id)) continue;
@@ -745,7 +1011,12 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           await db.banks.where("folderId").equals(payload.id).modify({ folderId: undefined });
         } else if (event.type === "attempt.created") {
           const incoming = event.payload as Attempt;
-          if (incoming?.id && await db.questions.get(incoming.questionId)) await db.attempts.put(incoming);
+          if (incoming?.id && await db.questions.get(incoming.questionId) && !await db.attempts.get(incoming.id)) {
+            await db.attempts.put(incoming);
+            await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(incoming.questionId), incoming));
+            const dailyKey = attemptDailyKey(incoming);
+            await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), incoming));
+          }
         } else if (event.type === "note.upserted") {
           const incoming = { ...(event.payload as Note), syncEventId: event.id };
           const current = await db.notes.get(incoming.questionId);
@@ -754,13 +1025,19 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           const incoming = { ...(event.payload as PracticeRun), syncDeviceId: event.deviceId, syncEventId: event.id };
           if (!await isDeletedAfter("practiceRun", incoming.id, incoming.updatedAt, event.deviceId, event.id)) {
             await clearOlderTombstone("practiceRun", incoming.id, incoming.updatedAt, event.deviceId, event.id);
-            if (practiceRunWins(incoming, await db.practiceRuns.get(incoming.id), event.deviceId, event.id)) await db.practiceRuns.put(incoming);
+            const current = await db.practiceRuns.get(incoming.id);
+            if (practiceRunWins(incoming, current, event.deviceId, event.id)) {
+              await updatePracticeRunStats(current, incoming);
+              await db.practiceRuns.put(incoming);
+            }
           }
         } else if (event.type === "practice.run.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
           await putTombstone("practiceRun", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
           const active = await db.sessions.get("active");
           if (active?.runId === payload.id) await db.sessions.delete("active");
+          const current = await db.practiceRuns.get(payload.id);
+          if (current) await updatePracticeRunStats(current, undefined);
           await db.practiceRuns.delete(payload.id);
         } else if (event.type === "questionGroup.saved") {
           const incoming = { ...(event.payload as QuestionGroup), syncEventId: event.id };
@@ -789,6 +1066,11 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           await deleteQuestionLocal(payload.id);
         }
         await db.events.put({ ...event, synced: 1 });
+        if (Number.isSafeInteger(event.sequence) && event.sequence >= 0) {
+          const key = `cursor:${event.deviceId}`;
+          const current = await db.syncMeta.get(key);
+          if ((Number(current?.value) || 0) < event.sequence) await db.syncMeta.put({ key, value: event.sequence, updatedAt: event.createdAt });
+        }
       }
     },
   );

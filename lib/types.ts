@@ -95,6 +95,15 @@ export interface PracticeRun {
   syncEventId?: string;
 }
 
+export interface PracticeRunStats {
+  bankId: string;
+  total: number;
+  completed: number;
+  inProgress: number;
+  abandoned: number;
+  latestUpdatedAt: string;
+}
+
 export interface PracticeFilter {
   bankIds: string[];
   mode: PracticeMode;
@@ -126,6 +135,41 @@ export interface Attempt {
   elapsedMs: number;
   createdAt: string;
   deviceId: string;
+}
+
+export interface AttemptStats {
+  questionId: string;
+  bankId: string;
+  total: number;
+  correct: number;
+  wrong: number;
+  giveUps: number;
+  totalElapsedMs: number;
+  firstAttemptAt: string;
+  firstAttemptCorrect: boolean;
+  latestAttemptAt: string;
+  hasBeenWrong: boolean;
+  correctStreakAfterWrong: number;
+  currentCorrectStreak: number;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean }>;
+}
+
+export interface AttemptDailyStats {
+  key: string;
+  date: string;
+  questionId: string;
+  bankId: string;
+  total: number;
+  correct: number;
+  wrong: number;
+  giveUps: number;
+  totalElapsedMs: number;
+}
+
+export interface SyncMeta {
+  key: string;
+  value: unknown;
+  updatedAt: string;
 }
 
 export interface Note {
@@ -161,6 +205,7 @@ export interface SyncEvent {
   type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.saved" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
+  sequence: number;
   createdAt: string;
   synced: 0 | 1;
 }
@@ -174,7 +219,7 @@ export interface SyncFile {
     repo: string;
     branch: string;
     cachedAt: string;
-    snapshot: SyncSnapshotV2;
+    snapshot: SyncCheckpointV3;
     markers: Array<{ path: string; sha: string; appliedAt: string }>;
   };
 }
@@ -223,6 +268,79 @@ export interface SyncManifestV2 {
     sha256: string;
   };
   eventPrefix: string;
+}
+
+export interface SyncArchiveSegmentV3 {
+  path: string;
+  sha256: string;
+  month: string;
+  count: number;
+  firstId: string;
+  lastId: string;
+  firstCreatedAt: string;
+  lastCreatedAt: string;
+}
+
+export interface SyncArchiveCatalogV3 {
+  formatVersion: 3;
+  generatedAt: string;
+  attemptSegments: SyncArchiveSegmentV3[];
+  practiceRunSegments: SyncArchiveSegmentV3[];
+  counts: {
+    attempts: number;
+    practiceRuns: number;
+  };
+}
+
+export interface SyncCheckpointV3 {
+  formatVersion: 3;
+  generatedAt: string;
+  state: {
+    banks: Bank[];
+    bankFolders: BankFolder[];
+    questions: Question[];
+    attemptStats: AttemptStats[];
+    recentAttemptDailyStats: AttemptDailyStats[];
+    recentAttempts: Attempt[];
+    notes: Note[];
+    recentPracticeRuns: PracticeRun[];
+    practiceRunStats: PracticeRunStats[];
+    questionGroups: QuestionGroup[];
+    tombstones: SyncTombstone[];
+  };
+  cursors: Record<string, number>;
+  retention: {
+    recentAttemptLimit: number;
+    recentPracticeRunLimit: number;
+    dailyStatsDays: number;
+    oldestRecentAttemptAt: string | null;
+  };
+  counts: {
+    banks: number;
+    bankFolders: number;
+    questions: number;
+    totalAttempts: number;
+    recentAttempts: number;
+    notes: number;
+    totalPracticeRuns: number;
+    recentPracticeRuns: number;
+    questionGroups: number;
+    tombstones: number;
+  };
+}
+
+export interface SyncManifestV3 {
+  formatVersion: 3;
+  generatedAt: string;
+  checkpoint: {
+    path: string;
+    sha256: string;
+  };
+  eventPrefix: string;
+  archiveCatalog: {
+    path: string;
+    sha256: string;
+  };
 }
 
 export interface GitHubSettings {
