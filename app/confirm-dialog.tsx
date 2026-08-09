@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, LoaderCircle, X } from "lucide-react";
+import { ModalPortal } from "@/app/modal-portal";
 
 export function ConfirmDialog({
   open,
@@ -40,7 +41,7 @@ export function ConfirmDialog({
   if (!open) return null;
   const Icon = tone === "danger" ? AlertTriangle : tone === "success" ? CheckCircle2 : HelpCircle;
 
-  return (
+  return <ModalPortal>
     <div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !busy && !hideCancel) onCancel();
     }}>
@@ -58,5 +59,5 @@ export function ConfirmDialog({
         </footer>
       </section>
     </div>
-  );
+  </ModalPortal>;
 }

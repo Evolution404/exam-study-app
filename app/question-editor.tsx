@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { Question, QuestionType } from "@/lib/types";
+import { ModalPortal } from "@/app/modal-portal";
 
 export type QuestionChanges = Pick<Question, "stem" | "options" | "answer" | "type" | "tags">;
 
@@ -55,7 +56,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
     }
   }
 
-  return <div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
+  return <ModalPortal><div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
     <header><div><p className="eyebrow">{eyebrow}</p><h2 id="question-editor-title">{title}</h2></div><button className="icon-button" aria-label="关闭编辑器" onClick={onCancel}><X size={18} /></button></header>
     <div className="editor-body">
       <label>题型<select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}><option value="判断">判断</option><option value="单选">单选</option><option value="多选">多选</option></select></label>
@@ -67,5 +68,5 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
       {error && <p className="editor-error">{error}</p>}
     </div>
     <footer><button className="secondary-action" onClick={onCancel}>取消</button><button className="primary" disabled={saving} onClick={() => void save()}><Save size={17} />{saving ? "保存中…" : submitLabel}</button></footer>
-  </section></div>;
+  </section></div></ModalPortal>;
 }
