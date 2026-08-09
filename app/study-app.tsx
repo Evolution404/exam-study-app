@@ -246,11 +246,12 @@ export function StudyApp() {
   const [resultRunId, setResultRunId] = useState<string>();
   const [quickSyncing, setQuickSyncing] = useState(false);
   const [quickRestoring, setQuickRestoring] = useState(false);
+  const [quickSyncHolding, setQuickSyncHolding] = useState(false);
+  const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const fileRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
-  const initialSyncStarted = useRef(false);
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; longPressed: boolean; cancelled: boolean } | null>(null);
 
   useAppViewport();
@@ -281,28 +282,6 @@ export function StudyApp() {
     workspace.addEventListener("scroll", rememberPosition, { passive: true });
     return () => workspace.removeEventListener("scroll", rememberPosition);
   }, [view]);
-
-  useEffect(() => {
-    if (initialSyncStarted.current) return;
-    const token = sessionStorage.getItem("github-token") ?? "";
-    let settings: GitHubSettings | undefined;
-    try { settings = JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings; } catch { /* wait for manual setup */ }
-    if (!token || !settings?.repo) return;
-    initialSyncStarted.current = true;
-    void (async () => {
-      try {
-        setQuickSyncing(true);
-        const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-        localStorage.setItem("github-settings", JSON.stringify(resolved));
-        const result = await syncWithGitHub(resolved, token);
-        setNotice(`已自动同步：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}`);
-      } catch (error) {
-        setNotice(error instanceof Error ? `自动同步失败：${error.message}` : "自动同步失败，可点击右上角重试");
-      } finally {
-        setQuickSyncing(false);
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -412,7 +391,7 @@ export function StudyApp() {
     }
   }
 
-  async function quickRestoreLastRemote() {
+  async function prepareQuickRestore() {
     if (quickSyncing || quickRestoring) return;
     let settings: GitHubSettings;
     try {
@@ -431,10 +410,17 @@ export function StudyApp() {
         setNotice("本机还没有远程缓存，请先成功同步一次");
         return;
       }
-      const cachedAt = new Date(cached.cachedAt).toLocaleString("zh-CN");
-      if (!window.confirm(`长按恢复：将丢弃全部本地修改，恢复到 ${cachedAt} 的远程缓存。不会访问 GitHub，确定继续吗？`)) return;
+      setQuickRestorePrompt({ settings, cachedAt: cached.cachedAt, questionCount: cached.counts.questions });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "无法读取本地恢复记录");
+    }
+  }
+
+  async function confirmQuickRestore() {
+    if (!quickRestorePrompt || quickRestoring) return;
+    try {
       setQuickRestoring(true);
-      const result = await restoreLastRemoteCache(settings);
+      const result = await restoreLastRemoteCache(quickRestorePrompt.settings);
       localStorage.removeItem("study-current-banks");
       window.alert(`已从本机缓存恢复 ${result.counts.questions} 道题及学习记录，页面将重新载入。`);
       window.location.reload();
@@ -457,9 +443,10 @@ export function StudyApp() {
     };
     press.timer = window.setTimeout(() => {
       press.longPressed = true;
-      void quickRestoreLastRemote();
-    }, 650);
+      void prepareQuickRestore().finally(() => setQuickSyncHolding(false));
+    }, 900);
     quickSyncPress.current = press;
+    setQuickSyncHolding(true);
   }
 
   function moveQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -468,6 +455,7 @@ export function StudyApp() {
     if (Math.hypot(event.clientX - press.startX, event.clientY - press.startY) <= 10) return;
     window.clearTimeout(press.timer);
     press.cancelled = true;
+    setQuickSyncHolding(false);
   }
 
   function endQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -475,6 +463,7 @@ export function StudyApp() {
     if (!press || press.pointerId !== event.pointerId) return;
     window.clearTimeout(press.timer);
     quickSyncPress.current = null;
+    setQuickSyncHolding(false);
     if (!press.cancelled && !press.longPressed) void quickSync();
   }
 
@@ -483,6 +472,7 @@ export function StudyApp() {
     if (!press || press.pointerId !== event.pointerId) return;
     window.clearTimeout(press.timer);
     quickSyncPress.current = null;
+    setQuickSyncHolding(false);
   }
 
   async function startPractice(filter: PracticeFilter) {
@@ -635,6 +625,7 @@ export function StudyApp() {
     setPracticeSession((current) => {
       if (!current) return current;
       const changed = mutator(current);
+      if (changed === current) return current;
       const next = { ...changed, updatedAt: new Date().toISOString(), revision: current.revision + 1 };
       void savePracticeSession(next);
       return next;
@@ -723,14 +714,15 @@ export function StudyApp() {
   }
 
   function movePractice(offset: number) {
-    if (!practiceSession) return;
-    const nextIndex = practiceSession.currentIndex + offset;
-    if (nextIndex >= practiceSession.questionIds.length) {
-      setNotice("已到最后一题，可以回顾或查看本次结果");
-      return;
-    }
-    if (nextIndex < 0) return;
-    changeSession((session) => ({ ...session, currentIndex: nextIndex }));
+    changeSession((session) => {
+      const nextIndex = session.currentIndex + offset;
+      if (nextIndex >= session.questionIds.length) {
+        setNotice("已到最后一题，可以回顾或查看本次结果");
+        return session;
+      }
+      if (nextIndex < 0) return session;
+      return { ...session, currentIndex: nextIndex };
+    });
   }
 
   async function finishPractice() {
@@ -807,7 +799,7 @@ export function StudyApp() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <div ref={searchBoxRef} className={`searchbox ${quickSearchOpen && query.trim() ? "results-open" : ""}`}><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onFocus={() => setQuickSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setQuickSearchOpen(true); }} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); setQuickSearchOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => { setQuery(""); setQuickSearchOpen(false); }}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
-          <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="短按立即同步，长按恢复上次远程缓存" title="短按立即同步；长按恢复上次远程缓存" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{quickRestoring ? "恢复中…" : quickSyncing ? "同步中…" : stats.pending ? `同步 ${stats.pending}` : "立即同步"}</button>
+          <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="短按立即同步，长按恢复本地记录" title="短按立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><svg className="quick-sync-progress" viewBox="0 0 48 48" aria-hidden="true"><circle className="track" cx="24" cy="24" r="21" /><circle className="value" cx="24" cy="24" r="21" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}{stats.pending > 0 && !quickSyncing && !quickRestoring && <span className="quick-sync-badge">{Math.min(stats.pending, 99)}</span>}</button>
         </header>
 
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
@@ -827,6 +819,7 @@ export function StudyApp() {
           )}
         </div>
       </section>
+      {quickRestorePrompt && <div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !quickRestoring) setQuickRestorePrompt(undefined); }}><section className="simple-dialog small quick-restore-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-restore-title"><header><div><span className="section-kicker">恢复本地记录</span><h2 id="quick-restore-title">确认恢复</h2></div><button className="icon-button" aria-label="关闭恢复确认" disabled={quickRestoring} onClick={() => setQuickRestorePrompt(undefined)}><X size={17} /></button></header><div><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><p>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</p></div><footer><button disabled={quickRestoring} onClick={() => setQuickRestorePrompt(undefined)}>取消</button><button className="danger-button" disabled={quickRestoring} onClick={() => void confirmQuickRestore()}>{quickRestoring ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}{quickRestoring ? "正在恢复…" : "确认恢复"}</button></footer></section></div>}
       <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
         {mobileNavItems.map(({ id, label, icon: Icon }) => (
           <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
@@ -1087,9 +1080,9 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isEditingText = target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");
-      if (editing || overviewOpen || isEditingText || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (editing || overviewOpen || isEditingText || event.metaKey || event.ctrlKey || event.altKey) return;
       const shortcut = resolveKeyboardShortcut(preferences.keyboardShortcuts, event.key);
-      if (shortcut?.type === "option" && !submitted && shortcut.optionIndex < displayOrder.length) {
+      if (shortcut?.type === "option" && !event.repeat && !submitted && shortcut.optionIndex < displayOrder.length) {
         event.preventDefault();
         const originalIndex = displayOrder[shortcut.optionIndex];
         chooseShortcutRef.current(String.fromCharCode(65 + originalIndex));
