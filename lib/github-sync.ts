@@ -29,12 +29,12 @@ interface DownloadedEventFile {
 }
 
 interface RemotePackage {
-  formatVersion: 1 | 2;
-  manifest?: SyncManifestV2;
-  manifestSha?: string;
+  formatVersion: 2;
+  manifest: SyncManifestV2;
+  manifestSha: string;
   snapshot?: SyncSnapshotV2;
-  snapshotPath?: string;
-  snapshotSha?: string;
+  snapshotPath: string;
+  snapshotSha: string;
   eventFiles: DownloadedEventFile[];
 }
 
@@ -118,10 +118,16 @@ async function mapConcurrent<T, R>(items: T[], limit: number, worker: (item: T) 
   return results;
 }
 
-async function downloadRemotePackage(settings: GitHubSettings, token: string, onlyUnseen = false): Promise<RemotePackage> {
+async function downloadRemotePackage(settings: GitHubSettings, token: string, onlyUnseen = false): Promise<RemotePackage | null> {
   const tree = await getTree(settings, token);
   const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
-  if (manifestEntry) {
+  if (!manifestEntry) {
+    if (tree.some((entry) => entry.type === "blob" && /^events\/.+\.json$/.test(entry.path))) {
+      throw new Error("远程仓库仍是旧版同步格式，当前客户端仅支持 v2 资料库。");
+    }
+    return null;
+  }
+  {
     const manifestText = await readBlob(settings, token, manifestEntry.sha);
     const manifest = JSON.parse(manifestText) as SyncManifestV2;
     if (manifest.formatVersion !== 2 || !manifest.snapshot?.path || !manifest.snapshot.sha256 || !manifest.eventPrefix) {
@@ -155,19 +161,30 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
     };
   }
 
-  const legacyEntries = tree.filter((entry) => entry.type === "blob" && /^events\/.+\.json$/.test(entry.path))
-    .sort((a, b) => Number(!a.path.startsWith("events/seed/")) - Number(!b.path.startsWith("events/seed/")) || a.path.localeCompare(b.path));
-  const wantedEntries: TreeEntry[] = [];
-  for (const entry of legacyEntries) {
-    const seen = onlyUnseen ? await db.syncFiles.get(entry.path) : undefined;
-    if (!seen || seen.sha !== entry.sha) wantedEntries.push(entry);
+}
+
+async function initializeGitHubVault(settings: GitHubSettings, token: string) {
+  const branch = settings.branch || "main";
+  const snapshot = await createSyncSnapshot();
+  const snapshotText = JSON.stringify(snapshot);
+  const snapshotPath = `snapshots/v2/${snapshot.generatedAt.replace(/[:.]/g, "-")}-${crypto.randomUUID()}.json`;
+  const manifest: SyncManifestV2 = {
+    formatVersion: 2,
+    generatedAt: snapshot.generatedAt,
+    snapshot: { path: snapshotPath, sha256: await sha256(snapshotText) },
+    eventPrefix: "events/v2/",
+  };
+  for (const [path, content, message] of [
+    [snapshotPath, snapshotText, "sync: initialize v2 snapshot"],
+    [manifestPath, JSON.stringify(manifest, null, 2), "sync: initialize v2 manifest"],
+  ] as const) {
+    await request(contentUrl(settings, path), token, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, content: encodeBase64(content), branch }),
+    });
   }
-  const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => ({
-    path: entry.path,
-    sha: entry.sha,
-    events: validateEvents(JSON.parse(await readBlob(settings, token, entry.sha)), entry.path),
-  }));
-  return { formatVersion: 1, eventFiles };
+  return manifest;
 }
 
 async function applyPackage(remote: RemotePackage, replace = false) {
@@ -240,6 +257,7 @@ async function compactGitHubVaultIfNeeded(settings: GitHubSettings, token: strin
   }
 
   const catchUp = await downloadRemotePackage(settings, token, true);
+  if (!catchUp) return { compacted: false, pulled: 0 };
   const pulled = await applyPackage(catchUp);
   if (await db.events.where("synced").equals(0).count()) return { compacted: false, pulled };
 
@@ -314,22 +332,23 @@ export async function getGitHubLogin(token: string) {
 
 export async function verifyGitHubVault(settings: GitHubSettings, token: string) {
   const tree = await getTree(settings, token);
-  return tree.filter((entry) => entry.type === "blob" && (entry.path === manifestPath || /^events\/.+\.json$/.test(entry.path))).length;
+  return Number(tree.some((entry) => entry.type === "blob" && entry.path === manifestPath));
 }
 
 export async function syncWithGitHub(settings: GitHubSettings, token: string) {
   const remote = await downloadRemotePackage(settings, token, true);
-  let pulled = await applyPackage(remote);
+  if (!remote) await initializeGitHubVault(settings, token);
+  let pulled = remote ? await applyPackage(remote) : 0;
   const pushed = await uploadPendingEvents(settings, token);
   const compaction = await compactGitHubVaultIfNeeded(settings, token);
   pulled += compaction.pulled;
   const remaining = await db.events.where("synced").equals(0).count();
-  return { pulled, pushed, remaining, formatVersion: remote.formatVersion, compacted: compaction.compacted };
+  return { pulled, pushed, remaining, formatVersion: 2 as const, compacted: compaction.compacted };
 }
 
 export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
   const remote = await downloadRemotePackage(settings, token, false);
-  if (!remote.snapshot && !remote.eventFiles.length) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
+  if (!remote || (!remote.snapshot && !remote.eventFiles.length)) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
   const backup = {
     snapshot: await createSyncSnapshot(),
     sessions: await db.sessions.toArray(),

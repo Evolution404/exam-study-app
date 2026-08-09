@@ -9,10 +9,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run build && npm run test:sync",
+    "test": "npm run test:architecture && npm run build && npm run test:sync",
+    "test:architecture": "node scripts/check-architecture.mjs",
     "test:sync": "tsx scripts/test-sync-protocol.ts",
-    "lint": "eslint . --ignore-pattern dist",
-    "vault:migrate-v2": "node scripts/migrate-vault-v2.mjs"
+    "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
     "dexie": "^4.4.4",

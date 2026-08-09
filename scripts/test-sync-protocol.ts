@@ -55,16 +55,26 @@ const pending = Array.from({ length: 205 }, (_, index): SyncEvent => ({
 }));
 await db.events.bulkPut(pending);
 let uploadCalls = 0;
+let initializeCalls = 0;
 globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (url.includes("/git/trees/")) return Response.json({ tree: [], truncated: false });
   if (init?.method === "PUT" && url.includes("/contents/events/v2/")) { uploadCalls += 1; return Response.json({ content: {} }); }
+  if (init?.method === "PUT" && (url.includes("/contents/snapshots/v2/") || url.includes("/contents/sync/manifest.json"))) { initializeCalls += 1; return Response.json({ content: {} }); }
   throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
 };
 const batchResult = await syncWithGitHub(settings, "token");
 assert.equal(batchResult.pushed, 205);
 assert.equal(batchResult.remaining, 0);
 assert.equal(uploadCalls, 3, "205 events must be uploaded as 100 + 100 + 5");
+assert.equal(initializeCalls, 2, "empty repositories must be initialized directly as v2");
+
+globalThis.fetch = async (input) => {
+  const url = String(input);
+  if (url.includes("/git/trees/")) return Response.json({ tree: [{ path: "events/device/old.json", type: "blob", sha: "legacy" }], truncated: false });
+  throw new Error(`Unexpected request: ${url}`);
+};
+await assert.rejects(() => syncWithGitHub(settings, "token"), /旧版同步格式/);
 
 await resetLocalDatabase();
 await db.banks.put(bank);

@@ -29,91 +29,6 @@ class StudyDatabase extends Dexie {
 
   constructor() {
     super("memory-line-study");
-    this.version(1).stores({
-      banks: "id, importedAt",
-      questions: "id, bankId, type, *tags, normalizedStem",
-      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
-      notes: "questionId, updatedAt",
-      practiceRuns: "id, status, startedAt, updatedAt",
-      questionGroups: "id, type, updatedAt",
-      events: "id, synced, createdAt, deviceId",
-      syncFiles: "path, sha, appliedAt",
-    });
-    this.version(2).stores({
-      sessions: "id, bankId, updatedAt",
-    });
-    this.version(3).stores({
-      banks: "id, importedAt",
-      questions: "id, bankId, type, *tags, normalizedStem",
-      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
-      notes: "questionId, updatedAt",
-      practiceRuns: "id, status, startedAt, updatedAt",
-      questionGroups: "id, type, updatedAt",
-      events: "id, synced, createdAt, deviceId",
-      syncFiles: "path, sha, appliedAt",
-      sessions: "id, bankId, updatedAt",
-    }).upgrade(async (transaction) => {
-      const bankEvents = (await transaction.table<SyncEvent>("events").toArray())
-        .filter((event) => event.type === "bank.imported")
-        .map((event) => ({ ...event, synced: 1 as const }));
-      await Promise.all([
-        transaction.table("attempts").clear(),
-        transaction.table("notes").clear(),
-        transaction.table("practiceRuns").clear(),
-        transaction.table("questionGroups").clear(),
-        transaction.table("sessions").clear(),
-        transaction.table("events").clear(),
-      ]);
-      if (bankEvents.length) await transaction.table("events").bulkPut(bankEvents);
-      await transaction.table<Question>("questions").toCollection().modify((question) => {
-        question.tags = [];
-        question.favorite = false;
-        delete question.userUpdatedAt;
-        delete question.userUpdatedBy;
-      });
-    });
-    this.version(4).stores({
-      banks: "id, importedAt",
-      questions: "id, bankId, type, *tags, normalizedStem",
-      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
-      notes: "questionId, updatedAt",
-      practiceRuns: "id, status, startedAt, updatedAt",
-      questionGroups: "id, type, updatedAt",
-      events: "id, synced, createdAt, deviceId",
-      syncFiles: "path, sha, appliedAt",
-      sessions: "id, bankId, updatedAt",
-    }).upgrade(async (transaction) => {
-      const allowedName = (name: string) => /^送电线路工-(初级工|中级工|高级工|技师)$/.test(name);
-      const banks = await transaction.table<Bank>("banks").toArray();
-      const allowedBankIds = new Set(banks.filter((bank) => allowedName(bank.name)).map((bank) => bank.id));
-      await transaction.table<Question>("questions").filter((question) => !allowedBankIds.has(question.bankId)).delete();
-      await transaction.table<Bank>("banks").filter((bank) => !allowedBankIds.has(bank.id)).delete();
-      const bankEvents = (await transaction.table<SyncEvent>("events").toArray()).filter((event) => {
-        if (event.type !== "bank.imported") return false;
-        return allowedName((event.payload as { bank?: Bank }).bank?.name ?? "");
-      }).map((event) => ({ ...event, synced: 1 as const }));
-      await Promise.all([
-        transaction.table("attempts").clear(), transaction.table("notes").clear(),
-        transaction.table("practiceRuns").clear(), transaction.table("questionGroups").clear(),
-        transaction.table("sessions").clear(), transaction.table("events").clear(),
-      ]);
-      if (bankEvents.length) await transaction.table("events").bulkPut(bankEvents);
-    });
-    this.version(5).stores({
-      banks: "id, folderId, sortOrder, importedAt, updatedAt",
-      bankFolders: "id, sortOrder, updatedAt",
-      questions: "id, bankId, type, *tags, normalizedStem",
-      attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
-      notes: "questionId, updatedAt",
-      practiceRuns: "id, status, startedAt, updatedAt",
-      questionGroups: "id, type, updatedAt",
-      events: "id, synced, createdAt, deviceId",
-      syncFiles: "path, sha, appliedAt",
-      sessions: "id, bankId, updatedAt",
-    }).upgrade(async (transaction) => {
-      const banks = await transaction.table<Bank>("banks").toArray();
-      await transaction.table<Bank>("banks").bulkPut(banks.map((bank, index) => ({ ...bank, sortOrder: bank.sortOrder ?? index })));
-    });
     this.version(6).stores({
       banks: "id, folderId, sortOrder, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
@@ -516,12 +431,6 @@ export async function deletePracticeRun(runId: string) {
 
 export async function clearPracticeSession() {
   await db.sessions.delete("active");
-}
-
-export async function clearLegacyGeneratedTags() {
-  const legacy = await db.questions.filter((question) => !question.userUpdatedAt && question.tags.length > 0).toArray();
-  if (legacy.length) await db.questions.bulkPut(legacy.map((question) => ({ ...question, tags: [] })));
-  return legacy.length;
 }
 
 export async function saveQuestionGroup(input: Pick<QuestionGroup, "name" | "type" | "description" | "items"> & { id?: string }) {

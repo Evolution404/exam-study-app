@@ -3,13 +3,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  BookOpen, Brain, Check, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, CloudDownload, Copy,
-  CircleHelp, FileUp, GitBranch, Grid3X3, Home, Library, Link2, ListFilter,
+  BookOpen, Brain, Check, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, Copy,
+  CircleHelp, FileUp, Grid3X3, Home, Library, Link2, ListFilter,
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { clearLegacyGeneratedTags, clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
-import { getGitHubLogin, restoreFromGitHub, syncWithGitHub } from "@/lib/github-sync";
+import { clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { getGitHubLogin, syncWithGitHub } from "@/lib/github-sync";
 import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
@@ -18,6 +18,8 @@ import { BankLibraryView, type BankQuickMode } from "@/app/bank-library-view";
 import { KnowledgeView } from "@/app/knowledge-view";
 import { PracticeHistory, PracticeRunResult } from "@/app/practice-history";
 import { MathText } from "@/app/math-text";
+import { SyncView } from "@/app/sync-view";
+import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
@@ -163,14 +165,9 @@ const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断"];
 function loadSelectedBankIds() {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem("study-current-banks");
-    if (raw !== null) {
-      const saved = JSON.parse(raw) as string[];
-      if (Array.isArray(saved)) return saved;
-    }
-  } catch { /* use legacy selection */ }
-  const legacy = localStorage.getItem("study-current-bank");
-  return legacy ? [legacy] : [];
+    const saved = JSON.parse(localStorage.getItem("study-current-banks") ?? "[]") as unknown;
+    return Array.isArray(saved) ? saved.filter((value): value is string => typeof value === "string") : [];
+  } catch { return []; }
 }
 
 async function questionsInOriginalOrder(bankId: string) {
@@ -247,6 +244,9 @@ export function StudyApp() {
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
   const initialSyncStarted = useRef(false);
 
+  useAppViewport();
+  useAppTheme(preferences.themeMode);
+
   useEffect(() => {
     if (!quickSearchOpen) return;
     const closeQuickSearch = (event: PointerEvent) => {
@@ -256,54 +256,6 @@ export function StudyApp() {
     document.addEventListener("pointerdown", closeQuickSearch);
     return () => document.removeEventListener("pointerdown", closeQuickSearch);
   }, [quickSearchOpen]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const standalone = window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-    const safeAreaProbe = document.createElement("div");
-    safeAreaProbe.style.cssText = "position:fixed;left:-9999px;bottom:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none";
-    document.body.appendChild(safeAreaProbe);
-    const updateViewportHeight = () => {
-      const visualBottom = window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : 0;
-      const regularHeight = Math.max(window.innerHeight, root.clientHeight, visualBottom);
-      const screenHeight = window.screen.height;
-      const standaloneHeight = standalone && screenHeight >= regularHeight && screenHeight - regularHeight < 180 ? screenHeight : regularHeight;
-      const reportedSafeBottom = Number.parseFloat(getComputedStyle(safeAreaProbe).paddingBottom) || 0;
-      const missingStandaloneArea = standalone ? Math.max(0, standaloneHeight - regularHeight) : 0;
-      root.style.setProperty("--app-viewport-height", `${Math.round(Math.max(regularHeight, standaloneHeight))}px`);
-      root.style.setProperty("--app-safe-bottom", `${Math.round(Math.max(reportedSafeBottom, Math.min(40, missingStandaloneArea)))}px`);
-    };
-    const timers = [0, 250, 800].map((delay) => window.setTimeout(updateViewportHeight, delay));
-    window.addEventListener("resize", updateViewportHeight);
-    window.addEventListener("orientationchange", updateViewportHeight);
-    window.addEventListener("pageshow", updateViewportHeight);
-    window.visualViewport?.addEventListener("resize", updateViewportHeight);
-    const onVisibilityChange = () => { if (document.visibilityState === "visible") updateViewportHeight(); };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-      window.removeEventListener("resize", updateViewportHeight);
-      window.removeEventListener("orientationchange", updateViewportHeight);
-      window.removeEventListener("pageshow", updateViewportHeight);
-      window.visualViewport?.removeEventListener("resize", updateViewportHeight);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      safeAreaProbe.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const dark = preferences.themeMode === "dark" || (preferences.themeMode === "system" && media.matches);
-      const resolved = dark ? "dark" : "light";
-      document.documentElement.dataset.theme = resolved;
-      document.documentElement.style.colorScheme = resolved;
-      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", dark ? "#111813" : "#203a2e");
-    };
-    applyTheme();
-    media.addEventListener("change", applyTheme);
-    return () => media.removeEventListener("change", applyTheme);
-  }, [preferences.themeMode]);
 
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
@@ -320,8 +272,6 @@ export function StudyApp() {
     workspace.addEventListener("scroll", rememberPosition, { passive: true });
     return () => workspace.removeEventListener("scroll", rememberPosition);
   }, [view]);
-
-  useEffect(() => { void clearLegacyGeneratedTags(); }, []);
 
   useEffect(() => {
     if (initialSyncStarted.current) return;
@@ -398,7 +348,6 @@ export function StudyApp() {
     const unique = [...new Set(bankIds)];
     setSelectedBankIds(unique);
     localStorage.setItem("study-current-banks", JSON.stringify(unique));
-    localStorage.removeItem("study-current-bank");
   }
 
   function toggleBank(bankId: string) {
@@ -1235,54 +1184,4 @@ function QuestionOverview({ questionIds, questionTypes, answers, currentIndex, o
   const wrong = answered - correct;
   const accuracy = answered ? Math.round(correct / answered * 100) : 0;
   return <div className="overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="question-overview" role="dialog" aria-modal="true" aria-label="题目总览"><header><div><span className="section-kicker">练习导航</span><h2>题目总览</h2><p>已作答 {answered} / {questionIds.length}，点击题号快速切换。</p></div><button className="icon-button" aria-label="关闭题目总览" onClick={onClose}><X size={19} /></button></header><div className="overview-score"><span><strong>{correct}</strong>正确</span><span><strong>{wrong}</strong>错误</span><span><strong>{accuracy}%</strong>正确率</span></div><div className="overview-legend"><span><i className="correct" />正确</span><span><i className="wrong" />错误</span><span><i className="pending" />已选择</span><span><i />未作答</span></div><div className="overview-groups">{TYPE_ORDER.map((type) => { const group = questionIds.map((id, questionIndex) => ({ id, questionIndex })).filter(({ id }) => questionTypes[id] === type); return <section className="overview-group" key={type}><div><h3>{type}</h3><span>{group.length} 题</span></div>{group.length ? <div className="overview-number-grid">{group.map(({ id, questionIndex }) => { const answer = answers[id]; const state = answer?.submitted ? answer.correct ? "correct" : "wrong" : answer?.selected.length ? "pending" : "blank"; return <button key={`${id}-${questionIndex}`} className={`${state} ${questionIndex === currentIndex ? "current" : ""}`} aria-label={`第 ${questionIndex + 1} 题，${type}`} aria-current={questionIndex === currentIndex ? "true" : undefined} onClick={() => onJump(questionIndex)}>{questionIndex + 1}</button>; })}</div> : <p className="overview-empty">本次练习没有{type}题</p>}</section>; })}</div></section></div>;
-}
-
-function SyncView({ pending, onNotice }: { pending: number; onNotice: (message: string) => void }) {
-  const [settings, setSettings] = useState<GitHubSettings>(() => {
-    const defaults = { owner: "", repo: "exam-study-vault", branch: "main" };
-    if (typeof window === "undefined") return defaults;
-    try { return JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings; } catch { return defaults; }
-  });
-  const [token, setToken] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem("github-token") ?? "");
-  const [syncing, setSyncing] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const ready = settings.repo && token;
-  async function sync() {
-    if (!ready) return;
-    try {
-      setSyncing(true);
-      const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-      setSettings(resolved);
-      localStorage.setItem("github-settings", JSON.stringify(resolved));
-      sessionStorage.setItem("github-token", token);
-      const result = await syncWithGitHub(resolved, token);
-      onNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : "同步失败");
-    } finally { setSyncing(false); }
-  }
-  async function restoreFromRemote() {
-    if (!ready || restoring) return;
-    if (!window.confirm("这会永久丢弃当前浏览器中的题库、作答记录、解析、标签和未同步更改，然后仅用 GitHub 远程数据重建。确定继续吗？")) return;
-    try {
-      setRestoring(true);
-      const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-      setSettings(resolved);
-      localStorage.setItem("github-settings", JSON.stringify(resolved));
-      sessionStorage.setItem("github-token", token);
-      const result = await restoreFromGitHub(resolved, token);
-      localStorage.removeItem("study-current-bank");
-      localStorage.removeItem("study-current-banks");
-      window.alert(`恢复完成：已通过 v${result.formatVersion} 远程数据重建本地，共应用 ${result.pulled} 条记录。页面将重新载入。`);
-      window.location.reload();
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : "远程恢复失败");
-      setRestoring(false);
-    }
-  }
-  return <><div className="page-heading compact"><div><p className="eyebrow">无需自建服务器</p><h1>GitHub 同步</h1><p>使用一个私有仓库保存增量记录，每台设备只写自己的目录。</p></div></div>
-    <div className="settings-grid"><section className="settings-card"><div className="settings-title"><span><GitBranch /></span><div><h2>连接私有仓库</h2><p>令牌只保留在当前浏览器会话中。</p></div></div><label>仓库所有者<input value={settings.owner} onChange={(event) => setSettings({ ...settings, owner: event.target.value.trim() })} placeholder="github-username" /></label><label>仓库名称<input value={settings.repo} onChange={(event) => setSettings({ ...settings, repo: event.target.value.trim() })} placeholder="exam-study-vault" /></label><div className="field-row"><label>分支<input value={settings.branch} onChange={(event) => setSettings({ ...settings, branch: event.target.value.trim() || "main" })} /></label><label>细粒度令牌<input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="github_pat_…" /></label></div><button className="primary full" disabled={!ready || syncing} onClick={sync}>{syncing ? <LoaderCircle className="spin" size={18} /> : <Cloud size={18} />}{syncing ? "正在合并…" : `立即同步${pending ? `（${pending}）` : ""}`}</button></section>
-      <section className="guide-card"><span className="section-kicker">首次设置</span><h2>三步建立同步资料库</h2><ol><li><span>1</span><div><strong>新建私有仓库</strong><p>建议命名 exam-study-vault，并创建 README。</p></div></li><li><span>2</span><div><strong>创建细粒度令牌</strong><p>只授权该仓库的 Contents 读写权限。</p></div></li><li><span>3</span><div><strong>在每台设备连接</strong><p>首次拉取后，题库和学习记录会自动合并。</p></div></li></ol></section></div>
-    <section className="restore-card"><div className="restore-icon"><CloudDownload /></div><div><span className="section-kicker">远程数据优先</span><h2>丢弃本地，重新从 GitHub 恢复</h2><p>适合当前设备数据异常或希望完全回到远程状态时使用。系统会先确认仓库中存在同步记录；继续后，本地未同步内容将无法找回。</p></div><button className="danger-button" disabled={!ready || syncing || restoring} onClick={restoreFromRemote}>{restoring ? <LoaderCircle className="spin" size={18} /> : <CloudDownload size={18} />}{restoring ? "正在重建本地数据…" : "丢弃本地并恢复远程"}</button></section>
-  </>;
 }
