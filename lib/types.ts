@@ -61,6 +61,7 @@ export interface PracticeSession {
   questionIds: string[];
   questionTypes?: Record<string, QuestionType>;
   currentIndex: number;
+  lastAnsweredIndex?: number;
   answers: Record<string, PracticeAnswerState>;
   shuffleOptions?: boolean;
   optionOrders?: Record<string, number[]>;
@@ -89,6 +90,7 @@ export interface PracticeRun {
   abandonedAt?: string;
   status: PracticeRunStatus;
   revision: number;
+  lastAnsweredIndex?: number;
   syncDeviceId?: string;
   syncEventId?: string;
 }

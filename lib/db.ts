@@ -455,6 +455,7 @@ export async function savePracticeSession(session: PracticeSession) {
     answers: session.answers,
     shuffleOptions: Boolean(session.shuffleOptions),
     optionOrders: session.optionOrders ?? {},
+    lastAnsweredIndex: session.lastAnsweredIndex,
     startedAt: session.startedAt,
     updatedAt: session.updatedAt,
     status: "in_progress",

@@ -209,6 +209,22 @@ function quickFilter(bankIds: string[], mode: BankQuickMode = "random30", groupS
   };
 }
 
+function resumeIndexAfterLastAnswer(
+  questionIds: string[],
+  answers: Record<string, PracticeAnswerState>,
+  savedLastAnsweredIndex?: number,
+) {
+  if (!questionIds.length) return 0;
+  const savedIndexIsValid = savedLastAnsweredIndex !== undefined
+    && savedLastAnsweredIndex >= 0
+    && savedLastAnsweredIndex < questionIds.length
+    && answers[questionIds[savedLastAnsweredIndex]]?.submitted;
+  const lastAnsweredIndex = savedIndexIsValid
+    ? savedLastAnsweredIndex
+    : questionIds.reduce((last, questionId, index) => answers[questionId]?.submitted ? index : last, -1);
+  return Math.min(lastAnsweredIndex + 1, questionIds.length - 1);
+}
+
 export function StudyApp() {
   const [view, setView] = useState<View>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -602,8 +618,7 @@ export function StudyApp() {
         setNotice("这次练习已经结束或记录不存在");
         return;
       }
-      const firstUnanswered = run.questionIds.findIndex((questionId) => !run.answers[questionId]?.submitted);
-      const currentIndex = preferredIndex ?? (firstUnanswered >= 0 ? firstUnanswered : Math.max(0, run.questionIds.length - 1));
+      const currentIndex = preferredIndex ?? resumeIndexAfterLastAnswer(run.questionIds, run.answers, run.lastAnsweredIndex);
       session = {
         id: "active",
         runId: run.id,
@@ -615,6 +630,7 @@ export function StudyApp() {
         questionIds: run.questionIds,
         questionTypes: run.questionTypes,
         currentIndex: Math.min(Math.max(0, currentIndex), run.questionIds.length - 1),
+        lastAnsweredIndex: run.lastAnsweredIndex,
         answers: run.answers,
         shuffleOptions: run.shuffleOptions,
         optionOrders: run.optionOrders,
@@ -627,6 +643,18 @@ export function StudyApp() {
     if (!session?.questionIds.length) {
       setNotice("没有可以继续的练习记录");
       return;
+    }
+    if (preferredIndex === undefined) {
+      const resumeIndex = resumeIndexAfterLastAnswer(session.questionIds, session.answers, session.lastAnsweredIndex);
+      if (session.currentIndex !== resumeIndex) {
+        session = {
+          ...session,
+          currentIndex: resumeIndex,
+          updatedAt: new Date().toISOString(),
+          revision: session.revision + 1,
+        };
+        await savePracticeSession(session);
+      }
     }
     if (!session.questionTypes || Object.keys(session.questionTypes).length !== session.questionIds.length) {
       const questions = await db.questions.bulkGet(session.questionIds);
@@ -691,7 +719,11 @@ export function StudyApp() {
   }
 
   function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
-    changeSession((session) => ({ ...session, answers: { ...session.answers, [questionId]: answerState } }));
+    changeSession((session) => ({
+      ...session,
+      answers: { ...session.answers, [questionId]: answerState },
+      lastAnsweredIndex: answerState.submitted ? session.questionIds.indexOf(questionId) : session.lastAnsweredIndex,
+    }));
   }
 
   function jumpPractice(index: number) {
