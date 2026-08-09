@@ -8,6 +8,7 @@ import type {
   BankFolder,
   Note,
   PracticeRun,
+  PracticeAnswerState,
   PracticeRunStats,
   PracticeSession,
   Question,
@@ -83,6 +84,22 @@ export const db = new StudyDatabase();
 
 function runBankIds(run: PracticeRun) {
   return ["__all__", ...new Set(run.bankIds?.length ? run.bankIds : [run.bankId])];
+}
+
+function submittedAnswersChanged(
+  previous: Record<string, PracticeAnswerState> | undefined,
+  next: Record<string, PracticeAnswerState>,
+) {
+  const questionIds = new Set([...Object.keys(previous ?? {}), ...Object.keys(next)]);
+  for (const questionId of questionIds) {
+    const before = previous?.[questionId];
+    const after = next[questionId];
+    if (!before?.submitted && !after?.submitted) continue;
+    if (Boolean(before?.submitted) !== Boolean(after?.submitted)
+      || Boolean(before?.correct) !== Boolean(after?.correct)
+      || [...(before?.selected ?? [])].sort().join("") !== [...(after?.selected ?? [])].sort().join("")) return true;
+  }
+  return false;
 }
 
 function aggregatePracticeRunRows(runs: PracticeRun[]) {
@@ -484,16 +501,24 @@ export async function savePracticeSession(session: PracticeSession) {
     if (!current || session.runId !== current.runId || session.revision >= current.revision) await db.sessions.put(session);
     const existingRun = await db.practiceRuns.get(run.id);
     const savedRun = { ...existingRun, ...run };
-    if (!existingRun || run.revision >= existingRun.revision) {
+    const accepted = !existingRun || run.revision >= existingRun.revision;
+    if (accepted) {
       await updatePracticeRunStats(existingRun, savedRun);
       await db.practiceRuns.put(savedRun);
     }
-    const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
-    const deviceId = getDeviceId();
-    await db.events.put({
-      id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: { ...existingRun, ...run },
-      deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: run.updatedAt, synced: 0,
-    });
+    // An empty practice is local draft state.  Publish the run only after a
+    // submitted answer changes; unconfirmed selections and navigation do not
+    // create noisy sync events.
+    const syncRelevantChange = submittedAnswersChanged(existingRun?.answers, run.answers)
+      || Boolean(existingRun && existingRun.status !== run.status);
+    if (accepted && syncRelevantChange) {
+      const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
+      const deviceId = getDeviceId();
+      await db.events.put({
+        id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: savedRun,
+        deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: run.updatedAt, synced: 0,
+      });
+    }
   });
   return session;
 }

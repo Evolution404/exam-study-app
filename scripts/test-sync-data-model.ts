@@ -216,12 +216,29 @@ await db.banks.put(bank);
 await db.questions.bulkPut([question, secondQuestion]);
 const run = makeRun({ id: "run-stats", updatedAt: isoAt(-1), revision: 1 }, bank, question);
 await savePracticeSession(makeSession(run, bank, question));
+assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").count(), 0, "starting an empty practice must stay local");
 assert.deepEqual(await db.practiceRunStats.get(bank.id), {
   bankId: bank.id, total: 1, completed: 0, inProgress: 1, abandoned: 0, latestUpdatedAt: run.updatedAt,
 });
 assert.equal((await db.practiceRunStats.get("__all__"))?.total, 1);
 await savePracticeSession(makeSession({ ...run, updatedAt: isoAt(0), revision: 2 }, bank, question));
+assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").count(), 0, "navigation without a submitted answer must not queue sync");
 assert.equal((await db.practiceRunStats.get(bank.id))?.total, 1, "saving a later revision must not double count the run");
+const answeredRun = {
+  ...run,
+  updatedAt: isoAt(0, 13, 1),
+  revision: 3,
+  answers: { [question.id]: { selected: ["A"], submitted: true, correct: true } },
+  lastAnsweredIndex: 0,
+};
+await savePracticeSession(makeSession(answeredRun, bank, question));
+const firstRunEvent = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").first();
+assert.ok(firstRunEvent, "the first submitted answer must queue the practice run");
+await savePracticeSession(makeSession({ ...answeredRun, updatedAt: isoAt(0, 13, 2), revision: 4 }, bank, question));
+const unchangedRunEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").toArray();
+assert.equal(unchangedRunEvents.length, 1, "navigation after answering must not add another run event");
+assert.equal(unchangedRunEvents[0].id, firstRunEvent.id);
+assert.equal((unchangedRunEvents[0].payload as PracticeRun).revision, 3, "navigation-only revisions must not rewrite the pending answer payload");
 const completed = await setPracticeRunStatus(run.id, "completed");
 assert.equal(completed?.status, "completed");
 assert.deepEqual(
