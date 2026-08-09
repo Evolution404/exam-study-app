@@ -29,6 +29,23 @@ const compactionFileThreshold = 10;
 const archiveSegmentSize = 500;
 const remoteCachePrefix = "__local_remote_cache__/";
 
+export interface SyncProgress {
+  phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete";
+  label: string;
+  percent: number;
+}
+
+export type SyncProgressCallback = (progress: SyncProgress) => void;
+
+function reportProgress(onProgress: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number) {
+  onProgress?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))) });
+}
+
+function progressRange(onProgress: SyncProgressCallback | undefined, start: number, end: number): SyncProgressCallback | undefined {
+  if (!onProgress) return undefined;
+  return (progress) => reportProgress(onProgress, progress.phase, progress.label, start + (end - start) * progress.percent / 100);
+}
+
 interface TreeEntry {
   path: string;
   type: string;
@@ -125,20 +142,26 @@ export async function getLastRemoteCache(settings: GitHubSettings) {
   return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts };
 }
 
-export async function restoreLastRemoteCache(settings: GitHubSettings) {
+export async function restoreLastRemoteCache(settings: GitHubSettings, onProgress?: SyncProgressCallback) {
+  reportProgress(onProgress, "prepare", "正在检查本地恢复记录", 5);
   const cacheFile = await db.syncFiles.get(remoteCachePath(settings));
   const cached = cacheFile?.remoteCache;
   if (!cacheFile || !cached) throw new Error("本机还没有可恢复的远程缓存，请先成功同步一次。");
   validateSyncCheckpoint(cached.snapshot);
+  reportProgress(onProgress, "prepare", "正在保护当前本地数据", 20);
   const backup = await createLocalBackup();
   try {
+    reportProgress(onProgress, "merge", "正在重建题库和学习记录", 48);
     await applySyncCheckpoint(cached.snapshot);
+    reportProgress(onProgress, "merge", "正在恢复同步标记", 82);
     await db.syncFiles.bulkPut([
       ...cached.markers,
       cacheFile,
     ]);
+    reportProgress(onProgress, "complete", "本地记录恢复完成", 100);
     return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 3 as const };
   } catch (error) {
+    reportProgress(onProgress, "merge", "恢复失败，正在还原原有数据", 90);
     await restoreLocalBackup(backup);
     throw error;
   }
@@ -256,7 +279,9 @@ async function downloadRemotePackageV3(
   tree: TreeEntry[],
   manifestEntry: TreeEntry,
   onlyUnseen = false,
+  onProgress?: SyncProgressCallback,
 ): Promise<RemotePackageV3> {
+  reportProgress(onProgress, "download", "正在读取远程同步清单", 0);
   const manifestText = await readBlob(settings, token, manifestEntry.sha);
   const manifest = JSON.parse(manifestText) as SyncManifestV3;
   if (manifest.formatVersion !== 3 || !manifest.checkpoint?.path || !manifest.checkpoint.sha256
@@ -265,6 +290,7 @@ async function downloadRemotePackageV3(
   }
   const checkpointEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifest.checkpoint.path);
   if (!checkpointEntry) throw new Error("远程同步清单指向的 v3 检查点不存在。");
+  reportProgress(onProgress, "download", "同步清单已验证", 16);
   let checkpoint: SyncCheckpointV3 | undefined;
   const seenCheckpoint = onlyUnseen ? await db.syncFiles.get(checkpointEntry.path) : undefined;
   if (!seenCheckpoint || seenCheckpoint.sha !== checkpointEntry.sha) {
@@ -274,6 +300,7 @@ async function downloadRemotePackageV3(
     validateSyncCheckpoint(parsed);
     checkpoint = parsed;
   }
+  reportProgress(onProgress, "download", checkpoint ? "远程检查点已下载" : "远程检查点没有变化", 42);
   const allEventEntries = tree
     .filter((entry) => entry.type === "blob" && entry.path.startsWith(manifest.eventPrefix) && entry.path.endsWith(".json"))
     .sort((a, b) => a.path.localeCompare(b.path));
@@ -291,13 +318,18 @@ async function downloadRemotePackageV3(
     wantedEntries.push(entry);
     selectedBytes += size;
   }
+  let downloadedEntries = 0;
   const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => {
     const text = await readBlob(settings, token, entry.sha);
     if (new TextEncoder().encode(text).byteLength > eventPageByteLimit) {
       throw new Error(`远程 v3 事件分页超过 256 KiB 上限：${entry.path}`);
     }
-    return { path: entry.path, sha: entry.sha, events: validateV3Events(JSON.parse(text), entry.path) };
+    const downloaded = { path: entry.path, sha: entry.sha, events: validateV3Events(JSON.parse(text), entry.path) };
+    downloadedEntries += 1;
+    reportProgress(onProgress, "download", `正在下载增量记录 ${downloadedEntries}/${wantedEntries.length}`, 42 + 58 * downloadedEntries / Math.max(1, wantedEntries.length));
+    return downloaded;
   });
+  if (!wantedEntries.length) reportProgress(onProgress, "download", "没有新的远程增量", 100);
   return {
     formatVersion: 3,
     manifest,
@@ -422,10 +454,13 @@ function takeEventPage(events: SyncEvent[]) {
   return page;
 }
 
-async function uploadPendingEventsV3(settings: GitHubSettings, token: string) {
+async function uploadPendingEventsV3(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
   const branch = settings.branch || "main";
   let pushed = 0;
   let uploadedBytes = 0;
+  let reportedPercent = 0;
+  const initialPending = await db.events.where("synced").equals(0).count();
+  reportProgress(onProgress, "upload", initialPending ? `准备上传 ${initialPending} 条本地更改` : "没有待上传的本地更改", 0);
   for (;;) {
     let pending = await db.events.where("synced").equals(0).limit(uploadBatchSize).toArray();
     if (!pending.length) break;
@@ -465,8 +500,14 @@ async function uploadPendingEventsV3(settings: GitHubSettings, token: string) {
     await db.events.bulkPut(page.map((event) => ({ ...event, synced: 1 as const })));
     pushed += page.length;
     uploadedBytes += bytes;
+    const remaining = await db.events.where("synced").equals(0).count();
+    const total = Math.max(initialPending, pushed + remaining, 1);
+    reportedPercent = Math.max(reportedPercent, remaining ? Math.min(95, pushed / total * 100) : 100);
+    reportProgress(onProgress, "upload", remaining ? `已上传 ${pushed} 条，还有 ${remaining} 条待处理` : `已上传 ${pushed} 条本地更改`, reportedPercent);
   }
-  return { pushed, uploadedBytes, remaining: await db.events.where("synced").equals(0).count() };
+  const remaining = await db.events.where("synced").equals(0).count();
+  reportProgress(onProgress, "upload", remaining ? `本轮上传达到上限，剩余 ${remaining} 条` : "本地更改上传完成", remaining ? Math.max(reportedPercent, 95) : 100);
+  return { pushed, uploadedBytes, remaining };
 }
 
 async function createGitBlob(settings: GitHubSettings, token: string, content: string) {
@@ -700,37 +741,57 @@ async function migrateV2Vault(settings: GitHubSettings, token: string) {
   return { pulled, pushed: pendingBefore };
 }
 
-export async function syncWithGitHub(settings: GitHubSettings, token: string) {
+export async function syncWithGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
+  reportProgress(onProgress, "prepare", "正在连接 GitHub", 3);
   const tree = await getTree(settings, token);
+  reportProgress(onProgress, "prepare", "远程资料库已连接", 10);
   const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (!manifestEntry) {
     const included = await db.events.where("synced").equals(0).count();
+    reportProgress(onProgress, "compact", "正在创建首个远程检查点", 42);
     const initialized = await compactGitHubVaultV3(settings, token, { force: true, removeLegacy: true });
     if (!initialized.compacted) throw new Error("远程资料库初始化发生并发冲突，请重新同步。");
+    reportProgress(onProgress, "cache", "正在保存本地恢复点", 92);
     const cache = await cacheCurrentRemoteState(settings);
+    reportProgress(onProgress, "complete", "同步完成", 100);
     return { pulled: 0, pushed: included, remaining: 0, deferred: 0, formatVersion: 3 as const, compacted: true, migrated: false, cachedAt: cache.cachedAt };
   }
   const manifestVersion = (JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as { formatVersion?: number }).formatVersion;
   if (manifestVersion === 2) {
+    reportProgress(onProgress, "merge", "正在将云端资料库升级到 v3", 28);
     const migrated = await migrateV2Vault(settings, token);
+    reportProgress(onProgress, "cache", "正在保存本地恢复点", 92);
     const cache = await cacheCurrentRemoteState(settings);
+    reportProgress(onProgress, "complete", "同步和升级完成", 100);
     return { ...migrated, remaining: 0, deferred: 0, formatVersion: 3 as const, compacted: true, migrated: true, cachedAt: cache.cachedAt };
   }
   if (manifestVersion !== 3) throw new Error("远程同步清单版本不受支持。");
-  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, true);
+  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, true, progressRange(onProgress, 14, 44));
+  reportProgress(onProgress, "merge", "正在合并远程更改", 48);
   const pulled = await applyPackageV3(remote);
-  const upload = await uploadPendingEventsV3(settings, token);
+  reportProgress(onProgress, "merge", "远程更改合并完成", 54);
+  const upload = await uploadPendingEventsV3(settings, token, progressRange(onProgress, 56, 78));
   let compacted = false;
-  if (!remote.deferredEventFiles && !upload.remaining) compacted = (await compactGitHubVaultV3(settings, token)).compacted;
-  const cache = !remote.deferredEventFiles && !upload.remaining ? await cacheCurrentRemoteState(settings) : null;
+  if (!remote.deferredEventFiles && !upload.remaining) {
+    reportProgress(onProgress, "compact", "正在整理远程检查点", 82);
+    compacted = (await compactGitHubVaultV3(settings, token)).compacted;
+  }
+  let cache: Awaited<ReturnType<typeof cacheCurrentRemoteState>> | null = null;
+  if (!remote.deferredEventFiles && !upload.remaining) {
+    reportProgress(onProgress, "cache", "正在保存本地恢复点", 94);
+    cache = await cacheCurrentRemoteState(settings);
+  }
+  reportProgress(onProgress, "complete", upload.remaining ? `本轮同步完成，剩余 ${upload.remaining} 条待上传` : "同步完成", 100);
   return {
     pulled, pushed: upload.pushed, remaining: upload.remaining, deferred: remote.deferredEventFiles,
     formatVersion: 3 as const, compacted, migrated: false, cachedAt: cache?.cachedAt,
   };
 }
 
-async function restoreQuickFromGitHub(settings: GitHubSettings, token: string) {
+async function restoreQuickFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
+  reportProgress(onProgress, "prepare", "正在连接远程资料库", 3);
   let tree = await getTree(settings, token);
+  reportProgress(onProgress, "prepare", "远程资料库已连接", 10);
   let manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (!manifestEntry) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
   const version = (JSON.parse(await readBlob(settings, token, manifestEntry.sha)) as { formatVersion?: number }).formatVersion;
@@ -740,20 +801,26 @@ async function restoreQuickFromGitHub(settings: GitHubSettings, token: string) {
     manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   }
   if (!manifestEntry) throw new Error("v3 迁移后未找到远程同步清单。");
-  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, false);
+  const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, false, progressRange(onProgress, 14, 68));
   if (!remote.checkpoint) throw new Error("远程仓库中没有可恢复的 v3 检查点，已保留本地数据。");
+  reportProgress(onProgress, "merge", "正在重建本地题库和近期记录", 72);
   const pulled = await applyPackageV3(remote, false);
+  reportProgress(onProgress, "merge", "正在校验恢复后的本地数据", 86);
   const snapshot = await createSyncCheckpoint();
   validateSyncCheckpoint(snapshot);
+  reportProgress(onProgress, "cache", "正在保存新的本地恢复点", 94);
   await cacheCurrentRemoteState(settings);
+  reportProgress(onProgress, "complete", "快速恢复完成", 100);
   return { pulled, formatVersion: 3 as const, counts: snapshot.counts, deferred: remote.deferredEventFiles };
 }
 
-export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
+export async function restoreFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
+  reportProgress(onProgress, "prepare", "正在保护当前本地数据", 1);
   const backup = await createLocalBackup();
   try {
-    return await restoreQuickFromGitHub(settings, token);
+    return await restoreQuickFromGitHub(settings, token, progressRange(onProgress, 4, 100));
   } catch (error) {
+    reportProgress(onProgress, "merge", "恢复失败，正在还原原有数据", 96);
     await restoreLocalBackup(backup);
     throw error;
   }
@@ -764,7 +831,10 @@ async function downloadArchiveRows<T>(
   token: string,
   kind: "attempts" | "practice-runs",
   options: { month?: string; questionId?: string } = {},
+  onProgress?: SyncProgressCallback,
 ) {
+  const kindLabel = kind === "attempts" ? "作答历史" : "练习历史";
+  reportProgress(onProgress, "history", `正在读取${kindLabel}目录`, 0);
   const tree = await getTree(settings, token);
   const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (!manifestEntry) throw new Error("远程 v3 同步清单不存在。");
@@ -773,6 +843,7 @@ async function downloadArchiveRows<T>(
   const catalog = await readV3Catalog(settings, token, tree, manifest);
   const allSegments = kind === "attempts" ? catalog.attemptSegments : catalog.practiceRunSegments;
   const segments = options.month ? allSegments.filter((segment) => segment.month === options.month) : allSegments;
+  let downloadedSegments = 0;
   const rows = (await mapConcurrent(segments, downloadConcurrency, async (segment) => {
     const entry = tree.find((item) => item.type === "blob" && item.path === segment.path);
     if (!entry) throw new Error(`远程历史分段不存在：${segment.path}`);
@@ -780,8 +851,11 @@ async function downloadArchiveRows<T>(
     if (await sha256(text) !== segment.sha256) throw new Error(`远程历史分段校验失败：${segment.path}`);
     const payload = JSON.parse(text) as { formatVersion?: number; kind?: string; rows?: T[] };
     if (payload.formatVersion !== 3 || payload.kind !== kind || !Array.isArray(payload.rows)) throw new Error(`远程历史分段格式无效：${segment.path}`);
+    downloadedSegments += 1;
+    reportProgress(onProgress, "history", `正在下载${kindLabel} ${downloadedSegments}/${segments.length}`, downloadedSegments / Math.max(1, segments.length) * 100);
     return payload.rows;
   })).flat();
+  if (!segments.length) reportProgress(onProgress, "history", `没有需要下载的${kindLabel}`, 100);
   const filtered = kind === "attempts" && options.questionId
     ? (rows as Attempt[]).filter((attempt) => attempt.questionId === options.questionId) as T[]
     : rows;
@@ -801,14 +875,14 @@ export async function loadAttemptHistory(
   return { loaded: result.rows.length, segments: result.segments };
 }
 
-export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string) {
+export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
+  reportProgress(onProgress, "prepare", "正在保护当前本地数据", 1);
   const backup = await createLocalBackup();
   try {
-    const quick = await restoreQuickFromGitHub(settings, token);
-    const [attemptHistory, runHistory] = await Promise.all([
-      downloadArchiveRows<Attempt>(settings, token, "attempts"),
-      downloadArchiveRows<PracticeRun>(settings, token, "practice-runs"),
-    ]);
+    const quick = await restoreQuickFromGitHub(settings, token, progressRange(onProgress, 3, 62));
+    const attemptHistory = await downloadArchiveRows<Attempt>(settings, token, "attempts", {}, progressRange(onProgress, 64, 82));
+    const runHistory = await downloadArchiveRows<PracticeRun>(settings, token, "practice-runs", {}, progressRange(onProgress, 82, 94));
+    reportProgress(onProgress, "merge", "正在写入全部历史记录", 96);
     await db.transaction("rw", [db.attempts, db.practiceRuns], async () => {
       if (attemptHistory.rows.length) await db.attempts.bulkPut(attemptHistory.rows);
       if (runHistory.rows.length) await db.practiceRuns.bulkPut(runHistory.rows);
@@ -818,12 +892,14 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
       { key: "archive-index:attempts", value: [...new Set(attemptHistory.rows.map((attempt) => attempt.id))], updatedAt: now },
       { key: "archive-index:practice-runs", value: [...new Set(runHistory.rows.map((run) => run.id))], updatedAt: now },
     ]);
+    reportProgress(onProgress, "complete", "完整恢复完成", 100);
     return {
       ...quick,
       archivedAttempts: attemptHistory.rows.length,
       archivedPracticeRuns: runHistory.rows.length,
     };
   } catch (error) {
+    reportProgress(onProgress, "merge", "恢复失败，正在还原原有数据", 97);
     await restoreLocalBackup(backup);
     throw error;
   }

@@ -138,6 +138,7 @@ class GitHubDouble {
   patchRefStatus: number | null = null;
   mutateRefBeforePatch = false;
   exposeUploadedPages = true;
+  afterSuccessfulPut?: () => void | Promise<void>;
 
   configure(checkpoint: SyncCheckpointV3, pages: RemotePage[] = []) {
     validateSyncCheckpoint(checkpoint);
@@ -225,6 +226,7 @@ class GitHubDouble {
       const sha = `uploaded-page-${++this.pageCounter}`;
       this.pages.push({ path, sha, content });
       this.blobs.set(sha, content);
+      await this.afterSuccessfulPut?.();
       if (this.failNextPut) {
         this.failNextPut = false;
         return this.response({ message: "temporary upload failure" }, 503);
@@ -290,13 +292,18 @@ async function testEventPageAndUploadBudget() {
   const payload = "x".repeat(700);
   const pending = Array.from({ length: 2_400 }, (_, index) => uploadNoteEvent(`upload-${index}`, index + 1, payload));
   await db.events.bulkPut(pending);
-  const result = await syncWithGitHub(settings, "token");
+  const progress: Array<{ phase: string; percent: number }> = [];
+  const result = await syncWithGitHub(settings, "token", (update) => progress.push(update));
   const uploadedBytes = server.uploadedPages.reduce((sum, page) => sum + byteLength(JSON.stringify(page)), 0);
   assert.ok(server.uploadedPages.length > 1, "upload must split events into pages");
   assert.ok(server.uploadedPages.every((page) => page.length <= 250), "event page count exceeded 250");
   assert.ok(server.uploadedPages.every((page) => byteLength(JSON.stringify(page)) <= 256 * 1024), "event page exceeded 256 KiB");
   assert.ok(uploadedBytes <= 2 * 1024 * 1024, `single sync uploaded ${uploadedBytes} bytes (> 2 MiB)`);
   assert.ok(result.remaining > 0, "large pending queue should be deferred after the upload budget");
+  assert.equal(progress.at(-1)?.percent, 100, "foreground sync progress must finish at 100%");
+  assert.ok(progress.some((update) => update.phase === "download"), "sync progress must report downloads");
+  assert.ok(progress.some((update) => update.phase === "upload"), "sync progress must report uploads");
+  assert.ok(progress.every((update, index) => index === 0 || update.percent >= progress[index - 1].percent), "sync progress must be monotonic");
 
   // A second run is the retry path. It uploads the remaining event IDs once;
   // already acknowledged local pages are not sent again.
@@ -432,6 +439,29 @@ async function testPutFailureRetry() {
   return { attempts: server.requests.filter((request) => request.method === "PUT").length, physicalPages: server.pages.length };
 }
 
+async function testEventCreatedDuringSync() {
+  const checkpoint = await seedCheckpoint();
+  await resetLocalDatabase();
+  await applySyncCheckpoint(checkpoint);
+  await db.events.put(uploadNoteEvent("during-sync-first", 1, "first"));
+  const server = new GitHubDouble();
+  server.configure(checkpoint);
+  let inserted = false;
+  server.afterSuccessfulPut = async () => {
+    if (inserted) return;
+    inserted = true;
+    await db.events.put(uploadNoteEvent("during-sync-late", 2, "late"));
+  };
+  installFetch(server);
+
+  const result = await syncWithGitHub(settings, "token");
+  const uploadedIds = server.uploadedPages.flat().map((event) => event.id);
+  assert.equal(result.remaining, 0, "an event created before the next upload sweep should join the active sync");
+  assert.ok(uploadedIds.includes("during-sync-first"));
+  assert.ok(uploadedIds.includes("during-sync-late"), "an event created during upload must not be lost");
+  return { pushed: result.pushed, pages: server.uploadedPages.length };
+}
+
 async function testGitRefConflictPreservesLocalData() {
   const checkpoint = await seedCheckpoint();
   await resetLocalDatabase();
@@ -459,6 +489,7 @@ const results = {
   download: await testDownloadBudget(),
   downloadRetry: await testDownloadFailureRetryAndDuplicateEvents(),
   putRetry: await testPutFailureRetry(),
+  eventDuringSync: await testEventCreatedDuringSync(),
   refConflict: await testGitRefConflictPreservesLocalData(),
 };
 

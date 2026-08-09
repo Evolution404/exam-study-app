@@ -14,6 +14,7 @@ export function ConfirmDialog({
   tone = "default",
   busy = false,
   hideCancel = false,
+  progress,
   onConfirm,
   onCancel,
 }: {
@@ -26,6 +27,7 @@ export function ConfirmDialog({
   tone?: "default" | "danger" | "success";
   busy?: boolean;
   hideCancel?: boolean;
+  progress?: { label: string; percent: number };
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -50,7 +52,7 @@ export function ConfirmDialog({
           <div><span className="section-kicker">{eyebrow}</span><h2 id="confirm-dialog-title">{title}</h2></div>
           {!hideCancel && <button className="icon-button" aria-label="关闭确认框" disabled={busy} onClick={onCancel}><X size={17} /></button>}
         </header>
-        <div className="confirm-dialog-body"><span className="confirm-dialog-icon"><Icon size={22} /></span><div>{description}</div></div>
+        <div className="confirm-dialog-body"><span className="confirm-dialog-icon"><Icon size={22} /></span><div>{description}{progress && <div className="dialog-progress" aria-label={`${progress.label} ${progress.percent}%`}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${progress.percent}%` }} /></i></div>}</div></div>
         <footer>
           {!hideCancel && <button disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
           <button className={tone === "danger" ? "danger-button" : "primary"} disabled={busy} onClick={onConfirm}>

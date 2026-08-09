@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, getLastRemoteCache, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
+import type { SyncProgress } from "@/lib/github-sync";
+import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
 import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
@@ -249,6 +251,7 @@ export function StudyApp() {
   const [resultRunId, setResultRunId] = useState<string>();
   const [quickSyncing, setQuickSyncing] = useState(false);
   const [quickRestoring, setQuickRestoring] = useState(false);
+  const [quickSyncProgress, setQuickSyncProgress] = useState<SyncProgress>();
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
@@ -371,28 +374,25 @@ export function StudyApp() {
 
   async function quickSync() {
     if (quickSyncing || quickRestoring) return;
-    const token = sessionStorage.getItem("github-token") ?? "";
-    let settings: GitHubSettings;
-    try {
-      settings = JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings;
-    } catch {
-      settings = { owner: "", repo: "exam-study-vault", branch: "main" };
-    }
+    const token = loadGitHubToken();
+    const settings = loadGitHubSettings();
     if (!settings.repo || !token) {
-      setNotice("请先在同步页面填写 GitHub 令牌");
-      setView("settings");
+      setNotice("请先在配置页面填写 GitHub 令牌");
+      setView(window.matchMedia("(max-width: 760px)").matches ? "preferences" : "settings");
       return;
     }
     try {
       setQuickSyncing(true);
+      setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-      localStorage.setItem("github-settings", JSON.stringify(resolved));
-      const result = await syncWithGitHub(resolved, token);
+      saveGitHubSettings(resolved);
+      const result = await syncWithGitHub(resolved, token, setQuickSyncProgress);
       setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
       setQuickSyncing(false);
+      setQuickSyncProgress(undefined);
     }
   }
 
@@ -425,14 +425,17 @@ export function StudyApp() {
     if (!quickRestorePrompt || quickRestoring) return;
     try {
       setQuickRestoring(true);
-      const result = await restoreLastRemoteCache(quickRestorePrompt.settings);
+      setQuickSyncProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
+      const result = await restoreLastRemoteCache(quickRestorePrompt.settings, setQuickSyncProgress);
       localStorage.removeItem("study-current-banks");
       setQuickRestorePrompt(undefined);
       setQuickRestoring(false);
+      setQuickSyncProgress(undefined);
       setQuickRestoreSuccess(`已从本机缓存恢复 ${result.counts.questions} 道题及对应学习记录。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "本地缓存恢复失败");
       setQuickRestoring(false);
+      setQuickSyncProgress(undefined);
     }
   }
 
@@ -796,7 +799,7 @@ export function StudyApp() {
         <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "nav-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
+            <button key={id} className={`${view === id ? "nav-active" : ""} ${id === "settings" ? "desktop-sync-nav" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
               <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
             </button>
           ))}
@@ -815,6 +818,8 @@ export function StudyApp() {
           <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : `同步${stats.pending ? ` ${Math.min(stats.pending, 99)}` : ""}`}</span></button>
         </header>
 
+        {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
+
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
@@ -823,7 +828,7 @@ export function StudyApp() {
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
-          {view === "preferences" && <PreferencesView preferences={preferences} onChange={updatePreferences} />}
+          {view === "preferences" && <PreferencesView preferences={preferences} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
@@ -832,7 +837,7 @@ export function StudyApp() {
           )}
         </div>
       </section>
-      <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
+      <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="恢复本地记录" title="恢复成功" tone="success" hideCancel confirmLabel="重新载入" onCancel={() => undefined} onConfirm={() => window.location.reload()} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 重新载入后即可继续使用。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
       <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
@@ -993,7 +998,7 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>数据直接写入本机，不经过第三方服务器</small></div><ChevronRight size={18} /></button>;
 }
 
-function PreferencesView({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {
+function PreferencesView({ preferences, pendingSync, onNotice, onChange }: { preferences: PracticePreferences; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void }) {
   const interactionItems: Array<{ key: "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
@@ -1017,7 +1022,7 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
         <PreferenceSelect title="自动下一题等待时间" detail="答对后留出查看反馈的时间；选择立即可最快连续刷题。" value={String(preferences.autoNextDelayMs)} onChange={(value) => onChange({ ...preferences, autoNextDelayMs: Number(value) as PracticePreferences["autoNextDelayMs"] })} options={[['0','立即'],['500','0.5 秒'],['1000','1 秒'],['2000','2 秒']]} />
       </div>
     </section>
-    <ShortcutSetting value={preferences.keyboardShortcuts} onChange={(keyboardShortcuts) => onChange({ ...preferences, keyboardShortcuts })} />
+    <div className="desktop-shortcut-settings"><ShortcutSetting value={preferences.keyboardShortcuts} onChange={(keyboardShortcuts) => onChange({ ...preferences, keyboardShortcuts })} /></div>
     <section className="preference-card"><div className="settings-title"><span><ListFilter /></span><div><h2>出题与复习</h2><p>控制抽题分布、默认顺序和错题复习节奏。</p></div></div><div className="preference-list">
       <PreferenceSelect title="随机组题型分布" detail="均衡抽取会尽量平均包含单选、多选、判断；不足的题型由其他题型补足。" value={preferences.randomTypeBalance} onChange={(value) => onChange({ ...preferences, randomTypeBalance: value as PracticePreferences["randomTypeBalance"] })} options={[['balanced','尽量均衡'],['natural','按题库自然比例']]} />
       <PreferenceSelect title="默认题目顺序" detail="进入练习中心和高级筛选时默认使用的题目顺序。" value={preferences.defaultOrder} onChange={(value) => onChange({ ...preferences, defaultOrder: value as PracticePreferences["defaultOrder"] })} options={[['sequential','题库顺序'],['random','随机打乱'],['difficulty','难题优先']]} />
@@ -1030,6 +1035,7 @@ function PreferencesView({ preferences, onChange }: { preferences: PracticePrefe
       <GoalSetting count={preferences.dailyGoalCount} accuracy={preferences.dailyGoalAccuracy} onChange={(dailyGoalCount, dailyGoalAccuracy) => onChange({ ...preferences, dailyGoalCount, dailyGoalAccuracy })} />
       {feedbackItems.map(toggleRow)}
     </div></section>
+    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} /></div>
   </>;
 }
 
@@ -1092,6 +1098,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   }, []);
 
   useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) return;
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isEditingText = target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");

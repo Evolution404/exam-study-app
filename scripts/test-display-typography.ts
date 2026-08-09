@@ -9,7 +9,12 @@ assert.equal(
 );
 assert.equal(
   formatQuestionDisplayText('请选择: (A) "正确"; (B) "错误"!'),
-  '请选择：(A) “正确”；(B) “错误”！',
+  '请选择：（A） “正确”；（B） “错误”！',
+);
+assert.equal(
+  formatQuestionDisplayText("在( )内填写答案，并判断(正确)或(错误)。"),
+  "在（）内填写答案，并判断（正确）或（错误）。",
+  "Chinese questions must use full-width parentheses even around blanks and ASCII labels",
 );
 assert.equal(
   formatQuestionDisplayText("已知 $f(x)=1,000.5$, 求 f(2)."),

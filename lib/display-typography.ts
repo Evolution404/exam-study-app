@@ -43,7 +43,10 @@ function formatPlainText(value: string, quoteState: { doubleOpen: boolean; singl
     if (character === "!") { output.push(next === "=" ? character : "！"); continue; }
     if (character === "(") {
       const closingIndex = value.indexOf(")", index + 1);
-      const chineseParenthesis = closingIndex > index && HAN_TEXT.test(value.slice(index + 1, closingIndex));
+      const contents = closingIndex > index ? value.slice(index + 1, closingIndex) : "";
+      const technicalParenthesis = isAsciiWord(previous)
+        && /^[A-Za-z0-9_+\-*/^=.,\s]*$/.test(contents);
+      const chineseParenthesis = !technicalParenthesis;
       parenthesisStyle.push(chineseParenthesis);
       output.push(chineseParenthesis ? "（" : character);
       continue;
