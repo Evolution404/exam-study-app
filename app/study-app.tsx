@@ -8,8 +8,8 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { clearLegacyGeneratedTags, clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, resetLocalDatabase, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
-import { getGitHubLogin, syncWithGitHub, verifyGitHubVault } from "@/lib/github-sync";
+import { clearLegacyGeneratedTags, clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { getGitHubLogin, restoreFromGitHub, syncWithGitHub } from "@/lib/github-sync";
 import { difficultyLabel, needsWrongReview, summarizeAttempts } from "@/lib/practice-metrics";
 import { PracticeSetupView } from "@/app/practice-setup";
 import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
@@ -407,7 +407,7 @@ export function StudyApp() {
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
       localStorage.setItem("github-settings", JSON.stringify(resolved));
       const result = await syncWithGitHub(resolved, token);
-      setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条`);
+      setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
@@ -1201,7 +1201,7 @@ function SyncView({ pending, onNotice }: { pending: number; onNotice: (message: 
       localStorage.setItem("github-settings", JSON.stringify(resolved));
       sessionStorage.setItem("github-token", token);
       const result = await syncWithGitHub(resolved, token);
-      onNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条`);
+      onNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "同步失败");
     } finally { setSyncing(false); }
@@ -1212,16 +1212,13 @@ function SyncView({ pending, onNotice }: { pending: number; onNotice: (message: 
     try {
       setRestoring(true);
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-      const remoteFiles = await verifyGitHubVault(resolved, token);
-      if (!remoteFiles) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
       setSettings(resolved);
       localStorage.setItem("github-settings", JSON.stringify(resolved));
       sessionStorage.setItem("github-token", token);
-      await resetLocalDatabase();
-      const result = await syncWithGitHub(resolved, token);
+      const result = await restoreFromGitHub(resolved, token);
       localStorage.removeItem("study-current-bank");
       localStorage.removeItem("study-current-banks");
-      window.alert(`恢复完成：从远程应用 ${result.pulled} 条记录。页面将重新载入。`);
+      window.alert(`恢复完成：已通过 v${result.formatVersion} 远程数据重建本地，共应用 ${result.pulled} 条记录。页面将重新载入。`);
       window.location.reload();
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "远程恢复失败");

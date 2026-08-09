@@ -9,8 +9,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run build",
-    "lint": "eslint . --ignore-pattern dist"
+    "test": "npm run build && npm run test:sync",
+    "test:sync": "tsx scripts/test-sync-protocol.ts",
+    "lint": "eslint . --ignore-pattern dist",
+    "vault:migrate-v2": "node scripts/migrate-vault-v2.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.4",
@@ -31,8 +33,10 @@
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
+    "fake-indexeddb": "^6.2.5",
     "globals": "16.4.0",
     "tailwindcss": "4.2.1",
+    "tsx": "^4.23.11",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
     "vite": "8.0.13"

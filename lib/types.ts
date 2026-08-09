@@ -10,6 +10,7 @@ export interface Bank {
   sortOrder?: number;
   updatedAt?: string;
   deviceId?: string;
+  syncEventId?: string;
   questionCount: number;
   importedAt: string;
 }
@@ -22,6 +23,7 @@ export interface BankFolder {
   createdAt: string;
   updatedAt: string;
   deviceId: string;
+  syncEventId?: string;
 }
 
 export interface Question {
@@ -37,6 +39,7 @@ export interface Question {
   favorite?: boolean;
   userUpdatedAt?: string;
   userUpdatedBy?: string;
+  syncEventId?: string;
 }
 
 export type PracticeMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
@@ -86,6 +89,8 @@ export interface PracticeRun {
   abandonedAt?: string;
   status: PracticeRunStatus;
   revision: number;
+  syncDeviceId?: string;
+  syncEventId?: string;
 }
 
 export interface PracticeFilter {
@@ -127,6 +132,7 @@ export interface Note {
   revision: number;
   updatedAt: string;
   deviceId: string;
+  syncEventId?: string;
 }
 
 export type QuestionGroupType = "易混" | "相似" | "前置" | "重复" | "专题" | "自定义";
@@ -145,6 +151,7 @@ export interface QuestionGroup {
   createdAt: string;
   updatedAt: string;
   deviceId: string;
+  syncEventId?: string;
 }
 
 export interface SyncEvent {
@@ -160,6 +167,52 @@ export interface SyncFile {
   path: string;
   sha: string;
   appliedAt: string;
+}
+
+export type SyncEntityType = "bank" | "bankFolder" | "question" | "practiceRun" | "questionGroup";
+
+export interface SyncTombstone {
+  key: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  deletedAt: string;
+  deviceId: string;
+  eventId: string;
+}
+
+export interface SyncSnapshotV2 {
+  formatVersion: 2;
+  generatedAt: string;
+  state: {
+    banks: Bank[];
+    bankFolders: BankFolder[];
+    questions: Question[];
+    attempts: Attempt[];
+    notes: Note[];
+    practiceRuns: PracticeRun[];
+    questionGroups: QuestionGroup[];
+    tombstones: SyncTombstone[];
+  };
+  counts: {
+    banks: number;
+    bankFolders: number;
+    questions: number;
+    attempts: number;
+    notes: number;
+    practiceRuns: number;
+    questionGroups: number;
+    tombstones: number;
+  };
+}
+
+export interface SyncManifestV2 {
+  formatVersion: 2;
+  generatedAt: string;
+  snapshot: {
+    path: string;
+    sha256: string;
+  };
+  eventPrefix: string;
 }
 
 export interface GitHubSettings {
