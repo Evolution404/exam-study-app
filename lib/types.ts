@@ -169,6 +169,14 @@ export interface SyncFile {
   path: string;
   sha: string;
   appliedAt: string;
+  remoteCache?: {
+    owner: string;
+    repo: string;
+    branch: string;
+    cachedAt: string;
+    snapshot: SyncSnapshotV2;
+    markers: Array<{ path: string; sha: string; appliedAt: string }>;
+  };
 }
 
 export type SyncEntityType = "bank" | "bankFolder" | "question" | "practiceRun" | "questionGroup";

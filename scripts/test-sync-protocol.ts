@@ -11,7 +11,7 @@ Object.defineProperty(globalThis, "localStorage", { value: {
 } });
 
 const { applyRemoteEvents, applySyncSnapshot, createSyncSnapshot, db, resetLocalDatabase, validateSyncSnapshot } = await import("../lib/db");
-const { restoreFromGitHub, syncWithGitHub } = await import("../lib/github-sync");
+const { getLastRemoteCache, restoreFromGitHub, restoreLastRemoteCache, syncWithGitHub } = await import("../lib/github-sync");
 type SyncEvent = import("../lib/types").SyncEvent;
 type PracticeRun = import("../lib/types").PracticeRun;
 
@@ -111,5 +111,15 @@ assert.equal(restoreResult.formatVersion, 2);
 assert.equal(await db.banks.count(), 1);
 assert.equal(await db.questions.count(), 1);
 
+const cached = await getLastRemoteCache(settings);
+assert.ok(cached, "successful remote restore must cache the materialized remote state locally");
+await db.questions.update(question.id, { stem: "未同步的本地修改" });
+await db.events.put({ ...seedEvent, id: "local-only", synced: 0 });
+globalThis.fetch = async () => { throw new Error("local cache restore must not access the network"); };
+const cacheRestore = await restoreLastRemoteCache(settings);
+assert.equal(cacheRestore.counts.questions, 1);
+assert.equal((await db.questions.get(question.id))?.stem, "测试题", "cache restore must discard local edits");
+assert.equal(await db.events.count(), 0, "cache restore must discard pending local events");
+
 await db.delete();
-console.log("sync protocol tests passed: tombstones, deterministic conflicts, batching, safe restore");
+console.log("sync protocol tests passed: tombstones, deterministic conflicts, batching, network and cached restore");

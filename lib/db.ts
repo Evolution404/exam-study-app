@@ -621,6 +621,21 @@ export async function applySyncSnapshot(snapshot: SyncSnapshotV2, replace = fals
           db.practiceRuns.clear(), db.questionGroups.clear(), db.tombstones.clear(), db.sessions.clear(),
           db.events.clear(), db.syncFiles.clear(),
         ]);
+        const questionIds = new Set(snapshot.state.questions.map((question) => question.id));
+        const questionGroups = snapshot.state.questionGroups
+          .map((group) => ({ ...group, items: group.items.filter((item) => questionIds.has(item.questionId)) }))
+          .filter((group) => group.items.length);
+        await Promise.all([
+          db.banks.bulkPut(snapshot.state.banks),
+          db.bankFolders.bulkPut(snapshot.state.bankFolders),
+          db.questions.bulkPut(snapshot.state.questions),
+          db.attempts.bulkPut(snapshot.state.attempts),
+          db.notes.bulkPut(snapshot.state.notes),
+          db.practiceRuns.bulkPut(snapshot.state.practiceRuns),
+          db.questionGroups.bulkPut(questionGroups),
+          db.tombstones.bulkPut(snapshot.state.tombstones),
+        ]);
+        return;
       }
       for (const tombstone of snapshot.state.tombstones) {
         await putTombstone(tombstone.entityType, tombstone.entityId, tombstone.deletedAt, tombstone.deviceId, tombstone.eventId);

@@ -14,6 +14,7 @@ const manifestPath = "sync/manifest.json";
 const uploadBatchSize = 100;
 const downloadConcurrency = 4;
 const compactionFileThreshold = 120;
+const remoteCachePrefix = "__local_remote_cache__/";
 
 interface TreeEntry {
   path: string;
@@ -36,6 +37,69 @@ interface RemotePackage {
   snapshotPath: string;
   snapshotSha: string;
   eventFiles: DownloadedEventFile[];
+}
+
+function remoteCachePath(settings: GitHubSettings) {
+  return `${remoteCachePrefix}${encodeURIComponent(settings.owner)}/${encodeURIComponent(settings.repo)}/${encodeURIComponent(settings.branch || "main")}`;
+}
+
+async function cacheCurrentRemoteState(settings: GitHubSettings) {
+  const snapshot = await createSyncSnapshot();
+  validateSyncSnapshot(snapshot);
+  const cachedAt = new Date().toISOString();
+  const path = remoteCachePath(settings);
+  const markers = (await db.syncFiles.toArray())
+    .filter((file) => !file.path.startsWith(remoteCachePrefix))
+    .map(({ path: markerPath, sha, appliedAt }) => ({ path: markerPath, sha, appliedAt }));
+  await db.syncFiles.put({
+    path,
+    sha: `local-${snapshot.generatedAt}`,
+    appliedAt: cachedAt,
+    remoteCache: {
+      owner: settings.owner,
+      repo: settings.repo,
+      branch: settings.branch || "main",
+      cachedAt,
+      snapshot,
+      markers,
+    },
+  });
+  return { cachedAt, counts: snapshot.counts };
+}
+
+export async function getLastRemoteCache(settings: GitHubSettings) {
+  const cached = (await db.syncFiles.get(remoteCachePath(settings)))?.remoteCache;
+  if (!cached) return null;
+  validateSyncSnapshot(cached.snapshot);
+  return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts };
+}
+
+export async function restoreLastRemoteCache(settings: GitHubSettings) {
+  const cacheFile = await db.syncFiles.get(remoteCachePath(settings));
+  const cached = cacheFile?.remoteCache;
+  if (!cacheFile || !cached) throw new Error("本机还没有可恢复的远程缓存，请先成功同步一次。");
+  validateSyncSnapshot(cached.snapshot);
+  const backup = {
+    snapshot: await createSyncSnapshot(),
+    sessions: await db.sessions.toArray(),
+    events: await db.events.toArray(),
+    syncFiles: await db.syncFiles.toArray(),
+  };
+  try {
+    await applySyncSnapshot(cached.snapshot, true);
+    await db.syncFiles.bulkPut([
+      ...cached.markers,
+      cacheFile,
+    ]);
+    return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 2 as const };
+  } catch (error) {
+    await resetLocalDatabase();
+    await applySyncSnapshot(backup.snapshot, true);
+    await db.sessions.bulkPut(backup.sessions);
+    await db.events.bulkPut(backup.events);
+    await db.syncFiles.bulkPut(backup.syncFiles);
+    throw error;
+  }
 }
 
 function headers(token: string) {
@@ -343,7 +407,8 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string) {
   const compaction = await compactGitHubVaultIfNeeded(settings, token);
   pulled += compaction.pulled;
   const remaining = await db.events.where("synced").equals(0).count();
-  return { pulled, pushed, remaining, formatVersion: 2 as const, compacted: compaction.compacted };
+  const cache = remaining ? null : await cacheCurrentRemoteState(settings);
+  return { pulled, pushed, remaining, formatVersion: 2 as const, compacted: compaction.compacted, cachedAt: cache?.cachedAt };
 }
 
 export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
@@ -360,6 +425,7 @@ export async function restoreFromGitHub(settings: GitHubSettings, token: string)
     const pulled = await applyPackage(remote, Boolean(remote.snapshot));
     const snapshot = await createSyncSnapshot();
     validateSyncSnapshot(snapshot);
+    await cacheCurrentRemoteState(settings);
     return { pulled, formatVersion: remote.formatVersion, counts: snapshot.counts };
   } catch (error) {
     await resetLocalDatabase();
