@@ -10,7 +10,7 @@ import type {
   PracticeRun,
   PracticeAnswerState,
   PracticeRunStats,
-  PracticeSession,
+  ActivePractice,
   Question,
   QuestionGroup,
   SyncEvent,
@@ -45,7 +45,6 @@ class StudyDatabase extends Dexie {
   events!: EntityTable<SyncEvent, "id">;
   syncFiles!: EntityTable<SyncFile, "path">;
   tombstones!: EntityTable<SyncTombstone, "key">;
-  sessions!: EntityTable<PracticeSession, "id">;
   syncMeta!: EntityTable<SyncMeta, "key">;
   /**
    * Archive rows downloaded during a full restore.  These tables are kept
@@ -57,7 +56,7 @@ class StudyDatabase extends Dexie {
 
   constructor() {
     super("memory-line-study");
-    this.version(8).stores({
+    this.version(9).stores({
       banks: "id, folderId, sortOrder, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, bankId, type, *tags, normalizedStem",
@@ -71,7 +70,6 @@ class StudyDatabase extends Dexie {
       events: "id, synced, createdAt, deviceId",
       syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
-      sessions: "id, bankId, updatedAt",
       syncMeta: "key, updatedAt",
       syncRestoreAttempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
       syncRestorePracticeRuns: "id, status, startedAt, updatedAt",
@@ -416,8 +414,6 @@ async function deleteBankLocal(bankId: string) {
   for (const run of affectedRuns) await updatePracticeRunStats(run, undefined);
   await db.practiceRuns.bulkDelete(affectedRuns.map((run) => run.id));
   await db.practiceRunStats.delete(bankId);
-  const active = await db.sessions.get("active");
-  if (active?.bankIds?.includes(bankId) || active?.bankId === bankId) await db.sessions.delete("active");
   await db.banks.delete(bankId);
 }
 
@@ -425,7 +421,7 @@ export async function deleteBank(bankId: string) {
   const now = new Date().toISOString();
   const deviceId = getDeviceId();
   const eventId = makeId("bank-delete");
-  await db.transaction("rw", [db.banks, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.questionGroups, db.practiceRuns, db.practiceRunStats, db.sessions, db.events, db.tombstones], async () => {
+  await db.transaction("rw", [db.banks, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.questionGroups, db.practiceRuns, db.practiceRunStats, db.events, db.tombstones], async () => {
     await deleteBankLocal(bankId);
     await putTombstone("bank", bankId, now, deviceId, eventId);
     await db.events.put({ id: eventId, type: "bank.deleted", payload: { id: bankId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
@@ -477,7 +473,7 @@ export async function saveNote(questionId: string, content: string) {
   return note;
 }
 
-export async function savePracticeSession(session: PracticeSession) {
+export async function savePracticeProgress(session: ActivePractice) {
   const run: PracticeRun = {
     id: session.runId,
     bankId: session.bankId,
@@ -496,9 +492,7 @@ export async function savePracticeSession(session: PracticeSession) {
     status: "in_progress",
     revision: session.revision,
   };
-  await db.transaction("rw", db.sessions, db.practiceRuns, db.practiceRunStats, db.events, async () => {
-    const current = await db.sessions.get(session.id);
-    if (!current || session.runId !== current.runId || session.revision >= current.revision) await db.sessions.put(session);
+  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, async () => {
     const existingRun = await db.practiceRuns.get(run.id);
     const savedRun = { ...existingRun, ...run };
     const accepted = !existingRun || run.revision >= existingRun.revision;
@@ -552,9 +546,7 @@ export async function deletePracticeRun(runId: string) {
   const now = new Date().toISOString();
   const deviceId = getDeviceId();
   const eventId = makeId("run-delete");
-  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.sessions, db.events, db.tombstones, async () => {
-    const active = await db.sessions.get("active");
-    if (active?.runId === runId) await db.sessions.delete("active");
+  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, db.tombstones, async () => {
     await updatePracticeRunStats(current, undefined);
     await db.practiceRuns.delete(runId);
     const pendingSaves = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === runId).toArray();
@@ -563,10 +555,6 @@ export async function deletePracticeRun(runId: string) {
     await db.events.put({ id: eventId, type: "practice.run.deleted", payload: { id: runId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
   });
   return true;
-}
-
-export async function clearPracticeSession() {
-  await db.sessions.delete("active");
 }
 
 export async function saveQuestionGroup(input: Pick<QuestionGroup, "name" | "type" | "description" | "items"> & { id?: string }) {
@@ -857,7 +845,6 @@ const syncCheckpointTables = [
   db.practiceRunStats,
   db.questionGroups,
   db.tombstones,
-  db.sessions,
   db.events,
   db.syncFiles,
   db.syncMeta,
@@ -959,8 +946,6 @@ export const cacheSyncCheckpoint = saveSyncCheckpointCache;
 export interface SyncCheckpointApplyOptions {
   /** Keep sync-file markers so the caller can update them in the same transaction. */
   preserveSyncFiles?: boolean;
-  /** Keep the active session so the caller can validate and restore it atomically. */
-  preserveSessions?: boolean;
 }
 
 function isSyncCheckpointPlan(value: SyncCheckpointV3 | SyncCheckpointPlan): value is SyncCheckpointPlan {
@@ -972,7 +957,7 @@ function isSyncCheckpointPlan(value: SyncCheckpointV3 | SyncCheckpointPlan): val
  *
  * This function intentionally has no transaction boundary of its own. It is
  * exported for restore flows that need to stage additional writes (pending
- * events, sessions, or sync markers) and commit all of them as one unit.
+ * events or sync markers) and commit all of them as one unit.
  */
 async function applyPreparedSyncCheckpointInTransaction(
   plan: SyncCheckpointPlan,
@@ -991,7 +976,6 @@ async function applyPreparedSyncCheckpointInTransaction(
     db.practiceRunStats,
     db.questionGroups,
     db.tombstones,
-    ...(options.preserveSessions ? [] : [db.sessions]),
     db.events,
     ...(options.preserveSyncFiles ? [] : [db.syncFiles]),
   ];
@@ -1228,12 +1212,12 @@ export async function applySyncSnapshot(snapshot: SyncSnapshotV2, replace = fals
   await db.transaction(
     "rw",
     [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.practiceRuns, db.practiceRunStats,
-      db.questionGroups, db.tombstones, db.sessions, db.events, db.syncFiles],
+      db.questionGroups, db.tombstones, db.events, db.syncFiles],
     async () => {
       if (replace) {
         await Promise.all([
           db.banks.clear(), db.bankFolders.clear(), db.questions.clear(), db.attempts.clear(), db.attemptStats.clear(), db.attemptDailyStats.clear(), db.notes.clear(),
-          db.practiceRuns.clear(), db.practiceRunStats.clear(), db.questionGroups.clear(), db.tombstones.clear(), db.sessions.clear(),
+          db.practiceRuns.clear(), db.practiceRunStats.clear(), db.questionGroups.clear(), db.tombstones.clear(),
           db.events.clear(), db.syncFiles.clear(),
         ]);
         const questionIds = new Set(snapshot.state.questions.map((question) => question.id));
@@ -1324,7 +1308,7 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
   await db.transaction(
     "rw",
     [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes, db.practiceRuns, db.practiceRunStats,
-      db.questionGroups, db.sessions, db.events, db.tombstones, db.syncMeta],
+      db.questionGroups, db.events, db.tombstones, db.syncMeta],
     async () => {
       for (const event of ordered) {
         if (!event?.id || !event.type || !event.createdAt || await db.events.get(event.id)) continue;
@@ -1414,8 +1398,6 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           const current = await db.practiceRuns.get(payload.id);
           if (!current || compareClock(deletedAt, event.deviceId, event.id, current.updatedAt, current.syncDeviceId, current.syncEventId) >= 0) {
             await putTombstone("practiceRun", payload.id, deletedAt, event.deviceId, event.id);
-            const active = await db.sessions.get("active");
-            if (active?.runId === payload.id) await db.sessions.delete("active");
             if (current) await updatePracticeRunStats(current, undefined);
             await db.practiceRuns.delete(payload.id);
           }

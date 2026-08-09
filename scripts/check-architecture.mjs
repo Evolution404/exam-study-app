@@ -34,7 +34,7 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 
 const db = read("lib/db.ts");
 const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-if (databaseVersions.length !== 1 || databaseVersions[0] !== 8) fail("客户端只能声明当前数据库 v8");
+if (databaseVersions.length !== 1 || databaseVersions[0] !== 9) fail("客户端只能声明当前数据库 v9");
 
 const sync = read("lib/github-sync.ts");
 const syncV4 = read("lib/github-sync-v4.ts");
@@ -91,4 +91,7 @@ for (const match of sync.matchAll(/export (?:async )?function\s+(\w+)/g)) {
 }
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v8 / Sync v4 head。`);
+if (/sessions:\s*["']/.test(db)) fail("DB v9 必须删除重复的 active sessions 表");
+if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
+
+console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v9 / Sync v4 head。`);

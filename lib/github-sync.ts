@@ -128,15 +128,15 @@ async function cacheCurrentRemoteState(settings: GitHubSettings, existingSnapsho
 
 async function createLocalBackup() {
   const [banks, bankFolders, questions, attempts, attemptStats, attemptDailyStats, notes, practiceRuns,
-    practiceRunStats, questionGroups, events, syncFiles, tombstones, sessions, syncMeta] = await Promise.all([
+    practiceRunStats, questionGroups, events, syncFiles, tombstones, syncMeta] = await Promise.all([
     db.banks.toArray(), db.bankFolders.toArray(), db.questions.toArray(), db.attempts.toArray(),
     db.attemptStats.toArray(), db.attemptDailyStats.toArray(), db.notes.toArray(), db.practiceRuns.toArray(),
     db.practiceRunStats.toArray(), db.questionGroups.toArray(), db.events.toArray(), db.syncFiles.toArray(),
-    db.tombstones.toArray(), db.sessions.toArray(), db.syncMeta.toArray(),
+    db.tombstones.toArray(), db.syncMeta.toArray(),
   ]);
   return {
     banks, bankFolders, questions, attempts, attemptStats, attemptDailyStats, notes, practiceRuns,
-    practiceRunStats, questionGroups, events, syncFiles, tombstones, sessions, syncMeta,
+    practiceRunStats, questionGroups, events, syncFiles, tombstones, syncMeta,
   };
 }
 
@@ -149,7 +149,7 @@ async function restoreLocalBackup(backup: Awaited<ReturnType<typeof createLocalB
     db.practiceRuns.bulkPut(backup.practiceRuns), db.practiceRunStats.bulkPut(backup.practiceRunStats),
     db.questionGroups.bulkPut(backup.questionGroups), db.events.bulkPut(backup.events),
     db.syncFiles.bulkPut(backup.syncFiles), db.tombstones.bulkPut(backup.tombstones),
-    db.sessions.bulkPut(backup.sessions), db.syncMeta.bulkPut(backup.syncMeta),
+    db.syncMeta.bulkPut(backup.syncMeta),
   ]);
 }
 
@@ -380,21 +380,14 @@ async function applyPackageV3(remote: RemotePackageV3, preserveLocal = true) {
   return withSyncRestoreTransaction(async () => {
     let pulled = 0;
     if (checkpointPlan) {
-      const [pending, sessions] = preserveLocal
-        ? await Promise.all([db.events.where("synced").equals(0).toArray(), db.sessions.toArray()])
-        : [[], []];
+      const pending = preserveLocal ? await db.events.where("synced").equals(0).toArray() : [];
       await applyPreparedSyncCheckpoint(checkpointPlan, {
         preserveSyncFiles: preserveLocal,
-        preserveSessions: preserveLocal,
       });
       const replay = pending.filter((event) => event.sequence > (checkpointPlan.checkpoint.cursors[event.deviceId] ?? 0));
       if (replay.length) {
         await applyRemoteEvents(replay);
         await db.events.bulkPut(replay.map((event) => ({ ...event, synced: 0 as const })));
-      }
-      for (const session of sessions) {
-        const exists = await db.questions.bulkGet(session.questionIds);
-        if (!exists.every(Boolean)) await db.sessions.delete(session.id);
       }
       await db.syncFiles.put({ path: remote.checkpointPath, sha: remote.checkpointSha, appliedAt: new Date().toISOString() });
       const counts = checkpointPlan.checkpoint.counts;

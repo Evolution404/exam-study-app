@@ -227,7 +227,7 @@ async function applyHotPackage(settings: GitHubSettings, pkg: HotPackage, preser
   const localEvents = preserveLocalChanges ? await db.events.toArray() : [];
   const beyondCheckpoint = localEvents.filter((event) => event.sequence > (pkg.checkpoint.cursors[event.deviceId] ?? 0));
   await withSyncRestoreTransaction(async () => {
-    await applyPreparedSyncCheckpoint(pkg.checkpointPlan, { preserveSyncFiles: true, preserveSessions: true });
+    await applyPreparedSyncCheckpoint(pkg.checkpointPlan, { preserveSyncFiles: true });
     await applyRemoteEvents([...beyondCheckpoint, ...pkg.events]);
     if (beyondCheckpoint.length) await db.events.bulkPut(beyondCheckpoint.map((event) => ({ ...event, synced: 0 as const })));
     await db.syncFiles.bulkPut(pkg.markers);

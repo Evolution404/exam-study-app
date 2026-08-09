@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const studyApp = read("app/study-app.tsx");
+const practiceHistory = read("app/practice-history.tsx");
 const styles = read("app/styles/components.css");
+const database = read("lib/db.ts");
 
 assert.match(studyApp, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(studyApp, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");
@@ -13,4 +15,16 @@ assert.match(styles, /padding:10px 50px 10px 15px/, "every option must reserve t
 assert.match(studyApp, /correct \? <p>正确答案：\{displayAnswer\}<\/p> : preferences\.showAnswerOnWrong/, "correct feedback must show only answer letters");
 assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
-console.log("practice answer feedback tests passed: stable option layout, overlay icons and concise correct result");
+assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
+assert.match(studyApp, /db\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must observe the latest in-progress practiceRun");
+assert.match(studyApp, /const run = runId \? await db\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same practiceRun by id");
+assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
+assert.match(studyApp, /<p>\{answeredInRun\} \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/p>/, "home must use the same answered/total metric as practice history");
+assert.doesNotMatch(studyApp, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
+assert.ok(studyApp.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < studyApp.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
+assert.match(practiceHistory, /onAbandon: \(runId: string\) => void/, "latest practice banner needs an abandon action");
+assert.match(practiceHistory, /className="latest-practice-abandon"/, "latest practice abandon action needs its compact button");
+assert.match(styles, /\.resume-card-actions \{ display:flex; align-items:center; gap:8px; \}/, "home continue and abandon controls must share one ordered action row");
+assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home action row must keep abandon immediately right of continue");
+
+console.log("practice UI tests passed: stable answer feedback and one-source resume cards");

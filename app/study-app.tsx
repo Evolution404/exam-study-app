@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { clearPracticeSession, db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeSession, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { db, deletePracticeRun, importQuestionBank, recordAttempt, saveNote, savePracticeProgress, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import { getGitHubLogin, getLastRemoteCache, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
@@ -28,7 +28,7 @@ import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
 import { shouldSubmitOnChoice } from "@/lib/answer-submission";
-import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
+import type { ActivePractice, GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeRun, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
 
@@ -237,6 +237,29 @@ function resumeIndexAfterLastAnswer(
   return Math.min(lastAnsweredIndex + 1, questionIds.length - 1);
 }
 
+function activePracticeFromRun(run: PracticeRun, preferredIndex?: number): ActivePractice {
+  const currentIndex = preferredIndex ?? resumeIndexAfterLastAnswer(run.questionIds, run.answers, run.lastAnsweredIndex);
+  return {
+    id: "active",
+    runId: run.id,
+    bankId: run.bankId,
+    bankIds: run.bankIds,
+    bankName: run.bankName,
+    mode: run.mode,
+    modeLabel: run.modeLabel,
+    questionIds: run.questionIds,
+    questionTypes: run.questionTypes,
+    currentIndex: Math.min(Math.max(0, currentIndex), Math.max(0, run.questionIds.length - 1)),
+    lastAnsweredIndex: run.lastAnsweredIndex,
+    answers: run.answers,
+    shuffleOptions: run.shuffleOptions,
+    optionOrders: run.optionOrders,
+    startedAt: run.startedAt,
+    updatedAt: run.updatedAt,
+    revision: run.revision,
+  };
+}
+
 export function StudyApp() {
   const [view, setView] = useState<View>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -246,10 +269,10 @@ export function StudyApp() {
   const [searchQuestionId, setSearchQuestionId] = useState<string>();
   const [searchRevision, setSearchRevision] = useState(0);
   const [groupQuestionIds, setGroupQuestionIds] = useState<string[]>([]);
-  const [practiceSession, setPracticeSession] = useState<PracticeSession | null>(null);
+  const [practiceSession, setPracticeSession] = useState<ActivePractice | null>(null);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const [preferences, setPreferences] = useState<PracticePreferences>(loadPreferences);
-  const [discardedSession, setDiscardedSession] = useState<PracticeSession | null>(null);
+  const [discardedRun, setDiscardedRun] = useState<PracticeRun | null>(null);
   const [practiceHubTab, setPracticeHubTab] = useState<"start" | "history">("start");
   const [resultRunId, setResultRunId] = useState<string>();
   const [quickSyncing, setQuickSyncing] = useState(false);
@@ -315,7 +338,7 @@ export function StudyApp() {
     setGroupQuestionIds([]);
     setPracticeSession(null);
     setSelectedBankIds([]);
-    setDiscardedSession(null);
+    setDiscardedRun(null);
     setPracticeHubTab("start");
     setResultRunId(undefined);
     setFinishPrompt(undefined);
@@ -335,7 +358,10 @@ export function StudyApp() {
   const banks = useLiveQuery(async () => (await db.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
   const activeBankIds = validSelectedBankIds;
-  const savedSession = useLiveQuery(() => db.sessions.get("active"), []);
+  const latestPracticeRun = useLiveQuery(async () => {
+    const runs = await db.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt");
+    return runs.at(-1);
+  }, []);
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
   const activeQuestion = useLiveQuery(() => activeQuestionId ? db.questions.get(activeQuestionId) : undefined, [activeQuestionId]);
   const stats = useLiveQuery(async () => {
@@ -385,19 +411,19 @@ export function StudyApp() {
     selectBanks(next);
   }
 
-  async function discardSavedPractice() {
-    if (!savedSession) return;
-    setDiscardedSession(savedSession);
-    await clearPracticeSession();
-    await setPracticeRunStatus(savedSession.runId, "abandoned", savedSession.answers);
-    setPracticeSession(null);
+  async function discardSavedPractice(runId: string) {
+    const run = await db.practiceRuns.get(runId);
+    if (!run || run.status !== "in_progress") return;
+    setDiscardedRun(run);
+    await setPracticeRunStatus(run.id, "abandoned", run.answers);
+    if (practiceSession?.runId === run.id) setPracticeSession(null);
     setNotice("已放弃上次练习");
   }
 
   async function undoDiscardPractice() {
-    if (!discardedSession) return;
-    await savePracticeSession(discardedSession);
-    setDiscardedSession(null);
+    if (!discardedRun) return;
+    await setPracticeRunStatus(discardedRun.id, "in_progress", discardedRun.answers);
+    setDiscardedRun(null);
     setNotice("已恢复上次练习");
   }
 
@@ -585,7 +611,7 @@ export function StudyApp() {
       return;
     }
     const now = new Date().toISOString();
-    const session: PracticeSession = {
+    const session: ActivePractice = {
       id: "active",
       runId: crypto.randomUUID(),
       bankId: practiceBanks[0].id,
@@ -608,7 +634,7 @@ export function StudyApp() {
       updatedAt: now,
       revision: 1,
     };
-    await savePracticeSession(session);
+    await savePracticeProgress(session);
     setPracticeSession(session);
     setView("practice");
   }
@@ -618,7 +644,7 @@ export function StudyApp() {
     const practiceBanks = banks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));
     if (!orderedQuestions.length || !practiceBanks.length) return;
     const now = new Date().toISOString();
-    const session: PracticeSession = {
+    const session: ActivePractice = {
       id: "active",
       runId: crypto.randomUUID(),
       bankId: practiceBanks[0].id,
@@ -641,7 +667,7 @@ export function StudyApp() {
       updatedAt: now,
       revision: 1,
     };
-    await savePracticeSession(session);
+    await savePracticeProgress(session);
     setPracticeSession(session);
     setView("practice");
   }
@@ -661,63 +687,27 @@ export function StudyApp() {
     setView("search");
   }
 
-  function changeSession(mutator: (session: PracticeSession) => PracticeSession) {
+  function changeSession(mutator: (session: ActivePractice) => ActivePractice) {
     setPracticeSession((current) => {
       if (!current) return current;
       const changed = mutator(current);
       if (changed === current) return current;
       const next = { ...changed, updatedAt: new Date().toISOString(), revision: current.revision + 1 };
-      void savePracticeSession(next);
+      // The current question is React-only view state. Persist answer changes,
+      // but do not let browsing back and forth create newer run revisions that
+      // could outrank submitted progress received from another device.
+      if (changed.answers !== current.answers) void savePracticeProgress(next);
       return next;
     });
   }
 
   async function resumePractice(runId?: string, preferredIndex?: number) {
-    let session = savedSession;
-    if (runId) {
-      const run = await db.practiceRuns.get(runId);
-      if (!run || run.status !== "in_progress" || !run.questionIds.length) {
-        setNotice("这次练习已经结束或记录不存在");
-        return;
-      }
-      const currentIndex = preferredIndex ?? resumeIndexAfterLastAnswer(run.questionIds, run.answers, run.lastAnsweredIndex);
-      session = {
-        id: "active",
-        runId: run.id,
-        bankId: run.bankId,
-        bankIds: run.bankIds,
-        bankName: run.bankName,
-        mode: run.mode,
-        modeLabel: run.modeLabel,
-        questionIds: run.questionIds,
-        questionTypes: run.questionTypes,
-        currentIndex: Math.min(Math.max(0, currentIndex), run.questionIds.length - 1),
-        lastAnsweredIndex: run.lastAnsweredIndex,
-        answers: run.answers,
-        shuffleOptions: run.shuffleOptions,
-        optionOrders: run.optionOrders,
-        startedAt: run.startedAt,
-        updatedAt: new Date().toISOString(),
-        revision: run.revision + 1,
-      };
-      await savePracticeSession(session);
-    }
-    if (!session?.questionIds.length) {
+    const run = runId ? await db.practiceRuns.get(runId) : latestPracticeRun;
+    if (!run || run.status !== "in_progress" || !run.questionIds.length) {
       setNotice("没有可以继续的练习记录");
       return;
     }
-    if (preferredIndex === undefined) {
-      const resumeIndex = resumeIndexAfterLastAnswer(session.questionIds, session.answers, session.lastAnsweredIndex);
-      if (session.currentIndex !== resumeIndex) {
-        session = {
-          ...session,
-          currentIndex: resumeIndex,
-          updatedAt: new Date().toISOString(),
-          revision: session.revision + 1,
-        };
-        await savePracticeSession(session);
-      }
-    }
+    let session = activePracticeFromRun(run, preferredIndex);
     if (!session.questionTypes || Object.keys(session.questionTypes).length !== session.questionIds.length) {
       const questions = await db.questions.bulkGet(session.questionIds);
       session = {
@@ -726,7 +716,7 @@ export function StudyApp() {
         updatedAt: new Date().toISOString(),
         revision: session.revision + 1,
       };
-      await savePracticeSession(session);
+      await savePracticeProgress(session);
     }
     setPracticeSession(session);
     selectBanks(session.bankIds?.length ? session.bankIds : [session.bankId]);
@@ -737,11 +727,7 @@ export function StudyApp() {
     const run = await db.practiceRuns.get(runId);
     if (!run || run.status !== "in_progress") return;
     await setPracticeRunStatus(runId, "abandoned", run.answers);
-    const active = await db.sessions.get("active");
-    if (active?.runId === runId) {
-      await clearPracticeSession();
-      if (practiceSession?.runId === runId) setPracticeSession(null);
-    }
+    if (practiceSession?.runId === runId) setPracticeSession(null);
     setNotice("已放弃这次练习，记录仍会保留");
   }
 
@@ -784,7 +770,6 @@ export function StudyApp() {
   async function completePractice() {
     if (!practiceSession) return;
     await setPracticeRunStatus(practiceSession.runId, "completed", practiceSession.answers);
-    await clearPracticeSession();
     setResultRunId(practiceSession.runId);
     setFinishPrompt(undefined);
     setView("practiceResult");
@@ -853,13 +838,13 @@ export function StudyApp() {
 
         {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
 
-        {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
+        {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}>
-          {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} savedSession={savedSession} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={() => void resumePractice()} onDiscardResume={() => void discardSavedPractice()} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} latestPracticeRun={latestPracticeRun} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={(runId) => void resumePractice(runId)} onDiscardResume={(runId) => void discardSavedPractice(runId)} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
-          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
@@ -1014,27 +999,27 @@ function PullToRefresh() {
   return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
-function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, stats, banks, savedSession, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
+function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, stats, banks, latestPracticeRun, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
   groupSize: number;
   dailyGoalCount: number;
   dailyGoalAccuracy: number;
   stats: { questions: number; attempts: number; correct: number; todayAttempts: number; todayCorrect: number; pending: number; notes: number; last?: string };
   banks: Array<{ id: string; name: string; displayName?: string; questionCount: number }>;
-  savedSession?: PracticeSession;
+  latestPracticeRun?: PracticeRun;
   selectedBankIds: string[];
   onBankToggle: (bankId: string) => void;
-  onImport: () => void; onStart: () => void; onResume: () => void; onDiscardResume: () => void; onMoreModes: () => void;
+  onImport: () => void; onStart: () => void; onResume: (runId: string) => void; onDiscardResume: (runId: string) => void; onMoreModes: () => void;
 }) {
   const accuracy = stats.attempts ? Math.round(stats.correct / stats.attempts * 100) : 0;
   const todayAccuracy = stats.todayAttempts ? Math.round(stats.todayCorrect / stats.todayAttempts * 100) : 0;
   const countProgress = Math.min(100, Math.round(stats.todayAttempts / dailyGoalCount * 100));
   const selectedBanks = banks.filter((bank) => selectedBankIds.includes(bank.id));
   const selectedQuestions = selectedBanks.reduce((total, bank) => total + bank.questionCount, 0);
-  const answeredInSession = savedSession ? Object.values(savedSession.answers).filter((answer) => answer.submitted).length : 0;
+  const answeredInRun = latestPracticeRun ? Object.values(latestPracticeRun.answers).filter((answer) => answer.submitted).length : 0;
   return <>
     <div className="home-heading"><p className="eyebrow">今天也向前一点</p><h1>把知识，练成下意识。</h1><p>自由组合题库，记录每一次选择，随时从中断处继续。</p></div>
+    {latestPracticeRun && <section className="resume-card"><span><Play size={20} /></span><div className="resume-copy"><small>上次练习 · {latestPracticeRun.modeLabel}</small><strong>{latestPracticeRun.bankName}</strong><p>{answeredInRun} / {latestPracticeRun.questionIds.length} 已作答</p></div><div className="resume-card-actions"><button className="resume-continue" onClick={() => onResume(latestPracticeRun.id)}>继续练习<ChevronRight size={17} /></button><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={() => onDiscardResume(latestPracticeRun.id)}><X size={16} /></button></div></section>}
     {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
-    {savedSession && <section className="resume-card"><span><Play size={20} /></span><div><small>上次练习 · {savedSession.modeLabel}</small><strong>{savedSession.bankName}</strong><p>停在第 {savedSession.currentIndex + 1} / {savedSession.questionIds.length} 题，已作答 {answeredInSession} 题</p></div><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={onDiscardResume}><X size={16} /></button><button className="resume-continue" onClick={onResume}>继续练习<ChevronRight size={17} /></button></section>}
     <section className="home-feature-grid">
       <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
       <article className="memory-card daily-goal-card"><span>今日目标</span><blockquote>{stats.todayAttempts} / {dailyGoalCount} 题</blockquote><div className="daily-goal-progress"><i style={{ width: `${countProgress}%` }} /></div><small>今日正确率 {todayAccuracy}% · 目标 {dailyGoalAccuracy}%</small>

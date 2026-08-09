@@ -50,7 +50,12 @@ export interface PracticeAnswerState {
   correct?: boolean;
 }
 
-export interface PracticeSession {
+/**
+ * Transient view state for the practice screen. PracticeRun is the only
+ * persisted source of truth; this shape only adds the question currently
+ * visible in React.
+ */
+export interface ActivePractice {
   id: "active";
   runId: string;
   bankId: string;

@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, "localStorage", {
 type Attempt = import("../lib/types").Attempt;
 type Bank = import("../lib/types").Bank;
 type PracticeRun = import("../lib/types").PracticeRun;
-type PracticeSession = import("../lib/types").PracticeSession;
+type ActivePractice = import("../lib/types").ActivePractice;
 type Question = import("../lib/types").Question;
 type SyncEvent = import("../lib/types").SyncEvent;
 
@@ -69,7 +69,7 @@ function makeRun(input: Partial<PracticeRun> & Pick<PracticeRun, "id" | "updated
   };
 }
 
-function makeSession(run: PracticeRun, bank: Bank, question: Question): PracticeSession {
+function makeActivePractice(run: PracticeRun, bank: Bank, question: Question): ActivePractice {
   return {
     id: "active",
     runId: run.id,
@@ -120,15 +120,16 @@ const {
   recordAttempt,
   resetLocalDatabase,
   saveNote,
-  savePracticeSession,
+  savePracticeProgress,
   setPracticeRunStatus,
 } = dbModule;
 const { calendarDate, statsNeedWrongReview } = metricsModule;
 
-// v8 is the sole current schema.  The staging and archive-index tables are
-// part of that schema rather than a compatibility upgrade from an older DB.
+// v9 removes the duplicate active-session table. PracticeRun is the sole
+// persisted progress source alongside the restore staging/archive tables.
 await resetLocalDatabase();
-assert.equal(db.verno, 8, "the current client schema must be DB v8");
+assert.equal(db.verno, 9, "the current client schema must be DB v9");
+assert.equal(db.tables.some((table) => table.name === "sessions"), false, "active sessions must not duplicate practiceRun progress");
 assert.ok(db.tables.some((table) => table.name === "syncRestoreAttempts"));
 assert.ok(db.tables.some((table) => table.name === "syncRestorePracticeRuns"));
 assert.ok(db.tables.some((table) => table.name === "syncArchiveEntries"));
@@ -215,13 +216,13 @@ await resetLocalDatabase();
 await db.banks.put(bank);
 await db.questions.bulkPut([question, secondQuestion]);
 const run = makeRun({ id: "run-stats", updatedAt: isoAt(-1), revision: 1 }, bank, question);
-await savePracticeSession(makeSession(run, bank, question));
+await savePracticeProgress(makeActivePractice(run, bank, question));
 assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").count(), 0, "starting an empty practice must stay local");
 assert.deepEqual(await db.practiceRunStats.get(bank.id), {
   bankId: bank.id, total: 1, completed: 0, inProgress: 1, abandoned: 0, latestUpdatedAt: run.updatedAt,
 });
 assert.equal((await db.practiceRunStats.get("__all__"))?.total, 1);
-await savePracticeSession(makeSession({ ...run, updatedAt: isoAt(0), revision: 2 }, bank, question));
+await savePracticeProgress(makeActivePractice({ ...run, updatedAt: isoAt(0), revision: 2 }, bank, question));
 assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").count(), 0, "navigation without a submitted answer must not queue sync");
 assert.equal((await db.practiceRunStats.get(bank.id))?.total, 1, "saving a later revision must not double count the run");
 const answeredRun = {
@@ -231,10 +232,10 @@ const answeredRun = {
   answers: { [question.id]: { selected: ["A"], submitted: true, correct: true } },
   lastAnsweredIndex: 0,
 };
-await savePracticeSession(makeSession(answeredRun, bank, question));
+await savePracticeProgress(makeActivePractice(answeredRun, bank, question));
 const firstRunEvent = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").first();
 assert.ok(firstRunEvent, "the first submitted answer must queue the practice run");
-await savePracticeSession(makeSession({ ...answeredRun, updatedAt: isoAt(0, 13, 2), revision: 4 }, bank, question));
+await savePracticeProgress(makeActivePractice({ ...answeredRun, updatedAt: isoAt(0, 13, 2), revision: 4 }, bank, question));
 const unchangedRunEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved").toArray();
 assert.equal(unchangedRunEvents.length, 1, "navigation after answering must not add another run event");
 assert.equal(unchangedRunEvents[0].id, firstRunEvent.id);
@@ -258,7 +259,7 @@ await recordAttempt({ runId: "cascade-run", questionId: question.id, bankId: ban
 await recordAttempt({ runId: "cascade-run", questionId: secondQuestion.id, bankId: bank.id, selected: "A", correct: true, elapsedMs: 500 });
 await saveNote(question.id, "待删除解析");
 const cascadeRun = makeRun({ id: "cascade-run", updatedAt: isoAt(0), revision: 1 }, bank, question);
-await savePracticeSession(makeSession(cascadeRun, bank, question));
+await savePracticeProgress(makeActivePractice(cascadeRun, bank, question));
 await db.questionGroups.put({ id: "group-cascade", name: "级联", type: "自定义", description: "", items: [{ questionId: question.id, note: "" }, { questionId: secondQuestion.id, note: "" }], createdAt: isoAt(0), updatedAt: isoAt(0), deviceId: "test" });
 await deleteQuestion(question.id);
 assert.equal(await db.questions.get(question.id), undefined);
@@ -319,4 +320,4 @@ assert.equal(checkpoint.retention.recentPracticeRunLimit, 100);
 assert.equal(checkpoint.retention.dailyStatsDays, 35);
 
 await db.delete();
-console.log("sync data-model tests passed: DB v8 schema, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");
+console.log("sync data-model tests passed: DB v9 single progress source, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");
