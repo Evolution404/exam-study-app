@@ -33,6 +33,7 @@ const question = {
   bankName: bank.name,
   stem: "分段恢复测试",
   normalizedStem: "分段恢复测试",
+  sortOrder: 0,
   answer: "A",
   options: ["甲", "乙"],
   type: "单选" as const,

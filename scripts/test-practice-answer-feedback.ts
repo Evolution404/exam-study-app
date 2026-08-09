@@ -13,10 +13,12 @@ assert.match(styles, /\.options button \{ position:relative;/, "option cards mus
 assert.match(styles, /\.option-status \{ position:absolute;/, "answer icons must not participate in option text layout");
 assert.match(styles, /padding:10px 50px 10px 15px/, "every option must reserve the same stable status gutter before and after submission");
 assert.match(studyApp, /correct \? <p>正确答案：\{displayAnswer\}<\/p> : preferences\.showAnswerOnWrong/, "correct feedback must show only answer letters");
+assert.match(studyApp, /你的选择：\{selectedAnswer \|\| "不会"\}｜正确答案：\{displayAnswer\}/, "wrong feedback must show selected and correct letters without repeating option content");
+assert.doesNotMatch(studyApp, /你的选择[^\n]*<MathText/, "answer feedback must never duplicate full option text");
 assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
-assert.match(studyApp, /db\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must observe the latest in-progress practiceRun");
+assert.match(studyApp, /db\.practiceRuns\.where\("\[status\+updatedAt\]"\)/, "home must use the compound index for the latest in-progress practiceRun");
 assert.match(studyApp, /const run = runId \? await db\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
 assert.match(studyApp, /<p>\{answeredInRun\} \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/p>/, "home must use the same answered/total metric as practice history");

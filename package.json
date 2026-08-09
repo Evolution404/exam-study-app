@@ -9,12 +9,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:modal",
+    "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:modal",
     "typecheck": "tsc --noEmit",
     "test:architecture": "node scripts/check-architecture.mjs",
-    "test:sync": "tsx scripts/test-sync-protocol.ts && tsx scripts/test-sync-data-model.ts && tsx scripts/test-sync-entity-conflicts.ts && tsx scripts/test-sync-concurrency.ts && tsx scripts/test-sync-restore.ts && tsx scripts/test-sync-checkpoint-transaction.ts && tsx scripts/test-sync-restore-staging.ts && tsx scripts/test-sync-v4-head.ts && tsx scripts/test-github-v4-remote.ts && tsx scripts/test-sync-v4-catalog.ts && (test ! -f scripts/test-sync-v4-integration.ts || tsx scripts/test-sync-v4-integration.ts)",
+    "test:sync": "tsx scripts/test-sync-data-model.ts && tsx scripts/test-sync-entity-conflicts.ts && tsx scripts/test-sync-checkpoint-transaction.ts && tsx scripts/test-sync-restore-staging.ts && tsx scripts/test-sync-v4-head.ts && tsx scripts/test-github-v4-remote.ts && tsx scripts/test-sync-v4-catalog.ts && tsx scripts/test-sync-v4-integration.ts",
     "test:pwa": "tsx scripts/test-pwa-cache.ts",
     "test:shortcuts": "tsx scripts/test-keyboard-shortcuts.ts",
+    "test:xlsx": "tsx scripts/test-xlsx-import.ts",
+    "test:browser": "node scripts/test-browser-visible.mjs",
     "test:press-intent": "tsx scripts/test-press-intent.ts",
     "test:typography": "tsx scripts/test-display-typography.ts",
     "test:answer-ui": "tsx scripts/test-practice-answer-feedback.ts",
@@ -22,6 +24,7 @@
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
+    "@radix-ui/react-select": "^2.3.7",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "katex": "^0.18.2",
@@ -42,11 +45,13 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "fake-indexeddb": "^6.2.5",
     "globals": "16.4.0",
+    "playwright-core": "^1.62.1",
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.11",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vite": "8.0.13"
+    "vite": "8.0.13",
+    "xlsx": "^0.18.5"
   },
   "type": "module"
 }

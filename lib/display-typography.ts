@@ -9,7 +9,6 @@ function isAsciiWord(value?: string) {
 
 function formatPlainText(value: string, quoteState: { doubleOpen: boolean; singleOpen: boolean }) {
   const output: string[] = [];
-  const parenthesisStyle: boolean[] = [];
 
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
@@ -42,17 +41,11 @@ function formatPlainText(value: string, quoteState: { doubleOpen: boolean; singl
     if (character === "?") { output.push("？"); continue; }
     if (character === "!") { output.push(next === "=" ? character : "！"); continue; }
     if (character === "(") {
-      const closingIndex = value.indexOf(")", index + 1);
-      const contents = closingIndex > index ? value.slice(index + 1, closingIndex) : "";
-      const technicalParenthesis = isAsciiWord(previous)
-        && /^[A-Za-z0-9_+\-*/^=.,\s]*$/.test(contents);
-      const chineseParenthesis = !technicalParenthesis;
-      parenthesisStyle.push(chineseParenthesis);
-      output.push(chineseParenthesis ? "（" : character);
+      output.push("（");
       continue;
     }
     if (character === ")") {
-      output.push(parenthesisStyle.pop() ? "）" : character);
+      output.push("）");
       continue;
     }
     if (character === '"') {

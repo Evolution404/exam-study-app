@@ -20,8 +20,13 @@ function formatTime(value: string) {
 const statusText: Record<PracticeRun["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
 
 export function LatestPracticeBanner({ onOpen, onContinue, onAbandon, onViewAll }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onViewAll: () => void }) {
-  const runs = useLiveQuery(() => db.practiceRuns.orderBy("updatedAt").reverse().toArray(), []) ?? [];
-  const run = runs.find((item) => item.status === "in_progress") ?? runs[0];
+  const run = useLiveQuery(async () => {
+    const [inProgress, latest] = await Promise.all([
+      db.practiceRuns.where("[status+updatedAt]").between(["in_progress", ""], ["in_progress", "\uffff"]).reverse().first(),
+      db.practiceRuns.orderBy("updatedAt").reverse().first(),
+    ]);
+    return inProgress ?? latest;
+  }, []);
   if (!run) return null;
   const stats = runStats(run);
   const canContinue = run.status === "in_progress";

@@ -21,7 +21,7 @@ export const SYNC_V4_ARCHIVE_CATALOG_PATH = `${SYNC_V4_ARCHIVE_CATALOG_PREFIX}${
 
 /**
  * Keep the hot index bounded even when a client has been offline for a long
- * time.  A page follows the v3 wire limits (250 events / 256 KiB); the head
+ * time.  A page follows the v4 wire limits (250 events / 256 KiB); the head
  * can reference at most the normal four-megabyte download window.
  */
 export const SYNC_V4_MAX_EVENT_PAGES = 1024;

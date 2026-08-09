@@ -7,7 +7,7 @@ const studyApp = read("app/study-app.tsx");
 const syncView = read("app/sync-view.tsx");
 const main = read("src/main.tsx");
 
-assert.match(serviceWorker, /const CACHE = "shijuan-v6"/);
+assert.match(serviceWorker, /const CACHE = "shijuan-v7"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
 assert.match(serviceWorker, /function navigationNetworkFirst/);
 assert.match(serviceWorker, /function assetCacheFirst/);

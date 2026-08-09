@@ -30,6 +30,7 @@ export interface Question {
   id: string;
   bankId: string;
   bankName: string;
+  sortOrder: number;
   stem: string;
   normalizedStem: string;
   answer: string;
@@ -48,6 +49,9 @@ export interface PracticeAnswerState {
   selected: string[];
   submitted: boolean;
   correct?: boolean;
+  updatedAt?: string;
+  deviceId?: string;
+  eventId?: string;
 }
 
 /**
@@ -249,7 +253,7 @@ export interface SyncCheckpointCache {
   repo: string;
   branch: string;
   cachedAt: string;
-  snapshot: SyncCheckpointV3;
+  snapshot: SyncCheckpointV4;
   markers: SyncFileMarker[];
 }
 
@@ -264,70 +268,10 @@ export interface SyncTombstone {
   eventId: string;
 }
 
-export interface SyncSnapshotV2 {
-  formatVersion: 2;
-  generatedAt: string;
-  state: {
-    banks: Bank[];
-    bankFolders: BankFolder[];
-    questions: Question[];
-    attempts: Attempt[];
-    notes: Note[];
-    practiceRuns: PracticeRun[];
-    questionGroups: QuestionGroup[];
-    tombstones: SyncTombstone[];
-  };
-  counts: {
-    banks: number;
-    bankFolders: number;
-    questions: number;
-    attempts: number;
-    notes: number;
-    practiceRuns: number;
-    questionGroups: number;
-    tombstones: number;
-  };
-}
-
-export interface SyncManifestV2 {
-  formatVersion: 2;
-  generatedAt: string;
-  snapshot: {
-    path: string;
-    sha256: string;
-  };
-  eventPrefix: string;
-}
-
-export interface SyncArchiveSegmentV3 {
-  path: string;
-  sha256: string;
-  month: string;
-  count: number;
-  firstId: string;
-  lastId: string;
-  firstCreatedAt: string;
-  lastCreatedAt: string;
-}
-
-export interface SyncArchiveCatalogV3 {
-  formatVersion: 3;
-  generatedAt: string;
-  attemptSegments: SyncArchiveSegmentV3[];
-  practiceRunSegments: SyncArchiveSegmentV3[];
-  counts: {
-    attempts: number;
-    practiceRuns: number;
-  };
-}
-
 /**
  * An immutable v4 history segment.  The Git blob id (`blobSha`) identifies
  * the object in the remote store while `sha256` identifies the decoded bytes
- * and is also embedded in ordinary v4 paths.  `legacy` is only present on a
- * descriptor produced by the explicit v3 migration helper; it allows a
- * migrated catalog to retain its original v3 path without making that path a
- * valid spelling for newly-created v4 segments.
+ * and is also embedded in ordinary v4 paths.
  */
 export interface SyncArchiveSegmentV4 {
   path: string;
@@ -340,7 +284,6 @@ export interface SyncArchiveSegmentV4 {
   lastId: string;
   firstCreatedAt: string;
   lastCreatedAt: string;
-  legacy?: boolean;
 }
 
 /** Immutable v4 catalog containing bounded attempt and practice-run history. */
@@ -355,8 +298,8 @@ export interface SyncArchiveCatalogV4 {
   };
 }
 
-export interface SyncCheckpointV3 {
-  formatVersion: 3;
+export interface SyncCheckpointV4 {
+  formatVersion: 4;
   generatedAt: string;
   state: {
     banks: Bank[];
@@ -389,20 +332,6 @@ export interface SyncCheckpointV3 {
     recentPracticeRuns: number;
     questionGroups: number;
     tombstones: number;
-  };
-}
-
-export interface SyncManifestV3 {
-  formatVersion: 3;
-  generatedAt: string;
-  checkpoint: {
-    path: string;
-    sha256: string;
-  };
-  eventPrefix: string;
-  archiveCatalog: {
-    path: string;
-    sha256: string;
   };
 }
 

@@ -58,6 +58,7 @@ const question: Question = {
   id: "conflict-question",
   bankId: bank.id,
   bankName: bank.name,
+  sortOrder: 0,
   stem: "原始题目",
   normalizedStem: "原始题目",
   answer: "A",
@@ -65,7 +66,7 @@ const question: Question = {
   type: "单选",
   tags: ["原始"],
 };
-const secondQuestion: Question = { ...question, id: "conflict-question-2", stem: "第二道题", normalizedStem: "第二道题" };
+const secondQuestion: Question = { ...question, id: "conflict-question-2", sortOrder: 1, stem: "第二道题", normalizedStem: "第二道题" };
 
 function event(input: Omit<SyncEvent, "sequence" | "synced">, sequence: number): SyncEvent {
   return { ...input, sequence, synced: 1 };
@@ -327,10 +328,40 @@ await applyRemoteEvents([event({
   deviceId: "device-old", createdAt: current,
 }, 72)]);
 assert.equal((await db.practiceRuns.get("run-conflict"))?.revision, 2, "stale practice-run deletion must not remove newer data");
+
+// Concurrent devices merge the same run per question: A answers q1/q2 while
+// B answers q2/q3. The newer q2 answer wins, and q1/q3 are both retained.
+await seed();
+const mergeRunBase: PracticeRun = {
+  id: "run-per-question", bankId: bank.id, bankIds: [bank.id], bankName: bank.name,
+  mode: "random30", modeLabel: "逐题合并", questionIds: [question.id, secondQuestion.id, "question-3"],
+  questionTypes: { [question.id]: "单选", [secondQuestion.id]: "单选", "question-3": "判断" },
+  answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: old, updatedAt: newer,
+  status: "in_progress", revision: 2,
+};
+const aRun: PracticeRun = { ...mergeRunBase, syncDeviceId: "device-a", answers: {
+  [question.id]: { selected: ["A"], submitted: true, correct: true, updatedAt: current, deviceId: "device-a", eventId: "answer-a-1" },
+  [secondQuestion.id]: { selected: ["A"], submitted: true, correct: true, updatedAt: current, deviceId: "device-a", eventId: "answer-a-2" },
+} };
+const bRun: PracticeRun = { ...mergeRunBase, updatedAt: newest, revision: 3, syncDeviceId: "device-b", answers: {
+  [secondQuestion.id]: { selected: ["B"], submitted: true, correct: false, updatedAt: newest, deviceId: "device-b", eventId: "answer-b-2" },
+  "question-3": { selected: ["A"], submitted: true, correct: true, updatedAt: newer, deviceId: "device-b", eventId: "answer-b-3" },
+} };
+await applyRemoteEvents([
+  event({ id: "run-merge-b", type: "practice.run.saved", payload: bRun, deviceId: "device-b", createdAt: newest }, 73),
+  event({ id: "run-merge-a", type: "practice.run.saved", payload: aRun, deviceId: "device-a", createdAt: newer }, 74),
+]);
+const mergedRun = await db.practiceRuns.get("run-per-question");
+assert.deepEqual(Object.keys(mergedRun?.answers ?? {}).sort(), [question.id, secondQuestion.id, "question-3"].sort());
+assert.deepEqual(mergedRun?.answers[question.id].selected, ["A"]);
+assert.deepEqual(mergedRun?.answers[secondQuestion.id].selected, ["B"], "newer answer to the same question must win");
+assert.deepEqual(mergedRun?.answers["question-3"].selected, ["A"]);
+assert.equal(mergedRun?.lastAnsweredIndex, 2);
+
 await applyRemoteEvents([event({
   id: "run-new-delete", type: "practice.run.deleted", payload: { id: "run-conflict", deletedAt: sameEventTime },
   deviceId: "device-new", createdAt: sameEventTime,
-}, 73)]);
+}, 75)]);
 assert.equal(await db.practiceRuns.get("run-conflict"), undefined);
 
 await db.delete();

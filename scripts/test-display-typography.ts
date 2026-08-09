@@ -18,8 +18,8 @@ assert.equal(
 );
 assert.equal(
   formatQuestionDisplayText("已知 $f(x)=1,000.5$, 求 f(2)."),
-  "已知 $f(x)=1,000.5$，求 f(2)。",
-  "LaTeX and function notation must remain unchanged",
+  "已知 $f(x)=1,000.5$，求 f（2）。",
+  "LaTeX remains unchanged while plain parentheses follow Chinese typography",
 );
 assert.equal(
   formatQuestionDisplayText("A. 3.5V, B. 4.0V", "请选择正确的电压"),

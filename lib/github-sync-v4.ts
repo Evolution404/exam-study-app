@@ -36,7 +36,7 @@ import type {
   PracticeRun,
   SyncArchiveCatalogV4,
   SyncArchiveSegmentV4,
-  SyncCheckpointV3,
+  SyncCheckpointV4,
   SyncEvent,
   SyncEventPageDescriptorV4,
   SyncHeadDescriptorV4,
@@ -73,13 +73,13 @@ interface EventPagePayload {
 }
 
 interface ArchivePayload<T> {
-  formatVersion: 3 | 4;
+  formatVersion: 4;
   kind: "attempts" | "practice-runs";
   rows: T[];
 }
 
 interface HotPackage {
-  checkpoint: SyncCheckpointV3;
+  checkpoint: SyncCheckpointV4;
   checkpointPlan: ReturnType<typeof prepareSyncCheckpoint>;
   events: SyncEvent[];
   markers: Array<{ path: string; sha: string; appliedAt: string }>;
@@ -204,7 +204,7 @@ async function downloadHotPackage(
   onProgress?: SyncV4ProgressCallback,
 ): Promise<HotPackage> {
   report(onProgress, "download", "正在下载远程检查点", 5);
-  const checkpoint = parseJson<SyncCheckpointV3>(await client.readBlob(head.checkpoint), "远程检查点");
+  const checkpoint = parseJson<SyncCheckpointV4>(await client.readBlob(head.checkpoint), "远程检查点");
   const checkpointPlan = prepareSyncCheckpoint(checkpoint);
   let completed = 0;
   const pages = await mapConcurrent(head.eventPages, downloadConcurrency, async (descriptor) => {
@@ -223,7 +223,7 @@ async function downloadHotPackage(
   };
 }
 
-async function applyHotPackage(settings: GitHubSettings, pkg: HotPackage, preserveLocalChanges: boolean) {
+async function applyHotPackage(pkg: HotPackage, preserveLocalChanges: boolean) {
   const localEvents = preserveLocalChanges ? await db.events.toArray() : [];
   const beyondCheckpoint = localEvents.filter((event) => event.sequence > (pkg.checkpoint.cursors[event.deviceId] ?? 0));
   await withSyncRestoreTransaction(async () => {
@@ -265,7 +265,7 @@ async function downloadEventPages(
   return pages.flat();
 }
 
-async function putCheckpoint(client: GitHubV4Remote, checkpoint: SyncCheckpointV3) {
+async function putCheckpoint(client: GitHubV4Remote, checkpoint: SyncCheckpointV4) {
   const text = JSON.stringify(checkpoint);
   const digest = await sha256(text);
   const uploaded = await client.putImmutable({
@@ -361,7 +361,7 @@ async function collectUnarchivedRows<T extends { id: string }>(
   return { rows, budgetReached: rows.length >= limit };
 }
 
-async function buildArchiveDelta(client: GitHubV4Remote, checkpoint: SyncCheckpointV3) {
+async function buildArchiveDelta(client: GitHubV4Remote, checkpoint: SyncCheckpointV4) {
   const attemptCutoff = checkpoint.retention.oldestRecentAttemptAt;
   const recentRunIds = new Set(checkpoint.state.recentPracticeRuns.map((run) => run.id));
   const attemptResult = attemptCutoff
@@ -389,7 +389,6 @@ async function compact(
   client: GitHubV4Remote,
   settings: GitHubSettings,
   expectedHead: SyncHeadV4,
-  expectedCache: SyncV4HeadCache,
   onProgress?: SyncV4ProgressCallback,
 ) {
   report(onProgress, "compact", "正在生成有上限的检查点", 8);
@@ -620,7 +619,7 @@ export async function syncWithGitHubV4(settings: GitHubSettings, token: string, 
   let headCache = read.cache;
   if (!checkpointCurrent) {
     const pkg = await downloadHotPackage(client, head, range(onProgress, 8, 52));
-    const applied = await applyHotPackage(settings, pkg, true);
+    const applied = await applyHotPackage(pkg, true);
     pulled = applied.pulled;
   } else if (missingPages.length) {
     const events = await downloadEventPages(client, missingPages, range(onProgress, 8, 52));
@@ -638,7 +637,7 @@ export async function syncWithGitHubV4(settings: GitHubSettings, token: string, 
   let compacted = false;
   const hotBytes = head.eventPages.reduce((total, page) => total + page.size, 0);
   if (archiveBacklog || head.eventPages.length >= compactionFileThreshold || hotBytes > SYNC_V4_MAX_EVENT_BYTES - uploadByteLimit) {
-    const result = await compact(client, settings, head, headCache, range(onProgress, 54, 78));
+    const result = await compact(client, settings, head, range(onProgress, 54, 78));
     compacted = result.compacted;
     head = result.head;
     headCache = result.cache;
@@ -663,6 +662,36 @@ export async function syncWithGitHubV4(settings: GitHubSettings, token: string, 
   };
 }
 
+/** Download and merge remote v4 changes without uploading local events. */
+export async function pullFromGitHubV4(settings: GitHubSettings, token: string, onProgress?: SyncV4ProgressCallback) {
+  const client = remote(settings, token);
+  report(onProgress, "prepare", "正在检查远程更新", 5);
+  const read = await client.readHead(await loadHeadCache(settings));
+  if (!read.initialized) throw new SyncV4NotInitializedError();
+  const checkpointMarker = await db.syncFiles.get(read.head.checkpoint.path);
+  const checkpointCurrent = checkpointMarker?.sha === read.head.checkpoint.blobSha;
+  const pageMarkers = await Promise.all(read.head.eventPages.map((page) => db.syncFiles.get(page.path)));
+  const missingPages = read.head.eventPages.filter((page, index) => pageMarkers[index]?.sha !== page.blobSha);
+  let pulled = 0;
+  if (!checkpointCurrent) {
+    const pkg = await downloadHotPackage(client, read.head, range(onProgress, 12, 86));
+    pulled = (await applyHotPackage(pkg, true)).pulled;
+  } else if (missingPages.length) {
+    const events = await downloadEventPages(client, missingPages, range(onProgress, 12, 86));
+    const appliedAt = new Date().toISOString();
+    await withSyncRestoreTransaction(async () => {
+      await applyRemoteEvents(events);
+      await db.syncFiles.bulkPut(missingPages.map((page) => ({ path: page.path, sha: page.blobSha, appliedAt })));
+    });
+    pulled = events.length;
+  }
+  // Checkpoint application clears syncMeta, so the conditional-head cache is
+  // deliberately committed after the merge.
+  await saveHeadCache(settings, read.cache);
+  report(onProgress, "complete", pulled ? `已合并 ${pulled} 条远程更改` : "云端没有新数据", 100);
+  return { pulled, formatVersion: 4 as const };
+}
+
 export async function restoreFromGitHubV4(settings: GitHubSettings, token: string, onProgress?: SyncV4ProgressCallback) {
   const client = remote(settings, token);
   report(onProgress, "prepare", "正在读取远程恢复索引", 3);
@@ -670,7 +699,7 @@ export async function restoreFromGitHubV4(settings: GitHubSettings, token: strin
   if (!read.initialized) throw new SyncV4NotInitializedError();
   const pkg = await downloadHotPackage(client, read.head, range(onProgress, 8, 72));
   report(onProgress, "merge", "正在原子替换本地近期数据", 78);
-  const applied = await applyHotPackage(settings, pkg, false);
+  const applied = await applyHotPackage(pkg, false);
   const cache = await cacheCurrentState(settings, pkg.markers);
   await Promise.all([saveHeadCache(settings, read.cache), saveArchiveBacklog(settings, false)]);
   report(onProgress, "complete", "快速恢复完成", 100);
@@ -683,8 +712,7 @@ async function readArchiveSegment<T>(
   kind: "attempts" | "practice-runs",
 ) {
   const payload = parseJson<ArchivePayload<T>>(await client.readBlob(descriptor), `远程${kind}历史分段`);
-  const expectedVersion = descriptor.legacy ? 3 : 4;
-  if (payload.formatVersion !== expectedVersion || payload.kind !== kind || !Array.isArray(payload.rows) || payload.rows.length !== descriptor.count) {
+  if (payload.formatVersion !== 4 || payload.kind !== kind || !Array.isArray(payload.rows) || payload.rows.length !== descriptor.count) {
     throw new Error(`远程历史分段格式无效：${descriptor.path}`);
   }
   return payload.rows;

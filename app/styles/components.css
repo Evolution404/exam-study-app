@@ -384,6 +384,24 @@ html[data-theme="dark"] .guide-card li>span{color:#b8d8c5}
 html[data-theme="dark"] :is(.home-bank-grid>button.selected,.scope-bank-list>button.selected,.mode-grid button.active,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;color:var(--ink);background:#20352a}
 html[data-theme="dark"] .result-box.success{color:#b8d9c5;background:#1e382a}
 html[data-theme="dark"] .result-box.error{color:#efb49c;background:#41271f}
+
+/* Practice interaction refinements. Status marks stay absolutely positioned,
+   option text remains selectable, and the mobile transition is opt-in. */
+.options button p{user-select:text;-webkit-user-select:text;cursor:text}
+.app-shell.transition-slide.transition-forward .practice-content .question-card{animation:question-page-forward .24s cubic-bezier(.22,.8,.32,1)}
+.app-shell.transition-slide.transition-back .practice-content .question-card{animation:question-page-back .24s cubic-bezier(.22,.8,.32,1)}
+.mobile-question-transition{display:none}
+@keyframes question-page-forward{from{opacity:.45;transform:translateX(44px)}to{opacity:1;transform:translateX(0)}}
+@keyframes question-page-back{from{opacity:.45;transform:translateX(-44px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:760px){.mobile-question-transition{display:contents}}
+@media(prefers-reduced-motion:reduce){.app-shell.transition-slide .practice-content .question-card{animation:none}}
+
+.shortcut-binding-list{display:grid;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.shortcut-binding-row{display:grid;grid-template-columns:minmax(170px,.8fr) minmax(0,1.4fr);align-items:center;gap:18px;padding:14px 16px;border-top:1px solid var(--line)}
+.shortcut-binding-row:first-child{border-top:0}.shortcut-binding-row>div:first-child{display:grid;gap:3px;min-width:0}.shortcut-binding-row small{color:var(--muted);font-size:10px;line-height:1.4}
+.shortcut-binding-values{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}.shortcut-binding-values>span{display:flex;align-items:center;border:1px solid var(--line);border-radius:9px;background:var(--color-surface-raised);overflow:hidden}.shortcut-binding-values>span.conflict{border-color:var(--color-danger);background:var(--color-danger-soft)}.shortcut-binding-values kbd{padding:8px 9px;font:700 11px/1 system-ui;white-space:nowrap}.shortcut-binding-values>span button{width:28px;height:30px;border:0;border-left:1px solid var(--line);display:grid;place-items:center;color:var(--muted);background:transparent;cursor:pointer}.shortcut-capture{min-height:32px;border:1px dashed var(--color-primary);border-radius:9px;padding:7px 10px;display:flex;align-items:center;gap:5px;color:var(--color-primary);background:var(--color-surface-muted);cursor:pointer;font-size:11px}.shortcut-capture.active{min-width:128px;border-style:solid;box-shadow:0 0 0 3px var(--shadow-color)}
+@media(max-width:760px){.shortcut-binding-row{grid-template-columns:1fr;gap:9px}.shortcut-binding-values{justify-content:flex-start}}
+.route-loading{min-height:240px;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--color-text-muted);font-size:12px}
 html[data-theme="dark"] .overview-score span{color:#a9b4ad;background:#111813}
 html[data-theme="dark"] .overview-score strong{color:#7fc29a}
 html[data-theme="dark"] .overview-score span:nth-child(2) strong{color:#e19274}

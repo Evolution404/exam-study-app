@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { Question, QuestionType } from "@/lib/types";
 import { ModalPortal } from "@/app/modal-portal";
+import { AppSelect } from "@/app/app-select";
 
 export type QuestionChanges = Pick<Question, "stem" | "options" | "answer" | "type" | "tags">;
 
@@ -59,7 +60,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
   return <ModalPortal><div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
     <header><div><p className="eyebrow">{eyebrow}</p><h2 id="question-editor-title">{title}</h2></div><button className="icon-button" aria-label="关闭编辑器" onClick={onCancel}><X size={18} /></button></header>
     <div className="editor-body">
-      <label>题型<select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}><option value="判断">判断</option><option value="单选">单选</option><option value="多选">多选</option></select></label>
+      <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionType)} options={[{ value: "判断", label: "判断" }, { value: "单选", label: "单选" }, { value: "多选", label: "多选" }]} /></label>
       <label>题干<textarea value={stem} onChange={(event) => setStem(event.target.value)} rows={4} /><small>公式可使用 <code>$...$</code> 行内格式或 <code>$$...$$</code> 独立公式格式。</small></label>
       <div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案</small></div>
       <div className="editor-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div key={`${letter}-${index}`}><button aria-label={`将 ${letter} 设为正确答案`} className={answer.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><input value={option} onChange={(event) => setOptions(options.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`选项 ${letter}`} />{type !== "判断" && options.length > 2 && <button aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => { const next = options.filter((_, itemIndex) => itemIndex !== index); setOptions(next); setAnswer(""); }}><Trash2 size={16} /></button>}</div>; })}</div>

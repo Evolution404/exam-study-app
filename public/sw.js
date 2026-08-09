@@ -1,4 +1,4 @@
-const CACHE = "shijuan-v6";
+const CACHE = "shijuan-v7";
 const CACHE_PREFIX = "shijuan-";
 const NAVIGATION_TIMEOUT_MS = 1200;
 const BASE = new URL("./", self.registration.scope).pathname;

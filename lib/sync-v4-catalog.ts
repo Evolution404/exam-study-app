@@ -1,9 +1,4 @@
-import type {
-  SyncArchiveCatalogV3,
-  SyncArchiveCatalogV4,
-  SyncArchiveSegmentV3,
-  SyncArchiveSegmentV4,
-} from "./types";
+import type { SyncArchiveCatalogV4, SyncArchiveSegmentV4 } from "./types";
 
 /** The two independently-retained history streams in an archive catalog. */
 export type SyncArchiveKindV4 = "attempts" | "practice-runs";
@@ -12,9 +7,6 @@ export type SyncArchiveKindV4 = "attempts" | "practice-runs";
 export const SYNC_V4_ARCHIVE_PREFIX = "sync/v4/archive/";
 export const SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX = `${SYNC_V4_ARCHIVE_PREFIX}attempts/`;
 export const SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX = `${SYNC_V4_ARCHIVE_PREFIX}practice-runs/`;
-export const SYNC_V4_ARCHIVE_LEGACY_PREFIX = "sync/v3/archive/";
-export const SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX = `${SYNC_V4_ARCHIVE_LEGACY_PREFIX}attempts/`;
-export const SYNC_V3_ARCHIVE_PRACTICE_RUNS_PREFIX = `${SYNC_V4_ARCHIVE_LEGACY_PREFIX}practice-runs/`;
 
 /** A segment contains at most this many rows on the wire. */
 export const SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT = 500;
@@ -29,17 +21,8 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ID_MAX_LENGTH = 1024;
 
-type MaybePromise<T> = T | PromiseLike<T>;
-
-export interface SyncArchiveBlobResolutionV4 {
-  blobSha: string;
-  size: number;
-}
-
-export type ResolveV3ArchiveBlob = (path: string) => MaybePromise<SyncArchiveBlobResolutionV4>;
-
 /** Fields required by the v4 path builder; `path` is deliberately not accepted. */
-export type SyncArchiveSegmentInputV4 = Omit<SyncArchiveSegmentV4, "path" | "legacy">;
+export type SyncArchiveSegmentInputV4 = Omit<SyncArchiveSegmentV4, "path">;
 
 function fail(message: string): never {
   throw new Error(`invalid v4 archive catalog: ${message}`);
@@ -47,10 +30,6 @@ function fail(message: string): never {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return isRecord(value) && typeof value.then === "function";
 }
 
 function assertSafeRelativePath(value: unknown, field: string): asserts value is string {
@@ -104,30 +83,27 @@ function assertId(value: unknown, field: string): asserts value is string {
   }
 }
 
-function prefixFor(kind: SyncArchiveKindV4, legacy = false): string {
-  if (legacy) return kind === "attempts" ? SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX : SYNC_V3_ARCHIVE_PRACTICE_RUNS_PREFIX;
+function prefixFor(kind: SyncArchiveKindV4): string {
   return kind === "attempts" ? SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX : SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX;
 }
 
 function kindForPath(path: string): SyncArchiveKindV4 | undefined {
-  if (path.startsWith(SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX) || path.startsWith(SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX)) return "attempts";
-  if (path.startsWith(SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX) || path.startsWith(SYNC_V3_ARCHIVE_PRACTICE_RUNS_PREFIX)) return "practice-runs";
+  if (path.startsWith(SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX)) return "attempts";
+  if (path.startsWith(SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX)) return "practice-runs";
   return undefined;
 }
 
-function pathParts(path: string, kind: SyncArchiveKindV4, legacy: boolean): { month: string; digest: string } | undefined {
-  const prefix = prefixFor(kind, legacy);
+function pathParts(path: string, kind: SyncArchiveKindV4): { month: string; digest: string } | undefined {
+  const prefix = prefixFor(kind);
   const match = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}(\\d{4}-(?:0[1-9]|1[0-2]))/([a-f0-9]{24,64})\\.json$`).exec(path);
   return match ? { month: match[1], digest: match[2] } : undefined;
 }
 
-function assertSegmentPath(path: unknown, kind: SyncArchiveKindV4, legacy: boolean, sha256: string): asserts path is string {
+function assertSegmentPath(path: unknown, kind: SyncArchiveKindV4, sha256: string): asserts path is string {
   assertSafeRelativePath(path, "segment.path");
-  const expectedLegacy = legacy === true;
-  const parts = pathParts(path, kind, expectedLegacy);
+  const parts = pathParts(path, kind);
   if (!parts) {
-    const allowed = expectedLegacy ? `${prefixFor(kind, true)}<month>/<digest>.json` : `${prefixFor(kind)}<month>/<digest>.json`;
-    fail(`segment.path must use ${allowed}`);
+    fail(`segment.path must use ${prefixFor(kind)}<month>/<digest>.json`);
   }
   if (!sha256.startsWith(parts.digest)) {
     fail(`segment.path digest does not match segment.sha256`);
@@ -144,12 +120,11 @@ function segmentEqual(a: SyncArchiveSegmentV4, b: SyncArchiveSegmentV4): boolean
     && a.firstId === b.firstId
     && a.lastId === b.lastId
     && a.firstCreatedAt === b.firstCreatedAt
-    && a.lastCreatedAt === b.lastCreatedAt
-    && Boolean(a.legacy) === Boolean(b.legacy);
+    && a.lastCreatedAt === b.lastCreatedAt;
 }
 
 function cloneSegment(segment: SyncArchiveSegmentV4): SyncArchiveSegmentV4 {
-  return segment.legacy === undefined ? { ...segment } : { ...segment, legacy: segment.legacy };
+  return { ...segment };
 }
 
 function validateSegment(value: unknown, kind: SyncArchiveKindV4): asserts value is SyncArchiveSegmentV4 {
@@ -169,16 +144,9 @@ function validateSegment(value: unknown, kind: SyncArchiveKindV4): asserts value
   if (value.firstCreatedAt.slice(0, 7) !== value.month || value.lastCreatedAt.slice(0, 7) !== value.month) {
     fail(`${kind} segment timestamps must belong to segment.month`);
   }
-  if (value.legacy !== undefined && typeof value.legacy !== "boolean") {
-    fail(`${kind} segment.legacy must be boolean when present`);
-  }
-  const legacy = value.legacy === true;
-  if (!legacy && (typeof value.path === "string")
-    && (value.path.startsWith(SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX) || value.path.startsWith(SYNC_V3_ARCHIVE_PRACTICE_RUNS_PREFIX))) {
-    fail(`${kind} v3 archive path requires legacy:true migration marker`);
-  }
-  assertSegmentPath(value.path, kind, legacy, value.sha256);
-  const parsed = pathParts(value.path, kind, legacy);
+  if ("legacy" in value) fail(`${kind} segment contains a removed legacy marker`);
+  assertSegmentPath(value.path, kind, value.sha256);
+  const parsed = pathParts(value.path, kind);
   if (!parsed || parsed.month !== value.month) fail(`${kind} segment path month does not match month`);
 }
 
@@ -258,7 +226,7 @@ export function syncV4ArchiveSegmentPath(kind: SyncArchiveKindV4, month: string,
   return `${prefixFor(kind)}${month}/${sha256}.json`;
 }
 
-/** Create a v4 segment; unlike migration, this function can never emit a v3 path. */
+/** Create a content-addressed v4 archive segment. */
 export function createSyncArchiveSegmentV4(kind: SyncArchiveKindV4, input: SyncArchiveSegmentInputV4): SyncArchiveSegmentV4 {
   const segment: SyncArchiveSegmentV4 = {
     ...input,
@@ -305,9 +273,6 @@ export function dedupeSyncArchiveSegmentsV4(
   for (const candidate of segments) {
     const candidateKind = kind ?? inferredKind(candidate);
     validateSegment(candidate, candidateKind);
-    if (candidate.legacy === true && candidateKind !== inferredKind(candidate)) {
-      throw new Error(`archive segment path kind does not match ${candidateKind}`);
-    }
     const existingPath = byPath.get(candidate.path);
     if (existingPath) {
       if (!segmentEqual(existingPath, candidate)) throw new Error(`v4 archive segment path collision: ${candidate.path}`);
@@ -392,9 +357,6 @@ function normalizeAppendArguments(
 
 function assertOrdinaryAppendSegment(segment: SyncArchiveSegmentV4, kind: SyncArchiveKindV4): void {
   validateSegment(segment, kind);
-  if (segment.legacy === true || segment.path.startsWith(SYNC_V4_ARCHIVE_LEGACY_PREFIX)) {
-    throw new Error("ordinary v4 append cannot add a legacy archive path");
-  }
 }
 
 export function appendSyncArchiveSegmentsV4(
@@ -446,131 +408,6 @@ export function appendSyncArchiveSegmentsV4(
 
 export const appendSyncV4ArchiveSegments = appendSyncArchiveSegmentsV4;
 export const appendSyncArchiveCatalogV4 = appendSyncArchiveSegmentsV4;
-
-function validateV3Segment(segment: unknown, kind: SyncArchiveKindV4): asserts segment is SyncArchiveSegmentV3 {
-  if (!isRecord(segment)) fail(`v3 ${kind} segment must be an object`);
-  assertSafeRelativePath(segment.path, `v3 ${kind} segment.path`);
-  const expectedPrefix = prefixFor(kind, true);
-  const parts = pathParts(segment.path, kind, true);
-  if (!parts || !segment.path.startsWith(expectedPrefix)) fail(`v3 ${kind} segment path is not controlled`);
-  assertDigest(segment.sha256, `v3 ${kind} segment.sha256`, SHA256);
-  if (!segment.sha256.startsWith(parts.digest)) fail(`v3 ${kind} segment path digest does not match sha256`);
-  assertMonth(segment.month, `v3 ${kind} segment.month`);
-  assertCount(segment.count, `v3 ${kind} segment.count`);
-  assertId(segment.firstId, `v3 ${kind} segment.firstId`);
-  assertId(segment.lastId, `v3 ${kind} segment.lastId`);
-  assertDate(segment.firstCreatedAt, `v3 ${kind} segment.firstCreatedAt`);
-  assertDate(segment.lastCreatedAt, `v3 ${kind} segment.lastCreatedAt`);
-  if (parts.month !== segment.month || segment.firstCreatedAt.slice(0, 7) !== segment.month || segment.lastCreatedAt.slice(0, 7) !== segment.month) {
-    fail(`v3 ${kind} segment month metadata is inconsistent`);
-  }
-  if (Date.parse(segment.firstCreatedAt) > Date.parse(segment.lastCreatedAt)) fail(`v3 ${kind} segment timestamps are reversed`);
-}
-
-function validateV3Catalog(catalog: unknown): asserts catalog is SyncArchiveCatalogV3 {
-  if (!isRecord(catalog) || catalog.formatVersion !== 3) fail("migration input must have formatVersion 3");
-  assertDate(catalog.generatedAt, "v3 generatedAt");
-  if (!Array.isArray(catalog.attemptSegments) || !Array.isArray(catalog.practiceRunSegments) || !isRecord(catalog.counts)) {
-    fail("migration input has invalid segment arrays or counts");
-  }
-  if (!Number.isSafeInteger(catalog.counts.attempts) || (catalog.counts.attempts as number) < 0
-    || !Number.isSafeInteger(catalog.counts.practiceRuns) || (catalog.counts.practiceRuns as number) < 0) {
-    fail("migration input counts must be non-negative safe integers");
-  }
-  const paths = new Set<string>();
-  const content = new Set<string>();
-  for (const [kind, segments] of [["attempts", catalog.attemptSegments], ["practice-runs", catalog.practiceRunSegments]] as const) {
-    for (const segment of segments) {
-      validateV3Segment(segment, kind);
-      if (paths.has(segment.path)) fail(`migration input has duplicate path: ${segment.path}`);
-      paths.add(segment.path);
-      if (content.has(segment.sha256)) fail(`migration input has duplicate content: ${segment.sha256}`);
-      content.add(segment.sha256);
-    }
-  }
-  const attempts = catalog.attemptSegments.reduce((total, segment) => total + segment.count, 0);
-  const practiceRuns = catalog.practiceRunSegments.reduce((total, segment) => total + segment.count, 0);
-  if (catalog.counts.attempts !== attempts || catalog.counts.practiceRuns !== practiceRuns) fail("migration input counts do not match segments");
-}
-
-function mapV3Segments(
-  segments: readonly SyncArchiveSegmentV3[],
-  kind: SyncArchiveKindV4,
-  resolutions: readonly SyncArchiveBlobResolutionV4[],
-): SyncArchiveSegmentV4[] {
-  return segments.map((segment, index) => ({
-    path: segment.path,
-    blobSha: resolutions[index].blobSha,
-    sha256: segment.sha256,
-    size: resolutions[index].size,
-    month: segment.month,
-    count: segment.count,
-    firstId: segment.firstId,
-    lastId: segment.lastId,
-    firstCreatedAt: segment.firstCreatedAt,
-    lastCreatedAt: segment.lastCreatedAt,
-    legacy: true,
-  })).map((segment) => {
-    validateSegment(segment, kind);
-    return segment;
-  });
-}
-
-function assertResolution(value: unknown, path: string): asserts value is SyncArchiveBlobResolutionV4 {
-  if (!isRecord(value)) throw new Error(`v3 migration resolver returned no blob metadata for ${path}`);
-  assertDigest(value.blobSha, `resolver(${path}).blobSha`, SHA1);
-  assertSize(value.size, `resolver(${path}).size`);
-}
-
-function finishMigration(
-  catalog: SyncArchiveCatalogV3,
-  attemptResolutions: readonly SyncArchiveBlobResolutionV4[],
-  runResolutions: readonly SyncArchiveBlobResolutionV4[],
-): SyncArchiveCatalogV4 {
-  const attemptSegments = dedupeSyncArchiveSegmentsV4(mapV3Segments(catalog.attemptSegments, "attempts", attemptResolutions), "attempts");
-  const practiceRunSegments = dedupeSyncArchiveSegmentsV4(mapV3Segments(catalog.practiceRunSegments, "practice-runs", runResolutions), "practice-runs");
-  const migrated: SyncArchiveCatalogV4 = {
-    formatVersion: 4,
-    generatedAt: catalog.generatedAt,
-    attemptSegments,
-    practiceRunSegments,
-    counts: {
-      attempts: attemptSegments.reduce((total, segment) => total + segment.count, 0),
-      practiceRuns: practiceRunSegments.reduce((total, segment) => total + segment.count, 0),
-    },
-  };
-  validateSyncArchiveCatalogV4(migrated);
-  return migrated;
-}
-
-/**
- * Explicitly migrate a v3 catalog.  A synchronous resolver returns a catalog
- * synchronously; if any resolver result is a Promise, a Promise of the same
- * catalog is returned.  Legacy paths are retained only with `legacy:true`.
- */
-export function migrateV3ArchiveCatalog(catalog: SyncArchiveCatalogV3, resolveBlob: (path: string) => SyncArchiveBlobResolutionV4): SyncArchiveCatalogV4;
-export function migrateV3ArchiveCatalog(catalog: SyncArchiveCatalogV3, resolveBlob: (path: string) => PromiseLike<SyncArchiveBlobResolutionV4>): Promise<SyncArchiveCatalogV4>;
-export function migrateV3ArchiveCatalog(catalog: SyncArchiveCatalogV3, resolveBlob: ResolveV3ArchiveBlob): SyncArchiveCatalogV4 | Promise<SyncArchiveCatalogV4>;
-export function migrateV3ArchiveCatalog(catalog: SyncArchiveCatalogV3, resolveBlob: ResolveV3ArchiveBlob): SyncArchiveCatalogV4 | Promise<SyncArchiveCatalogV4> {
-  validateV3Catalog(catalog);
-  if (typeof resolveBlob !== "function") throw new TypeError("v3 migration requires resolveBlob(path)");
-  const attemptResults = catalog.attemptSegments.map((segment) => resolveBlob(segment.path));
-  const runResults = catalog.practiceRunSegments.map((segment) => resolveBlob(segment.path));
-  const all = [...attemptResults, ...runResults];
-  const finalize = (resolved: readonly unknown[]): SyncArchiveCatalogV4 => {
-    const attempts = resolved.slice(0, attemptResults.length);
-    const runs = resolved.slice(attemptResults.length);
-    attempts.forEach((value, index) => assertResolution(value, catalog.attemptSegments[index].path));
-    runs.forEach((value, index) => assertResolution(value, catalog.practiceRunSegments[index].path));
-    return finishMigration(catalog, attempts as SyncArchiveBlobResolutionV4[], runs as SyncArchiveBlobResolutionV4[]);
-  };
-  if (all.some(isThenable)) return Promise.all(all).then(finalize);
-  return finalize(all);
-}
-
-export async function migrateV3ArchiveCatalogAsync(catalog: SyncArchiveCatalogV3, resolveBlob: ResolveV3ArchiveBlob): Promise<SyncArchiveCatalogV4> {
-  return await migrateV3ArchiveCatalog(catalog, resolveBlob);
-}
 
 /** Stable JSON serialization is useful when placing the catalog behind a digest path. */
 export function canonicalizeSyncArchiveCatalogV4(catalog: SyncArchiveCatalogV4): SyncArchiveCatalogV4 {

@@ -43,7 +43,7 @@ import type {
   PracticeRun,
   Question,
   SyncArchiveSegmentV4,
-  SyncCheckpointV3,
+  SyncCheckpointV4,
   SyncEvent,
   SyncEventPageDescriptorV4,
   SyncHeadDescriptorV4,
@@ -64,6 +64,7 @@ const question: Question = {
   bankName: bank.name,
   stem: "v4 集成测试题",
   normalizedStem: "v4集成测试题",
+  sortOrder: 0,
   answer: "A",
   options: ["甲", "乙"],
   type: "单选",
@@ -345,7 +346,7 @@ async function archiveSegment<T extends { id: string }>(client: V4RemoteDouble, 
 
 async function publishPackage(
   client: V4RemoteDouble,
-  checkpoint: SyncCheckpointV3,
+  checkpoint: SyncCheckpointV4,
   options: { events?: SyncEvent[]; attemptSegments?: SyncArchiveSegmentV4[]; practiceRunSegments?: SyncArchiveSegmentV4[] } = {},
 ) {
   const checkpointText = JSON.stringify(checkpoint);

@@ -102,6 +102,7 @@ const legacyQuestion: Question = {
   bankName: legacyBank.name,
   stem: "旧版本升级测试题",
   normalizedStem: "旧版本升级测试题",
+  sortOrder: 0,
   answer: "A",
   options: ["正确", "错误"],
   type: "判断",
@@ -128,7 +129,7 @@ const { calendarDate, statsNeedWrongReview } = metricsModule;
 // v9 removes the duplicate active-session table. PracticeRun is the sole
 // persisted progress source alongside the restore staging/archive tables.
 await resetLocalDatabase();
-assert.equal(db.verno, 9, "the current client schema must be DB v9");
+assert.equal(db.verno, 10, "the current client schema must be DB v10");
 assert.equal(db.tables.some((table) => table.name === "sessions"), false, "active sessions must not duplicate practiceRun progress");
 assert.ok(db.tables.some((table) => table.name === "syncRestoreAttempts"));
 assert.ok(db.tables.some((table) => table.name === "syncRestorePracticeRuns"));
@@ -193,7 +194,7 @@ assert.equal(statsNeedWrongReview(oooStats, 3), true);
 assert.equal(statsNeedWrongReview(oooStats, 2), false);
 
 // Daily buckets are independent from lifetime attemptStats and support the exact
-// retention window used by v3 checkpoints.
+// retention window used by v4 checkpoints.
 await resetLocalDatabase();
 await db.banks.put(bank);
 await db.questions.bulkPut([question, secondQuestion]);
@@ -320,4 +321,4 @@ assert.equal(checkpoint.retention.recentPracticeRunLimit, 100);
 assert.equal(checkpoint.retention.dailyStatsDays, 35);
 
 await db.delete();
-console.log("sync data-model tests passed: DB v9 single progress source, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");
+console.log("sync data-model tests passed: DB v10 single progress source, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");

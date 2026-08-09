@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX,
   SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX,
   SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX,
   SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT,
@@ -8,11 +7,10 @@ import {
   createSyncArchiveCatalogV4,
   createSyncArchiveSegmentV4,
   dedupeSyncArchiveSegmentsV4,
-  migrateV3ArchiveCatalog,
   syncV4ArchiveSegmentPath,
   validateSyncArchiveCatalogV4,
 } from "../lib/sync-v4-catalog";
-import type { SyncArchiveCatalogV3, SyncArchiveSegmentV3, SyncArchiveSegmentV4 } from "../lib/types";
+import type { SyncArchiveSegmentV4 } from "../lib/types";
 
 const generatedAt = "2026-08-09T00:00:00.000Z";
 const timestamp = "2026-08-09T01:02:03.004Z";
@@ -70,39 +68,7 @@ expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ .
 expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, path: `${SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX}2026-08/${sha256("z")}.json` }], counts: { attempts: one.count, practiceRuns: 0 } }), /digest/);
 expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, blobSha: "not-a-sha" }], counts: { attempts: one.count, practiceRuns: 0 } }), /blobSha/);
 expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, month: "2026-07" }], counts: { attempts: one.count, practiceRuns: 0 } }), /month/);
-expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, path: `${SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX}2026-08/${sha256("a")}.json` }], counts: { attempts: one.count, practiceRuns: 0 } }), /legacy/);
+expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, path: `sync/v3/archive/attempts/2026-08/${sha256("a")}.json` }], counts: { attempts: one.count, practiceRuns: 0 } }), /segment.path/);
 expectThrow(() => validateSyncArchiveCatalogV4({ ...empty, attemptSegments: [{ ...one, path: `${SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX}2026-08/${sha256("c")}.json`, sha256: sha256("c"), blobSha: sha1("c"), firstId: "attempt-c", lastId: "attempt-c" }, one], counts: { attempts: one.count * 2, practiceRuns: 0 } }), /sorted|duplicate/);
 
-// Explicit v3 migration retains the old path only with a legacy marker and obtains blob SHA/size via the resolver.
-const oldSegment: SyncArchiveSegmentV3 = {
-  path: `${SYNC_V3_ARCHIVE_ATTEMPTS_PREFIX}2026-08/${sha256("d").slice(0, 24)}.json`,
-  sha256: sha256("d"),
-  month: "2026-08",
-  count: 2,
-  firstId: "old-a",
-  lastId: "old-b",
-  firstCreatedAt: timestamp,
-  lastCreatedAt: timestamp,
-};
-const oldCatalog: SyncArchiveCatalogV3 = {
-  formatVersion: 3,
-  generatedAt,
-  attemptSegments: [oldSegment],
-  practiceRunSegments: [],
-  counts: { attempts: 2, practiceRuns: 0 },
-};
-const migrated = migrateV3ArchiveCatalog(oldCatalog, (path) => {
-  assert.equal(path, oldSegment.path);
-  return { blobSha: sha1("e"), size: 512 };
-});
-assert.ok(!(migrated instanceof Promise));
-if (!(migrated instanceof Promise)) {
-  validateSyncArchiveCatalogV4(migrated);
-  assert.equal(migrated.attemptSegments[0].path, oldSegment.path);
-  assert.equal(migrated.attemptSegments[0].legacy, true);
-  assert.equal(migrated.attemptSegments[0].blobSha, sha1("e"));
-}
-const migratedAsync = await migrateV3ArchiveCatalog(oldCatalog, async () => ({ blobSha: sha1("f"), size: 512 }));
-assert.equal(migratedAsync.attemptSegments[0].legacy, true);
-
-console.log("sync v4 catalog tests passed: validation, content-addressed paths, bounded segments, dedupe, migration and hostile inputs");
+console.log("sync v4 catalog tests passed: validation, content-addressed paths, bounded segments, dedupe and hostile inputs");
