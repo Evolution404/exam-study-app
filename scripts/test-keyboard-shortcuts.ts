@@ -12,6 +12,9 @@ assert.deepEqual(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "e"), { typ
 assert.deepEqual(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "K"), { type: "previous" });
 assert.deepEqual(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "r"), { type: "next" });
 assert.deepEqual(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "J"), { type: "next" });
+assert.equal(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "ArrowLeft"), undefined, "ArrowLeft must not be truncated to the A option shortcut");
+assert.equal(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "ArrowRight"), undefined, "ArrowRight must remain a navigation-only key");
+assert.equal(resolveKeyboardShortcut(DEFAULT_KEYBOARD_SHORTCUTS, "Enter"), undefined, "named control keys must not be interpreted as character shortcuts");
 
 const customized = normalizeKeyboardShortcuts({ optionKeys: ["1", "2", "3", "4", "5", "6"], previousKeys: ["q", "w"], nextKeys: ["o", "p"], enabled: true });
 assert.deepEqual(customized.optionKeys, ["1", "2", "3", "4", "5", "6"]);

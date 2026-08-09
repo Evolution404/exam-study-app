@@ -19,6 +19,18 @@ function formatTime(value: string) {
 
 const statusText: Record<PracticeRun["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
 
+export function LatestPracticeBanner({ onOpen, onContinue, onViewAll }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onViewAll: () => void }) {
+  const runs = useLiveQuery(() => db.practiceRuns.orderBy("updatedAt").reverse().toArray(), []) ?? [];
+  const run = runs.find((item) => item.status === "in_progress") ?? runs[0];
+  if (!run) return null;
+  const stats = runStats(run);
+  const canContinue = run.status === "in_progress";
+  return <section className="latest-practice-banner">
+    <div className="latest-practice-copy"><span className="section-kicker">{canContinue ? "继续最近练习" : "最近练习记录"}</span><h2>{run.modeLabel}</h2><p>{run.bankName} · {formatTime(run.updatedAt)}</p><div className="latest-practice-progress"><i><b style={{ width: `${run.questionIds.length ? stats.answered / run.questionIds.length * 100 : 0}%` }} /></i><span>{stats.answered} / {run.questionIds.length} 已作答</span><span>{stats.accuracy}% 正确率</span></div><div className="latest-practice-actions"><button type="button" onClick={() => canContinue ? onContinue(run.id) : onOpen(run.id)}><Play size={16} fill="currentColor" />{canContinue ? "继续练习" : "查看本次记录"}</button><button type="button" className="feature-secondary" onClick={onViewAll}><History size={16} />全部练习记录</button></div></div>
+    <div className="latest-practice-score"><strong>{stats.answered}</strong><small>已答题</small><span>{stats.correct} 对 · {stats.wrong} 错</span></div>
+  </section>;
+}
+
 function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRun; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
   const stats = runStats(run);
   const [offset, setOffset] = useState(0);

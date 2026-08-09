@@ -47,6 +47,7 @@ export function shortcutConflicts(shortcuts: KeyboardShortcuts) {
 
 export function resolveKeyboardShortcut(shortcuts: KeyboardShortcuts, key: string): KeyboardShortcutAction | undefined {
   if (!shortcuts.enabled) return undefined;
+  if (Array.from(key).length !== 1) return undefined;
   const normalized = normalizeShortcutKey(key);
   if (!normalized || shortcutConflicts(shortcuts).has(normalized)) return undefined;
   const optionIndex = shortcuts.optionKeys.indexOf(normalized);
