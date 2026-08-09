@@ -20,6 +20,7 @@ import { LatestPracticeBanner, PracticeHistory, PracticeRunResult } from "@/app/
 import { MathText } from "@/app/math-text";
 import { SyncView } from "@/app/sync-view";
 import { ShortcutSetting } from "@/app/shortcut-setting";
+import { ConfirmDialog } from "@/app/confirm-dialog";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
@@ -249,6 +250,8 @@ export function StudyApp() {
   const [quickRestoring, setQuickRestoring] = useState(false);
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
+  const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
+  const [finishPrompt, setFinishPrompt] = useState<number>();
   const fileRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
@@ -423,8 +426,9 @@ export function StudyApp() {
       setQuickRestoring(true);
       const result = await restoreLastRemoteCache(quickRestorePrompt.settings);
       localStorage.removeItem("study-current-banks");
-      window.alert(`已从本机缓存恢复 ${result.counts.questions} 道题及学习记录，页面将重新载入。`);
-      window.location.reload();
+      setQuickRestorePrompt(undefined);
+      setQuickRestoring(false);
+      setQuickRestoreSuccess(`已从本机缓存恢复 ${result.counts.questions} 道题及对应学习记录。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "本地缓存恢复失败");
       setQuickRestoring(false);
@@ -738,10 +742,19 @@ export function StudyApp() {
       setNotice(`还有 ${practiceSession.questionIds.length - answered} 道题未作答，已定位到第一道未答题`);
       return;
     }
-    if (answered < practiceSession.questionIds.length && !window.confirm(`还有 ${practiceSession.questionIds.length - answered} 道题未作答，仍然结束并查看结果吗？`)) return;
+    if (answered < practiceSession.questionIds.length) {
+      setFinishPrompt(practiceSession.questionIds.length - answered);
+      return;
+    }
+    await completePractice();
+  }
+
+  async function completePractice() {
+    if (!practiceSession) return;
     await setPracticeRunStatus(practiceSession.runId, "completed", practiceSession.answers);
     await clearPracticeSession();
     setResultRunId(practiceSession.runId);
+    setFinishPrompt(undefined);
     setView("practiceResult");
   }
 
@@ -803,7 +816,7 @@ export function StudyApp() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <div ref={searchBoxRef} className={`searchbox ${quickSearchOpen && query.trim() ? "results-open" : ""}`}><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onFocus={() => setQuickSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setQuickSearchOpen(true); }} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); setQuickSearchOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => { setQuery(""); setQuickSearchOpen(false); }}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
-          <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="短按立即同步，长按恢复本地记录" title="短按立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><svg className="quick-sync-progress" viewBox="0 0 48 48" aria-hidden="true"><circle className="track" cx="24" cy="24" r="21" /><circle className="value" cx="24" cy="24" r="21" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}{stats.pending > 0 && !quickSyncing && !quickRestoring && <span className="quick-sync-badge">{Math.min(stats.pending, 99)}</span>}</button>
+          <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : `同步${stats.pending ? ` ${Math.min(stats.pending, 99)}` : ""}`}</span></button>
         </header>
 
         {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedSession && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
@@ -823,7 +836,9 @@ export function StudyApp() {
           )}
         </div>
       </section>
-      {quickRestorePrompt && <div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !quickRestoring) setQuickRestorePrompt(undefined); }}><section className="simple-dialog small quick-restore-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-restore-title"><header><div><span className="section-kicker">恢复本地记录</span><h2 id="quick-restore-title">确认恢复</h2></div><button className="icon-button" aria-label="关闭恢复确认" disabled={quickRestoring} onClick={() => setQuickRestorePrompt(undefined)}><X size={17} /></button></header><div><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><p>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</p></div><footer><button disabled={quickRestoring} onClick={() => setQuickRestorePrompt(undefined)}>取消</button><button className="danger-button" disabled={quickRestoring} onClick={() => void confirmQuickRestore()}>{quickRestoring ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}{quickRestoring ? "正在恢复…" : "确认恢复"}</button></footer></section></div>}
+      <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
+      <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="恢复本地记录" title="恢复成功" tone="success" hideCancel confirmLabel="重新载入" onCancel={() => undefined} onConfirm={() => window.location.reload()} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 重新载入后即可继续使用。</span></>} />
+      <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
       <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
         {mobileNavItems.map(({ id, label, icon: Icon }) => (
           <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
