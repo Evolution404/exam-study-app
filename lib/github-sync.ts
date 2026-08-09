@@ -79,9 +79,8 @@ function contentUrl(settings: GitHubSettings, path: string) {
   return `${api}/repos/${settings.owner}/${settings.repo}/contents/${encodedPath}`;
 }
 
-async function readTextFile(settings: GitHubSettings, token: string, path: string) {
-  const branch = settings.branch || "main";
-  const file = await request<{ content: string }>(`${contentUrl(settings, path)}?ref=${encodeURIComponent(branch)}`, token);
+async function readBlob(settings: GitHubSettings, token: string, sha: string) {
+  const file = await request<{ content: string }>(`${api}/repos/${settings.owner}/${settings.repo}/git/blobs/${sha}`, token);
   return decodeBase64(file.content);
 }
 
@@ -123,7 +122,7 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
   const tree = await getTree(settings, token);
   const manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (manifestEntry) {
-    const manifestText = await readTextFile(settings, token, manifestPath);
+    const manifestText = await readBlob(settings, token, manifestEntry.sha);
     const manifest = JSON.parse(manifestText) as SyncManifestV2;
     if (manifest.formatVersion !== 2 || !manifest.snapshot?.path || !manifest.snapshot.sha256 || !manifest.eventPrefix) {
       throw new Error("远程同步清单格式无效。");
@@ -133,7 +132,7 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
     let snapshot: SyncSnapshotV2 | undefined;
     const seenSnapshot = onlyUnseen ? await db.syncFiles.get(snapshotEntry.path) : undefined;
     if (!seenSnapshot || seenSnapshot.sha !== snapshotEntry.sha) {
-      const snapshotText = await readTextFile(settings, token, snapshotEntry.path);
+      const snapshotText = await readBlob(settings, token, snapshotEntry.sha);
       if (await sha256(snapshotText) !== manifest.snapshot.sha256) throw new Error("远程快照校验失败，已停止同步。");
       const parsed = JSON.parse(snapshotText) as unknown;
       validateSyncSnapshot(parsed);
@@ -148,7 +147,7 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
     const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => ({
       path: entry.path,
       sha: entry.sha,
-      events: validateEvents(JSON.parse(await readTextFile(settings, token, entry.path)), entry.path),
+      events: validateEvents(JSON.parse(await readBlob(settings, token, entry.sha)), entry.path),
     }));
     return {
       formatVersion: 2, manifest, manifestSha: manifestEntry.sha, snapshot,
@@ -166,7 +165,7 @@ async function downloadRemotePackage(settings: GitHubSettings, token: string, on
   const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => ({
     path: entry.path,
     sha: entry.sha,
-    events: validateEvents(JSON.parse(await readTextFile(settings, token, entry.path)), entry.path),
+    events: validateEvents(JSON.parse(await readBlob(settings, token, entry.sha)), entry.path),
   }));
   return { formatVersion: 1, eventFiles };
 }

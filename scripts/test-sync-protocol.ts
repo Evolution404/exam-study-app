@@ -76,8 +76,8 @@ globalThis.fetch = async (input) => {
     { path: "sync/manifest.json", type: "blob", sha: "manifest" },
     { path: "snapshots/v2/bad.json", type: "blob", sha: "snapshot" },
   ] });
-  if (url.includes("contents/sync/manifest.json")) return Response.json({ content: encode(JSON.stringify(invalidManifest)) });
-  if (url.includes("contents/snapshots/v2/bad.json")) return Response.json({ content: encode(JSON.stringify(validSnapshot)) });
+  if (url.includes("/git/blobs/manifest")) return Response.json({ content: encode(JSON.stringify(invalidManifest)) });
+  if (url.includes("/git/blobs/snapshot")) return Response.json({ content: encode(JSON.stringify(validSnapshot)) });
   throw new Error(`Unexpected request: ${url}`);
 };
 await assert.rejects(() => restoreFromGitHub(settings, "token"), /校验失败/);
@@ -92,8 +92,8 @@ globalThis.fetch = async (input) => {
     { path: "sync/manifest.json", type: "blob", sha: "manifest-good" },
     { path: goodPath, type: "blob", sha: "snapshot-good" },
   ] });
-  if (url.includes("contents/sync/manifest.json")) return Response.json({ content: encode(JSON.stringify(validManifest)) });
-  if (url.includes("contents/snapshots/v2/good.json")) return Response.json({ content: encode(snapshotText) });
+  if (url.includes("/git/blobs/manifest-good")) return Response.json({ content: encode(JSON.stringify(validManifest)) });
+  if (url.includes("/git/blobs/snapshot-good")) return Response.json({ content: encode(snapshotText) });
   throw new Error(`Unexpected request: ${url}`);
 };
 const restoreResult = await restoreFromGitHub(settings, "token");
