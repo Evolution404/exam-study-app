@@ -74,10 +74,10 @@ export function SyncView({ pending, onNotice }: { pending: number; onNotice: (me
       let successMessage: string;
       if (full) {
         const result = await restoreFullHistoryFromGitHub(resolved, token);
-        successMessage = `已通过 v${result.formatVersion} 完整恢复远程历史，另载入 ${result.archivedAttempts} 条归档作答和 ${result.archivedPracticeRuns} 次归档练习。`;
+        successMessage = `已通过 v${result.formatVersion} 完整恢复远程历史，另载入 ${result.archivedAttempts} 条归档作答和 ${result.archivedPracticeRuns} 次归档练习。${result.deferred ? `仍有 ${result.deferred} 个热增量页，请重新载入后继续同步。` : ""}`;
       } else {
         const result = await restoreFromGitHub(resolved, token);
-        successMessage = `已通过 v${result.formatVersion} 快速恢复，共应用 ${result.pulled} 条当前记录；旧历史可在需要时下载。`;
+        successMessage = `已通过 v${result.formatVersion} 快速恢复，共应用 ${result.pulled} 条当前记录；旧历史可在需要时下载。${result.deferred ? `仍有 ${result.deferred} 个热增量页，请重新载入后继续同步。` : ""}`;
       }
       localStorage.removeItem("study-current-banks");
       setRestorePrompt(undefined);

@@ -3,7 +3,6 @@ import {
   applySyncCheckpoint,
   applySyncSnapshot,
   createSyncCheckpoint,
-  createSyncSnapshot,
   db,
   getDeviceId,
   nextSyncSequence,
@@ -92,6 +91,33 @@ async function cacheCurrentRemoteState(settings: GitHubSettings) {
   return { cachedAt, counts: snapshot.counts };
 }
 
+async function createLocalBackup() {
+  const [banks, bankFolders, questions, attempts, attemptStats, attemptDailyStats, notes, practiceRuns,
+    practiceRunStats, questionGroups, events, syncFiles, tombstones, sessions, syncMeta] = await Promise.all([
+    db.banks.toArray(), db.bankFolders.toArray(), db.questions.toArray(), db.attempts.toArray(),
+    db.attemptStats.toArray(), db.attemptDailyStats.toArray(), db.notes.toArray(), db.practiceRuns.toArray(),
+    db.practiceRunStats.toArray(), db.questionGroups.toArray(), db.events.toArray(), db.syncFiles.toArray(),
+    db.tombstones.toArray(), db.sessions.toArray(), db.syncMeta.toArray(),
+  ]);
+  return {
+    banks, bankFolders, questions, attempts, attemptStats, attemptDailyStats, notes, practiceRuns,
+    practiceRunStats, questionGroups, events, syncFiles, tombstones, sessions, syncMeta,
+  };
+}
+
+async function restoreLocalBackup(backup: Awaited<ReturnType<typeof createLocalBackup>>) {
+  await resetLocalDatabase();
+  await Promise.all([
+    db.banks.bulkPut(backup.banks), db.bankFolders.bulkPut(backup.bankFolders), db.questions.bulkPut(backup.questions),
+    db.attempts.bulkPut(backup.attempts), db.attemptStats.bulkPut(backup.attemptStats),
+    db.attemptDailyStats.bulkPut(backup.attemptDailyStats), db.notes.bulkPut(backup.notes),
+    db.practiceRuns.bulkPut(backup.practiceRuns), db.practiceRunStats.bulkPut(backup.practiceRunStats),
+    db.questionGroups.bulkPut(backup.questionGroups), db.events.bulkPut(backup.events),
+    db.syncFiles.bulkPut(backup.syncFiles), db.tombstones.bulkPut(backup.tombstones),
+    db.sessions.bulkPut(backup.sessions), db.syncMeta.bulkPut(backup.syncMeta),
+  ]);
+}
+
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const cached = (await db.syncFiles.get(remoteCachePath(settings)))?.remoteCache;
   if (!cached) return null;
@@ -104,12 +130,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings) {
   const cached = cacheFile?.remoteCache;
   if (!cacheFile || !cached) throw new Error("本机还没有可恢复的远程缓存，请先成功同步一次。");
   validateSyncCheckpoint(cached.snapshot);
-  const backup = {
-    snapshot: await createSyncSnapshot(),
-    sessions: await db.sessions.toArray(),
-    events: await db.events.toArray(),
-    syncFiles: await db.syncFiles.toArray(),
-  };
+  const backup = await createLocalBackup();
   try {
     await applySyncCheckpoint(cached.snapshot);
     await db.syncFiles.bulkPut([
@@ -118,11 +139,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings) {
     ]);
     return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 3 as const };
   } catch (error) {
-    await resetLocalDatabase();
-    await applySyncSnapshot(backup.snapshot, true);
-    await db.sessions.bulkPut(backup.sessions);
-    await db.events.bulkPut(backup.events);
-    await db.syncFiles.bulkPut(backup.syncFiles);
+    await restoreLocalBackup(backup);
     throw error;
   }
 }
@@ -183,6 +200,24 @@ async function getTree(settings: GitHubSettings, token: string) {
   return tree.tree;
 }
 
+async function getHeadTree(settings: GitHubSettings, token: string) {
+  const branch = settings.branch || "main";
+  const ref = await request<{ object: { sha: string } }>(
+    `${api}/repos/${settings.owner}/${settings.repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+    token,
+  );
+  const commit = await request<{ tree: { sha: string } }>(
+    `${api}/repos/${settings.owner}/${settings.repo}/git/commits/${ref.object.sha}`,
+    token,
+  );
+  const response = await request<{ tree: TreeEntry[]; truncated?: boolean }>(
+    `${api}/repos/${settings.owner}/${settings.repo}/git/trees/${commit.tree.sha}?recursive=1`,
+    token,
+  );
+  if (response.truncated) throw new Error("远程仓库文件树过大，GitHub 返回了不完整结果，已停止同步。");
+  return { headSha: ref.object.sha, treeSha: commit.tree.sha, tree: response.tree };
+}
+
 function validateEvents(value: unknown, path: string): SyncEvent[] {
   if (!Array.isArray(value)) throw new Error(`远程事件文件格式无效：${path}`);
   for (const event of value) {
@@ -225,7 +260,7 @@ async function downloadRemotePackageV3(
   const manifestText = await readBlob(settings, token, manifestEntry.sha);
   const manifest = JSON.parse(manifestText) as SyncManifestV3;
   if (manifest.formatVersion !== 3 || !manifest.checkpoint?.path || !manifest.checkpoint.sha256
-    || manifest.eventPrefix !== v3EventPrefix || !manifest.archiveCatalog?.path || !manifest.archiveCatalog.sha256) {
+    || manifest.eventPrefix !== v3EventPrefix || manifest.archiveCatalog?.path !== v3CatalogPath || !manifest.archiveCatalog.sha256) {
     throw new Error("远程 v3 同步清单格式无效。");
   }
   const checkpointEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifest.checkpoint.path);
@@ -250,16 +285,19 @@ async function downloadRemotePackageV3(
   const wantedEntries: TreeEntry[] = [];
   let selectedBytes = 0;
   for (const entry of unseenEntries) {
+    if ((entry.size ?? 0) > eventPageByteLimit) throw new Error(`远程 v3 事件分页超过 256 KiB 上限：${entry.path}`);
     const size = Math.max(1, entry.size ?? eventPageByteLimit);
     if (wantedEntries.length && selectedBytes + size > downloadByteLimit) break;
     wantedEntries.push(entry);
     selectedBytes += size;
   }
-  const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => ({
-    path: entry.path,
-    sha: entry.sha,
-    events: validateV3Events(JSON.parse(await readBlob(settings, token, entry.sha)), entry.path),
-  }));
+  const eventFiles = await mapConcurrent(wantedEntries, downloadConcurrency, async (entry) => {
+    const text = await readBlob(settings, token, entry.sha);
+    if (new TextEncoder().encode(text).byteLength > eventPageByteLimit) {
+      throw new Error(`远程 v3 事件分页超过 256 KiB 上限：${entry.path}`);
+    }
+    return { path: entry.path, sha: entry.sha, events: validateV3Events(JSON.parse(text), entry.path) };
+  });
   return {
     formatVersion: 3,
     manifest,
@@ -272,12 +310,12 @@ async function downloadRemotePackageV3(
   };
 }
 
-async function applyPackageV3(remote: RemotePackageV3) {
+async function applyPackageV3(remote: RemotePackageV3, preserveLocal = true) {
   let pulled = 0;
   if (remote.checkpoint) {
-    const [pending, sessions, previousFiles] = await Promise.all([
-      db.events.where("synced").equals(0).toArray(), db.sessions.toArray(), db.syncFiles.toArray(),
-    ]);
+    const [pending, sessions, previousFiles] = preserveLocal
+      ? await Promise.all([db.events.where("synced").equals(0).toArray(), db.sessions.toArray(), db.syncFiles.toArray()])
+      : [[], [], []];
     await applySyncCheckpoint(remote.checkpoint);
     const replay = pending.filter((event) => event.sequence > (remote.checkpoint!.cursors[event.deviceId] ?? 0));
     if (replay.length) {
@@ -374,7 +412,11 @@ function takeEventPage(events: SyncEvent[]) {
   const page: SyncEvent[] = [];
   for (const event of events.slice(0, uploadBatchSize)) {
     const candidate = [...page, event];
-    if (page.length && new TextEncoder().encode(JSON.stringify(candidate)).byteLength > eventPageByteLimit) break;
+    const candidateBytes = new TextEncoder().encode(JSON.stringify(candidate)).byteLength;
+    if (candidateBytes > eventPageByteLimit) {
+      if (!page.length) throw new Error("单条同步事件超过 256 KiB 上限，请缩小该条题库变更后重试。");
+      break;
+    }
     page.push(event);
   }
   return page;
@@ -398,14 +440,27 @@ async function uploadPendingEventsV3(settings: GitHubSettings, token: string) {
     const content = JSON.stringify(page);
     const bytes = new TextEncoder().encode(content).byteLength;
     if (pushed && uploadedBytes + bytes > uploadByteLimit) break;
-    const now = new Date();
-    const month = now.toISOString().slice(0, 7);
-    const path = `${v3EventPrefix}${getDeviceId()}/${month}/${now.getTime()}-${crypto.randomUUID()}.json`;
-    const uploaded = await request<{ content: { sha: string } }>(contentUrl(settings, path), token, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `sync: ${page.length} v3 study events`, content: encodeBase64(content), branch }),
-    });
+    const digest = await sha256(content);
+    const month = /^\d{4}-\d{2}/.test(page[0].createdAt) ? page[0].createdAt.slice(0, 7) : new Date().toISOString().slice(0, 7);
+    const device = page[0].deviceId.replace(/[^a-zA-Z0-9._-]/g, "_") || "device";
+    const path = `${v3EventPrefix}${device}/${month}/${digest}.json`;
+    let uploaded: { content: { sha: string } };
+    try {
+      uploaded = await request<{ content: { sha: string } }>(contentUrl(settings, path), token, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: `sync: ${page.length} v3 study events`, content: encodeBase64(content), branch }),
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("GitHub 422")) throw error;
+      const existing = await request<{ sha: string; content: string }>(
+        `${contentUrl(settings, path)}?ref=${encodeURIComponent(branch)}`,
+        token,
+      );
+      const existingText = decodeBase64(existing.content);
+      if (await sha256(existingText) !== digest) throw new Error(`远程事件分页路径冲突：${path}`);
+      uploaded = { content: { sha: existing.sha } };
+    }
     await db.syncFiles.put({ path, sha: uploaded.content.sha, appliedAt: new Date().toISOString() });
     await db.events.bulkPut(page.map((event) => ({ ...event, synced: 1 as const })));
     pushed += page.length;
@@ -482,6 +537,19 @@ async function readV3Catalog(settings: GitHubSettings, token: string, tree: Tree
   if (catalog.formatVersion !== 3 || !Array.isArray(catalog.attemptSegments) || !Array.isArray(catalog.practiceRunSegments)) {
     throw new Error("远程 v3 历史目录格式无效。");
   }
+  const validateSegments = (segments: SyncArchiveSegmentV3[], kind: "attempts" | "practice-runs") => segments.every((segment) =>
+    segment.path.startsWith(`sync/v3/archive/${kind}/`) && segment.path.endsWith(".json")
+    && /^[a-f0-9]{64}$/.test(segment.sha256) && /^\d{4}-\d{2}$/.test(segment.month)
+    && Number.isSafeInteger(segment.count) && segment.count > 0 && segment.count <= archiveSegmentSize
+    && typeof segment.firstId === "string" && typeof segment.lastId === "string"
+    && typeof segment.firstCreatedAt === "string" && typeof segment.lastCreatedAt === "string");
+  const paths = [...catalog.attemptSegments, ...catalog.practiceRunSegments].map((segment) => segment.path);
+  if (!catalog.counts || catalog.counts.attempts !== catalog.attemptSegments.reduce((sum, segment) => sum + segment.count, 0)
+    || catalog.counts.practiceRuns !== catalog.practiceRunSegments.reduce((sum, segment) => sum + segment.count, 0)
+    || !validateSegments(catalog.attemptSegments, "attempts") || !validateSegments(catalog.practiceRunSegments, "practice-runs")
+    || new Set(paths).size !== paths.length) {
+    throw new Error("远程 v3 历史目录统计或分段元数据无效。");
+  }
   return catalog;
 }
 
@@ -490,7 +558,8 @@ async function compactGitHubVaultV3(
   token: string,
   options: { force?: boolean; removeLegacy?: boolean } = {},
 ) {
-  const tree = await getTree(settings, token);
+  const head = await getHeadTree(settings, token);
+  const tree = head.tree;
   const eventEntries = tree.filter((entry) => entry.type === "blob" && entry.path.startsWith(v3EventPrefix) && entry.path.endsWith(".json"));
   if (!options.force && eventEntries.length < compactionFileThreshold) return { compacted: false };
   for (const entry of eventEntries) {
@@ -549,8 +618,6 @@ async function compactGitHubVaultV3(
     createGitBlob(settings, token, JSON.stringify(manifest, null, 2)),
   ]);
   const branch = settings.branch || "main";
-  const ref = await request<{ object: { sha: string } }>(`${api}/repos/${settings.owner}/${settings.repo}/git/ref/heads/${encodeURIComponent(branch)}`, token);
-  const commit = await request<{ tree: { sha: string } }>(`${api}/repos/${settings.owner}/${settings.repo}/git/commits/${ref.object.sha}`, token);
   const deletePaths = new Set<string>(eventEntries.map((entry) => entry.path));
   if (previousManifest?.checkpoint.path && previousManifest.checkpoint.path !== checkpointPath) deletePaths.add(previousManifest.checkpoint.path);
   if (options.removeLegacy) {
@@ -562,7 +629,7 @@ async function compactGitHubVaultV3(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      base_tree: commit.tree.sha,
+      base_tree: head.treeSha,
       tree: [
         ...archiveBlobs.map((blob) => ({ path: blob.path, mode: "100644", type: "blob", sha: blob.sha })),
         { path: checkpointPath, mode: "100644", type: "blob", sha: checkpointBlob },
@@ -575,7 +642,7 @@ async function compactGitHubVaultV3(
   const newCommit = await request<{ sha: string }>(`${api}/repos/${settings.owner}/${settings.repo}/git/commits`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: options.removeLegacy ? "sync: migrate vault to protocol v3" : "sync: compact v3 event pages", tree: newTree.sha, parents: [ref.object.sha] }),
+    body: JSON.stringify({ message: options.removeLegacy ? "sync: migrate vault to protocol v3" : "sync: compact v3 event pages", tree: newTree.sha, parents: [head.headSha] }),
   });
   try {
     await request(`${api}/repos/${settings.owner}/${settings.repo}/git/refs/heads/${encodeURIComponent(branch)}`, token, {
@@ -662,7 +729,7 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string) {
   };
 }
 
-export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
+async function restoreQuickFromGitHub(settings: GitHubSettings, token: string) {
   let tree = await getTree(settings, token);
   let manifestEntry = tree.find((entry) => entry.type === "blob" && entry.path === manifestPath);
   if (!manifestEntry) throw new Error("远程仓库中没有可恢复的同步记录，已保留本地数据。");
@@ -675,24 +742,19 @@ export async function restoreFromGitHub(settings: GitHubSettings, token: string)
   if (!manifestEntry) throw new Error("v3 迁移后未找到远程同步清单。");
   const remote = await downloadRemotePackageV3(settings, token, tree, manifestEntry, false);
   if (!remote.checkpoint) throw new Error("远程仓库中没有可恢复的 v3 检查点，已保留本地数据。");
-  const backup = {
-    snapshot: await createSyncSnapshot(),
-    sessions: await db.sessions.toArray(),
-    events: await db.events.toArray(),
-    syncFiles: await db.syncFiles.toArray(),
-  };
+  const pulled = await applyPackageV3(remote, false);
+  const snapshot = await createSyncCheckpoint();
+  validateSyncCheckpoint(snapshot);
+  await cacheCurrentRemoteState(settings);
+  return { pulled, formatVersion: 3 as const, counts: snapshot.counts, deferred: remote.deferredEventFiles };
+}
+
+export async function restoreFromGitHub(settings: GitHubSettings, token: string) {
+  const backup = await createLocalBackup();
   try {
-    const pulled = await applyPackageV3(remote);
-    const snapshot = await createSyncCheckpoint();
-    validateSyncCheckpoint(snapshot);
-    await cacheCurrentRemoteState(settings);
-    return { pulled, formatVersion: 3 as const, counts: snapshot.counts, deferred: remote.deferredEventFiles };
+    return await restoreQuickFromGitHub(settings, token);
   } catch (error) {
-    await resetLocalDatabase();
-    await applySyncSnapshot(backup.snapshot, true);
-    await db.sessions.bulkPut(backup.sessions);
-    await db.events.bulkPut(backup.events);
-    await db.syncFiles.bulkPut(backup.syncFiles);
+    await restoreLocalBackup(backup);
     throw error;
   }
 }
@@ -740,23 +802,29 @@ export async function loadAttemptHistory(
 }
 
 export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string) {
-  const quick = await restoreFromGitHub(settings, token);
-  const [attemptHistory, runHistory] = await Promise.all([
-    downloadArchiveRows<Attempt>(settings, token, "attempts"),
-    downloadArchiveRows<PracticeRun>(settings, token, "practice-runs"),
-  ]);
-  await db.transaction("rw", [db.attempts, db.practiceRuns], async () => {
-    if (attemptHistory.rows.length) await db.attempts.bulkPut(attemptHistory.rows);
-    if (runHistory.rows.length) await db.practiceRuns.bulkPut(runHistory.rows);
-  });
-  const now = new Date().toISOString();
-  await db.syncMeta.bulkPut([
-    { key: "archive-index:attempts", value: [...new Set(attemptHistory.rows.map((attempt) => attempt.id))], updatedAt: now },
-    { key: "archive-index:practice-runs", value: [...new Set(runHistory.rows.map((run) => run.id))], updatedAt: now },
-  ]);
-  return {
-    ...quick,
-    archivedAttempts: attemptHistory.rows.length,
-    archivedPracticeRuns: runHistory.rows.length,
-  };
+  const backup = await createLocalBackup();
+  try {
+    const quick = await restoreQuickFromGitHub(settings, token);
+    const [attemptHistory, runHistory] = await Promise.all([
+      downloadArchiveRows<Attempt>(settings, token, "attempts"),
+      downloadArchiveRows<PracticeRun>(settings, token, "practice-runs"),
+    ]);
+    await db.transaction("rw", [db.attempts, db.practiceRuns], async () => {
+      if (attemptHistory.rows.length) await db.attempts.bulkPut(attemptHistory.rows);
+      if (runHistory.rows.length) await db.practiceRuns.bulkPut(runHistory.rows);
+    });
+    const now = new Date().toISOString();
+    await db.syncMeta.bulkPut([
+      { key: "archive-index:attempts", value: [...new Set(attemptHistory.rows.map((attempt) => attempt.id))], updatedAt: now },
+      { key: "archive-index:practice-runs", value: [...new Set(runHistory.rows.map((run) => run.id))], updatedAt: now },
+    ]);
+    return {
+      ...quick,
+      archivedAttempts: attemptHistory.rows.length,
+      archivedPracticeRuns: runHistory.rows.length,
+    };
+  } catch (error) {
+    await restoreLocalBackup(backup);
+    throw error;
+  }
 }

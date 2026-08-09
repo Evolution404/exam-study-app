@@ -61,7 +61,9 @@ const blobContents: string[] = [];
 let committedTree: Array<{ path: string; sha: string | null }> = [];
 globalThis.fetch = async (input, init) => {
   const url = String(input);
-  if (url.includes("/git/trees/main?recursive=1")) return Response.json({ tree: [], truncated: false });
+  if (url.includes("/git/trees/main?recursive=1") || url.includes("/git/trees/base-tree?recursive=1")) {
+    return Response.json({ tree: [], truncated: false });
+  }
   if (url.endsWith("/git/blobs") && init?.method === "POST") {
     const body = JSON.parse(String(init.body)) as { content: string };
     blobContents.push(body.content);
@@ -114,6 +116,13 @@ globalThis.fetch = async (input, init) => {
     { path: manifest.archiveCatalog.path, type: "blob", sha: "catalog-sha", size: 100 },
   ], truncated: false });
   if (url.includes("/git/blobs/manifest-sha")) return Response.json({ content: encoded(JSON.stringify(manifest)) });
+  if (url.includes("/git/ref/heads/main")) return Response.json({ object: { sha: "batch-head" } });
+  if (url.includes("/git/commits/batch-head")) return Response.json({ tree: { sha: "batch-tree" } });
+  if (url.includes("/git/trees/batch-tree?recursive=1")) return Response.json({ tree: [
+    { path: "sync/manifest.json", type: "blob", sha: "manifest-sha", size: 500 },
+    { path: manifest.checkpoint.path, type: "blob", sha: "checkpoint-sha", size: checkpointText.length },
+    { path: manifest.archiveCatalog.path, type: "blob", sha: "catalog-sha", size: 100 },
+  ], truncated: false });
   if (url.includes("/contents/sync/v3/events/") && init?.method === "PUT") {
     const body = JSON.parse(String(init.body)) as { content: string };
     uploadedPages.push(JSON.parse(Buffer.from(body.content, "base64").toString()) as SyncEvent[]);

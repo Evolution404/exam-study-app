@@ -12,7 +12,7 @@
     "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:shortcuts && npm run test:press-intent && npm run test:typography",
     "typecheck": "tsc --noEmit",
     "test:architecture": "node scripts/check-architecture.mjs",
-    "test:sync": "tsx scripts/test-sync-protocol.ts",
+    "test:sync": "tsx scripts/test-sync-protocol.ts && tsx scripts/test-sync-data-model.ts && tsx scripts/test-sync-entity-conflicts.ts && tsx scripts/test-sync-concurrency.ts && tsx scripts/test-sync-restore.ts",
     "test:shortcuts": "tsx scripts/test-keyboard-shortcuts.ts",
     "test:press-intent": "tsx scripts/test-press-intent.ts",
     "test:typography": "tsx scripts/test-display-typography.ts",

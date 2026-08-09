@@ -248,6 +248,13 @@ function bankTitle(bank: Bank) {
   return bank.displayName?.trim() || bank.name;
 }
 
+async function refreshBankQuestionCount(bankId: string) {
+  const bank = await db.banks.get(bankId);
+  if (!bank) return;
+  const questionCount = await db.questions.where("bankId").equals(bankId).count();
+  if (bank.questionCount !== questionCount) await db.banks.put({ ...bank, questionCount });
+}
+
 async function putSyncEvent(type: SyncEvent["type"], payload: unknown, createdAt = new Date().toISOString()) {
   const deviceId = getDeviceId();
   await db.events.put({ id: makeId("evt"), type, payload, deviceId, sequence: nextSyncSequence(deviceId), createdAt, synced: 0 });
@@ -751,8 +758,26 @@ export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint 
   const questionIds = new Set(state.questions.map((question) => question.id));
   if (state.banks.some((bank) => !bank?.id || !/^送电线路工-(初级工|中级工|高级工|技师)$/.test(bank.name))) throw new Error("远程检查点包含不受支持的题库。");
   if (state.questions.some((question) => !question?.id || !bankIds.has(question.bankId))) throw new Error("远程检查点中的题目引用了不存在的题库。");
-  if (state.attemptStats.some((stats) => !questionIds.has(stats.questionId) || !bankIds.has(stats.bankId))) throw new Error("远程检查点中的作答汇总引用无效。");
+  if (state.attemptStats.some((stats) => !questionIds.has(stats.questionId) || !bankIds.has(stats.bankId)
+    || !Number.isSafeInteger(stats.total) || !Number.isSafeInteger(stats.correct) || !Number.isSafeInteger(stats.wrong)
+    || !Number.isSafeInteger(stats.giveUps) || stats.total < 0 || stats.correct < 0 || stats.wrong < 0 || stats.giveUps < 0
+    || stats.correct + stats.wrong !== stats.total || stats.giveUps > stats.total
+    || !Number.isFinite(stats.totalElapsedMs) || stats.totalElapsedMs < 0
+    || !Array.isArray(stats.recentOutcomes) || stats.recentOutcomes.length > 32
+    || !Number.isSafeInteger(stats.currentCorrectStreak) || stats.currentCorrectStreak < 0 || stats.currentCorrectStreak > stats.correct
+    || !Number.isSafeInteger(stats.correctStreakAfterWrong) || stats.correctStreakAfterWrong < 0
+    || stats.correctStreakAfterWrong > stats.currentCorrectStreak
+    || (!stats.hasBeenWrong && stats.correctStreakAfterWrong !== 0))) {
+    throw new Error("远程检查点中的作答汇总引用或统计无效。");
+  }
   if (state.recentAttempts.some((attempt) => !attempt?.id || !questionIds.has(attempt.questionId))) throw new Error("远程检查点中的近期作答引用无效。");
+  if (state.practiceRunStats.some((stats) => !Number.isSafeInteger(stats.total) || stats.total < 0
+    || !Number.isSafeInteger(stats.completed) || stats.completed < 0
+    || !Number.isSafeInteger(stats.inProgress) || stats.inProgress < 0
+    || !Number.isSafeInteger(stats.abandoned) || stats.abandoned < 0
+    || stats.completed + stats.inProgress + stats.abandoned !== stats.total)) {
+    throw new Error("远程检查点中的练习汇总无效。");
+  }
   const expected = {
     banks: state.banks.length,
     bankFolders: state.bankFolders.length,
@@ -765,6 +790,11 @@ export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint 
   };
   if (!value.counts || Object.entries(expected).some(([key, count]) => value.counts[key as keyof typeof value.counts] !== count)) {
     throw new Error("远程检查点统计与实际内容不一致。");
+  }
+  const totalAttempts = state.attemptStats.reduce((sum, stats) => sum + stats.total, 0);
+  const totalPracticeRuns = state.practiceRunStats.find((stats) => stats.bankId === "__all__")?.total ?? state.recentPracticeRuns.length;
+  if (value.counts.totalAttempts !== totalAttempts || value.counts.totalPracticeRuns !== totalPracticeRuns) {
+    throw new Error("远程检查点累计统计与汇总表不一致。");
   }
 }
 
@@ -981,6 +1011,7 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
               merged.push(current?.userUpdatedAt ? current : incoming);
             }
             if (merged.length) await db.questions.bulkPut(merged);
+            await refreshBankQuestionCount(bank.id);
           }
         } else if (event.type === "bank.updated") {
           const incoming = { ...(event.payload as Bank), syncEventId: event.id };
@@ -989,14 +1020,19 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
             await clearOlderTombstone("bank", incoming.id, changedAt, incoming.deviceId ?? event.deviceId, event.id);
             const current = await db.banks.get(incoming.id);
             if (!current || compareClock(changedAt, incoming.deviceId ?? event.deviceId, event.id, current.updatedAt ?? current.importedAt, current.deviceId, current.syncEventId) > 0) {
-              await db.banks.put(incoming);
+              const questionCount = await db.questions.where("bankId").equals(incoming.id).count();
+              await db.banks.put({ ...incoming, questionCount });
               await db.questions.where("bankId").equals(incoming.id).modify({ bankName: bankTitle(incoming) });
             }
           }
         } else if (event.type === "bank.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
-          await putTombstone("bank", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
-          await deleteBankLocal(payload.id);
+          const deletedAt = payload.deletedAt ?? event.createdAt;
+          const current = await db.banks.get(payload.id);
+          if (!current || compareClock(deletedAt, event.deviceId, event.id, current.updatedAt ?? current.importedAt, current.deviceId, current.syncEventId) >= 0) {
+            await putTombstone("bank", payload.id, deletedAt, event.deviceId, event.id);
+            await deleteBankLocal(payload.id);
+          }
         } else if (event.type === "bankFolder.saved") {
           const incoming = { ...(event.payload as BankFolder), syncEventId: event.id };
           if (!await isDeletedAfter("bankFolder", incoming.id, incoming.updatedAt, incoming.deviceId, event.id)) {
@@ -1006,9 +1042,13 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           }
         } else if (event.type === "bankFolder.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
-          await putTombstone("bankFolder", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
-          await db.bankFolders.delete(payload.id);
-          await db.banks.where("folderId").equals(payload.id).modify({ folderId: undefined });
+          const deletedAt = payload.deletedAt ?? event.createdAt;
+          const current = await db.bankFolders.get(payload.id);
+          if (!current || compareClock(deletedAt, event.deviceId, event.id, current.updatedAt, current.deviceId, current.syncEventId) >= 0) {
+            await putTombstone("bankFolder", payload.id, deletedAt, event.deviceId, event.id);
+            await db.bankFolders.delete(payload.id);
+            await db.banks.where("folderId").equals(payload.id).modify({ folderId: undefined });
+          }
         } else if (event.type === "attempt.created") {
           const incoming = event.payload as Attempt;
           if (incoming?.id && await db.questions.get(incoming.questionId) && !await db.attempts.get(incoming.id)) {
@@ -1033,12 +1073,15 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           }
         } else if (event.type === "practice.run.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
-          await putTombstone("practiceRun", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
-          const active = await db.sessions.get("active");
-          if (active?.runId === payload.id) await db.sessions.delete("active");
+          const deletedAt = payload.deletedAt ?? event.createdAt;
           const current = await db.practiceRuns.get(payload.id);
-          if (current) await updatePracticeRunStats(current, undefined);
-          await db.practiceRuns.delete(payload.id);
+          if (!current || compareClock(deletedAt, event.deviceId, event.id, current.updatedAt, current.syncDeviceId, current.syncEventId) >= 0) {
+            await putTombstone("practiceRun", payload.id, deletedAt, event.deviceId, event.id);
+            const active = await db.sessions.get("active");
+            if (active?.runId === payload.id) await db.sessions.delete("active");
+            if (current) await updatePracticeRunStats(current, undefined);
+            await db.practiceRuns.delete(payload.id);
+          }
         } else if (event.type === "questionGroup.saved") {
           const incoming = { ...(event.payload as QuestionGroup), syncEventId: event.id };
           if (!await isDeletedAfter("questionGroup", incoming.id, incoming.updatedAt, incoming.deviceId, event.id)) {
@@ -1050,20 +1093,32 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           }
         } else if (event.type === "questionGroup.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
-          await putTombstone("questionGroup", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
-          await db.questionGroups.delete(payload.id);
+          const deletedAt = payload.deletedAt ?? event.createdAt;
+          const current = await db.questionGroups.get(payload.id);
+          if (!current || compareClock(deletedAt, event.deviceId, event.id, current.updatedAt, current.deviceId, current.syncEventId) >= 0) {
+            await putTombstone("questionGroup", payload.id, deletedAt, event.deviceId, event.id);
+            await db.questionGroups.delete(payload.id);
+          }
         } else if (event.type === "question.created" || event.type === "question.updated") {
           const incoming = { ...(event.payload as Question), syncEventId: event.id };
           const changedAt = incoming.userUpdatedAt ?? event.createdAt;
           if (await db.banks.get(incoming.bankId) && !await isDeletedAfter("question", incoming.id, changedAt, incoming.userUpdatedBy ?? event.deviceId, event.id)) {
             await clearOlderTombstone("question", incoming.id, changedAt, incoming.userUpdatedBy ?? event.deviceId, event.id);
             const current = await db.questions.get(incoming.id);
-            if (!current || compareClock(changedAt, incoming.userUpdatedBy ?? event.deviceId, event.id, current.userUpdatedAt, current.userUpdatedBy, current.syncEventId) > 0) await db.questions.put(incoming);
+            if (!current || compareClock(changedAt, incoming.userUpdatedBy ?? event.deviceId, event.id, current.userUpdatedAt, current.userUpdatedBy, current.syncEventId) > 0) {
+              await db.questions.put(incoming);
+              await refreshBankQuestionCount(incoming.bankId);
+            }
           }
         } else if (event.type === "question.deleted") {
           const payload = event.payload as { id: string; deletedAt?: string };
-          await putTombstone("question", payload.id, payload.deletedAt ?? event.createdAt, event.deviceId, event.id);
-          await deleteQuestionLocal(payload.id);
+          const deletedAt = payload.deletedAt ?? event.createdAt;
+          const question = await db.questions.get(payload.id);
+          if (!question || compareClock(deletedAt, event.deviceId, event.id, question.userUpdatedAt, question.userUpdatedBy, question.syncEventId) >= 0) {
+            await putTombstone("question", payload.id, deletedAt, event.deviceId, event.id);
+            await deleteQuestionLocal(payload.id);
+            if (question) await refreshBankQuestionCount(question.bankId);
+          }
         }
         await db.events.put({ ...event, synced: 1 });
         if (Number.isSafeInteger(event.sequence) && event.sequence >= 0) {
