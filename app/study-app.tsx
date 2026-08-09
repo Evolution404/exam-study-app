@@ -22,6 +22,7 @@ import { SyncView } from "@/app/sync-view";
 import { ShortcutSetting } from "@/app/shortcut-setting";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
@@ -252,7 +253,7 @@ export function StudyApp() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
-  const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; longPressed: boolean; cancelled: boolean } | null>(null);
+  const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
 
   useAppViewport();
   useAppTheme(preferences.themeMode);
@@ -438,13 +439,14 @@ export function StudyApp() {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      startedAt: event.timeStamp,
       longPressed: false,
       cancelled: false,
     };
     press.timer = window.setTimeout(() => {
       press.longPressed = true;
       void prepareQuickRestore().finally(() => setQuickSyncHolding(false));
-    }, 900);
+    }, QUICK_RESTORE_HOLD_MS);
     quickSyncPress.current = press;
     setQuickSyncHolding(true);
   }
@@ -464,7 +466,9 @@ export function StudyApp() {
     window.clearTimeout(press.timer);
     quickSyncPress.current = null;
     setQuickSyncHolding(false);
-    if (!press.cancelled && !press.longPressed) void quickSync();
+    const intent = classifyPressIntent(event.timeStamp - press.startedAt, press.cancelled, press.longPressed);
+    if (intent === "tap") void quickSync();
+    else if (intent === "complete" && !press.longPressed) void prepareQuickRestore();
   }
 
   function cancelQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
