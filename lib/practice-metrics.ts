@@ -46,3 +46,9 @@ export function difficultyLabel(score: number) {
   if (score >= 45) return "中等";
   return "容易";
 }
+
+export function difficultyTone(score: number): "easy" | "medium" | "hard" {
+  if (score >= 70) return "hard";
+  if (score >= 45) return "medium";
+  return "easy";
+}
