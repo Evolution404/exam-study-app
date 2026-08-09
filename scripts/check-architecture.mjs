@@ -34,12 +34,61 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 
 const db = read("lib/db.ts");
 const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-if (databaseVersions.length !== 1 || databaseVersions[0] !== 7) fail("客户端只能声明当前数据库 v7");
+if (databaseVersions.length !== 1 || databaseVersions[0] !== 8) fail("客户端只能声明当前数据库 v8");
 
 const sync = read("lib/github-sync.ts");
+const syncV4 = read("lib/github-sync-v4.ts");
+const syncV4Head = read("lib/sync-v4-head.ts");
+const syncV4Remote = read("lib/github-v4-remote.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
-if (!/formatVersion:\s*3\b/.test(sync) || !/sync\/v3\/events\//.test(sync)) fail("客户端必须使用同步协议 v3 写入路径");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
+
+// v4 has one mutable object.  Keep the spelling in one protocol module and
+// require the GitHub transport to consume that constant instead of deriving a
+// branch- or repository-dependent head path.
+if (!/SYNC_V4_HEAD_PATH\s*=\s*["']sync\/v4\/head\.json["']/.test(syncV4Head)) {
+  fail("Sync v4 必须将固定 head 路径设为 sync/v4/head.json");
+}
+if (!/SYNC_V4_HEAD_PATH/.test(syncV4Remote) || !/GitHubV4Remote/.test(syncV4)) {
+  fail("公开同步入口必须通过 Sync v4 固定 head 路径读写远程索引");
+}
+if (!/formatVersion:\s*4\b/.test(syncV4) || !/syncWithGitHubV4/.test(syncV4) || !/restoreFromGitHubV4/.test(syncV4)) {
+  fail("公开同步入口必须实现同步协议 v4");
+}
+
+// The stable names consumed by the UI are wrappers around v4.  Legacy v3
+// code may remain for an explicit migration path, but it must be clearly
+// labelled Legacy/Migration and must not leak into these public entrypoints.
+const publicEntryNames = [
+  "syncWithGitHub",
+  "restoreFromGitHub",
+  "restoreFullHistoryFromGitHub",
+  "loadAttemptHistory",
+  "verifyGitHubVault",
+  "initializeGitHubVault",
+];
+const requiredPublicEntryNames = ["syncWithGitHub", "restoreFromGitHub", "restoreFullHistoryFromGitHub"];
+function exportedFunctionBlock(name) {
+  const match = sync.match(new RegExp(`export (?:async )?function ${name}\\b[\\s\\S]*?(?=\\nexport (?:async )?function |$)`));
+  return match?.[0] ?? "";
+}
+for (const name of requiredPublicEntryNames) {
+  if (!exportedFunctionBlock(name)) fail(`公开入口 ${name} 必须存在并指向 Sync v4`);
+}
+for (const name of publicEntryNames) {
+  const block = exportedFunctionBlock(name);
+  if (!block) continue;
+  if (!/V4/.test(block)) fail(`公开入口 ${name} 必须委托 Sync v4 实现`);
+  if (/sync\/v[23]\//.test(block) || /manifestPath|v3EventPrefix|v3CatalogPath/.test(block)) {
+    fail(`公开入口 ${name} 不得读写 v2/v3 路径`);
+  }
+}
+for (const match of sync.matchAll(/export (?:async )?function\s+(\w+)/g)) {
+  const name = match[1];
+  if (/v[23]/i.test(name) && !/(?:Legacy|Migration)/i.test(name)) {
+    fail(`旧版同步入口 ${name} 必须明确标记为 Legacy 或 Migration 内部实现`);
+  }
+}
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅写入 DB v7 / Sync v3。`);
+console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v8 / Sync v4 head。`);

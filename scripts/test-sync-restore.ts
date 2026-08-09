@@ -21,11 +21,11 @@ const {
 const { addAttemptToDailyStats, buildAttemptStats, attemptDailyKey } = await import("../lib/practice-metrics");
 const {
   getLastRemoteCache,
-  loadAttemptHistory,
-  restoreFromGitHub,
-  restoreFullHistoryFromGitHub,
+  loadAttemptHistoryLegacyV3: loadAttemptHistory,
+  restoreFromGitHubLegacyV3: restoreFromGitHub,
+  restoreFullHistoryFromGitHubLegacyV3: restoreFullHistoryFromGitHub,
   restoreLastRemoteCache,
-  syncWithGitHub,
+  syncWithGitHubLegacyV3: syncWithGitHub,
 } = await import("../lib/github-sync");
 type Attempt = import("../lib/types").Attempt;
 type Bank = import("../lib/types").Bank;
@@ -313,6 +313,9 @@ await check("快速恢复只下载检查点和近期记录", async () => {
   assert.equal(await db.practiceRuns.count(), 100);
   assert.equal(vault.readsContaining("/sync/v3/archive/").length, 0, "quick restore must not fetch archive rows");
   assert.ok(vault.readsContaining("/git/blobs/").length >= 2);
+  const manifestSha = vault.files.get("sync/manifest.json")?.sha;
+  assert.ok(manifestSha);
+  assert.equal(vault.readsContaining(manifestSha!).length, 1, "quick restore must read the manifest once");
 });
 
 await check("按月/题目按需下载历史且重复下载幂等", async () => {
@@ -332,12 +335,18 @@ await check("按月/题目按需下载历史且重复下载幂等", async () => 
 
 await check("完整恢复取回全部归档记录", async () => {
   await resetLocalDatabase();
+  vault.clearRequests();
   const result = await restoreFullHistoryFromGitHub(settings, "token");
   assert.equal(result.formatVersion, 3);
   assert.equal(result.archivedAttempts, seeded.attempts.length - 2_000);
   assert.equal(result.archivedPracticeRuns, seeded.runs.length - 100);
   assert.equal(await db.attempts.count(), seeded.attempts.length);
   assert.equal(await db.practiceRuns.count(), seeded.runs.length);
+  const manifestSha = vault.files.get("sync/manifest.json")?.sha;
+  const catalogSha = vault.files.get("sync/v3/archive/catalog.json")?.sha;
+  assert.ok(manifestSha && catalogSha);
+  assert.equal(vault.readsContaining(manifestSha!).length, 1, "full restore must read the manifest once for both history kinds");
+  assert.equal(vault.readsContaining(catalogSha!).length, 1, "full restore must read the archive catalog once for both history kinds");
 });
 
 await check("坏 SHA 在恢复前不改变本地数据", async () => {

@@ -14,7 +14,12 @@ const {
   applyRemoteEvents, applySyncCheckpoint, createSyncCheckpoint, db, resetLocalDatabase, validateSyncCheckpoint,
 } = await import("../lib/db");
 const { addAttemptToStats, statsNeedWrongReview } = await import("../lib/practice-metrics");
-const { getLastRemoteCache, restoreFromGitHub, restoreLastRemoteCache, syncWithGitHub } = await import("../lib/github-sync");
+const {
+  getLastRemoteCache,
+  restoreFromGitHubLegacyV3: restoreFromGitHub,
+  restoreLastRemoteCache,
+  syncWithGitHubLegacyV3: syncWithGitHub,
+} = await import("../lib/github-sync");
 type Attempt = import("../lib/types").Attempt;
 type SyncCheckpointV3 = import("../lib/types").SyncCheckpointV3;
 type SyncEvent = import("../lib/types").SyncEvent;

@@ -22,7 +22,7 @@ const {
   resetLocalDatabase,
   validateSyncCheckpoint,
 } = await import("../lib/db");
-const { syncWithGitHub } = await import("../lib/github-sync");
+const { syncWithGitHubLegacyV3: syncWithGitHub } = await import("../lib/github-sync");
 type SyncCheckpointV3 = import("../lib/types").SyncCheckpointV3;
 type SyncEvent = import("../lib/types").SyncEvent;
 
@@ -402,7 +402,8 @@ async function testDownloadFailureRetryAndDuplicateEvents() {
   const second = await syncWithGitHub(settings, "token");
   assert.equal(second.pulled, 0, "a repeated sync with unchanged pages should pull nothing");
   assert.equal(await db.events.where("id").equals("same-event").count(), 1, "repeated sync must not duplicate events");
-  assert.equal(server.readSha.length, beforeReads + 2, "unchanged pages should not be downloaded again (manifest is read for version and package checks)");
+  assert.equal(server.readSha.length, beforeReads + 1, "unchanged pages should not be downloaded again (manifest is read once for the package)");
+  assert.equal(server.requests.filter((request) => request.url.includes("/git/ref/heads/")).length, 0, "small event trees must skip the head-tree compaction probe");
   return { firstPulled: first.pulled, secondPulled: second.pulled, eventReads: server.readSha.length };
 }
 

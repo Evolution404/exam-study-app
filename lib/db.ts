@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from "dexie";
+import Dexie, { type EntityTable, type InsertType, type Table } from "dexie";
 import { addAttemptToDailyStats, addAttemptToStats, attemptDailyKey, calendarDate } from "./practice-metrics";
 import type {
   Attempt,
@@ -14,7 +14,11 @@ import type {
   QuestionGroup,
   SyncEvent,
   SyncCheckpointV3,
+  SyncCheckpointCache,
+  SyncArchiveEntry,
+  SyncArchiveEntryKind,
   SyncFile,
+  SyncFileMarker,
   SyncMeta,
   SyncSnapshotV2,
   SyncTombstone,
@@ -42,10 +46,17 @@ class StudyDatabase extends Dexie {
   tombstones!: EntityTable<SyncTombstone, "key">;
   sessions!: EntityTable<PracticeSession, "id">;
   syncMeta!: EntityTable<SyncMeta, "key">;
+  /**
+   * Archive rows downloaded during a full restore.  These tables are kept
+   * separate from the live history tables until the restore commit succeeds.
+   */
+  syncRestoreAttempts!: EntityTable<Attempt, "id">;
+  syncRestorePracticeRuns!: EntityTable<PracticeRun, "id">;
+  syncArchiveEntries!: EntityTable<SyncArchiveEntry, "key">;
 
   constructor() {
     super("memory-line-study");
-    this.version(7).stores({
+    this.version(8).stores({
       banks: "id, folderId, sortOrder, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, bankId, type, *tags, normalizedStem",
@@ -61,30 +72,9 @@ class StudyDatabase extends Dexie {
       tombstones: "key, entityType, entityId, deletedAt",
       sessions: "id, bankId, updatedAt",
       syncMeta: "key, updatedAt",
-    }).upgrade(async (transaction) => {
-      const attempts = await transaction.table<Attempt>("attempts").toArray();
-      const events = await transaction.table<SyncEvent>("events").toArray();
-      const runs = await transaction.table<PracticeRun>("practiceRuns").toArray();
-      const stats = new Map<string, AttemptStats>();
-      const daily = new Map<string, AttemptDailyStats>();
-      for (const attempt of attempts.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))) {
-        stats.set(attempt.questionId, addAttemptToStats(stats.get(attempt.questionId), attempt));
-        const key = attemptDailyKey(attempt);
-        daily.set(key, addAttemptToDailyStats(daily.get(key), attempt));
-      }
-      if (stats.size) await transaction.table<AttemptStats>("attemptStats").bulkPut([...stats.values()]);
-      if (daily.size) await transaction.table<AttemptDailyStats>("attemptDailyStats").bulkPut([...daily.values()]);
-      const migratedEvents = events
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-        .map((event, index) => ({
-          ...event,
-          sequence: Number.isSafeInteger(event.sequence) && event.sequence > 0
-            ? event.sequence
-            : Math.min(Number.MAX_SAFE_INTEGER, new Date(event.createdAt).getTime() * 1_000 + index + 1),
-        }));
-      if (migratedEvents.length) await transaction.table<SyncEvent>("events").bulkPut(migratedEvents);
-      const runStats = aggregatePracticeRunRows(runs);
-      if (runStats.length) await transaction.table<PracticeRunStats>("practiceRunStats").bulkPut(runStats);
+      syncRestoreAttempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
+      syncRestorePracticeRuns: "id, status, startedAt, updatedAt",
+      syncArchiveEntries: "key, kind, id",
     });
   }
 }
@@ -798,6 +788,66 @@ export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint 
   }
 }
 
+/**
+ * A checkpoint prepared for a restore transaction.
+ *
+ * Preparing once lets callers validate a downloaded checkpoint and then pass
+ * the same object to both the restore and local-cache paths. The plan keeps
+ * only the question-id index needed while filtering question groups; it does
+ * not clone any of the checkpoint's row arrays.
+ */
+export interface SyncCheckpointPlan {
+  readonly checkpoint: SyncCheckpointV3;
+  readonly questionIds: ReadonlySet<string>;
+}
+
+/** Validate a checkpoint once and build the small index used during apply. */
+export function prepareSyncCheckpoint(value: unknown): SyncCheckpointPlan {
+  validateSyncCheckpoint(value);
+  return {
+    checkpoint: value,
+    questionIds: new Set(value.state.questions.map((question) => question.id)),
+  };
+}
+
+/**
+ * All tables that can be touched by a checkpoint restore. Keeping this list in
+ * one place gives sync callers a safe transaction scope for work that must
+ * happen together with checkpoint application (for example replaying pending
+ * events and writing sync-file markers).
+ *
+ * Dexie's nested read-write transactions join an existing compatible
+ * transaction, so `applySyncCheckpoint` can safely be called from the callback
+ * passed to this helper.
+ */
+const syncCheckpointTables = [
+  db.banks,
+  db.bankFolders,
+  db.questions,
+  db.attempts,
+  db.attemptStats,
+  db.attemptDailyStats,
+  db.notes,
+  db.practiceRuns,
+  db.practiceRunStats,
+  db.questionGroups,
+  db.tombstones,
+  db.sessions,
+  db.events,
+  db.syncFiles,
+  db.syncMeta,
+  db.syncRestoreAttempts,
+  db.syncRestorePracticeRuns,
+  db.syncArchiveEntries,
+];
+
+export async function withSyncCheckpointTransaction<T>(work: () => Promise<T>): Promise<T> {
+  return db.transaction("rw", syncCheckpointTables, work);
+}
+
+/** Alias that describes the same atomic scope from the restore caller's view. */
+export const withSyncRestoreTransaction = withSyncCheckpointTransaction;
+
 export async function createSyncCheckpoint(): Promise<SyncCheckpointV3> {
   const [banks, bankFolders, questions, attemptStats, recentAttemptDailyStats, recentAttemptsDescending, notes,
     recentPracticeRunsDescending, practiceRunStats, questionGroups, tombstones, events, cursorRows] = await Promise.all([
@@ -838,35 +888,297 @@ export async function createSyncCheckpoint(): Promise<SyncCheckpointV3> {
   return checkpoint;
 }
 
-export async function applySyncCheckpoint(checkpoint: SyncCheckpointV3) {
-  validateSyncCheckpoint(checkpoint);
-  const archiveIndexes = await db.syncMeta.where("key").startsWith("archive-index:").toArray();
-  await db.transaction(
-    "rw",
-    [db.banks, db.bankFolders, db.questions, db.attempts, db.attemptStats, db.attemptDailyStats, db.notes,
-      db.practiceRuns, db.practiceRunStats, db.questionGroups, db.tombstones, db.sessions, db.events, db.syncFiles, db.syncMeta],
-    async () => {
-      await Promise.all([
-        db.banks.clear(), db.bankFolders.clear(), db.questions.clear(), db.attempts.clear(), db.attemptStats.clear(),
-        db.attemptDailyStats.clear(), db.notes.clear(), db.practiceRuns.clear(), db.practiceRunStats.clear(), db.questionGroups.clear(),
-        db.tombstones.clear(), db.sessions.clear(), db.events.clear(), db.syncFiles.clear(), db.syncMeta.clear(),
-      ]);
-      const questionIds = new Set(checkpoint.state.questions.map((question) => question.id));
-      const groups = checkpoint.state.questionGroups
-        .map((group) => ({ ...group, items: group.items.filter((item) => questionIds.has(item.questionId)) }))
-        .filter((group) => group.items.length);
-      await Promise.all([
-        db.banks.bulkPut(checkpoint.state.banks), db.bankFolders.bulkPut(checkpoint.state.bankFolders),
-        db.questions.bulkPut(checkpoint.state.questions), db.attempts.bulkPut(checkpoint.state.recentAttempts),
-        db.attemptStats.bulkPut(checkpoint.state.attemptStats), db.attemptDailyStats.bulkPut(checkpoint.state.recentAttemptDailyStats),
-        db.notes.bulkPut(checkpoint.state.notes), db.practiceRuns.bulkPut(checkpoint.state.recentPracticeRuns), db.practiceRunStats.bulkPut(checkpoint.state.practiceRunStats),
-        db.questionGroups.bulkPut(groups), db.tombstones.bulkPut(checkpoint.state.tombstones),
-        db.syncMeta.bulkPut(Object.entries(checkpoint.cursors).map(([deviceId, sequence]) => ({ key: `cursor:${deviceId}`, value: sequence, updatedAt: checkpoint.generatedAt }))),
-        db.syncMeta.put({ key: "remote-counts", value: checkpoint.counts, updatedAt: checkpoint.generatedAt }),
-        db.syncMeta.bulkPut(archiveIndexes),
-      ]);
-    },
-  );
+export interface SyncCheckpointCacheInput {
+  path: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  checkpoint: SyncCheckpointV3 | SyncCheckpointPlan;
+  markers?: readonly SyncFileMarker[];
+  cachedAt?: string;
+}
+
+/**
+ * Build the local cache row from an already-built checkpoint. No database read
+ * occurs here, so callers can cache the exact checkpoint that was downloaded
+ * and validated during sync without a second full-table scan.
+ */
+export function buildSyncCheckpointCacheFile(input: SyncCheckpointCacheInput): SyncFile {
+  const plan = isSyncCheckpointPlan(input.checkpoint) ? input.checkpoint : prepareSyncCheckpoint(input.checkpoint);
+  const cachedAt = input.cachedAt ?? new Date().toISOString();
+  const snapshot: SyncCheckpointCache = {
+    owner: input.owner,
+    repo: input.repo,
+    branch: input.branch,
+    cachedAt,
+    snapshot: plan.checkpoint,
+    markers: (input.markers ?? []).map((marker) => ({ ...marker })),
+  };
+  return {
+    path: input.path,
+    sha: `local-${plan.checkpoint.generatedAt}`,
+    appliedAt: cachedAt,
+    remoteCache: snapshot,
+  };
+}
+
+export async function saveSyncCheckpointCache(input: SyncCheckpointCacheInput) {
+  const file = buildSyncCheckpointCacheFile(input);
+  await db.syncFiles.put(file);
+  return { cachedAt: file.remoteCache!.cachedAt, counts: file.remoteCache!.snapshot.counts, file };
+}
+
+/** Short name for callers that already use “cache” terminology. */
+export const cacheSyncCheckpoint = saveSyncCheckpointCache;
+
+export interface SyncCheckpointApplyOptions {
+  /** Keep sync-file markers so the caller can update them in the same transaction. */
+  preserveSyncFiles?: boolean;
+  /** Keep the active session so the caller can validate and restore it atomically. */
+  preserveSessions?: boolean;
+}
+
+function isSyncCheckpointPlan(value: SyncCheckpointV3 | SyncCheckpointPlan): value is SyncCheckpointPlan {
+  return "checkpoint" in value && "questionIds" in value;
+}
+
+/**
+ * Apply a prepared checkpoint inside the current transaction.
+ *
+ * This function intentionally has no transaction boundary of its own. It is
+ * exported for restore flows that need to stage additional writes (pending
+ * events, sessions, or sync markers) and commit all of them as one unit.
+ */
+async function applyPreparedSyncCheckpointInTransaction(
+  plan: SyncCheckpointPlan,
+  options: SyncCheckpointApplyOptions = {},
+) {
+  const { checkpoint } = plan;
+  const clearTables = [
+    db.banks,
+    db.bankFolders,
+    db.questions,
+    db.attempts,
+    db.attemptStats,
+    db.attemptDailyStats,
+    db.notes,
+    db.practiceRuns,
+    db.practiceRunStats,
+    db.questionGroups,
+    db.tombstones,
+    ...(options.preserveSessions ? [] : [db.sessions]),
+    db.events,
+    ...(options.preserveSyncFiles ? [] : [db.syncFiles]),
+  ];
+  await Promise.all(clearTables.map((table) => table.clear()));
+
+  // Archive indexes are local lazy-history bookkeeping. Preserve them without
+  // materialising the whole syncMeta table in JavaScript memory.
+  await db.syncMeta.filter((row) => !row.key.startsWith("archive-index:")).delete();
+  const groups = checkpoint.state.questionGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => plan.questionIds.has(item.questionId)) }))
+    .filter((group) => group.items.length);
+  await Promise.all([
+    db.banks.bulkPut(checkpoint.state.banks), db.bankFolders.bulkPut(checkpoint.state.bankFolders),
+    db.questions.bulkPut(checkpoint.state.questions), db.attempts.bulkPut(checkpoint.state.recentAttempts),
+    db.attemptStats.bulkPut(checkpoint.state.attemptStats), db.attemptDailyStats.bulkPut(checkpoint.state.recentAttemptDailyStats),
+    db.notes.bulkPut(checkpoint.state.notes), db.practiceRuns.bulkPut(checkpoint.state.recentPracticeRuns), db.practiceRunStats.bulkPut(checkpoint.state.practiceRunStats),
+    db.questionGroups.bulkPut(groups), db.tombstones.bulkPut(checkpoint.state.tombstones),
+    db.syncMeta.bulkPut(Object.entries(checkpoint.cursors).map(([deviceId, sequence]) => ({ key: `cursor:${deviceId}`, value: sequence, updatedAt: checkpoint.generatedAt }))),
+    db.syncMeta.put({ key: "remote-counts", value: checkpoint.counts, updatedAt: checkpoint.generatedAt }),
+  ]);
+}
+
+/** Apply a prepared checkpoint, opening a transaction when the caller has not. */
+export async function applyPreparedSyncCheckpoint(
+  plan: SyncCheckpointPlan,
+  options: SyncCheckpointApplyOptions = {},
+) {
+  if (Dexie.currentTransaction?.db === db) {
+    await applyPreparedSyncCheckpointInTransaction(plan, options);
+    return;
+  }
+  await withSyncCheckpointTransaction(() => applyPreparedSyncCheckpointInTransaction(plan, options));
+}
+
+/**
+ * Delete rows left by an interrupted full restore.  A failed commit itself is
+ * transactional and therefore leaves the stage intact; callers can invoke
+ * this explicitly when they no longer need to retry that restore.
+ */
+export async function clearSyncRestoreStage() {
+  const clear = async () => {
+    await Promise.all([db.syncRestoreAttempts.clear(), db.syncRestorePracticeRuns.clear()]);
+  };
+  if (Dexie.currentTransaction?.db === db) {
+    await clear();
+    return;
+  }
+  await db.transaction("rw", [db.syncRestoreAttempts, db.syncRestorePracticeRuns], clear);
+}
+
+function archiveEntryKey(kind: SyncArchiveEntryKind, id: string) {
+  return `${kind}:${id}`;
+}
+
+function uniqueArchiveIds(ids: readonly string[]) {
+  return [...new Set(ids.filter((id) => typeof id === "string" && id.length > 0))];
+}
+
+/**
+ * Mark archive rows as materialised, in bounded writes.  This is intentionally
+ * usable from a restore finalizer: when called inside commitStagedSyncRestore
+ * it joins that transaction and rolls back with the checkpoint on failure.
+ */
+export async function markSyncArchiveEntries(kind: SyncArchiveEntryKind, ids: readonly string[]) {
+  const uniqueIds = uniqueArchiveIds(ids);
+  if (!uniqueIds.length) return;
+  const mark = async () => {
+    for (let offset = 0; offset < uniqueIds.length; offset += syncRestoreCopyChunkSize) {
+      const rows: SyncArchiveEntry[] = uniqueIds
+        .slice(offset, offset + syncRestoreCopyChunkSize)
+        .map((id) => ({ key: archiveEntryKey(kind, id), kind, id }));
+      await db.syncArchiveEntries.bulkPut(rows);
+    }
+  };
+  if (Dexie.currentTransaction?.db === db) {
+    await mark();
+    return;
+  }
+  await db.transaction("rw", db.syncArchiveEntries, mark);
+}
+
+/** Check whether one archive row has already been materialised locally. */
+export async function hasSyncArchiveEntry(kind: SyncArchiveEntryKind, id: string) {
+  if (!id) return false;
+  const check = async () => Boolean(await db.syncArchiveEntries.get(archiveEntryKey(kind, id)));
+  if (Dexie.currentTransaction?.db === db) return check();
+  return db.transaction("r", db.syncArchiveEntries, check);
+}
+
+/**
+ * Return only archive ids that are not indexed yet.  Existing-row reads are
+ * performed with bulkGet in chunks so a large catalog never becomes a large
+ * temporary row array.
+ */
+export async function filterUnarchivedSyncIds(kind: SyncArchiveEntryKind, ids: readonly string[]) {
+  const uniqueIds = uniqueArchiveIds(ids);
+  if (!uniqueIds.length) return [];
+  const filter = async () => {
+    const missing: string[] = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += syncRestoreCopyChunkSize) {
+      const chunk = uniqueIds.slice(offset, offset + syncRestoreCopyChunkSize);
+      const existing = await db.syncArchiveEntries.bulkGet(chunk.map((id) => archiveEntryKey(kind, id)));
+      for (let index = 0; index < chunk.length; index += 1) if (!existing[index]) missing.push(chunk[index]);
+    }
+    return missing;
+  };
+  if (Dexie.currentTransaction?.db === db) return filter();
+  return db.transaction("r", db.syncArchiveEntries, filter);
+}
+
+/** Return the subset of ids already present in the archive index. */
+export async function bulkHasSyncArchiveEntries(kind: SyncArchiveEntryKind, ids: readonly string[]) {
+  const missing = new Set(await filterUnarchivedSyncIds(kind, ids));
+  return new Set(uniqueArchiveIds(ids).filter((id) => !missing.has(id)));
+}
+
+/** Clear the bounded archive-materialisation index. */
+export async function clearSyncArchiveEntries() {
+  const clear = async () => { await db.syncArchiveEntries.clear(); };
+  if (Dexie.currentTransaction?.db === db) {
+    await clear();
+    return;
+  }
+  await db.transaction("rw", db.syncArchiveEntries, clear);
+}
+
+/**
+ * Stage one downloaded archive segment.  The caller should invoke this once
+ * per segment instead of collecting the complete archive in a JS array.
+ */
+export async function stageSyncRestoreAttempts(rows: readonly Attempt[]) {
+  if (!rows.length) return;
+  const stage = async () => { await db.syncRestoreAttempts.bulkPut(rows); };
+  if (Dexie.currentTransaction?.db === db) {
+    await stage();
+    return;
+  }
+  await db.transaction("rw", db.syncRestoreAttempts, stage);
+}
+
+/** Stage one downloaded practice-run archive segment. */
+export async function stageSyncRestorePracticeRuns(rows: readonly PracticeRun[]) {
+  if (!rows.length) return;
+  const stage = async () => { await db.syncRestorePracticeRuns.bulkPut(rows); };
+  if (Dexie.currentTransaction?.db === db) {
+    await stage();
+    return;
+  }
+  await db.transaction("rw", db.syncRestorePracticeRuns, stage);
+}
+
+const syncRestoreCopyChunkSize = 500;
+
+/**
+ * Move a stage table into its live counterpart in bounded chunks.  Reading a
+ * chunk and deleting it before fetching the next one keeps memory bounded by
+ * the segment size while preserving idempotence for duplicate archive rows.
+ */
+async function copyStagedRows<T extends { id: string }>(
+  source: Table<T, T["id"], InsertType<T, "id">>,
+  target: Table<T, T["id"], InsertType<T, "id">>,
+  archiveKind: SyncArchiveEntryKind,
+) {
+  let copied = 0;
+  while (true) {
+    const rows = await source.toCollection().limit(syncRestoreCopyChunkSize).toArray();
+    if (!rows.length) break;
+    await target.bulkPut(rows);
+    await markSyncArchiveEntries(archiveKind, rows.map((row) => row.id));
+    await source.bulkDelete(rows.map((row) => row.id));
+    copied += rows.length;
+  }
+  return copied;
+}
+
+export type SyncRestoreFinalize = () => Promise<void> | void;
+
+/**
+ * Atomically apply a prepared checkpoint and commit all staged archive rows.
+ * `finalize` runs between checkpoint application and stage promotion, while
+ * the same Dexie transaction is active; it can therefore replay hot events and
+ * write sync-file markers without exposing a partially restored database.
+ * Attempt and practice-run aggregate tables are intentionally not rebuilt
+ * here: their checkpoint values already include the archived history.
+ */
+export async function commitStagedSyncRestore(
+  plan: SyncCheckpointPlan,
+  finalize?: SyncRestoreFinalize,
+) {
+  const commit = async () => {
+    await applyPreparedSyncCheckpointInTransaction(plan);
+    await finalize?.();
+    const [attempts, practiceRuns] = await Promise.all([
+      copyStagedRows(db.syncRestoreAttempts, db.attempts, "attempts"),
+      copyStagedRows(db.syncRestorePracticeRuns, db.practiceRuns, "practice-runs"),
+    ]);
+    return { attempts, practiceRuns };
+  };
+  if (Dexie.currentTransaction?.db === db) return commit();
+  return withSyncCheckpointTransaction(commit);
+}
+
+/**
+ * Replace the local v3 state atomically. Passing a plan avoids validating and
+ * indexing the same checkpoint again when the caller also caches it.
+ */
+export async function applySyncCheckpoint(
+  input: SyncCheckpointV3 | SyncCheckpointPlan,
+  options: SyncCheckpointApplyOptions = {},
+) {
+  const plan = isSyncCheckpointPlan(input) ? input : prepareSyncCheckpoint(input);
+  await applyPreparedSyncCheckpoint(plan, options);
 }
 
 function practiceRunWins(incoming: PracticeRun, current: PracticeRun | undefined, deviceId = "", tie = "") {

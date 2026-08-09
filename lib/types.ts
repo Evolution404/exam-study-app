@@ -172,6 +172,15 @@ export interface SyncMeta {
   updatedAt: string;
 }
 
+export type SyncArchiveEntryKind = "attempts" | "practice-runs";
+
+/** A bounded local index of archive rows already materialised in the vault. */
+export interface SyncArchiveEntry {
+  key: string;
+  kind: SyncArchiveEntryKind;
+  id: string;
+}
+
 export interface Note {
   questionId: string;
   content: string;
@@ -214,14 +223,29 @@ export interface SyncFile {
   path: string;
   sha: string;
   appliedAt: string;
-  remoteCache?: {
-    owner: string;
-    repo: string;
-    branch: string;
-    cachedAt: string;
-    snapshot: SyncCheckpointV3;
-    markers: Array<{ path: string; sha: string; appliedAt: string }>;
-  };
+  remoteCache?: SyncCheckpointCache;
+}
+
+export interface SyncFileMarker {
+  path: string;
+  sha: string;
+  appliedAt: string;
+}
+
+/**
+ * A validated, bounded checkpoint kept for the instant local-restore path.
+ *
+ * `snapshot` is deliberately the checkpoint object that was already built by
+ * the sync operation.  Restore code must not regenerate it by scanning every
+ * local table just to populate this cache.
+ */
+export interface SyncCheckpointCache {
+  owner: string;
+  repo: string;
+  branch: string;
+  cachedAt: string;
+  snapshot: SyncCheckpointV3;
+  markers: SyncFileMarker[];
 }
 
 export type SyncEntityType = "bank" | "bankFolder" | "question" | "practiceRun" | "questionGroup";
@@ -292,6 +316,40 @@ export interface SyncArchiveCatalogV3 {
   };
 }
 
+/**
+ * An immutable v4 history segment.  The Git blob id (`blobSha`) identifies
+ * the object in the remote store while `sha256` identifies the decoded bytes
+ * and is also embedded in ordinary v4 paths.  `legacy` is only present on a
+ * descriptor produced by the explicit v3 migration helper; it allows a
+ * migrated catalog to retain its original v3 path without making that path a
+ * valid spelling for newly-created v4 segments.
+ */
+export interface SyncArchiveSegmentV4 {
+  path: string;
+  blobSha: string;
+  sha256: string;
+  size: number;
+  month: string;
+  count: number;
+  firstId: string;
+  lastId: string;
+  firstCreatedAt: string;
+  lastCreatedAt: string;
+  legacy?: boolean;
+}
+
+/** Immutable v4 catalog containing bounded attempt and practice-run history. */
+export interface SyncArchiveCatalogV4 {
+  formatVersion: 4;
+  generatedAt: string;
+  attemptSegments: SyncArchiveSegmentV4[];
+  practiceRunSegments: SyncArchiveSegmentV4[];
+  counts: {
+    attempts: number;
+    practiceRuns: number;
+  };
+}
+
 export interface SyncCheckpointV3 {
   formatVersion: 3;
   generatedAt: string;
@@ -342,6 +400,36 @@ export interface SyncManifestV3 {
     sha256: string;
   };
 }
+
+/**
+ * The v4 hot index is the only mutable sync object.  Every object named by a
+ * descriptor is immutable; publishing a new head therefore only changes the
+ * small descriptor list below.  `blobSha` is the Git blob id while `sha256`
+ * is the digest of the decoded file bytes.
+ */
+export interface SyncHeadDescriptorV4 {
+  path: string;
+  blobSha: string;
+  sha256: string;
+  size: number;
+}
+
+export interface SyncEventPageDescriptorV4 extends SyncHeadDescriptorV4 {
+  count: number;
+  /** Highest event sequence included from each device in this page. */
+  deviceCursors: Record<string, number>;
+}
+
+export interface SyncHeadV4 {
+  formatVersion: 4;
+  generatedAt: string;
+  checkpoint: SyncHeadDescriptorV4;
+  archiveCatalog: SyncHeadDescriptorV4;
+  eventPages: SyncEventPageDescriptorV4[];
+}
+
+/** Alias used by callers that refer to the v4 head as a manifest. */
+export type SyncManifestV4 = SyncHeadV4;
 
 export interface GitHubSettings {
   owner: string;

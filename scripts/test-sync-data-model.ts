@@ -1,6 +1,5 @@
 import "fake-indexeddb/auto";
 import assert from "node:assert/strict";
-import Dexie from "dexie";
 import { webcrypto } from "node:crypto";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
@@ -21,17 +20,6 @@ type PracticeRun = import("../lib/types").PracticeRun;
 type PracticeSession = import("../lib/types").PracticeSession;
 type Question = import("../lib/types").Question;
 type SyncEvent = import("../lib/types").SyncEvent;
-
-const databaseName = "memory-line-study";
-
-async function deleteDatabase() {
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(databaseName);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-    request.onblocked = () => reject(new Error("无法删除测试数据库：仍有连接未关闭。"));
-  });
-}
 
 function isoAt(daysFromToday: number, hour = 12, minute = 0, second = 0) {
   const value = new Date();
@@ -120,38 +108,6 @@ const legacyQuestion: Question = {
   tags: [],
 };
 
-// Construct a genuine v6 IndexedDB database first. Importing lib/db then exercises
-// the production v7 upgrade callback instead of only testing a fresh database.
-await deleteDatabase();
-const legacy = new Dexie(databaseName);
-legacy.version(6).stores({
-  banks: "id, folderId, sortOrder, importedAt, updatedAt",
-  bankFolders: "id, sortOrder, updatedAt",
-  questions: "id, bankId, type, *tags, normalizedStem",
-  attempts: "id, questionId, bankId, runId, correct, createdAt, deviceId",
-  notes: "questionId, updatedAt",
-  practiceRuns: "id, status, startedAt, updatedAt",
-  questionGroups: "id, type, updatedAt",
-  events: "id, synced, createdAt, deviceId",
-  syncFiles: "path, sha, appliedAt",
-  tombstones: "key, entityType, entityId, deletedAt",
-  sessions: "id, bankId, updatedAt",
-});
-await legacy.open();
-await legacy.table("banks").put(legacyBank);
-await legacy.table("questions").put(legacyQuestion);
-await legacy.table("attempts").bulkPut([
-  makeAttempt({ id: "legacy-a1", questionId: legacyQuestion.id, bankId: legacyBank.id, createdAt: "2026-01-01T12:00:00.000Z", correct: false }),
-  makeAttempt({ id: "legacy-a2", questionId: legacyQuestion.id, bankId: legacyBank.id, createdAt: "2026-01-02T12:00:00.000Z", correct: true }),
-]);
-await legacy.table("events").put({
-  id: "legacy-event", type: "attempt.created", payload: {}, deviceId: "legacy-device",
-  createdAt: "2026-01-02T12:00:00.000Z", synced: 0,
-});
-const legacyRun = makeRun({ id: "legacy-run", updatedAt: "2026-01-02T12:00:00.000Z", status: "completed" }, legacyBank, legacyQuestion);
-await legacy.table("practiceRuns").put(legacyRun);
-await legacy.close();
-
 const dbModule = await import("../lib/db");
 const metricsModule = await import("../lib/practice-metrics");
 const {
@@ -169,16 +125,18 @@ const {
 } = dbModule;
 const { calendarDate, statsNeedWrongReview } = metricsModule;
 
-await db.open();
-assert.equal(db.verno, 7, "v6 database must upgrade to DB v7");
-assert.equal(await db.attemptStats.count(), 1, "v7 upgrade must backfill attemptStats");
-assert.equal(await db.attemptDailyStats.count(), 2, "v7 upgrade must backfill daily attempt stats");
-const migratedStats = await db.attemptStats.get(legacyQuestion.id);
-assert.equal(migratedStats?.total, 2);
-assert.equal(migratedStats?.correct, 1);
-assert.equal(migratedStats?.wrong, 1);
-assert.equal((await db.practiceRunStats.get("__all__"))?.completed, 1, "v7 upgrade must backfill PracticeRunStats");
-assert.ok(Number((await db.events.get("legacy-event"))?.sequence) > 0, "v7 upgrade should assign a monotonic sequence to legacy events");
+// v8 is the sole current schema.  The staging and archive-index tables are
+// part of that schema rather than a compatibility upgrade from an older DB.
+await resetLocalDatabase();
+assert.equal(db.verno, 8, "the current client schema must be DB v8");
+assert.ok(db.tables.some((table) => table.name === "syncRestoreAttempts"));
+assert.ok(db.tables.some((table) => table.name === "syncRestorePracticeRuns"));
+assert.ok(db.tables.some((table) => table.name === "syncArchiveEntries"));
+assert.deepEqual(
+  db.syncArchiveEntries.schema.indexes.map((index) => index.name),
+  ["kind", "id"],
+  "archive index must expose kind and id lookups",
+);
 
 const bank: Bank = { ...legacyBank, id: "bank-data-model", questionCount: 2 };
 const question: Question = { ...legacyQuestion, id: "question-data-model", bankId: bank.id, bankName: bank.name, type: "单选", options: ["甲", "乙"], answer: "A" };
@@ -344,4 +302,4 @@ assert.equal(checkpoint.retention.recentPracticeRunLimit, 100);
 assert.equal(checkpoint.retention.dailyStatsDays, 35);
 
 await db.delete();
-console.log("sync data-model tests passed: v7 upgrade, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");
+console.log("sync data-model tests passed: DB v8 schema, aggregate consistency, ordering, daily stats, cascades, run stats, checkpoint caps");

@@ -300,6 +300,37 @@ export function StudyApp() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  function handleRestoreSuccess(message: string) {
+    // Restoring replaces the IndexedDB contents while this component is still
+    // mounted. Reset transient React state so live queries can render the new
+    // data without requiring a full document reload.
+    localStorage.removeItem("study-current-banks");
+    setView("home");
+    setSidebarOpen(false);
+    setNotice("");
+    setQuery("");
+    setQuickSearchOpen(false);
+    setSearchQuestionId(undefined);
+    setSearchRevision((revision) => revision + 1);
+    setGroupQuestionIds([]);
+    setPracticeSession(null);
+    setSelectedBankIds([]);
+    setDiscardedSession(null);
+    setPracticeHubTab("start");
+    setResultRunId(undefined);
+    setFinishPrompt(undefined);
+    setQuickSyncing(false);
+    setQuickRestoring(false);
+    setQuickSyncHolding(false);
+    setQuickSyncProgress(undefined);
+    setQuickRestorePrompt(undefined);
+    if (quickSyncPress.current) window.clearTimeout(quickSyncPress.current.timer);
+    quickSyncPress.current = null;
+    viewScrollPositions.current = {};
+    workspaceRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    setQuickRestoreSuccess(message);
+  }
+
 
   const banks = useLiveQuery(async () => (await db.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
@@ -430,11 +461,10 @@ export function StudyApp() {
       setQuickRestoring(true);
       setQuickSyncProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
       const result = await restoreLastRemoteCache(quickRestorePrompt.settings, setQuickSyncProgress);
-      localStorage.removeItem("study-current-banks");
       setQuickRestorePrompt(undefined);
       setQuickRestoring(false);
       setQuickSyncProgress(undefined);
-      setQuickRestoreSuccess(`已从本机缓存恢复 ${result.counts.questions} 道题及对应学习记录。`);
+      handleRestoreSuccess(`已从本机缓存恢复 ${result.counts.questions} 道题及对应学习记录。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "本地缓存恢复失败");
       setQuickRestoring(false);
@@ -831,8 +861,8 @@ export function StudyApp() {
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
-          {view === "preferences" && <PreferencesView preferences={preferences} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} />}
-          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} />}
+          {view === "preferences" && <PreferencesView preferences={preferences} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
+          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
           {view === "practice" && practiceSession && activeQuestion && (
@@ -841,7 +871,7 @@ export function StudyApp() {
         </div>
       </section>
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
-      <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="恢复本地记录" title="恢复成功" tone="success" hideCancel confirmLabel="重新载入" onCancel={() => undefined} onConfirm={() => window.location.reload()} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 重新载入后即可继续使用。</span></>} />
+      <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
       <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
         {mobileNavItems.map(({ id, label, icon: Icon }) => (
@@ -883,6 +913,35 @@ function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string;
     <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>
     {results.items.length ? <><div>{results.items.map((question) => <button key={question.id} onClick={() => onChoose(question.id)}><span className="search-type">{question.type}</span><span><strong><MathText text={question.stem} /></strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div><button className="search-view-all" onClick={onViewAll}>查看全部 {results.total} 道结果<ChevronRight size={16} /></button></> : <div className="search-state">{results.error || "试试“弧垂|导线”这类表达式，搜索范围为首页已选题库。"}</div>}
   </section>;
+}
+
+function settleWithTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T | undefined>((resolve) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(undefined);
+    }, timeoutMs);
+    promise.then((value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    }, () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(undefined);
+    });
+  });
+}
+
+async function updateServiceWorkerWithinTimeout() {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await settleWithTimeout(navigator.serviceWorker.getRegistration(), 300);
+  if (!registration) return;
+  await settleWithTimeout(registration.update(), 700);
 }
 
 function PullToRefresh() {
@@ -931,13 +990,12 @@ function PullToRefresh() {
       setRefreshing(true);
       setDistance(52);
       try {
-        const registration = await navigator.serviceWorker?.getRegistration();
-        await registration?.update();
-        if ("caches" in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.filter((key) => key.startsWith("shijuan-")).map((key) => caches.delete(key)));
-        }
+        // A service-worker update is best-effort. Never make a pull gesture
+        // wait forever when a browser has a stalled update request.
+        await updateServiceWorkerWithinTimeout();
       } finally {
+        reset();
+        setRefreshing(false);
         window.location.reload();
       }
     };
@@ -1001,7 +1059,7 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>数据直接写入本机，不经过第三方服务器</small></div><ChevronRight size={18} /></button>;
 }
 
-function PreferencesView({ preferences, pendingSync, onNotice, onChange }: { preferences: PracticePreferences; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void }) {
+function PreferencesView({ preferences, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
   const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
@@ -1039,7 +1097,7 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange }: { pre
       <GoalSetting count={preferences.dailyGoalCount} accuracy={preferences.dailyGoalAccuracy} onChange={(dailyGoalCount, dailyGoalAccuracy) => onChange({ ...preferences, dailyGoalCount, dailyGoalAccuracy })} />
       {feedbackItems.map(toggleRow)}
     </div></section>
-    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} /></div>
+    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} /></div>
   </>;
 }
 
