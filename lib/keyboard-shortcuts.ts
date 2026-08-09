@@ -8,7 +8,8 @@ export interface KeyboardShortcuts {
 export type KeyboardShortcutAction =
   | { type: "option"; optionIndex: number }
   | { type: "previous" }
-  | { type: "next" };
+  | { type: "next" }
+  | { type: "confirm" };
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   enabled: true,
@@ -47,6 +48,7 @@ export function shortcutConflicts(shortcuts: KeyboardShortcuts) {
 
 export function resolveKeyboardShortcut(shortcuts: KeyboardShortcuts, key: string): KeyboardShortcutAction | undefined {
   if (!shortcuts.enabled) return undefined;
+  if (key === "Enter") return { type: "confirm" };
   if (Array.from(key).length !== 1) return undefined;
   const normalized = normalizeShortcutKey(key);
   if (!normalized || shortcutConflicts(shortcuts).has(normalized)) return undefined;

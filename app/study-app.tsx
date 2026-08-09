@@ -27,6 +27,7 @@ import { ModalPortal } from "@/app/modal-portal";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
+import { shouldSubmitOnChoice } from "@/lib/answer-submission";
 import type { GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeSession, Question, QuestionType, SyncEvent } from "@/lib/types";
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
@@ -34,6 +35,7 @@ type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "
 const SCROLL_RESTORABLE_VIEWS: View[] = ["home", "banks", "relations", "practiceSetup", "preferences", "settings", "search"];
 
 interface PracticePreferences {
+  submitOnSelect: boolean;
   autoNextCorrect: boolean;
   autoNextDelayMs: 0 | 500 | 1000 | 2000;
   showAnswerOnWrong: boolean;
@@ -56,6 +58,7 @@ interface PracticePreferences {
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
+  submitOnSelect: true,
   autoNextCorrect: true,
   autoNextDelayMs: 500,
   showAnswerOnWrong: true,
@@ -999,7 +1002,8 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
 }
 
 function PreferencesView({ preferences, pendingSync, onNotice, onChange }: { preferences: PracticePreferences; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void }) {
-  const interactionItems: Array<{ key: "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
+  const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
+    { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
     { key: "swipeNavigation", title: "左右滑动切换题目", detail: "向左滑进入下一题，向右滑返回上一题。" },
@@ -1010,7 +1014,7 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange }: { pre
     { key: "feedbackSound", title: "答题提示音", detail: "用轻提示音区分答对和答错；系统静音时可能不播放。" },
     { key: "feedbackHaptics", title: "答题振动反馈", detail: "支持振动的手机会在判题后给出轻触反馈。" },
   ];
-  const toggleRow = (item: { key: keyof Pick<PracticePreferences, "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit" | "feedbackSound" | "feedbackHaptics" | "requireAllAnswered">; title: string; detail: string }) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={Boolean(preferences[item.key])} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>;
+  const toggleRow = (item: { key: keyof Pick<PracticePreferences, "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit" | "feedbackSound" | "feedbackHaptics" | "requireAllAnswered">; title: string; detail: string }) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={Boolean(preferences[item.key])} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>;
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
     <section className="preference-card"><div className="settings-title"><span><Moon /></span><div><h2>外观主题</h2><p>可以跟随手机或电脑的系统外观，也可以固定使用浅色或深色。</p></div></div>
       <ThemeSetting value={preferences.themeMode} onChange={(themeMode) => onChange({ ...preferences, themeMode })} />
@@ -1081,6 +1085,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   const copyStatusTimer = useRef<number | undefined>(undefined);
   const answering = useRef(false);
   const chooseShortcutRef = useRef<(letter: string) => void>(() => undefined);
+  const submitShortcutRef = useRef<() => void>(() => undefined);
   const questionCardRef = useRef<HTMLElement>(null);
   const swipeGesture = useRef<{ startX: number; startY: number; lastX: number; lastY: number; startScrollTop: number; axis: "pending" | "horizontal" | "vertical" } | null>(null);
   const effectiveDraft = draft ?? note?.content ?? "";
@@ -1108,6 +1113,9 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
         event.preventDefault();
         const originalIndex = displayOrder[shortcut.optionIndex];
         chooseShortcutRef.current(String.fromCharCode(65 + originalIndex));
+      } else if (shortcut?.type === "confirm" && !event.repeat && !submitted) {
+        event.preventDefault();
+        submitShortcutRef.current();
       } else if ((event.key === "ArrowLeft" || shortcut?.type === "previous") && index > 0) {
         event.preventDefault();
         window.clearTimeout(autoNextTimer.current);
@@ -1195,7 +1203,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     const value = [letter];
     setSelected(value);
     onStateChange({ selected: value, submitted: false });
-    await submit(value);
+    if (shouldSubmitOnChoice(question.type, preferences.submitOnSelect)) await submit(value);
   }
 
   chooseShortcutRef.current = (letter) => { void choose(letter); };
@@ -1227,6 +1235,8 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
       autoNextTimer.current = window.setTimeout(onNext, preferences.autoNextDelayMs);
     }
   }
+
+  submitShortcutRef.current = () => { void submit(); };
 
   async function giveUp() {
     if (submitted || answering.current) return;
@@ -1289,9 +1299,9 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   return <><div className="practice-layout"><section ref={questionCardRef} className="question-card" data-no-pull-refresh><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
     <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1><MathText text={question.stem} /></h1>{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}<div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => void choose(originalLetter)}><span>{displayLetter}</span><p><MathText text={option} languageText={question.stem} /></p>{isAnswer && <Check size={18} />}{isWrong && <X size={18} />}</button>; })}</div>
       {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{(correct || preferences.showAnswerOnWrong) ? <p>正确答案：{displayAnswer}｜<MathText text={answerText(question, displayOrder)} languageText={question.stem} /></p> : <p>正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
-      {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：选项 <kbd>{preferences.keyboardShortcuts.optionKeys.filter(Boolean).join("/")}</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.previousKeys.filter(Boolean).join("/")}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.nextKeys.filter(Boolean).join("/")}</kbd></div>}
+      {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：选项 <kbd>{preferences.keyboardShortcuts.optionKeys.filter(Boolean).join("/")}</kbd> · 确认 <kbd>Enter</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.previousKeys.filter(Boolean).join("/")}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.nextKeys.filter(Boolean).join("/")}</kbd></div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
-    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && <span className="answer-action-hint">选择答案后立即判定</span>}{question.type === "多选" && !submitted && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary-action retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
+    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}{!submitted && (question.type === "多选" || !preferences.submitOnSelect) && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary-action retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
     {submitted && <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside>}</div>{overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
 }
 
