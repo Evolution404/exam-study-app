@@ -6,23 +6,23 @@ import {
   withSyncRestoreTransaction,
 } from "./db";
 import {
-  initializeGitHubVaultV4,
-  loadAttemptHistoryV4,
-  pullFromGitHubV4,
-  restoreFromGitHubV4,
-  restoreFullHistoryFromGitHubV4,
-  syncWithGitHubV4,
-  verifyGitHubVaultV4,
-  type SyncV4Progress,
-  type SyncV4ProgressCallback,
-} from "./github-sync-v4";
+  initializeGitHubVaultV5,
+  loadAttemptHistoryV5,
+  pullFromGitHubV5,
+  restoreFromGitHubV5,
+  restoreFullHistoryFromGitHubV5,
+  syncWithGitHubV5,
+  verifyGitHubVaultV5,
+  type SyncV5Progress,
+  type SyncV5ProgressCallback,
+} from "./github-sync-v5";
 import type { GitHubSettings } from "./types";
 
 const githubApi = "https://api.github.com";
 const remoteCachePrefix = "__local_remote_cache__/";
 
-export type SyncProgress = SyncV4Progress;
-export type SyncProgressCallback = SyncV4ProgressCallback;
+export type SyncProgress = SyncV5Progress;
+export type SyncProgressCallback = SyncV5ProgressCallback;
 
 function report(onProgress: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number) {
   onProgress?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))) });
@@ -75,33 +75,33 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, onProgres
     await db.syncFiles.bulkPut([...cached.markers, cacheFile]);
   });
   report(onProgress, "complete", "本地记录恢复完成", 100);
-  return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 4 as const };
+  return { cachedAt: cached.cachedAt, counts: cached.snapshot.counts, formatVersion: 5 as const };
 }
 
 export async function syncWithGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
-  return syncWithGitHubV4(settings, token, onProgress);
+  return syncWithGitHubV5(settings, token, onProgress);
 }
 
 export async function pullFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
-  return pullFromGitHubV4(settings, token, onProgress);
+  return pullFromGitHubV5(settings, token, onProgress);
 }
 
 export async function restoreFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
-  return restoreFromGitHubV4(settings, token, onProgress);
+  return restoreFromGitHubV5(settings, token, onProgress);
 }
 
 export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
-  return restoreFullHistoryFromGitHubV4(settings, token, onProgress);
+  return restoreFullHistoryFromGitHubV5(settings, token, onProgress);
 }
 
 export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}) {
-  return loadAttemptHistoryV4(settings, token, options);
+  return loadAttemptHistoryV5(settings, token, options);
 }
 
 export async function verifyGitHubVault(settings: GitHubSettings, token: string) {
-  return verifyGitHubVaultV4(settings, token);
+  return verifyGitHubVaultV5(settings, token);
 }
 
 export async function initializeGitHubVault(settings: GitHubSettings, token: string, onProgress?: SyncProgressCallback) {
-  return initializeGitHubVaultV4(settings, token, {}, onProgress);
+  return initializeGitHubVaultV5(settings, token, {}, onProgress);
 }

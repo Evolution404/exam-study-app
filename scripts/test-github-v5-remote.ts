@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import {
-  GITHUB_V4_RAW_MEDIA_TYPE,
-  GitHubV4Remote,
-  SyncV4BlobIntegrityError,
-  SyncV4ImmutableConflictError,
-} from "../lib/github-v4-remote";
-import { SYNC_V4_ARCHIVE_CATALOG_PREFIX, SYNC_V4_CHECKPOINT_PREFIX, SYNC_V4_EVENT_PREFIX } from "../lib/sync-v4-head";
-import type { SyncHeadV4 } from "../lib/types";
+  GITHUB_V5_RAW_MEDIA_TYPE,
+  GitHubV5Remote,
+  SyncV5BlobIntegrityError,
+  SyncV5ImmutableConflictError,
+} from "../lib/github-v5-remote";
+import { SYNC_V5_ARCHIVE_CATALOG_PREFIX, SYNC_V5_CHECKPOINT_PREFIX, SYNC_V5_EVENT_PREFIX } from "../lib/sync-v5-head";
+import type { SyncHeadV5 } from "../lib/types";
 
 function encodeBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -44,17 +44,17 @@ const blobs = new Map<string, Uint8Array>();
 let generatedSha = 0;
 
 const generatedAt = "2026-08-09T00:00:00.000Z";
-const head: SyncHeadV4 = {
-  formatVersion: 4,
+const head: SyncHeadV5 = {
+  formatVersion: 5,
   generatedAt,
   checkpoint: {
-    path: `${SYNC_V4_CHECKPOINT_PREFIX}checkpoint.json`,
+    path: `${SYNC_V5_CHECKPOINT_PREFIX}checkpoint.json`,
     blobSha: "a".repeat(40),
     sha256: "b".repeat(64),
     size: 1,
   },
   archiveCatalog: {
-    path: `${SYNC_V4_ARCHIVE_CATALOG_PREFIX}${"c".repeat(64)}.json`,
+    path: `${SYNC_V5_ARCHIVE_CATALOG_PREFIX}${"c".repeat(64)}.json`,
     blobSha: "d".repeat(40),
     sha256: "e".repeat(64),
     size: 1,
@@ -80,7 +80,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
   calls.push({ method, url: requestUrl, headers, ...(typeof init.body === "string" ? { body: init.body } : {}) });
   const path = url.pathname;
 
-  if (path.endsWith("/contents/sync/v4/head.json")) {
+  if (path.endsWith("/contents/sync/v5/head.json")) {
     if (method === "GET") {
       if (!headBytes || !headSha) return new Response("missing", { status: 404 });
       if (headers.get("If-None-Match") === headEtag) return new Response(null, { status: 304, headers: { ETag: headEtag } });
@@ -94,7 +94,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
       headBytes = bytes;
       headSha = newSha();
       headEtag = `"head-${generatedSha + 1}"`;
-      return new Response(JSON.stringify({ content: { path: "sync/v4/head.json", sha: headSha } }), {
+      return new Response(JSON.stringify({ content: { path: "sync/v5/head.json", sha: headSha } }), {
         status: headSha === "0000000000000000000000000000000000000001" ? 201 : 200,
         headers: { ETag: headEtag },
       });
@@ -128,13 +128,13 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
     const sha = decodeURIComponent(path.slice(blobPrefix.length));
     const bytes = blobs.get(sha);
     if (!bytes) return new Response("missing", { status: 404 });
-    assert.equal(headers.get("Accept"), GITHUB_V4_RAW_MEDIA_TYPE);
+    assert.equal(headers.get("Accept"), GITHUB_V5_RAW_MEDIA_TYPE);
     return new Response(bytes, { status: 200, headers: { "Content-Type": "application/octet-stream" } });
   }
   return new Response("not found", { status: 404 });
 };
 
-const remote = new GitHubV4Remote({ owner, repo, branch, token, apiBaseUrl: "https://fake.github.test", fetch: fakeFetch, retryDelayMs: 0 });
+const remote = new GitHubV5Remote({ owner, repo, branch, token, apiBaseUrl: "https://fake.github.test", fetch: fakeFetch, retryDelayMs: 0 });
 
 // A missing head is the expected uninitialised state, and creating it is a PUT.
 const missing = await remote.readHead();
@@ -161,7 +161,7 @@ assert.equal(calls.length - beforeCas, 1);
 
 // Immutable files are created once; 422 is reconciled by a single same-content GET.
 const immutableBytes = new TextEncoder().encode('{"events":[]}');
-const immutablePath = `${SYNC_V4_EVENT_PREFIX}page-1.json`;
+const immutablePath = `${SYNC_V5_EVENT_PREFIX}page-1.json`;
 const firstFile = await remote.putImmutable(immutablePath, immutableBytes, { kind: "eventPage" });
 assert.equal(firstFile.created, true);
 const beforeIdempotent = calls.length;
@@ -170,7 +170,7 @@ assert.equal(secondFile.idempotent, true);
 assert.equal(calls.length - beforeIdempotent, 2);
 await assert.rejects(
   remote.putImmutable(immutablePath, new TextEncoder().encode("different"), { kind: "eventPage" }),
-  SyncV4ImmutableConflictError,
+  SyncV5ImmutableConflictError,
 );
 
 // Raw blob reads require the media type and reject both bad size and bad digest.
@@ -180,11 +180,11 @@ blobs.set(rawSha, rawBytes);
 const rawDigest = await sha256(rawBytes);
 const loaded = await remote.readBlob(rawSha, { size: rawBytes.byteLength, sha256: rawDigest });
 assert.deepEqual([...loaded], [...rawBytes]);
-await assert.rejects(remote.readBlob(rawSha, { size: rawBytes.byteLength + 1, sha256: rawDigest }), SyncV4BlobIntegrityError);
-await assert.rejects(remote.readBlob(rawSha, { size: rawBytes.byteLength, sha256: "f".repeat(64) }), SyncV4BlobIntegrityError);
+await assert.rejects(remote.readBlob(rawSha, { size: rawBytes.byteLength + 1, sha256: rawDigest }), SyncV5BlobIntegrityError);
+await assert.rejects(remote.readBlob(rawSha, { size: rawBytes.byteLength, sha256: "f".repeat(64) }), SyncV5BlobIntegrityError);
 
 const rawRequest = calls.find((call) => call.url.includes(`/git/blobs/${rawSha}`));
-assert.equal(rawRequest?.headers.get("Accept"), GITHUB_V4_RAW_MEDIA_TYPE);
+assert.equal(rawRequest?.headers.get("Accept"), GITHUB_V5_RAW_MEDIA_TYPE);
 
 // GETs are bounded and retry one transient 503; the retry still carries an AbortSignal.
 let retryCalls = 0;
@@ -194,8 +194,8 @@ const retryFetch: typeof fetch = async (_input, init = {}) => {
   if (retryCalls === 1) return new Response("temporary", { status: 503 });
   return jsonFile(headBytes as Uint8Array, headSha as string, headEtag);
 };
-const retryRemote = new GitHubV4Remote({ owner, repo, branch, token, apiBaseUrl: "https://fake.github.test", fetch: retryFetch, timeoutMs: 100, retryDelayMs: 0 });
+const retryRemote = new GitHubV5Remote({ owner, repo, branch, token, apiBaseUrl: "https://fake.github.test", fetch: retryFetch, timeoutMs: 100, retryDelayMs: 0 });
 assert.equal((await retryRemote.readHead()).status, "ok");
 assert.equal(retryCalls, 2);
 
-console.log("github v4 remote tests passed: 1-request 304 cache, create/CAS, immutable idempotency, raw integrity");
+console.log("github v5 remote tests passed: 1-request 304 cache, create/CAS, immutable idempotency, raw integrity");

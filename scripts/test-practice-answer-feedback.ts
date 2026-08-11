@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const studyApp = read("app/study-app.tsx");
+const practiceSetup = read("app/practice-setup.tsx");
 const practiceHistory = read("app/practice-history.tsx");
 const styles = read("app/styles/components.css");
 const database = read("lib/db.ts");
@@ -29,4 +30,13 @@ assert.match(practiceHistory, /className="latest-practice-abandon"/, "latest pra
 assert.match(styles, /\.resume-card-actions \{ display:flex; align-items:center; gap:8px; \}/, "home continue and abandon controls must share one ordered action row");
 assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home action row must keep abandon immediately right of continue");
 
-console.log("practice UI tests passed: stable answer feedback and one-source resume cards");
+assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
+assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");
+assert.match(practiceSetup, /mode === "randomCustom" \? requestedRandomCount/, "custom random count must be passed as this run's limit");
+assert.match(practiceSetup, /不修改答题配置中的每组题数/, "custom random mode must remain independent from global preferences");
+
+assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
+assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session");
+assert.doesNotMatch(studyApp, /practiceSessionRef/, "periodic pull must not retain and replace the visible practice session");
+
+console.log("practice UI tests passed: stable feedback, custom random runs, silent sync and one-source resume cards");

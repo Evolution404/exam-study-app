@@ -37,27 +37,38 @@ const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match)
 if (databaseVersions.length !== 1 || databaseVersions[0] !== 10) fail("客户端只能声明当前数据库 v10");
 
 const sync = read("lib/github-sync.ts");
-const syncV4 = read("lib/github-sync-v4.ts");
-const syncV4Head = read("lib/sync-v4-head.ts");
-const syncV4Remote = read("lib/github-v4-remote.ts");
+const syncV5 = read("lib/github-sync-v5.ts");
+const syncV5Head = read("lib/sync-v5-head.ts");
+const syncV5Remote = read("lib/github-v5-remote.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
 
-// v4 has one mutable object.  Keep the spelling in one protocol module and
+// v5 has one mutable object.  Keep the spelling in one protocol module and
 // require the GitHub transport to consume that constant instead of deriving a
 // branch- or repository-dependent head path.
-if (!/SYNC_V4_HEAD_PATH\s*=\s*["']sync\/v4\/head\.json["']/.test(syncV4Head)) {
-  fail("Sync v4 必须将固定 head 路径设为 sync/v4/head.json");
+if (!/SYNC_V5_HEAD_PATH\s*=\s*["']sync\/v5\/head\.json["']/.test(syncV5Head)) {
+  fail("Sync v5 必须将固定 head 路径设为 sync/v5/head.json");
 }
-if (!/SYNC_V4_HEAD_PATH/.test(syncV4Remote) || !/GitHubV4Remote/.test(syncV4)) {
-  fail("公开同步入口必须通过 Sync v4 固定 head 路径读写远程索引");
+if (!/SYNC_V5_HEAD_PATH/.test(syncV5Remote) || !/GitHubV5Remote/.test(syncV5)) {
+  fail("公开同步入口必须通过 Sync v5 固定 head 路径读写远程索引");
 }
-if (!/formatVersion:\s*4\b/.test(syncV4) || !/syncWithGitHubV4/.test(syncV4) || !/restoreFromGitHubV4/.test(syncV4)) {
-  fail("公开同步入口必须实现同步协议 v4");
+if (!/formatVersion:\s*5\b/.test(syncV5) || !/syncWithGitHubV5/.test(syncV5) || !/restoreFromGitHubV5/.test(syncV5)) {
+  fail("公开同步入口必须实现同步协议 v5");
+}
+if (!/SYNC_V5_MAX_EVENT_PAGE_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV5Head)) {
+  fail("Sync v5 事件页必须保持 256 KiB 的有界传输颗粒度");
+}
+if (!/SYNC_V5_MAX_DESCRIPTOR_BYTES\s*=\s*32\s*\*\s*1024\s*\*\s*1024/.test(syncV5Head)
+  || !/SYNC_V5_PRACTICE_DEFINITION_PREFIX/.test(syncV5)
+  || !/practice\.answer\.saved/.test(db)) {
+  fail("Sync v5 必须使用 32 MiB 内容寻址对象和逐题练习增量事件");
+}
+if (/practice\.run\.saved/.test(db) || /单条同步事件超过 256 KiB/.test(syncV5)) {
+  fail("Sync v5 不得把完整 PracticeRun 快照作为热事件上传");
 }
 
-// The stable names consumed by the UI are thin wrappers around v4 only.
+// The stable names consumed by the UI are thin wrappers around v5 only.
 const publicEntryNames = [
   "syncWithGitHub",
   "restoreFromGitHub",
@@ -72,12 +83,12 @@ function exportedFunctionBlock(name) {
   return match?.[0] ?? "";
 }
 for (const name of requiredPublicEntryNames) {
-  if (!exportedFunctionBlock(name)) fail(`公开入口 ${name} 必须存在并指向 Sync v4`);
+  if (!exportedFunctionBlock(name)) fail(`公开入口 ${name} 必须存在并指向 Sync v5`);
 }
 for (const name of publicEntryNames) {
   const block = exportedFunctionBlock(name);
   if (!block) continue;
-  if (!/V4/.test(block)) fail(`公开入口 ${name} 必须委托 Sync v4 实现`);
+  if (!/V5/.test(block)) fail(`公开入口 ${name} 必须委托 Sync v5 实现`);
   if (/sync\/v[23]\//.test(block) || /manifestPath|v3EventPrefix|v3CatalogPath/.test(block)) {
     fail(`公开入口 ${name} 不得读写 v2/v3 路径`);
   }
@@ -93,4 +104,4 @@ if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\
 if (/sessions:\s*["']/.test(db)) fail("DB v10 必须删除重复的 active sessions 表");
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v10 / Sync v4 head。`);
+console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v10 / Sync v5 head。`);

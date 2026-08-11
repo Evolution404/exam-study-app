@@ -184,6 +184,7 @@ function playAnswerFeedback(correct: boolean, preferences: PracticePreferences) 
 
 const modeLabels = {
   random30: "随机一组",
+  randomCustom: "随机指定题数",
   sequential: "全量顺序练习",
   randomAll: "全量随机练习",
   wrong: "错题模式",
@@ -297,16 +298,14 @@ export function StudyApp() {
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
+  const syncOperationRunning = useRef(false);
   const automaticSyncRunning = useRef(false);
   const periodicPullRunning = useRef(false);
-  const practiceSessionRef = useRef<ActivePractice | null>(null);
-  const quickSyncAction = useRef<() => Promise<void>>(async () => undefined);
+  const quickSyncAction = useRef<(options?: { silent?: boolean }) => Promise<void>>(async () => undefined);
   const lastAutomaticSyncAt = useRef(0);
 
   useAppViewport();
   useAppTheme(preferences.themeMode);
-
-  useEffect(() => { practiceSessionRef.current = practiceSession; }, [practiceSession]);
 
   useEffect(() => {
     if (!quickSearchOpen) return;
@@ -448,43 +447,47 @@ export function StudyApp() {
     localStorage.setItem("practice-preferences", JSON.stringify(value));
   }
 
-  async function quickSync() {
-    if (quickSyncing || quickRestoring) return;
+  async function quickSync({ silent = false }: { silent?: boolean } = {}) {
+    if (syncOperationRunning.current || quickRestoring) return;
     const token = loadGitHubToken();
     const settings = loadGitHubSettings();
     if (!settings.repo || !token) {
-      setNotice("请先在配置页面填写 GitHub 令牌");
-      setView(window.matchMedia("(max-width: 760px)").matches ? "preferences" : "settings");
+      if (!silent) {
+        setNotice("请先在配置页面填写 GitHub 令牌");
+        setView(window.matchMedia("(max-width: 760px)").matches ? "preferences" : "settings");
+      }
       return;
     }
+    syncOperationRunning.current = true;
     try {
-      setQuickSyncing(true);
-      setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
+      if (!silent) {
+        setQuickSyncing(true);
+        setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
+      }
       const { getGitHubLogin, syncWithGitHub } = await import("@/lib/github-sync");
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
       saveGitHubSettings(resolved);
-      const result = await syncWithGitHub(resolved, token, setQuickSyncProgress);
-      if (practiceSession) {
-        const mergedRun = await db.practiceRuns.get(practiceSession.runId);
-        if (mergedRun?.status === "in_progress") setPracticeSession(activePracticeFromRun(mergedRun, practiceSession.currentIndex));
-      }
-      setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
+      const result = await syncWithGitHub(resolved, token, silent ? undefined : setQuickSyncProgress);
+      if (!silent) setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
+      if (!silent) setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
-      setQuickSyncing(false);
-      setQuickSyncProgress(undefined);
+      syncOperationRunning.current = false;
+      if (!silent) {
+        setQuickSyncing(false);
+        setQuickSyncProgress(undefined);
+      }
     }
   }
   quickSyncAction.current = quickSync;
 
   useEffect(() => {
-    if (!preferences.autoSyncEnabled || stats.pending < preferences.autoSyncEventThreshold || automaticSyncRunning.current || quickSyncing || quickRestoring || Date.now() - lastAutomaticSyncAt.current < 30_000) return;
+    if (!preferences.autoSyncEnabled || stats.pending < preferences.autoSyncEventThreshold || automaticSyncRunning.current || syncOperationRunning.current || quickRestoring || Date.now() - lastAutomaticSyncAt.current < 30_000) return;
     if (!loadGitHubSettings().repo || !loadGitHubToken()) return;
     const timer = window.setTimeout(() => {
       automaticSyncRunning.current = true;
       lastAutomaticSyncAt.current = Date.now();
-      void quickSyncAction.current().finally(() => { automaticSyncRunning.current = false; });
+      void quickSyncAction.current({ silent: true }).finally(() => { automaticSyncRunning.current = false; });
     });
     return () => window.clearTimeout(timer);
   }, [preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring, quickSyncing, stats.pending]);
@@ -492,28 +495,22 @@ export function StudyApp() {
   useEffect(() => {
     if (!preferences.periodicPullEnabled) return;
     const pull = async () => {
-      if (periodicPullRunning.current || quickSyncing || quickRestoring) return;
+      if (periodicPullRunning.current || syncOperationRunning.current || quickRestoring) return;
       const token = loadGitHubToken();
       const settings = loadGitHubSettings();
       if (!settings.repo || !token) return;
       periodicPullRunning.current = true;
+      syncOperationRunning.current = true;
       try {
         const { getGitHubLogin, pullFromGitHub } = await import("@/lib/github-sync");
         const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
         saveGitHubSettings(resolved);
-        const result = await pullFromGitHub(resolved, token);
-        if (result.pulled) {
-          const currentPractice = practiceSessionRef.current;
-          if (currentPractice) {
-            const mergedRun = await db.practiceRuns.get(currentPractice.runId);
-            if (mergedRun?.status === "in_progress") setPracticeSession(activePracticeFromRun(mergedRun, currentPractice.currentIndex));
-          }
-          setNotice(`后台已合并 ${result.pulled} 条远程更改`);
-        }
+        await pullFromGitHub(resolved, token);
       } catch (error) {
         setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败");
       } finally {
         periodicPullRunning.current = false;
+        syncOperationRunning.current = false;
       }
     };
     const timer = window.setInterval(() => void pull(), preferences.periodicPullSeconds * 1_000);
@@ -684,7 +681,7 @@ export function StudyApp() {
       bankIds: practiceBanks.map((bank) => bank.id),
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
       mode: filter.mode,
-      modeLabel: filter.mode === "random30" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode],
+      modeLabel: filter.mode === "random30" || filter.mode === "randomCustom" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode],
       questionIds: questions.map((question) => question.id),
       questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
       currentIndex: 0,
@@ -1158,7 +1155,7 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange, onResto
 }
 
 function SyncAutomationSetting({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {
-  return <section className="preference-card"><div className="settings-title"><span><Cloud /></span><div><h2>后台同步</h2><p>两项功能默认关闭，开启后仍使用相同的 v4 冲突合并逻辑。</p></div></div><div className="preference-list">
+  return <section className="preference-card"><div className="settings-title"><span><Cloud /></span><div><h2>后台同步</h2><p>两项功能默认关闭，开启后仍使用相同的 v5 冲突合并逻辑。</p></div></div><div className="preference-list">
     <label className="preference-row"><div><strong>累计事件后自动同步</strong><p>本地待同步事件达到设定数量时，在后台完成拉取、合并和上传。</p></div><input aria-label="累计事件后自动同步" type="checkbox" checked={preferences.autoSyncEnabled} onChange={(event) => onChange({ ...preferences, autoSyncEnabled: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>
     {preferences.autoSyncEnabled && <NumberPreference title="自动同步阈值" detail="本地累计多少条待同步事件后开始同步，可填写 1–1000。" value={preferences.autoSyncEventThreshold} min={1} max={1000} unit="条" onChange={(autoSyncEventThreshold) => onChange({ ...preferences, autoSyncEventThreshold })} />}
     <label className="preference-row"><div><strong>定期拉取远程数据</strong><p>只下载并合并其他设备的新数据，不会主动上传当前设备的数据。</p></div><input aria-label="定期拉取远程数据" type="checkbox" checked={preferences.periodicPullEnabled} onChange={(event) => onChange({ ...preferences, periodicPullEnabled: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>

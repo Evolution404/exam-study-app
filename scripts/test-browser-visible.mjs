@@ -230,6 +230,11 @@ async function runDesktop(page) {
   await clickButton(page, "练习");
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "随机指定题数");
+  const customRandomCount = page.getByRole("spinbutton", { name: "本次随机题数" });
+  await customRandomCount.fill("3");
+  assert.equal(await customRandomCount.inputValue(), "3", "custom random count should be editable without changing preferences");
+  await capture(page, contextName, "practice-custom-random");
   await clickTextButton(page, "全量顺序练习");
   await capture(page, contextName, "practice-setup");
   await (await visibleLocator(page, page.locator(".setup-footer button"), "practice start button")).click();
@@ -268,6 +273,8 @@ async function runDesktop(page) {
   await clickTextButton(page, "返回练习记录");
   await clickButton(page, "同步");
   await expectText(page, "GitHub 同步");
+  await expectText(page, "清除本机所有数据");
+  assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "desktop sync view must expose the site-data reset button");
   const settingsCard = page.locator(".settings-card").first();
   const fields = settingsCard.locator("input");
   await fields.nth(0).fill("visible-qa-owner");
@@ -328,6 +335,9 @@ async function runMobile(page) {
   await expectText(page, "答题配置");
   const syncHeading = page.getByRole("heading", { name: "GitHub 同步" });
   await syncHeading.scrollIntoViewIfNeeded();
+  const clearDataHeading = page.getByRole("heading", { name: "清除本机所有数据" });
+  await clearDataHeading.scrollIntoViewIfNeeded();
+  assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "mobile preferences must expose the site-data reset button");
   await capture(page, contextName, "preferences-and-sync");
   const settingsCard = page.locator(".mobile-sync-settings .settings-card").first();
   const fields = settingsCard.locator("input");

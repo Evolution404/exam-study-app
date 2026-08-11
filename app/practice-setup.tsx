@@ -9,6 +9,7 @@ import type { Bank, PracticeFilter, PracticeMode, QuestionType } from "@/lib/typ
 
 const baseModes: Array<{ id: PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
   { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle },
+  { id: "randomCustom", title: "随机指定题数", detail: "本次输入题数，不修改全局配置", icon: Shuffle },
   { id: "sequential", title: "全量顺序练习", detail: "按题库原有顺序练完全部题目", icon: ListOrdered },
   { id: "randomAll", title: "全量随机练习", detail: "练习全部题目，各题型组内随机", icon: Shuffle },
   { id: "wrong", title: "练习错题", detail: "集中练习尚未攻克的错题", icon: RotateCcw },
@@ -41,6 +42,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const [status, setStatus] = useState<PracticeFilter["status"]>("all");
   const [order, setOrder] = useState<PracticeFilter["order"]>(defaultOrder);
   const [limit, setLimit] = useState<number | null>(null);
+  const [customRandomCount, setCustomRandomCount] = useState(String(groupSize));
   const [keyword, setKeyword] = useState("");
   const [keywordMode, setKeywordMode] = useState<PracticeFilter["keywordMode"]>("plain");
   const [totalAttemptsMin, setTotalAttemptsMin] = useState("");
@@ -70,6 +72,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   }
 
   function start() {
+    const requestedRandomCount = Math.floor(Number(customRandomCount));
     const filter: PracticeFilter = {
       bankIds,
       mode,
@@ -77,8 +80,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
       tags: mode === "tag" || mode === "advanced" ? selectedTags : [],
       tagMatch,
       status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : mode === "advanced" ? status : "all",
-      order: mode === "random30" || mode === "randomAll" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
-      limit: mode === "random30" ? groupSize : mode === "advanced" ? limit : null,
+      order: mode === "random30" || mode === "randomCustom" || mode === "randomAll" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
+      limit: mode === "random30" ? groupSize : mode === "randomCustom" ? requestedRandomCount : mode === "advanced" ? limit : null,
       keyword: mode === "advanced" ? keyword : "",
       keywordMode,
       totalAttemptsMin: mode === "advanced" ? metricValue(totalAttemptsMin) : null,
@@ -113,12 +116,18 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
           ? "最低难度不能大于最高难度"
           : "";
   const dateError = lastAttemptFrom && lastAttemptTo && lastAttemptFrom > lastAttemptTo ? "开始日期不能晚于结束日期" : "";
-  const disabled = !bankIds.length || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && (!types.length || Boolean(regexError) || Boolean(metricError) || Boolean(dateError)));
+  const requestedRandomCount = Math.floor(Number(customRandomCount));
+  const customRandomError = mode === "randomCustom" && (!Number.isFinite(requestedRandomCount) || requestedRandomCount < 1 || requestedRandomCount > questions.length)
+    ? `请输入 1–${Math.max(1, questions.length)} 之间的题数`
+    : "";
+  const disabled = !bankIds.length || Boolean(customRandomError) || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && (!types.length || Boolean(regexError) || Boolean(metricError) || Boolean(dateError)));
   return <>
     {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>全量顺序、错题、标签或任意组合筛选，进度都会自动保存。</p></div></div>}
     <section className="practice-setup-card">
       <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
       <div className="mode-grid">{baseModes.map(({ id, title, detail, icon: Icon }) => <button key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{id === "random30" ? `随机 ${groupSize} 题` : title}</strong><small>{id === "random30" ? `${detail} ${groupSize} 题` : detail}</small></button>)}</div>
+
+      {mode === "randomCustom" && <div className="custom-random-count"><div><strong>本次随机抽取题数</strong><small>只对即将开始的这次练习生效，不修改答题配置中的每组题数。</small></div><label>题数<input aria-label="本次随机题数" type="number" min="1" max={Math.max(1, questions.length)} step="1" inputMode="numeric" value={customRandomCount} onChange={(event) => setCustomRandomCount(event.target.value)} /></label>{customRandomError && <p className="filter-error">{customRandomError}</p>}</div>}
 
       {(mode === "tag" || mode === "advanced") && <div className="filter-section"><div className="filter-title"><Tags size={17} /><strong>用户标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : mode === "tag" ? "请选择标签" : "不限制标签"}</small></div>{tags.length ? <><div className="chip-list">{tags.map((tag) => <button key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div>{selectedTags.length > 1 && <div className="tag-match-control"><span>多个标签：</span><button className={tagMatch === "any" ? "selected" : ""} onClick={() => setTagMatch("any")}>符合任意一个</button><button className={tagMatch === "all" ? "selected" : ""} onClick={() => setTagMatch("all")}>同时符合全部</button></div>}</> : <p className="filter-empty">当前题库还没有用户标签，可在练习中编辑题目并添加。</p>}</div>}
 

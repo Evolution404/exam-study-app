@@ -43,7 +43,7 @@ export interface Question {
   syncEventId?: string;
 }
 
-export type PracticeMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
+export type PracticeMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 
 export interface PracticeAnswerState {
   selected: string[];
@@ -102,6 +102,34 @@ export interface PracticeRun {
   lastAnsweredIndex?: number;
   syncDeviceId?: string;
   syncEventId?: string;
+  /** Local/remote checkpoint marker; the immutable v5 definition is already published. */
+  definitionSynced?: boolean;
+}
+
+/** Immutable, potentially large part of a practice run stored once by Sync v5. */
+export type PracticeRunDefinition = Pick<PracticeRun,
+  "id" | "bankId" | "bankIds" | "bankName" | "mode" | "modeLabel" | "questionIds" |
+  "questionTypes" | "shuffleOptions" | "optionOrders" | "startedAt"
+>;
+
+export interface PracticeRunDefinitionReference {
+  definition: SyncHeadDescriptorV5;
+}
+
+export interface PracticeAnswerSyncPayload {
+  runId: string;
+  questionId: string;
+  answer: PracticeAnswerState;
+}
+
+export interface PracticeRunStatusSyncPayload {
+  id: string;
+  status: PracticeRunStatus;
+  updatedAt: string;
+  revision: number;
+  lastAnsweredIndex?: number;
+  completedAt?: string;
+  abandonedAt?: string;
 }
 
 export interface PracticeRunStats {
@@ -220,7 +248,7 @@ export interface QuestionGroup {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.saved" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
+  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.created" | "practice.answer.saved" | "practice.run.status.changed" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
   sequence: number;
@@ -253,7 +281,7 @@ export interface SyncCheckpointCache {
   repo: string;
   branch: string;
   cachedAt: string;
-  snapshot: SyncCheckpointV4;
+  snapshot: SyncCheckpointV5;
   markers: SyncFileMarker[];
 }
 
@@ -269,11 +297,11 @@ export interface SyncTombstone {
 }
 
 /**
- * An immutable v4 history segment.  The Git blob id (`blobSha`) identifies
+ * An immutable v5 history segment.  The Git blob id (`blobSha`) identifies
  * the object in the remote store while `sha256` identifies the decoded bytes
- * and is also embedded in ordinary v4 paths.
+ * and is also embedded in ordinary v5 paths.
  */
-export interface SyncArchiveSegmentV4 {
+export interface SyncArchiveSegmentV5 {
   path: string;
   blobSha: string;
   sha256: string;
@@ -286,20 +314,20 @@ export interface SyncArchiveSegmentV4 {
   lastCreatedAt: string;
 }
 
-/** Immutable v4 catalog containing bounded attempt and practice-run history. */
-export interface SyncArchiveCatalogV4 {
-  formatVersion: 4;
+/** Immutable v5 catalog containing bounded attempt and practice-run history. */
+export interface SyncArchiveCatalogV5 {
+  formatVersion: 5;
   generatedAt: string;
-  attemptSegments: SyncArchiveSegmentV4[];
-  practiceRunSegments: SyncArchiveSegmentV4[];
+  attemptSegments: SyncArchiveSegmentV5[];
+  practiceRunSegments: SyncArchiveSegmentV5[];
   counts: {
     attempts: number;
     practiceRuns: number;
   };
 }
 
-export interface SyncCheckpointV4 {
-  formatVersion: 4;
+export interface SyncCheckpointV5 {
+  formatVersion: 5;
   generatedAt: string;
   state: {
     banks: Bank[];
@@ -336,34 +364,34 @@ export interface SyncCheckpointV4 {
 }
 
 /**
- * The v4 hot index is the only mutable sync object.  Every object named by a
+ * The v5 hot index is the only mutable sync object.  Every object named by a
  * descriptor is immutable; publishing a new head therefore only changes the
  * small descriptor list below.  `blobSha` is the Git blob id while `sha256`
  * is the digest of the decoded file bytes.
  */
-export interface SyncHeadDescriptorV4 {
+export interface SyncHeadDescriptorV5 {
   path: string;
   blobSha: string;
   sha256: string;
   size: number;
 }
 
-export interface SyncEventPageDescriptorV4 extends SyncHeadDescriptorV4 {
+export interface SyncEventPageDescriptorV5 extends SyncHeadDescriptorV5 {
   count: number;
   /** Highest event sequence included from each device in this page. */
   deviceCursors: Record<string, number>;
 }
 
-export interface SyncHeadV4 {
-  formatVersion: 4;
+export interface SyncHeadV5 {
+  formatVersion: 5;
   generatedAt: string;
-  checkpoint: SyncHeadDescriptorV4;
-  archiveCatalog: SyncHeadDescriptorV4;
-  eventPages: SyncEventPageDescriptorV4[];
+  checkpoint: SyncHeadDescriptorV5;
+  archiveCatalog: SyncHeadDescriptorV5;
+  eventPages: SyncEventPageDescriptorV5[];
 }
 
-/** Alias used by callers that refer to the v4 head as a manifest. */
-export type SyncManifestV4 = SyncHeadV4;
+/** Alias used by callers that refer to the v5 head as a manifest. */
+export type SyncManifestV5 = SyncHeadV5;
 
 export interface GitHubSettings {
   owner: string;

@@ -122,7 +122,7 @@ function groupSave(id: string, input: Partial<QuestionGroup>, updatedAt: string,
   return event({ id, type: "questionGroup.saved", payload, deviceId, createdAt: updatedAt }, sequence);
 }
 
-function runSave(id: string, updatedAt: string, revision: number, deviceId: string, sequence: number): SyncEvent {
+function runSave(id: string, updatedAt: string, revision: number, deviceId: string, sequence: number): SyncEvent & { resolvedPayload: PracticeRun } {
   const payload: PracticeRun = {
     id,
     bankId: bank.id,
@@ -140,7 +140,10 @@ function runSave(id: string, updatedAt: string, revision: number, deviceId: stri
     status: "in_progress",
     revision,
   };
-  return event({ id: `run-save-${id}-${revision}`, type: "practice.run.saved", payload, deviceId, createdAt: updatedAt }, sequence);
+  return {
+    ...event({ id: `run-save-${id}-${revision}`, type: "practice.run.created", payload: { definition: {} }, deviceId, createdAt: updatedAt }, sequence),
+    resolvedPayload: payload,
+  };
 }
 
 async function seed() {
@@ -347,9 +350,17 @@ const bRun: PracticeRun = { ...mergeRunBase, updatedAt: newest, revision: 3, syn
   [secondQuestion.id]: { selected: ["B"], submitted: true, correct: false, updatedAt: newest, deviceId: "device-b", eventId: "answer-b-2" },
   "question-3": { selected: ["A"], submitted: true, correct: true, updatedAt: newer, deviceId: "device-b", eventId: "answer-b-3" },
 } };
+await applyRemoteEvents([{
+  ...event({ id: "run-per-question-create", type: "practice.run.created", payload: { definition: {} }, deviceId: "device-a", createdAt: newer }, 72),
+  resolvedPayload: mergeRunBase,
+}]);
 await applyRemoteEvents([
-  event({ id: "run-merge-b", type: "practice.run.saved", payload: bRun, deviceId: "device-b", createdAt: newest }, 73),
-  event({ id: "run-merge-a", type: "practice.run.saved", payload: aRun, deviceId: "device-a", createdAt: newer }, 74),
+  ...Object.entries(bRun.answers).map(([questionId, answer], index) => event({
+    id: `run-merge-b-${index}`, type: "practice.answer.saved", payload: { runId: bRun.id, questionId, answer }, deviceId: "device-b", createdAt: answer.updatedAt!,
+  }, 73 + index)),
+  ...Object.entries(aRun.answers).map(([questionId, answer], index) => event({
+    id: `run-merge-a-${index}`, type: "practice.answer.saved", payload: { runId: aRun.id, questionId, answer }, deviceId: "device-a", createdAt: answer.updatedAt!,
+  }, 76 + index)),
 ]);
 const mergedRun = await db.practiceRuns.get("run-per-question");
 assert.deepEqual(Object.keys(mergedRun?.answers ?? {}).sort(), [question.id, secondQuestion.id, "question-3"].sort());

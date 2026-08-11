@@ -1,19 +1,19 @@
-import type { SyncArchiveCatalogV4, SyncArchiveSegmentV4 } from "./types";
+import type { SyncArchiveCatalogV5, SyncArchiveSegmentV5 } from "./types";
 
 /** The two independently-retained history streams in an archive catalog. */
-export type SyncArchiveKindV4 = "attempts" | "practice-runs";
+export type SyncArchiveKindV5 = "attempts" | "practice-runs";
 
-/** Ordinary v4 archive paths are immutable and content addressed. */
-export const SYNC_V4_ARCHIVE_PREFIX = "sync/v4/archive/";
-export const SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX = `${SYNC_V4_ARCHIVE_PREFIX}attempts/`;
-export const SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX = `${SYNC_V4_ARCHIVE_PREFIX}practice-runs/`;
+/** Ordinary v5 archive paths are immutable and content addressed. */
+export const SYNC_V5_ARCHIVE_PREFIX = "sync/v5/archive/";
+export const SYNC_V5_ARCHIVE_ATTEMPTS_PREFIX = `${SYNC_V5_ARCHIVE_PREFIX}attempts/`;
+export const SYNC_V5_ARCHIVE_PRACTICE_RUNS_PREFIX = `${SYNC_V5_ARCHIVE_PREFIX}practice-runs/`;
 
 /** A segment contains at most this many rows on the wire. */
-export const SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT = 500;
-/** Keep archive descriptors subject to the same bounded immutable-file limit as v4 heads. */
-export const SYNC_V4_ARCHIVE_SEGMENT_MAX_BYTES = 16 * 1024 * 1024;
-export const SYNC_V4_ARCHIVE_MAX_SEGMENT_COUNT = SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT;
-export const SYNC_V4_MAX_ARCHIVE_SEGMENT_COUNT = SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT;
+export const SYNC_V5_ARCHIVE_SEGMENT_MAX_COUNT = 500;
+/** Keep archive descriptors subject to the same bounded immutable-file limit as v5 heads. */
+export const SYNC_V5_ARCHIVE_SEGMENT_MAX_BYTES = 16 * 1024 * 1024;
+export const SYNC_V5_ARCHIVE_MAX_SEGMENT_COUNT = SYNC_V5_ARCHIVE_SEGMENT_MAX_COUNT;
+export const SYNC_V5_MAX_ARCHIVE_SEGMENT_COUNT = SYNC_V5_ARCHIVE_SEGMENT_MAX_COUNT;
 
 const SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -21,11 +21,11 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ID_MAX_LENGTH = 1024;
 
-/** Fields required by the v4 path builder; `path` is deliberately not accepted. */
-export type SyncArchiveSegmentInputV4 = Omit<SyncArchiveSegmentV4, "path">;
+/** Fields required by the v5 path builder; `path` is deliberately not accepted. */
+export type SyncArchiveSegmentInputV5 = Omit<SyncArchiveSegmentV5, "path">;
 
 function fail(message: string): never {
-  throw new Error(`invalid v4 archive catalog: ${message}`);
+  throw new Error(`invalid v5 archive catalog: ${message}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,14 +52,14 @@ function assertDigest(value: unknown, field: string, pattern: RegExp): asserts v
 }
 
 function assertSize(value: unknown, field: string): asserts value is number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > SYNC_V4_ARCHIVE_SEGMENT_MAX_BYTES) {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > SYNC_V5_ARCHIVE_SEGMENT_MAX_BYTES) {
     fail(`${field} is outside the archive byte limit`);
   }
 }
 
 function assertCount(value: unknown, field: string): asserts value is number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT) {
-    fail(`${field} must be between 1 and ${SYNC_V4_ARCHIVE_SEGMENT_MAX_COUNT}`);
+  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > SYNC_V5_ARCHIVE_SEGMENT_MAX_COUNT) {
+    fail(`${field} must be between 1 and ${SYNC_V5_ARCHIVE_SEGMENT_MAX_COUNT}`);
   }
 }
 
@@ -83,23 +83,23 @@ function assertId(value: unknown, field: string): asserts value is string {
   }
 }
 
-function prefixFor(kind: SyncArchiveKindV4): string {
-  return kind === "attempts" ? SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX : SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX;
+function prefixFor(kind: SyncArchiveKindV5): string {
+  return kind === "attempts" ? SYNC_V5_ARCHIVE_ATTEMPTS_PREFIX : SYNC_V5_ARCHIVE_PRACTICE_RUNS_PREFIX;
 }
 
-function kindForPath(path: string): SyncArchiveKindV4 | undefined {
-  if (path.startsWith(SYNC_V4_ARCHIVE_ATTEMPTS_PREFIX)) return "attempts";
-  if (path.startsWith(SYNC_V4_ARCHIVE_PRACTICE_RUNS_PREFIX)) return "practice-runs";
+function kindForPath(path: string): SyncArchiveKindV5 | undefined {
+  if (path.startsWith(SYNC_V5_ARCHIVE_ATTEMPTS_PREFIX)) return "attempts";
+  if (path.startsWith(SYNC_V5_ARCHIVE_PRACTICE_RUNS_PREFIX)) return "practice-runs";
   return undefined;
 }
 
-function pathParts(path: string, kind: SyncArchiveKindV4): { month: string; digest: string } | undefined {
+function pathParts(path: string, kind: SyncArchiveKindV5): { month: string; digest: string } | undefined {
   const prefix = prefixFor(kind);
   const match = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}(\\d{4}-(?:0[1-9]|1[0-2]))/([a-f0-9]{24,64})\\.json$`).exec(path);
   return match ? { month: match[1], digest: match[2] } : undefined;
 }
 
-function assertSegmentPath(path: unknown, kind: SyncArchiveKindV4, sha256: string): asserts path is string {
+function assertSegmentPath(path: unknown, kind: SyncArchiveKindV5, sha256: string): asserts path is string {
   assertSafeRelativePath(path, "segment.path");
   const parts = pathParts(path, kind);
   if (!parts) {
@@ -110,7 +110,7 @@ function assertSegmentPath(path: unknown, kind: SyncArchiveKindV4, sha256: strin
   }
 }
 
-function segmentEqual(a: SyncArchiveSegmentV4, b: SyncArchiveSegmentV4): boolean {
+function segmentEqual(a: SyncArchiveSegmentV5, b: SyncArchiveSegmentV5): boolean {
   return a.path === b.path
     && a.blobSha === b.blobSha
     && a.sha256 === b.sha256
@@ -123,11 +123,11 @@ function segmentEqual(a: SyncArchiveSegmentV4, b: SyncArchiveSegmentV4): boolean
     && a.lastCreatedAt === b.lastCreatedAt;
 }
 
-function cloneSegment(segment: SyncArchiveSegmentV4): SyncArchiveSegmentV4 {
+function cloneSegment(segment: SyncArchiveSegmentV5): SyncArchiveSegmentV5 {
   return { ...segment };
 }
 
-function validateSegment(value: unknown, kind: SyncArchiveKindV4): asserts value is SyncArchiveSegmentV4 {
+function validateSegment(value: unknown, kind: SyncArchiveKindV5): asserts value is SyncArchiveSegmentV5 {
   if (!isRecord(value)) fail(`${kind} segment must be an object`);
   assertDigest(value.blobSha, `${kind} segment.blobSha`, SHA1);
   assertDigest(value.sha256, `${kind} segment.sha256`, SHA256);
@@ -150,7 +150,7 @@ function validateSegment(value: unknown, kind: SyncArchiveKindV4): asserts value
   if (!parsed || parsed.month !== value.month) fail(`${kind} segment path month does not match month`);
 }
 
-function assertSorted(segments: readonly SyncArchiveSegmentV4[], kind: SyncArchiveKindV4): void {
+function assertSorted(segments: readonly SyncArchiveSegmentV5[], kind: SyncArchiveKindV5): void {
   for (let index = 1; index < segments.length; index += 1) {
     if (segments[index - 1].path.localeCompare(segments[index].path) >= 0) {
       fail(`${kind} segments must be sorted by path`);
@@ -158,7 +158,7 @@ function assertSorted(segments: readonly SyncArchiveSegmentV4[], kind: SyncArchi
   }
 }
 
-function assertCatalogCounts(catalog: Pick<SyncArchiveCatalogV4, "attemptSegments" | "practiceRunSegments" | "counts">): void {
+function assertCatalogCounts(catalog: Pick<SyncArchiveCatalogV5, "attemptSegments" | "practiceRunSegments" | "counts">): void {
   const attempts = catalog.attemptSegments.reduce((total, segment) => total + segment.count, 0);
   const practiceRuns = catalog.practiceRunSegments.reduce((total, segment) => total + segment.count, 0);
   if (!Number.isSafeInteger(attempts) || !Number.isSafeInteger(practiceRuns)
@@ -167,9 +167,9 @@ function assertCatalogCounts(catalog: Pick<SyncArchiveCatalogV4, "attemptSegment
   }
 }
 
-/** Strictly validate an unknown value as a v4 archive catalog. */
-export function validateSyncArchiveCatalogV4(value: unknown): asserts value is SyncArchiveCatalogV4 {
-  if (!isRecord(value) || value.formatVersion !== 4) fail("formatVersion must be 4");
+/** Strictly validate an unknown value as a v5 archive catalog. */
+export function validateSyncArchiveCatalogV5(value: unknown): asserts value is SyncArchiveCatalogV5 {
+  if (!isRecord(value) || value.formatVersion !== 5) fail("formatVersion must be 5");
   assertDate(value.generatedAt, "generatedAt");
   if (!Array.isArray(value.attemptSegments) || !Array.isArray(value.practiceRunSegments)) {
     fail("attemptSegments and practiceRunSegments must be arrays");
@@ -186,7 +186,7 @@ export function validateSyncArchiveCatalogV4(value: unknown): asserts value is S
 
   const paths = new Set<string>();
   const content = new Set<string>();
-  const ids = new Map<SyncArchiveKindV4, Set<string>>([
+  const ids = new Map<SyncArchiveKindV5, Set<string>>([
     ["attempts", new Set<string>()],
     ["practice-runs", new Set<string>()],
   ]);
@@ -206,43 +206,43 @@ export function validateSyncArchiveCatalogV4(value: unknown): asserts value is S
       }
     }
   }
-  assertCatalogCounts(value as unknown as SyncArchiveCatalogV4);
+  assertCatalogCounts(value as unknown as SyncArchiveCatalogV5);
 }
 
-export function isSyncArchiveCatalogV4(value: unknown): value is SyncArchiveCatalogV4 {
+export function isSyncArchiveCatalogV5(value: unknown): value is SyncArchiveCatalogV5 {
   try {
-    validateSyncArchiveCatalogV4(value);
+    validateSyncArchiveCatalogV5(value);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Build the ordinary content-addressed path for a v4 archive segment. */
-export function syncV4ArchiveSegmentPath(kind: SyncArchiveKindV4, month: string, sha256: string): string {
-  if (kind !== "attempts" && kind !== "practice-runs") throw new TypeError("invalid v4 archive kind");
+/** Build the ordinary content-addressed path for a v5 archive segment. */
+export function syncV5ArchiveSegmentPath(kind: SyncArchiveKindV5, month: string, sha256: string): string {
+  if (kind !== "attempts" && kind !== "practice-runs") throw new TypeError("invalid v5 archive kind");
   assertMonth(month, "month");
   assertDigest(sha256, "sha256", SHA256);
   return `${prefixFor(kind)}${month}/${sha256}.json`;
 }
 
-/** Create a content-addressed v4 archive segment. */
-export function createSyncArchiveSegmentV4(kind: SyncArchiveKindV4, input: SyncArchiveSegmentInputV4): SyncArchiveSegmentV4 {
-  const segment: SyncArchiveSegmentV4 = {
+/** Create a content-addressed v5 archive segment. */
+export function createSyncArchiveSegmentV5(kind: SyncArchiveKindV5, input: SyncArchiveSegmentInputV5): SyncArchiveSegmentV5 {
+  const segment: SyncArchiveSegmentV5 = {
     ...input,
-    path: syncV4ArchiveSegmentPath(kind, input.month, input.sha256),
+    path: syncV5ArchiveSegmentPath(kind, input.month, input.sha256),
   };
   validateSegment(segment, kind);
   return cloneSegment(segment);
 }
 
-export const makeSyncArchiveSegmentV4 = createSyncArchiveSegmentV4;
+export const makeSyncArchiveSegmentV5 = createSyncArchiveSegmentV5;
 
-/** Return an empty, valid v4 catalog. */
-export function createSyncArchiveCatalogV4(generatedAt = new Date().toISOString()): SyncArchiveCatalogV4 {
+/** Return an empty, valid v5 catalog. */
+export function createSyncArchiveCatalogV5(generatedAt = new Date().toISOString()): SyncArchiveCatalogV5 {
   assertDate(generatedAt, "generatedAt");
   return {
-    formatVersion: 4,
+    formatVersion: 5,
     generatedAt,
     attemptSegments: [],
     practiceRunSegments: [],
@@ -250,7 +250,7 @@ export function createSyncArchiveCatalogV4(generatedAt = new Date().toISOString(
   };
 }
 
-function inferredKind(segment: SyncArchiveSegmentV4): SyncArchiveKindV4 {
+function inferredKind(segment: SyncArchiveSegmentV5): SyncArchiveKindV5 {
   const kind = kindForPath(segment.path);
   if (!kind) throw new Error(`cannot infer archive kind from path: ${segment.path}`);
   return kind;
@@ -261,21 +261,21 @@ function inferredKind(segment: SyncArchiveSegmentV4): SyncArchiveKindV4 {
  * duplicates and repeated boundary ids are idempotent.  A path that names a
  * different immutable descriptor is always a hard collision.
  */
-export function dedupeSyncArchiveSegmentsV4(
-  segments: readonly SyncArchiveSegmentV4[],
-  kind?: SyncArchiveKindV4,
-): SyncArchiveSegmentV4[] {
-  const byPath = new Map<string, SyncArchiveSegmentV4>();
-  const byContent = new Map<string, SyncArchiveSegmentV4>();
-  const byId = new Map<string, SyncArchiveSegmentV4>();
-  const result: SyncArchiveSegmentV4[] = [];
+export function dedupeSyncArchiveSegmentsV5(
+  segments: readonly SyncArchiveSegmentV5[],
+  kind?: SyncArchiveKindV5,
+): SyncArchiveSegmentV5[] {
+  const byPath = new Map<string, SyncArchiveSegmentV5>();
+  const byContent = new Map<string, SyncArchiveSegmentV5>();
+  const byId = new Map<string, SyncArchiveSegmentV5>();
+  const result: SyncArchiveSegmentV5[] = [];
 
   for (const candidate of segments) {
     const candidateKind = kind ?? inferredKind(candidate);
     validateSegment(candidate, candidateKind);
     const existingPath = byPath.get(candidate.path);
     if (existingPath) {
-      if (!segmentEqual(existingPath, candidate)) throw new Error(`v4 archive segment path collision: ${candidate.path}`);
+      if (!segmentEqual(existingPath, candidate)) throw new Error(`v5 archive segment path collision: ${candidate.path}`);
       continue;
     }
     const existingContent = byContent.get(candidate.sha256);
@@ -286,7 +286,7 @@ export function dedupeSyncArchiveSegmentsV4(
       continue;
     }
     const ids = [candidate.firstId, candidate.lastId];
-    let repeatedId: SyncArchiveSegmentV4 | undefined;
+    let repeatedId: SyncArchiveSegmentV5 | undefined;
     for (const id of ids) {
       const prior = byId.get(`${candidateKind}\u0000${id}`);
       if (prior && prior !== candidate) {
@@ -299,7 +299,7 @@ export function dedupeSyncArchiveSegmentsV4(
         byPath.set(candidate.path, repeatedId);
         continue;
       }
-      throw new Error(`v4 archive segment id collision: ${candidate.firstId}`);
+      throw new Error(`v5 archive segment id collision: ${candidate.firstId}`);
     }
     const copy = cloneSegment(candidate);
     result.push(copy);
@@ -311,15 +311,15 @@ export function dedupeSyncArchiveSegmentsV4(
   return result;
 }
 
-export const dedupeSyncV4ArchiveSegments = dedupeSyncArchiveSegmentsV4;
+export const dedupeSyncV5ArchiveSegments = dedupeSyncArchiveSegmentsV5;
 
 function normalizeAppendArguments(
-  kindOrSegments: SyncArchiveKindV4 | readonly SyncArchiveSegmentV4[] | {
-    attemptSegments?: readonly SyncArchiveSegmentV4[];
-    practiceRunSegments?: readonly SyncArchiveSegmentV4[];
+  kindOrSegments: SyncArchiveKindV5 | readonly SyncArchiveSegmentV5[] | {
+    attemptSegments?: readonly SyncArchiveSegmentV5[];
+    practiceRunSegments?: readonly SyncArchiveSegmentV5[];
   },
-  maybeSegmentsOrKind?: SyncArchiveKindV4 | readonly SyncArchiveSegmentV4[],
-): { attempts: SyncArchiveSegmentV4[]; practiceRuns: SyncArchiveSegmentV4[]; explicitSingleKind?: SyncArchiveKindV4 } {
+  maybeSegmentsOrKind?: SyncArchiveKindV5 | readonly SyncArchiveSegmentV5[],
+): { attempts: SyncArchiveSegmentV5[]; practiceRuns: SyncArchiveSegmentV5[]; explicitSingleKind?: SyncArchiveKindV5 } {
   if (typeof kindOrSegments === "string") {
     if (!Array.isArray(maybeSegmentsOrKind)) throw new TypeError("archive segments are required");
     return {
@@ -336,8 +336,8 @@ function normalizeAppendArguments(
         explicitSingleKind: maybeSegmentsOrKind,
       };
     }
-    const attempts: SyncArchiveSegmentV4[] = [];
-    const practiceRuns: SyncArchiveSegmentV4[] = [];
+    const attempts: SyncArchiveSegmentV5[] = [];
+    const practiceRuns: SyncArchiveSegmentV5[] = [];
     for (const segment of kindOrSegments) {
       const inferred = inferredKind(segment);
       (inferred === "attempts" ? attempts : practiceRuns).push(segment);
@@ -346,8 +346,8 @@ function normalizeAppendArguments(
   }
   if (maybeSegmentsOrKind !== undefined) throw new TypeError("bulk archive append accepts one argument");
   const bulk = kindOrSegments as {
-    attemptSegments?: readonly SyncArchiveSegmentV4[];
-    practiceRunSegments?: readonly SyncArchiveSegmentV4[];
+    attemptSegments?: readonly SyncArchiveSegmentV5[];
+    practiceRunSegments?: readonly SyncArchiveSegmentV5[];
   };
   return {
     attempts: [...(bulk.attemptSegments ?? [])],
@@ -355,45 +355,45 @@ function normalizeAppendArguments(
   };
 }
 
-function assertOrdinaryAppendSegment(segment: SyncArchiveSegmentV4, kind: SyncArchiveKindV4): void {
+function assertOrdinaryAppendSegment(segment: SyncArchiveSegmentV5, kind: SyncArchiveKindV5): void {
   validateSegment(segment, kind);
 }
 
-export function appendSyncArchiveSegmentsV4(
-  catalog: SyncArchiveCatalogV4,
-  kind: SyncArchiveKindV4,
-  additions: readonly SyncArchiveSegmentV4[],
-): SyncArchiveCatalogV4;
-export function appendSyncArchiveSegmentsV4(
-  catalog: SyncArchiveCatalogV4,
-  additions: readonly SyncArchiveSegmentV4[],
-  kind?: SyncArchiveKindV4,
-): SyncArchiveCatalogV4;
-export function appendSyncArchiveSegmentsV4(
-  catalog: SyncArchiveCatalogV4,
+export function appendSyncArchiveSegmentsV5(
+  catalog: SyncArchiveCatalogV5,
+  kind: SyncArchiveKindV5,
+  additions: readonly SyncArchiveSegmentV5[],
+): SyncArchiveCatalogV5;
+export function appendSyncArchiveSegmentsV5(
+  catalog: SyncArchiveCatalogV5,
+  additions: readonly SyncArchiveSegmentV5[],
+  kind?: SyncArchiveKindV5,
+): SyncArchiveCatalogV5;
+export function appendSyncArchiveSegmentsV5(
+  catalog: SyncArchiveCatalogV5,
   additions: {
-    attemptSegments?: readonly SyncArchiveSegmentV4[];
-    practiceRunSegments?: readonly SyncArchiveSegmentV4[];
+    attemptSegments?: readonly SyncArchiveSegmentV5[];
+    practiceRunSegments?: readonly SyncArchiveSegmentV5[];
   },
-): SyncArchiveCatalogV4;
-export function appendSyncArchiveSegmentsV4(
-  catalog: SyncArchiveCatalogV4,
-  kindOrSegments: SyncArchiveKindV4 | readonly SyncArchiveSegmentV4[] | {
-    attemptSegments?: readonly SyncArchiveSegmentV4[];
-    practiceRunSegments?: readonly SyncArchiveSegmentV4[];
+): SyncArchiveCatalogV5;
+export function appendSyncArchiveSegmentsV5(
+  catalog: SyncArchiveCatalogV5,
+  kindOrSegments: SyncArchiveKindV5 | readonly SyncArchiveSegmentV5[] | {
+    attemptSegments?: readonly SyncArchiveSegmentV5[];
+    practiceRunSegments?: readonly SyncArchiveSegmentV5[];
   },
-  maybeSegmentsOrKind?: SyncArchiveKindV4 | readonly SyncArchiveSegmentV4[],
-): SyncArchiveCatalogV4 {
-  validateSyncArchiveCatalogV4(catalog);
+  maybeSegmentsOrKind?: SyncArchiveKindV5 | readonly SyncArchiveSegmentV5[],
+): SyncArchiveCatalogV5 {
+  validateSyncArchiveCatalogV5(catalog);
   const normalized = normalizeAppendArguments(kindOrSegments, maybeSegmentsOrKind);
   const attempts = normalized.attempts;
   const practiceRuns = normalized.practiceRuns;
   for (const segment of attempts) assertOrdinaryAppendSegment(segment, "attempts");
   for (const segment of practiceRuns) assertOrdinaryAppendSegment(segment, "practice-runs");
-  const nextAttempts = dedupeSyncArchiveSegmentsV4([...catalog.attemptSegments, ...attempts], "attempts");
-  const nextPracticeRuns = dedupeSyncArchiveSegmentsV4([...catalog.practiceRunSegments, ...practiceRuns], "practice-runs");
-  const next: SyncArchiveCatalogV4 = {
-    formatVersion: 4,
+  const nextAttempts = dedupeSyncArchiveSegmentsV5([...catalog.attemptSegments, ...attempts], "attempts");
+  const nextPracticeRuns = dedupeSyncArchiveSegmentsV5([...catalog.practiceRunSegments, ...practiceRuns], "practice-runs");
+  const next: SyncArchiveCatalogV5 = {
+    formatVersion: 5,
     generatedAt: catalog.generatedAt,
     attemptSegments: nextAttempts,
     practiceRunSegments: nextPracticeRuns,
@@ -402,18 +402,18 @@ export function appendSyncArchiveSegmentsV4(
       practiceRuns: nextPracticeRuns.reduce((total, segment) => total + segment.count, 0),
     },
   };
-  validateSyncArchiveCatalogV4(next);
+  validateSyncArchiveCatalogV5(next);
   return next;
 }
 
-export const appendSyncV4ArchiveSegments = appendSyncArchiveSegmentsV4;
-export const appendSyncArchiveCatalogV4 = appendSyncArchiveSegmentsV4;
+export const appendSyncV5ArchiveSegments = appendSyncArchiveSegmentsV5;
+export const appendSyncArchiveCatalogV5 = appendSyncArchiveSegmentsV5;
 
 /** Stable JSON serialization is useful when placing the catalog behind a digest path. */
-export function canonicalizeSyncArchiveCatalogV4(catalog: SyncArchiveCatalogV4): SyncArchiveCatalogV4 {
-  validateSyncArchiveCatalogV4(catalog);
+export function canonicalizeSyncArchiveCatalogV5(catalog: SyncArchiveCatalogV5): SyncArchiveCatalogV5 {
+  validateSyncArchiveCatalogV5(catalog);
   return {
-    formatVersion: 4,
+    formatVersion: 5,
     generatedAt: catalog.generatedAt,
     attemptSegments: catalog.attemptSegments.map(cloneSegment),
     practiceRunSegments: catalog.practiceRunSegments.map(cloneSegment),

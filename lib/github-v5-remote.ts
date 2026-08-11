@@ -1,20 +1,24 @@
 import {
-  SYNC_V4_ARCHIVE_CATALOG_PREFIX,
-  SYNC_V4_CHECKPOINT_PREFIX,
-  SYNC_V4_EVENT_PREFIX,
-  SYNC_V4_HEAD_PATH,
-  SYNC_V4_MAX_PATH_LENGTH,
-  validateSyncHeadV4,
-} from "./sync-v4-head";
-import type { SyncHeadV4 } from "./types";
+  SYNC_V5_ARCHIVE_CATALOG_PREFIX,
+  SYNC_V5_CHECKPOINT_PREFIX,
+  SYNC_V5_EVENT_PREFIX,
+  SYNC_V5_EVENT_PAYLOAD_PREFIX,
+  SYNC_V5_HEAD_PATH,
+  SYNC_V5_MAX_DESCRIPTOR_BYTES,
+  SYNC_V5_MAX_EVENT_PAGE_BYTES,
+  SYNC_V5_MAX_PATH_LENGTH,
+  SYNC_V5_PRACTICE_DEFINITION_PREFIX,
+  validateSyncHeadV5,
+} from "./sync-v5-head";
+import type { SyncHeadV5 } from "./types";
 
 /** GitHub's default API endpoint.  Tests can provide an isolated endpoint. */
-export const GITHUB_V4_API = "https://api.github.com";
-export const GITHUB_V4_JSON_MEDIA_TYPE = "application/vnd.github+json";
-export const GITHUB_V4_RAW_MEDIA_TYPE = "application/vnd.github.raw+json";
-export const GITHUB_V4_API_VERSION = "2022-11-28";
+export const GITHUB_V5_API = "https://api.github.com";
+export const GITHUB_V5_JSON_MEDIA_TYPE = "application/vnd.github+json";
+export const GITHUB_V5_RAW_MEDIA_TYPE = "application/vnd.github.raw+json";
+export const GITHUB_V5_API_VERSION = "2022-11-28";
 
-export interface GitHubV4RemoteOptions {
+export interface GitHubV5RemoteOptions {
   owner: string;
   repo: string;
   token: string;
@@ -30,34 +34,34 @@ export interface GitHubV4RemoteOptions {
   retryDelayMs?: number;
 }
 
-export interface SyncV4HeadCache {
-  head: SyncHeadV4;
+export interface SyncV5HeadCache {
+  head: SyncHeadV5;
   /** The ETag returned by the Contents endpoint, including quotes if present. */
   etag?: string;
-  /** GitHub's blob SHA for sync/v4/head.json. */
+  /** GitHub's blob SHA for sync/v5/head.json. */
   blobSha?: string;
 }
 
-export type SyncV4HeadReadResult =
+export type SyncV5HeadReadResult =
   | {
       status: "ok";
       kind: "found";
       initialized: true;
       fromCache: false;
-      head: SyncHeadV4;
+      head: SyncHeadV5;
       etag?: string;
       blobSha?: string;
-      cache: SyncV4HeadCache;
+      cache: SyncV5HeadCache;
     }
   | {
       status: "not-modified";
       kind: "cached";
       initialized: true;
       fromCache: true;
-      head: SyncHeadV4;
+      head: SyncHeadV5;
       etag?: string;
       blobSha?: string;
-      cache: SyncV4HeadCache;
+      cache: SyncV5HeadCache;
     }
   | {
       status: "missing";
@@ -70,7 +74,7 @@ export type SyncV4HeadReadResult =
       cache: null;
     };
 
-export interface PutSyncV4HeadOptions {
+export interface PutSyncV5HeadOptions {
   /** Blob SHA read immediately before the write. Omit to create a new head. */
   expectedSha?: string;
   /** Alias for expectedSha, matching the request field GitHub calls `sha`. */
@@ -78,31 +82,31 @@ export interface PutSyncV4HeadOptions {
   message?: string;
 }
 
-export interface SyncV4HeadPutSuccess {
+export interface SyncV5HeadPutSuccess {
   ok: true;
   status: number;
-  head: SyncHeadV4;
+  head: SyncHeadV5;
   blobSha: string;
   etag?: string;
-  cache: SyncV4HeadCache;
+  cache: SyncV5HeadCache;
 }
 
-export interface SyncV4HeadPutConflict {
+export interface SyncV5HeadPutConflict {
   ok: false;
   reason: "cas-conflict";
   status: number;
   expectedSha?: string;
 }
 
-export type SyncV4HeadPutResult = SyncV4HeadPutSuccess | SyncV4HeadPutConflict;
+export type SyncV5HeadPutResult = SyncV5HeadPutSuccess | SyncV5HeadPutConflict;
 
 export type ImmutableBytes = Uint8Array | ArrayBuffer | string;
 
-export interface SyncV4ImmutableFileInput {
+export interface SyncV5ImmutableFileInput {
   path: string;
   bytes: ImmutableBytes;
   /** Optional protocol kind adds prefix/path validation. */
-  kind?: "checkpoint" | "archiveCatalog" | "archiveSegment" | "eventPage";
+  kind?: "checkpoint" | "archiveCatalog" | "archiveSegment" | "eventPage" | "practiceDefinition" | "eventPayload";
   /** Optional caller-computed digest. It is always checked against bytes. */
   sha256?: string;
   /** Optional caller-computed size. It is always checked against bytes. */
@@ -110,7 +114,7 @@ export interface SyncV4ImmutableFileInput {
   message?: string;
 }
 
-export interface SyncV4ImmutablePutResult {
+export interface SyncV5ImmutablePutResult {
   path: string;
   blobSha: string;
   sha256: string;
@@ -122,44 +126,44 @@ export interface SyncV4ImmutablePutResult {
   status: number;
 }
 
-export interface SyncV4BlobExpectation {
+export interface SyncV5BlobExpectation {
   size: number;
   sha256: string;
 }
 
 /** Errors carry status and operation metadata, but never request headers/tokens. */
-export class GitHubV4RemoteError extends Error {
+export class GitHubV5RemoteError extends Error {
   readonly status: number;
   readonly operation: string;
 
   constructor(operation: string, status: number, message?: string) {
     super(message ?? `GitHub ${operation} failed (${status})`);
-    this.name = "GitHubV4RemoteError";
+    this.name = "GitHubV5RemoteError";
     this.status = status;
     this.operation = operation;
   }
 }
 
-export class SyncV4ImmutableConflictError extends Error {
+export class SyncV5ImmutableConflictError extends Error {
   readonly path: string;
 
   constructor(path: string) {
-    super(`immutable v4 file content differs at ${path}`);
-    this.name = "SyncV4ImmutableConflictError";
+    super(`immutable v5 file content differs at ${path}`);
+    this.name = "SyncV5ImmutableConflictError";
     this.path = path;
   }
 }
 
-export class SyncV4BlobIntegrityError extends Error {
+export class SyncV5BlobIntegrityError extends Error {
   readonly reason: "size" | "sha256";
   readonly expected: number | string;
   readonly actual: number | string;
 
   constructor(reason: "size" | "sha256", expected: number | string, actual: number | string) {
     super(reason === "size"
-      ? `v4 blob size mismatch: expected ${expected}, received ${actual}`
-      : `v4 blob sha256 mismatch: expected ${expected}, received ${actual}`);
-    this.name = "SyncV4BlobIntegrityError";
+      ? `v5 blob size mismatch: expected ${expected}, received ${actual}`
+      : `v5 blob sha256 mismatch: expected ${expected}, received ${actual}`);
+    this.name = "SyncV5BlobIntegrityError";
     this.reason = reason;
     this.expected = expected;
     this.actual = actual;
@@ -182,7 +186,7 @@ function asBytes(value: ImmutableBytes): Uint8Array {
   if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof Uint8Array) return value.slice();
   if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  throw new TypeError("immutable v4 file bytes must be text, Uint8Array, or ArrayBuffer");
+  throw new TypeError("immutable v5 file bytes must be text, Uint8Array, or ArrayBuffer");
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -221,37 +225,43 @@ function assertExpectedSize(value: number, field: string): void {
 }
 
 function assertSafePath(path: string): void {
-  if (typeof path !== "string" || path.length === 0 || path.length > SYNC_V4_MAX_PATH_LENGTH
+  if (typeof path !== "string" || path.length === 0 || path.length > SYNC_V5_MAX_PATH_LENGTH
     || path.startsWith("/") || path.includes("\\")
     || [...path].some((character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f)) {
-    throw new TypeError("immutable v4 path must be a safe relative path");
+    throw new TypeError("immutable v5 path must be a safe relative path");
   }
   if (path.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
-    throw new TypeError("immutable v4 path must not contain dot or empty segments");
+    throw new TypeError("immutable v5 path must not contain dot or empty segments");
   }
-  if (path === SYNC_V4_HEAD_PATH) throw new TypeError("head.json is mutable; use putHead instead");
+  if (path === SYNC_V5_HEAD_PATH) throw new TypeError("head.json is mutable; use putHead instead");
 }
 
-function assertKindPath(path: string, kind: SyncV4ImmutableFileInput["kind"]): void {
+function assertKindPath(path: string, kind: SyncV5ImmutableFileInput["kind"]): void {
   if (!kind) return;
-  if (kind === "eventPage" && (!path.startsWith(SYNC_V4_EVENT_PREFIX) || !path.endsWith(".json"))) {
-    throw new TypeError(`event page path must be under ${SYNC_V4_EVENT_PREFIX}`);
+  if (kind === "eventPage" && (!path.startsWith(SYNC_V5_EVENT_PREFIX) || !path.endsWith(".json"))) {
+    throw new TypeError(`event page path must be under ${SYNC_V5_EVENT_PREFIX}`);
   }
-  if (kind === "checkpoint" && (!path.startsWith(SYNC_V4_CHECKPOINT_PREFIX) || !path.endsWith(".json"))) {
-    throw new TypeError(`checkpoint path must be under ${SYNC_V4_CHECKPOINT_PREFIX}`);
+  if (kind === "checkpoint" && (!path.startsWith(SYNC_V5_CHECKPOINT_PREFIX) || !path.endsWith(".json"))) {
+    throw new TypeError(`checkpoint path must be under ${SYNC_V5_CHECKPOINT_PREFIX}`);
   }
-  if (kind === "archiveCatalog" && !new RegExp(`^${SYNC_V4_ARCHIVE_CATALOG_PREFIX}[a-f0-9]{24,64}\\.json$`).test(path)) {
-    throw new TypeError(`archive catalog path must be under ${SYNC_V4_ARCHIVE_CATALOG_PREFIX} with a hexadecimal digest filename`);
+  if (kind === "practiceDefinition" && (!path.startsWith(SYNC_V5_PRACTICE_DEFINITION_PREFIX) || !path.endsWith(".json"))) {
+    throw new TypeError(`practice definition path must be under ${SYNC_V5_PRACTICE_DEFINITION_PREFIX}`);
   }
-  if (kind === "archiveSegment" && !/^sync\/v4\/archive\/(attempts|practice-runs)\/\d{4}-(0[1-9]|1[0-2])\/[a-f0-9]{64}\.json$/.test(path)) {
+  if (kind === "eventPayload" && (!path.startsWith(SYNC_V5_EVENT_PAYLOAD_PREFIX) || !path.endsWith(".json"))) {
+    throw new TypeError(`event payload path must be under ${SYNC_V5_EVENT_PAYLOAD_PREFIX}`);
+  }
+  if (kind === "archiveCatalog" && !new RegExp(`^${SYNC_V5_ARCHIVE_CATALOG_PREFIX}[a-f0-9]{24,64}\\.json$`).test(path)) {
+    throw new TypeError(`archive catalog path must be under ${SYNC_V5_ARCHIVE_CATALOG_PREFIX} with a hexadecimal digest filename`);
+  }
+  if (kind === "archiveSegment" && !/^sync\/v5\/archive\/(attempts|practice-runs)\/\d{4}-(0[1-9]|1[0-2])\/[a-f0-9]{64}\.json$/.test(path)) {
     throw new TypeError("archive segment path must be content addressed and grouped by month");
   }
 }
 
 function archivePathDigest(path: string): string | undefined {
-  if (!path.startsWith("sync/v4/archive/")) return undefined;
+  if (!path.startsWith("sync/v5/archive/")) return undefined;
   const match = /\/([a-f0-9]{24,64})\.json$/.exec(path);
-  if (!match) throw new TypeError("v4 archive path must end with a content digest");
+  if (!match) throw new TypeError("v5 archive path must end with a content digest");
   return match[1];
 }
 
@@ -259,18 +269,18 @@ function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function normalizeCache(cache: SyncV4HeadCache | SyncHeadV4 | undefined): SyncV4HeadCache | undefined {
+function normalizeCache(cache: SyncV5HeadCache | SyncHeadV5 | undefined): SyncV5HeadCache | undefined {
   if (!cache) return undefined;
   if ("formatVersion" in cache) {
-    validateSyncHeadV4(cache);
+    validateSyncHeadV5(cache);
     return { head: cache };
   }
-  validateSyncHeadV4(cache.head);
+  validateSyncHeadV5(cache.head);
   return { head: cache.head, etag: cache.etag, blobSha: cache.blobSha };
 }
 
-function cacheFrom(head: SyncHeadV4, etag?: string, blobSha?: string): SyncV4HeadCache {
-  validateSyncHeadV4(head);
+function cacheFrom(head: SyncHeadV5, etag?: string, blobSha?: string): SyncV5HeadCache {
+  validateSyncHeadV5(head);
   return { head, ...(etag ? { etag } : {}), ...(blobSha ? { blobSha } : {}) };
 }
 
@@ -285,23 +295,23 @@ function parseJson(text: string, operation: string): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new GitHubV4RemoteError(operation, 200, `GitHub ${operation} returned invalid JSON`);
+    throw new GitHubV5RemoteError(operation, 200, `GitHub ${operation} returned invalid JSON`);
   }
 }
 
 function parseContentsPayload(value: unknown, operation: string): ContentsFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new GitHubV4RemoteError(operation, 200, `GitHub ${operation} returned an invalid file envelope`);
+    throw new GitHubV5RemoteError(operation, 200, `GitHub ${operation} returned an invalid file envelope`);
   }
   const payload = value as GitHubContentsPayload;
   if (typeof payload.content !== "string") {
-    throw new GitHubV4RemoteError(operation, 200, `GitHub ${operation} returned no base64 content`);
+    throw new GitHubV5RemoteError(operation, 200, `GitHub ${operation} returned no base64 content`);
   }
   let bytes: Uint8Array;
   try {
     bytes = decodeBase64(payload.content);
   } catch {
-    throw new GitHubV4RemoteError(operation, 200, `GitHub ${operation} returned invalid base64 content`);
+    throw new GitHubV5RemoteError(operation, 200, `GitHub ${operation} returned invalid base64 content`);
   }
   return { bytes, blobSha: getString(payload.sha) };
 }
@@ -319,7 +329,7 @@ function withRef(path: string, branch: string): string {
   return `${path}?ref=${encodeURIComponent(branch)}`;
 }
 
-export class GitHubV4Remote {
+export class GitHubV5Remote {
   readonly owner: string;
   readonly repo: string;
   readonly branch: string;
@@ -330,14 +340,14 @@ export class GitHubV4Remote {
   private readonly timeoutMs: number;
   private readonly retryDelayMs: number;
 
-  constructor(options: GitHubV4RemoteOptions) {
+  constructor(options: GitHubV5RemoteOptions) {
     if (!options || typeof options.owner !== "string" || options.owner.length === 0) throw new TypeError("GitHub owner is required");
     if (typeof options.repo !== "string" || options.repo.length === 0) throw new TypeError("GitHub repo is required");
     if (typeof options.token !== "string") throw new TypeError("GitHub token is required");
     this.owner = options.owner;
     this.repo = options.repo;
     this.branch = options.branch || "main";
-    this.apiBaseUrl = (options.apiBaseUrl ?? options.baseUrl ?? GITHUB_V4_API).replace(/\/+$/, "");
+    this.apiBaseUrl = (options.apiBaseUrl ?? options.baseUrl ?? GITHUB_V5_API).replace(/\/+$/, "");
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -346,14 +356,14 @@ export class GitHubV4Remote {
     if (!Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) throw new TypeError("GitHub retry delay must be non-negative");
   }
 
-  private async request(path: string, init: RequestInit = {}, accept = GITHUB_V4_JSON_MEDIA_TYPE): Promise<Response> {
+  private async request(path: string, init: RequestInit = {}, accept = GITHUB_V5_JSON_MEDIA_TYPE): Promise<Response> {
     const method = (init.method ?? "GET").toString().toUpperCase();
     const canRetry = method === "GET";
     for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
       const headers = new Headers(init.headers);
       headers.set("Accept", accept);
       headers.set("Authorization", `Bearer ${this.token}`);
-      headers.set("X-GitHub-Api-Version", GITHUB_V4_API_VERSION);
+      headers.set("X-GitHub-Api-Version", GITHUB_V5_API_VERSION);
       const controller = new AbortController();
       let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       let response: Response;
@@ -363,7 +373,7 @@ export class GitHubV4Remote {
           new Promise<Response>((_, reject) => {
             timeoutTimer = setTimeout(() => {
               controller.abort();
-              reject(new GitHubV4RemoteError(`${method} ${path}`, 0, "GitHub request timed out"));
+              reject(new GitHubV5RemoteError(`${method} ${path}`, 0, "GitHub request timed out"));
             }, this.timeoutMs);
           }),
         ]);
@@ -373,8 +383,8 @@ export class GitHubV4Remote {
           if (this.retryDelayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, this.retryDelayMs));
           continue;
         }
-        if (error instanceof GitHubV4RemoteError) throw error;
-        throw new GitHubV4RemoteError(`${method} ${path}`, 0, "GitHub network request failed");
+        if (error instanceof GitHubV5RemoteError) throw error;
+        throw new GitHubV5RemoteError(`${method} ${path}`, 0, "GitHub network request failed");
       }
       if (timeoutTimer) clearTimeout(timeoutTimer);
       if (canRetry && attempt === 0 && (response.status === 502 || response.status === 503 || response.status === 504)) {
@@ -383,11 +393,11 @@ export class GitHubV4Remote {
       }
       return response;
     }
-    throw new GitHubV4RemoteError(`${method} ${path}`, 0, "GitHub request failed");
+    throw new GitHubV5RemoteError(`${method} ${path}`, 0, "GitHub request failed");
   }
 
   private async requireOk(response: Response, operation: string): Promise<void> {
-    if (!response.ok) throw new GitHubV4RemoteError(operation, response.status);
+    if (!response.ok) throw new GitHubV5RemoteError(operation, response.status);
   }
 
   private async readContents(path: string): Promise<ContentsFile> {
@@ -398,19 +408,19 @@ export class GitHubV4Remote {
   }
 
   /**
-   * Read the sole mutable v4 object.  Supplying the previous result's cache
+   * Read the sole mutable v5 object.  Supplying the previous result's cache
    * sends If-None-Match and turns a 304 into a cache hit without another GET.
    */
-  async readHead(cache?: SyncV4HeadCache | SyncHeadV4): Promise<SyncV4HeadReadResult> {
+  async readHead(cache?: SyncV5HeadCache | SyncHeadV5): Promise<SyncV5HeadReadResult> {
     const previous = normalizeCache(cache);
     const headers = new Headers();
     if (previous?.etag) headers.set("If-None-Match", previous.etag);
     const response = await this.request(
-      withRef(contentPath(this.owner, this.repo, SYNC_V4_HEAD_PATH), this.branch),
+      withRef(contentPath(this.owner, this.repo, SYNC_V5_HEAD_PATH), this.branch),
       { method: "GET", headers },
     );
     if (response.status === 304) {
-      if (!previous) throw new GitHubV4RemoteError("read v4 head (304 without cache)", 304);
+      if (!previous) throw new GitHubV5RemoteError("read v5 head (304 without cache)", 304);
       const etag = response.headers.get("etag") ?? previous.etag;
       const cached = cacheFrom(previous.head, etag ?? undefined, previous.blobSha);
       return {
@@ -427,17 +437,17 @@ export class GitHubV4Remote {
     if (response.status === 404) {
       return { status: "missing", kind: "not-initialized", initialized: false, fromCache: false, head: null, cache: null };
     }
-    await this.requireOk(response, "read v4 head");
-    const payloadValue = parseJson(await response.text(), "read v4 head");
+    await this.requireOk(response, "read v5 head");
+    const payloadValue = parseJson(await response.text(), "read v5 head");
     const payload = payloadValue as GitHubContentsPayload;
-    const file = parseContentsPayload(payloadValue, "read v4 head");
+    const file = parseContentsPayload(payloadValue, "read v5 head");
     let head: unknown;
     try {
-      head = parseJson(new TextDecoder().decode(file.bytes), "decode v4 head");
+      head = parseJson(new TextDecoder().decode(file.bytes), "decode v5 head");
     } catch {
-      throw new GitHubV4RemoteError("decode v4 head", 200, "GitHub v4 head content is not valid JSON");
+      throw new GitHubV5RemoteError("decode v5 head", 200, "GitHub v5 head content is not valid JSON");
     }
-    validateSyncHeadV4(head);
+    validateSyncHeadV5(head);
     const etag = response.headers.get("etag") ?? undefined;
     const blobSha = file.blobSha ?? extractBlobSha(payload);
     const resultCache = cacheFrom(head, etag, blobSha);
@@ -454,10 +464,10 @@ export class GitHubV4Remote {
   }
 
   /** Update/create head.json using the Contents API's blob-SHA CAS field. */
-  async putHead(head: SyncHeadV4, expected?: string | PutSyncV4HeadOptions | SyncV4HeadCache | SyncV4HeadReadResult): Promise<SyncV4HeadPutResult> {
-    validateSyncHeadV4(head);
+  async putHead(head: SyncHeadV5, expected?: string | PutSyncV5HeadOptions | SyncV5HeadCache | SyncV5HeadReadResult): Promise<SyncV5HeadPutResult> {
+    validateSyncHeadV5(head);
     let expectedSha: string | undefined;
-    let message = "sync(v4): update head";
+    let message = "sync(v5): update head";
     if (typeof expected === "string") expectedSha = expected;
     else if (expected && "head" in expected) expectedSha = expected.blobSha;
     else if (expected) {
@@ -471,7 +481,7 @@ export class GitHubV4Remote {
       branch: this.branch,
     };
     if (expectedSha) body.sha = expectedSha;
-    const response = await this.request(contentPath(this.owner, this.repo, SYNC_V4_HEAD_PATH), {
+    const response = await this.request(contentPath(this.owner, this.repo, SYNC_V5_HEAD_PATH), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -479,10 +489,10 @@ export class GitHubV4Remote {
     if (response.status === 409 || response.status === 422) {
       return { ok: false, reason: "cas-conflict", status: response.status, ...(expectedSha ? { expectedSha } : {}) };
     }
-    await this.requireOk(response, "put v4 head");
-    const payload = parseJson(await response.text(), "put v4 head");
+    await this.requireOk(response, "put v5 head");
+    const payload = parseJson(await response.text(), "put v5 head");
     const blobSha = extractBlobSha(payload);
-    if (!blobSha) throw new GitHubV4RemoteError("put v4 head", response.status, "GitHub did not return the new head blob SHA");
+    if (!blobSha) throw new GitHubV5RemoteError("put v5 head", response.status, "GitHub did not return the new head blob SHA");
     const etag = response.headers.get("etag") ?? undefined;
     return {
       ok: true,
@@ -495,20 +505,20 @@ export class GitHubV4Remote {
   }
 
   /** Alias with CAS in the method name for callers that prefer explicitness. */
-  putHeadCas(head: SyncHeadV4, expected?: string | PutSyncV4HeadOptions | SyncV4HeadCache | SyncV4HeadReadResult): Promise<SyncV4HeadPutResult> {
+  putHeadCas(head: SyncHeadV5, expected?: string | PutSyncV5HeadOptions | SyncV5HeadCache | SyncV5HeadReadResult): Promise<SyncV5HeadPutResult> {
     return this.putHead(head, expected);
   }
 
   private normalizeImmutableInput(
-    inputOrPath: SyncV4ImmutableFileInput | string,
+    inputOrPath: SyncV5ImmutableFileInput | string,
     bytes?: ImmutableBytes,
-    options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">,
-  ): SyncV4ImmutableFileInput {
+    options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">,
+  ): SyncV5ImmutableFileInput {
     if (typeof inputOrPath === "string") {
-      if (bytes === undefined) throw new TypeError("immutable v4 file bytes are required");
+      if (bytes === undefined) throw new TypeError("immutable v5 file bytes are required");
       return { path: inputOrPath, bytes, ...options };
     }
-    if (!inputOrPath || typeof inputOrPath.path !== "string") throw new TypeError("immutable v4 file path is required");
+    if (!inputOrPath || typeof inputOrPath.path !== "string") throw new TypeError("immutable v5 file path is required");
     return inputOrPath;
   }
 
@@ -517,34 +527,36 @@ export class GitHubV4Remote {
    * reconciled with one GET and succeeds only when the existing bytes match
    * exactly; a different file at the same path is never overwritten.
    */
-  async putImmutable(input: SyncV4ImmutableFileInput): Promise<SyncV4ImmutablePutResult>;
-  async putImmutable(path: string, bytes: ImmutableBytes, options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">): Promise<SyncV4ImmutablePutResult>;
+  async putImmutable(input: SyncV5ImmutableFileInput): Promise<SyncV5ImmutablePutResult>;
+  async putImmutable(path: string, bytes: ImmutableBytes, options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">): Promise<SyncV5ImmutablePutResult>;
   async putImmutable(
-    inputOrPath: SyncV4ImmutableFileInput | string,
+    inputOrPath: SyncV5ImmutableFileInput | string,
     bytes?: ImmutableBytes,
-    options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">,
-  ): Promise<SyncV4ImmutablePutResult> {
+    options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">,
+  ): Promise<SyncV5ImmutablePutResult> {
     const input = this.normalizeImmutableInput(inputOrPath, bytes, options);
     assertSafePath(input.path);
     assertKindPath(input.path, input.kind);
     const content = asBytes(input.bytes);
     const actualSize = content.byteLength;
-    assertExpectedSize(actualSize, "immutable v4 file size");
+    assertExpectedSize(actualSize, "immutable v5 file size");
+    const sizeLimit = input.kind === "eventPage" ? SYNC_V5_MAX_EVENT_PAGE_BYTES : SYNC_V5_MAX_DESCRIPTOR_BYTES;
+    if (actualSize > sizeLimit) throw new TypeError(`immutable v5 ${input.kind ?? "file"} exceeds its ${sizeLimit}-byte safety limit`);
     if (input.size !== undefined) {
-      assertExpectedSize(input.size, "immutable v4 file size");
-      if (input.size !== actualSize) throw new SyncV4BlobIntegrityError("size", input.size, actualSize);
+      assertExpectedSize(input.size, "immutable v5 file size");
+      if (input.size !== actualSize) throw new SyncV5BlobIntegrityError("size", input.size, actualSize);
     }
     const sha256 = await digestHex("SHA-256", content);
     const catalogDigest = archivePathDigest(input.path);
     if (catalogDigest && !sha256.startsWith(catalogDigest)) {
-      throw new SyncV4BlobIntegrityError("sha256", `${catalogDigest}…`, sha256);
+      throw new SyncV5BlobIntegrityError("sha256", `${catalogDigest}…`, sha256);
     }
     if (input.sha256 !== undefined) {
-      assertDigest(input.sha256, "immutable v4 sha256");
-      if (input.sha256 !== sha256) throw new SyncV4BlobIntegrityError("sha256", input.sha256, sha256);
+      assertDigest(input.sha256, "immutable v5 sha256");
+      if (input.sha256 !== sha256) throw new SyncV5BlobIntegrityError("sha256", input.sha256, sha256);
     }
     const body = JSON.stringify({
-      message: input.message ?? `sync(v4): add ${input.path}`,
+      message: input.message ?? `sync(v5): add ${input.path}`,
       content: encodeBase64(content),
       branch: this.branch,
     });
@@ -557,11 +569,11 @@ export class GitHubV4Remote {
       await this.requireOk(response, `put immutable ${input.path}`);
       const payload = parseJson(await response.text(), `put immutable ${input.path}`);
       const blobSha = extractBlobSha(payload);
-      if (!blobSha) throw new GitHubV4RemoteError(`put immutable ${input.path}`, response.status, "GitHub did not return the blob SHA");
+      if (!blobSha) throw new GitHubV5RemoteError(`put immutable ${input.path}`, response.status, "GitHub did not return the blob SHA");
       return { path: input.path, blobSha, sha256, size: actualSize, created: response.status === 201, idempotent: false, status: response.status };
     }
     const existing = await this.readContents(input.path);
-    if (!bytesEqual(existing.bytes, content)) throw new SyncV4ImmutableConflictError(input.path);
+    if (!bytesEqual(existing.bytes, content)) throw new SyncV5ImmutableConflictError(input.path);
     let blobSha = existing.blobSha;
     if (!blobSha) {
       const header = new TextEncoder().encode(`blob ${actualSize}\0`);
@@ -573,40 +585,40 @@ export class GitHubV4Remote {
     return { path: input.path, blobSha, sha256, size: actualSize, created: false, idempotent: true, status: response.status };
   }
 
-  putImmutableFile(input: SyncV4ImmutableFileInput): Promise<SyncV4ImmutablePutResult>;
-  putImmutableFile(path: string, bytes: ImmutableBytes, options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">): Promise<SyncV4ImmutablePutResult>;
+  putImmutableFile(input: SyncV5ImmutableFileInput): Promise<SyncV5ImmutablePutResult>;
+  putImmutableFile(path: string, bytes: ImmutableBytes, options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">): Promise<SyncV5ImmutablePutResult>;
   putImmutableFile(
-    inputOrPath: SyncV4ImmutableFileInput | string,
+    inputOrPath: SyncV5ImmutableFileInput | string,
     bytes?: ImmutableBytes,
-    options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">,
-  ): Promise<SyncV4ImmutablePutResult> {
+    options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">,
+  ): Promise<SyncV5ImmutablePutResult> {
     if (typeof inputOrPath === "string") {
-      if (bytes === undefined) throw new TypeError("immutable v4 file bytes are required");
+      if (bytes === undefined) throw new TypeError("immutable v5 file bytes are required");
       return this.putImmutable(inputOrPath, bytes, options);
     }
     return this.putImmutable(inputOrPath);
   }
 
-  uploadImmutable(input: SyncV4ImmutableFileInput): Promise<SyncV4ImmutablePutResult>;
-  uploadImmutable(path: string, bytes: ImmutableBytes, options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">): Promise<SyncV4ImmutablePutResult>;
+  uploadImmutable(input: SyncV5ImmutableFileInput): Promise<SyncV5ImmutablePutResult>;
+  uploadImmutable(path: string, bytes: ImmutableBytes, options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">): Promise<SyncV5ImmutablePutResult>;
   uploadImmutable(
-    inputOrPath: SyncV4ImmutableFileInput | string,
+    inputOrPath: SyncV5ImmutableFileInput | string,
     bytes?: ImmutableBytes,
-    options?: Omit<SyncV4ImmutableFileInput, "path" | "bytes">,
-  ): Promise<SyncV4ImmutablePutResult> {
+    options?: Omit<SyncV5ImmutableFileInput, "path" | "bytes">,
+  ): Promise<SyncV5ImmutablePutResult> {
     if (typeof inputOrPath === "string") {
-      if (bytes === undefined) throw new TypeError("immutable v4 file bytes are required");
+      if (bytes === undefined) throw new TypeError("immutable v5 file bytes are required");
       return this.putImmutable(inputOrPath, bytes, options);
     }
     return this.putImmutable(inputOrPath);
   }
 
   /** Read raw blob bytes by Git blob SHA and verify descriptor size/digest. */
-  async readBlob(blobSha: string, expected: SyncV4BlobExpectation): Promise<Uint8Array>;
+  async readBlob(blobSha: string, expected: SyncV5BlobExpectation): Promise<Uint8Array>;
   async readBlob(descriptor: { blobSha: string; size: number; sha256: string }): Promise<Uint8Array>;
   async readBlob(
     blobShaOrDescriptor: string | { blobSha: string; size: number; sha256: string },
-    expected?: SyncV4BlobExpectation,
+    expected?: SyncV5BlobExpectation,
   ): Promise<Uint8Array> {
     const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
     const expectation = typeof blobShaOrDescriptor === "string" ? expected : blobShaOrDescriptor;
@@ -614,60 +626,60 @@ export class GitHubV4Remote {
     if (!expectation) throw new TypeError("blob size and sha256 are required");
     assertExpectedSize(expectation.size, "blob size");
     assertDigest(expectation.sha256, "blob sha256");
-    const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V4_RAW_MEDIA_TYPE);
+    const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V5_RAW_MEDIA_TYPE);
     await this.requireOk(response, `read blob ${blobSha}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength !== expectation.size) throw new SyncV4BlobIntegrityError("size", expectation.size, bytes.byteLength);
+    if (bytes.byteLength !== expectation.size) throw new SyncV5BlobIntegrityError("size", expectation.size, bytes.byteLength);
     const actualSha256 = await digestHex("SHA-256", bytes);
-    if (actualSha256 !== expectation.sha256) throw new SyncV4BlobIntegrityError("sha256", expectation.sha256, actualSha256);
+    if (actualSha256 !== expectation.sha256) throw new SyncV5BlobIntegrityError("sha256", expectation.sha256, actualSha256);
     return bytes;
   }
 
-  readImmutableBlob(blobSha: string, expected: SyncV4BlobExpectation): Promise<Uint8Array>;
+  readImmutableBlob(blobSha: string, expected: SyncV5BlobExpectation): Promise<Uint8Array>;
   readImmutableBlob(descriptor: { blobSha: string; size: number; sha256: string }): Promise<Uint8Array>;
   readImmutableBlob(
     blobShaOrDescriptor: string | { blobSha: string; size: number; sha256: string },
-    expected?: SyncV4BlobExpectation,
+    expected?: SyncV5BlobExpectation,
   ): Promise<Uint8Array> {
     return typeof blobShaOrDescriptor === "string"
-      ? this.readBlob(blobShaOrDescriptor, expected as SyncV4BlobExpectation)
+      ? this.readBlob(blobShaOrDescriptor, expected as SyncV5BlobExpectation)
       : this.readBlob(blobShaOrDescriptor);
   }
 }
 
-export function createGitHubV4Remote(options: GitHubV4RemoteOptions): GitHubV4Remote {
-  return new GitHubV4Remote(options);
+export function createGitHubV5Remote(options: GitHubV5RemoteOptions): GitHubV5Remote {
+  return new GitHubV5Remote(options);
 }
 
 /** Capitalisation alias retained for callers that spell GitHub as Github. */
-export const createGithubV4Remote = createGitHubV4Remote;
+export const createGithubV5Remote = createGitHubV5Remote;
 
-export async function readSyncV4Head(
-  options: GitHubV4RemoteOptions,
-  cache?: SyncV4HeadCache | SyncHeadV4,
-): Promise<SyncV4HeadReadResult> {
-  return createGitHubV4Remote(options).readHead(cache);
+export async function readSyncV5Head(
+  options: GitHubV5RemoteOptions,
+  cache?: SyncV5HeadCache | SyncHeadV5,
+): Promise<SyncV5HeadReadResult> {
+  return createGitHubV5Remote(options).readHead(cache);
 }
 
-export async function putSyncV4Head(
-  options: GitHubV4RemoteOptions,
-  head: SyncHeadV4,
-  expected?: string | PutSyncV4HeadOptions | SyncV4HeadCache | SyncV4HeadReadResult,
-): Promise<SyncV4HeadPutResult> {
-  return createGitHubV4Remote(options).putHead(head, expected);
+export async function putSyncV5Head(
+  options: GitHubV5RemoteOptions,
+  head: SyncHeadV5,
+  expected?: string | PutSyncV5HeadOptions | SyncV5HeadCache | SyncV5HeadReadResult,
+): Promise<SyncV5HeadPutResult> {
+  return createGitHubV5Remote(options).putHead(head, expected);
 }
 
-export async function putSyncV4ImmutableFile(
-  options: GitHubV4RemoteOptions,
-  input: SyncV4ImmutableFileInput,
-): Promise<SyncV4ImmutablePutResult> {
-  return createGitHubV4Remote(options).putImmutable(input);
+export async function putSyncV5ImmutableFile(
+  options: GitHubV5RemoteOptions,
+  input: SyncV5ImmutableFileInput,
+): Promise<SyncV5ImmutablePutResult> {
+  return createGitHubV5Remote(options).putImmutable(input);
 }
 
-export async function readSyncV4Blob(
-  options: GitHubV4RemoteOptions,
+export async function readSyncV5Blob(
+  options: GitHubV5RemoteOptions,
   blobSha: string,
-  expected: SyncV4BlobExpectation,
+  expected: SyncV5BlobExpectation,
 ): Promise<Uint8Array> {
-  return createGitHubV4Remote(options).readBlob(blobSha, expected);
+  return createGitHubV5Remote(options).readBlob(blobSha, expected);
 }

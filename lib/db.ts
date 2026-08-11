@@ -8,13 +8,16 @@ import type {
   BankFolder,
   Note,
   PracticeRun,
+  PracticeRunDefinition,
+  PracticeAnswerSyncPayload,
+  PracticeRunStatusSyncPayload,
   PracticeAnswerState,
   PracticeRunStats,
   ActivePractice,
   Question,
   QuestionGroup,
   SyncEvent,
-  SyncCheckpointV4,
+  SyncCheckpointV5,
   SyncCheckpointCache,
   SyncArchiveEntry,
   SyncArchiveEntryKind,
@@ -24,7 +27,7 @@ import type {
   SyncTombstone,
 } from "./types";
 
-export const SYNC_V4_RETENTION = {
+export const SYNC_V5_RETENTION = {
   recentAttempts: 2_000,
   recentPracticeRuns: 100,
   dailyStatsDays: 35,
@@ -102,10 +105,11 @@ function runBankIds(run: PracticeRun) {
   return ["__all__", ...new Set(run.bankIds?.length ? run.bankIds : [run.bankId])];
 }
 
-function submittedAnswersChanged(
+function changedSubmittedAnswerIds(
   previous: Record<string, PracticeAnswerState> | undefined,
   next: Record<string, PracticeAnswerState>,
 ) {
+  const changed: string[] = [];
   const questionIds = new Set([...Object.keys(previous ?? {}), ...Object.keys(next)]);
   for (const questionId of questionIds) {
     const before = previous?.[questionId];
@@ -113,9 +117,77 @@ function submittedAnswersChanged(
     if (!before?.submitted && !after?.submitted) continue;
     if (Boolean(before?.submitted) !== Boolean(after?.submitted)
       || Boolean(before?.correct) !== Boolean(after?.correct)
-      || [...(before?.selected ?? [])].sort().join("") !== [...(after?.selected ?? [])].sort().join("")) return true;
+      || [...(before?.selected ?? [])].sort().join("") !== [...(after?.selected ?? [])].sort().join("")) changed.push(questionId);
   }
-  return false;
+  return changed;
+}
+
+function practiceRunDefinition(run: PracticeRun): PracticeRunDefinition {
+  return {
+    id: run.id,
+    bankId: run.bankId,
+    bankIds: run.bankIds,
+    bankName: run.bankName,
+    mode: run.mode,
+    modeLabel: run.modeLabel,
+    questionIds: run.questionIds,
+    questionTypes: run.questionTypes,
+    shuffleOptions: run.shuffleOptions,
+    optionOrders: run.optionOrders,
+    startedAt: run.startedAt,
+  };
+}
+
+async function ensurePracticeRunCreatedEvent(run: PracticeRun, deviceId: string) {
+  if (run.definitionSynced) return;
+  const pending = await db.events.where("synced").equals(0).filter((event) => (
+    event.type === "practice.run.created" && (event.payload as PracticeRunDefinition).id === run.id
+  )).first();
+  if (pending) return;
+  await db.events.put({
+    id: makeId("run-create"),
+    type: "practice.run.created",
+    payload: practiceRunDefinition(run),
+    deviceId,
+    sequence: nextSyncSequence(deviceId),
+    createdAt: run.startedAt,
+    synced: 0,
+  });
+}
+
+async function queuePracticeAnswerEvents(
+  run: PracticeRun,
+  questionIds: readonly string[],
+  deviceId: string,
+) {
+  for (const questionId of questionIds) {
+    const answer = run.answers[questionId];
+    if (!answer?.submitted) continue;
+    const pending = await db.events.where("synced").equals(0).filter((event) => {
+      if (event.type !== "practice.answer.saved") return false;
+      const payload = event.payload as PracticeAnswerSyncPayload;
+      return payload.runId === run.id && payload.questionId === questionId;
+    }).first();
+    const payload: PracticeAnswerSyncPayload = { runId: run.id, questionId, answer };
+    await db.events.put({
+      id: pending?.id ?? makeId("run-answer"),
+      type: "practice.answer.saved",
+      payload,
+      deviceId,
+      sequence: pending?.sequence ?? nextSyncSequence(deviceId),
+      createdAt: answer.updatedAt ?? run.updatedAt,
+      synced: 0,
+    });
+  }
+}
+
+function practiceEventRunId(event: SyncEvent) {
+  if (event.type === "practice.run.created") return (event.payload as PracticeRunDefinition).id;
+  if (event.type === "practice.answer.saved") return (event.payload as PracticeAnswerSyncPayload).runId;
+  if (event.type === "practice.run.status.changed" || event.type === "practice.run.deleted") {
+    return (event.payload as { id: string }).id;
+  }
+  return undefined;
 }
 
 async function updatePracticeRunStats(previous: PracticeRun | undefined, next: PracticeRun | undefined) {
@@ -514,20 +586,20 @@ export async function savePracticeProgress(session: ActivePractice) {
   await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, async () => {
     const existingRun = await db.practiceRuns.get(run.id);
     const deviceId = getDeviceId();
-    const savedRun = mergePracticeRuns({ ...run, syncDeviceId: deviceId }, existingRun, deviceId, run.updatedAt);
+    const savedRun = mergePracticeRuns({
+      ...run,
+      definitionSynced: existingRun?.definitionSynced,
+      syncDeviceId: deviceId,
+    }, existingRun, deviceId, run.updatedAt);
     await updatePracticeRunStats(existingRun, savedRun);
     await db.practiceRuns.put(savedRun);
     // An empty practice is local draft state.  Publish the run only after a
     // submitted answer changes; unconfirmed selections and navigation do not
     // create noisy sync events.
-    const syncRelevantChange = submittedAnswersChanged(existingRun?.answers, savedRun.answers)
-      || Boolean(existingRun && existingRun.status !== run.status);
-    if (syncRelevantChange) {
-      const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
-      await db.events.put({
-        id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: savedRun,
-        deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: run.updatedAt, synced: 0,
-      });
+    const changedAnswerIds = changedSubmittedAnswerIds(existingRun?.answers, savedRun.answers);
+    if (changedAnswerIds.length) {
+      await ensurePracticeRunCreatedEvent(savedRun, deviceId);
+      await queuePracticeAnswerEvents(savedRun, changedAnswerIds, deviceId);
     }
   });
   return session;
@@ -554,8 +626,29 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     await updatePracticeRunStats(current, run);
     await db.practiceRuns.put(run);
     if (!Object.values(run.answers).some((answer) => answer.submitted)) return;
-    const pending = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === run.id).first();
-    await db.events.put({ id: pending?.id ?? makeId("run"), type: "practice.run.saved", payload: run, deviceId, sequence: pending?.sequence ?? nextSyncSequence(deviceId), createdAt: now, synced: 0 });
+    await ensurePracticeRunCreatedEvent(run, deviceId);
+    await queuePracticeAnswerEvents(run, changedSubmittedAnswerIds(current.answers, run.answers), deviceId);
+    const pending = await db.events.where("synced").equals(0).filter((event) => (
+      event.type === "practice.run.status.changed" && (event.payload as PracticeRunStatusSyncPayload).id === run.id
+    )).first();
+    const payload: PracticeRunStatusSyncPayload = {
+      id: run.id,
+      status: run.status,
+      updatedAt: run.updatedAt,
+      revision: run.revision,
+      lastAnsweredIndex: run.lastAnsweredIndex,
+      completedAt: run.completedAt,
+      abandonedAt: run.abandonedAt,
+    };
+    await db.events.put({
+      id: pending?.id ?? makeId("run-status"),
+      type: "practice.run.status.changed",
+      payload,
+      deviceId,
+      sequence: pending?.sequence ?? nextSyncSequence(deviceId),
+      createdAt: now,
+      synced: 0,
+    });
   });
   return savedRun;
 }
@@ -567,7 +660,7 @@ export async function deletePracticeRun(runId: string) {
     await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, async () => {
       await updatePracticeRunStats(current, undefined);
       await db.practiceRuns.delete(runId);
-      const pendingSaves = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === runId).toArray();
+      const pendingSaves = await db.events.where("synced").equals(0).filter((event) => practiceEventRunId(event) === runId).toArray();
       if (pendingSaves.length) await db.events.bulkDelete(pendingSaves.map((event) => event.id));
     });
     return true;
@@ -578,7 +671,7 @@ export async function deletePracticeRun(runId: string) {
   await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, db.tombstones, async () => {
     await updatePracticeRunStats(current, undefined);
     await db.practiceRuns.delete(runId);
-    const pendingSaves = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.saved" && (event.payload as PracticeRun).id === runId).toArray();
+    const pendingSaves = await db.events.where("synced").equals(0).filter((event) => practiceEventRunId(event) === runId).toArray();
     if (pendingSaves.length) await db.events.bulkDelete(pendingSaves.map((event) => event.id));
     await putTombstone("practiceRun", runId, now, deviceId, eventId);
     await db.events.put({ id: eventId, type: "practice.run.deleted", payload: { id: runId, deletedAt: now }, deviceId, sequence: nextSyncSequence(deviceId), createdAt: now, synced: 0 });
@@ -716,17 +809,17 @@ function validSnapshotArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-function recentDailyCutoff(days = SYNC_V4_RETENTION.dailyStatsDays) {
+function recentDailyCutoff(days = SYNC_V5_RETENTION.dailyStatsDays) {
   const date = new Date();
   date.setDate(date.getDate() - Math.max(0, days - 1));
   return calendarDate(date);
 }
 
-export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint is SyncCheckpointV4 {
-  if (!checkpoint || typeof checkpoint !== "object" || (checkpoint as SyncCheckpointV4).formatVersion !== 4) {
+export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint is SyncCheckpointV5 {
+  if (!checkpoint || typeof checkpoint !== "object" || (checkpoint as SyncCheckpointV5).formatVersion !== 5) {
     throw new Error("远程检查点格式无效或版本不受支持。");
   }
-  const value = checkpoint as SyncCheckpointV4;
+  const value = checkpoint as SyncCheckpointV5;
   const state = value.state;
   if (!state || !validSnapshotArray(state.banks) || !validSnapshotArray(state.bankFolders)
     || !validSnapshotArray(state.questions) || !validSnapshotArray(state.attemptStats)
@@ -738,8 +831,8 @@ export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint 
   if (!value.cursors || typeof value.cursors !== "object" || Object.values(value.cursors).some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)) {
     throw new Error("远程检查点的设备游标无效。");
   }
-  if (state.recentAttempts.length > SYNC_V4_RETENTION.recentAttempts || state.recentPracticeRuns.length > SYNC_V4_RETENTION.recentPracticeRuns) {
-    throw new Error("远程检查点超过 v4 保留上限。");
+  if (state.recentAttempts.length > SYNC_V5_RETENTION.recentAttempts || state.recentPracticeRuns.length > SYNC_V5_RETENTION.recentPracticeRuns) {
+    throw new Error("远程检查点超过 v5 保留上限。");
   }
   const bankIds = new Set(state.banks.map((bank) => bank.id));
   const questionIds = new Set(state.questions.map((question) => question.id));
@@ -794,7 +887,7 @@ export function validateSyncCheckpoint(checkpoint: unknown): asserts checkpoint 
  * not clone any of the checkpoint's row arrays.
  */
 export interface SyncCheckpointPlan {
-  readonly checkpoint: SyncCheckpointV4;
+  readonly checkpoint: SyncCheckpointV5;
   readonly questionIds: ReadonlySet<string>;
 }
 
@@ -871,13 +964,13 @@ export async function withSyncCheckpointTransaction<T>(work: () => Promise<T>): 
 /** Alias that describes the same atomic scope from the restore caller's view. */
 export const withSyncRestoreTransaction = withSyncCheckpointTransaction;
 
-export async function createSyncCheckpoint(): Promise<SyncCheckpointV4> {
+export async function createSyncCheckpoint(): Promise<SyncCheckpointV5> {
   const [banks, bankFolders, questions, attemptStats, recentAttemptDailyStats, recentAttemptsDescending, notes,
     recentPracticeRunsDescending, practiceRunStats, questionGroups, tombstones, events, cursorRows] = await Promise.all([
     db.banks.toArray(), db.bankFolders.toArray(), db.questions.toArray(), db.attemptStats.toArray(),
     db.attemptDailyStats.where("date").aboveOrEqual(recentDailyCutoff()).toArray(),
-    db.attempts.orderBy("createdAt").reverse().limit(SYNC_V4_RETENTION.recentAttempts).toArray(),
-    db.notes.toArray(), db.practiceRuns.orderBy("updatedAt").reverse().limit(SYNC_V4_RETENTION.recentPracticeRuns).toArray(), db.practiceRunStats.toArray(),
+    db.attempts.orderBy("createdAt").reverse().limit(SYNC_V5_RETENTION.recentAttempts).toArray(),
+    db.notes.toArray(), db.practiceRuns.orderBy("updatedAt").reverse().limit(SYNC_V5_RETENTION.recentPracticeRuns).toArray(), db.practiceRunStats.toArray(),
     db.questionGroups.toArray(), db.tombstones.toArray(), db.events.toArray(),
     db.syncMeta.where("key").startsWith("cursor:").toArray(),
   ]);
@@ -889,15 +982,15 @@ export async function createSyncCheckpoint(): Promise<SyncCheckpointV4> {
   const recentAttempts = recentAttemptsDescending.reverse();
   const recentPracticeRuns = recentPracticeRunsDescending.reverse();
   const totalAttempts = attemptStats.reduce((sum, stats) => sum + stats.total, 0);
-  const checkpoint: SyncCheckpointV4 = {
-    formatVersion: 4,
+  const checkpoint: SyncCheckpointV5 = {
+    formatVersion: 5,
     generatedAt: new Date().toISOString(),
     state: { banks, bankFolders, questions, attemptStats, recentAttemptDailyStats, recentAttempts, notes, recentPracticeRuns, practiceRunStats, questionGroups, tombstones },
     cursors,
     retention: {
-      recentAttemptLimit: SYNC_V4_RETENTION.recentAttempts,
-      recentPracticeRunLimit: SYNC_V4_RETENTION.recentPracticeRuns,
-      dailyStatsDays: SYNC_V4_RETENTION.dailyStatsDays,
+      recentAttemptLimit: SYNC_V5_RETENTION.recentAttempts,
+      recentPracticeRunLimit: SYNC_V5_RETENTION.recentPracticeRuns,
+      dailyStatsDays: SYNC_V5_RETENTION.dailyStatsDays,
       oldestRecentAttemptAt: recentAttempts[0]?.createdAt ?? null,
     },
     counts: {
@@ -916,7 +1009,7 @@ export interface SyncCheckpointCacheInput {
   owner: string;
   repo: string;
   branch: string;
-  checkpoint: SyncCheckpointV4 | SyncCheckpointPlan;
+  checkpoint: SyncCheckpointV5 | SyncCheckpointPlan;
   markers?: readonly SyncFileMarker[];
   cachedAt?: string;
 }
@@ -959,7 +1052,7 @@ export interface SyncCheckpointApplyOptions {
   preserveSyncFiles?: boolean;
 }
 
-function isSyncCheckpointPlan(value: SyncCheckpointV4 | SyncCheckpointPlan): value is SyncCheckpointPlan {
+function isSyncCheckpointPlan(value: SyncCheckpointV5 | SyncCheckpointPlan): value is SyncCheckpointPlan {
   return "checkpoint" in value && "questionIds" in value;
 }
 
@@ -1190,11 +1283,11 @@ export async function commitStagedSyncRestore(
 }
 
 /**
- * Replace the local v4 state atomically. Passing a plan avoids validating and
+ * Replace the local v5 state atomically. Passing a plan avoids validating and
  * indexing the same checkpoint again when the caller also caches it.
  */
 export async function applySyncCheckpoint(
-  input: SyncCheckpointV4 | SyncCheckpointPlan,
+  input: SyncCheckpointV5 | SyncCheckpointPlan,
   options: SyncCheckpointApplyOptions = {},
 ) {
   const plan = isSyncCheckpointPlan(input) ? input : prepareSyncCheckpoint(input);
@@ -1260,7 +1353,9 @@ export function mergePracticeRuns(
   };
 }
 
-export async function applyRemoteEvents(events: SyncEvent[]) {
+type ResolvedSyncEvent = SyncEvent & { resolvedPayload?: unknown };
+
+export async function applyRemoteEvents(events: ResolvedSyncEvent[]) {
   const ordered = [...events].sort((a, b) => compareClock(a.createdAt, a.deviceId, a.id, b.createdAt, b.deviceId, b.id));
   await db.transaction(
     "rw",
@@ -1340,11 +1435,51 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
           const incoming = { ...(event.payload as Note), syncEventId: event.id };
           const current = await db.notes.get(incoming.questionId);
           if (!current || compareClock(incoming.updatedAt, incoming.deviceId, event.id, current.updatedAt, current.deviceId, current.syncEventId) > 0) await db.notes.put(incoming);
-        } else if (event.type === "practice.run.saved") {
-          const incoming = { ...(event.payload as PracticeRun), syncDeviceId: event.deviceId, syncEventId: event.id };
+        } else if (event.type === "practice.run.created") {
+          const incoming = {
+            ...(event.resolvedPayload as PracticeRun),
+            definitionSynced: true,
+            syncDeviceId: event.deviceId,
+            syncEventId: event.id,
+          };
           if (!await isDeletedAfter("practiceRun", incoming.id, incoming.updatedAt, event.deviceId, event.id)) {
             await clearOlderTombstone("practiceRun", incoming.id, incoming.updatedAt, event.deviceId, event.id);
             const current = await db.practiceRuns.get(incoming.id);
+            const merged = mergePracticeRuns(incoming, current, event.deviceId, event.id);
+            await updatePracticeRunStats(current, merged);
+            await db.practiceRuns.put(merged);
+          }
+        } else if (event.type === "practice.answer.saved") {
+          const payload = event.payload as PracticeAnswerSyncPayload;
+          const current = await db.practiceRuns.get(payload.runId);
+          if (current && payload.answer?.submitted) {
+            const answer = {
+              ...payload.answer,
+              updatedAt: payload.answer.updatedAt ?? event.createdAt,
+              deviceId: payload.answer.deviceId ?? event.deviceId,
+              eventId: payload.answer.eventId ?? event.id,
+            };
+            const incoming: PracticeRun = {
+              ...current,
+              answers: { [payload.questionId]: answer },
+              syncDeviceId: event.deviceId,
+              syncEventId: event.id,
+            };
+            const merged = mergePracticeRuns(incoming, current, event.deviceId, event.id);
+            await updatePracticeRunStats(current, merged);
+            await db.practiceRuns.put(merged);
+          }
+        } else if (event.type === "practice.run.status.changed") {
+          const payload = event.payload as PracticeRunStatusSyncPayload;
+          const current = await db.practiceRuns.get(payload.id);
+          if (current && !await isDeletedAfter("practiceRun", payload.id, payload.updatedAt, event.deviceId, event.id)) {
+            const incoming: PracticeRun = {
+              ...current,
+              ...payload,
+              answers: current.answers,
+              syncDeviceId: event.deviceId,
+              syncEventId: event.id,
+            };
             const merged = mergePracticeRuns(incoming, current, event.deviceId, event.id);
             await updatePracticeRunStats(current, merged);
             await db.practiceRuns.put(merged);
@@ -1397,7 +1532,9 @@ export async function applyRemoteEvents(events: SyncEvent[]) {
             if (question) await refreshBankQuestionCount(question.bankId);
           }
         }
-        await db.events.put({ ...event, synced: 1 });
+        const storedEvent = { ...event };
+        delete storedEvent.resolvedPayload;
+        await db.events.put({ ...storedEvent, synced: 1 });
         if (Number.isSafeInteger(event.sequence) && event.sequence >= 0) {
           const key = `cursor:${event.deviceId}`;
           const current = await db.syncMeta.get(key);
