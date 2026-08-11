@@ -14,6 +14,7 @@
     "test:architecture": "node scripts/check-architecture.mjs",
     "test:sync": "tsx scripts/test-sync-data-model.ts && tsx scripts/test-sync-entity-conflicts.ts && tsx scripts/test-sync-checkpoint-transaction.ts && tsx scripts/test-sync-restore-staging.ts && tsx scripts/test-sync-v5-head.ts && tsx scripts/test-github-v5-remote.ts && tsx scripts/test-sync-v5-catalog.ts && tsx scripts/test-sync-v5-integration.ts",
     "test:sync-v6-protocol": "tsx scripts/test-sync-v6-head.ts && tsx scripts/test-github-v6-remote.ts",
+    "test:v5-v6-migration": "tsx scripts/test-v5-to-v6-migration.ts",
     "test:pwa": "tsx scripts/test-pwa-cache.ts",
     "test:shortcuts": "tsx scripts/test-keyboard-shortcuts.ts",
     "test:xlsx": "tsx scripts/test-xlsx-import.ts",
