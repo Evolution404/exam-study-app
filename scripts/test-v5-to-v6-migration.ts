@@ -89,6 +89,9 @@ assert.ok(hotConversion.checkpoint.state.questions.some((item) => item.answer ==
 assert.ok(hotConversion.checkpoint.state.questions.some((item) => item.content.some((block) => block.type === "text" && block.text === "热事件新增")), "hot imported question must enter conversion");
 assert.equal(hotConversion.checkpoint.state.questions.some((item) => item.id === hotConversion.oldQuestionIdToNewId["q-b"]), false, "hot question delete must not enter conversion");
 assert.ok(hotConversion.checkpoint.state.memberships.every((item) => item.key === `${item.bankId}:${item.questionId}`));
+assert.equal(hotConversion.checkpoint.state.events.length, 0, "fully reduced v5 events must not be replayed over the v6 checkpoint");
+assert.equal(hotConversion.head.eventPages.length, 0, "the initial v6 hot tail starts empty after migration");
+for (const event of hotEntityEvents) assert.ok((hotConversion.checkpoint.cursors[event.deviceId] ?? -1) >= event.sequence, "migration checkpoint cursors must cover incorporated v5 events");
 
 // Six thousand questions still leave the mutable event tail under four MiB.
 const manyQuestions = Array.from({ length: 6_000 }, (_, index) => question(`q-${index}`, "bank-a", `题目 ${index}`, index));

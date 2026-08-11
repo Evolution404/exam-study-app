@@ -35,6 +35,12 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 const db = read("lib/db.ts");
 const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 if (databaseVersions.length !== 1 || databaseVersions[0] !== 10) fail("客户端只能声明当前数据库 v10");
+const dbV6 = read("lib/db-v6.ts");
+const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
+if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
+  || v6DatabaseVersions.length !== 1 || v6DatabaseVersions[0] !== 1) {
+  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间");
+}
 
 const sync = read("lib/github-sync.ts");
 const syncV6 = read("lib/github-sync-v6.ts");
@@ -71,8 +77,12 @@ for (const { file, source } of fs.readdirSync(path.join(root, "lib"), { recursiv
   if (/from ["'][^"']*(?:github-sync-v5|github-v5-remote|sync-v5)[^"']*["']/.test(source)) fail(`${file} 只能由迁移模块读取 v5`);
 }
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
+for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
+  if (/from ["']@\/lib\/db["']/.test(source)) fail(`${file} 不得读取旧本地数据库`);
+  if (/\bimageUrl\b|题目图片地址/.test(source)) fail(`${file} 不得使用公开图片 URL 字段`);
+}
 
 if (/sessions:\s*["']/.test(db)) fail("DB v10 必须删除重复的 active sessions 表");
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v6 namespace/head。`);
+console.log(`架构检查通过：v6 独立数据库、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v6 namespace/head。`);

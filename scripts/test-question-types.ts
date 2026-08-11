@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeQuestionImageUrl } from "../lib/question-utils";
+import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../lib/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const studyApp = read("app/study-app.tsx");
 const history = read("app/practice-history.tsx");
 const editor = read("app/question-editor.tsx");
+const contentEditor = read("app/content-block-editor.tsx");
 const xlsx = read("lib/xlsx-import.ts");
 const vite = read("vite.config.ts");
 
@@ -15,11 +16,12 @@ assert.equal(isCalculationAnswerCorrect("100.9", "100", 1), true);
 assert.equal(isCalculationAnswerCorrect("101.1", "100", 1), false);
 assert.equal(isCalculationAnswerCorrect("0.005", "0", 1), true);
 assert.equal(isCalculationAnswerCorrect("0.02", "0", 1), false);
-assert.equal(normalizeQuestionImageUrl("https://example.com/a.png"), "https://example.com/a.png");
-assert.throws(() => normalizeQuestionImageUrl("javascript:alert(1)"), /http/);
-
-assert.match(editor, /value: "计算", label: "计算"/, "question editor must expose calculation questions");
-assert.match(editor, /题目图片地址（可选）/, "question editor must expose an image URL");
+assert.match(editor, /questionTypes[^\n]*"计算"/, "question editor must expose calculation questions");
+assert.match(editor, /optimizeImageFile/, "question editor must optimize selected local images");
+assert.match(editor, /putImageAssetV6/, "question editor must store content-addressed image assets");
+assert.match(contentEditor, /accept="image\/\*"/, "rich content editor must select a local image file");
+assert.match(contentEditor, /insertImageAtSelection/, "rich content editor must insert images at the current text selection");
+assert.doesNotMatch(editor, /题目图片地址|imageUrl/, "question editor must not accept public image URLs");
 assert.match(xlsx, /"题干", "题型", "答案", "标签"/, "Excel parser must use the current text-only project columns");
 assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public image URLs");
 assert.match(studyApp, /aria-label="计算题答案"/, "practice must render a numeric calculation answer input");

@@ -11,7 +11,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const baseUrl = (configuredBaseUrl || "http://127.0.0.1:5173").replace(/\/$/, "");
-const appBaseUrl = baseUrl.endsWith("/exam-study-app") ? baseUrl : `${baseUrl}/exam-study-app`;
 const artifactRoot = path.join(root, "artifacts", "browser-qa");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const runRoot = path.join(artifactRoot, runId);
@@ -26,7 +25,7 @@ const fixture = [
   { q: "哪些做法有助于安全巡视？", a: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], ans: ["A", "B"] },
   { q: "巡视前应确认天气和现场风险。", a: ["正确", "错误"], ans: "A" },
   { q: "发现异常后，最合适的第一步是什么？", a: ["立即离开并隐瞒", "按流程记录并报告", "自行拆除设备", "等待下次巡视"], ans: "B" },
-  { q: "图片所示数值允许 1% 误差时，计算结果是多少？", type: "计算", a: [], ans: "10", imageUrl: `${appBaseUrl}/icons/app-icon-192.png` },
+  { q: "图片所示数值允许 1% 误差时，计算结果是多少？", type: "计算", a: [], ans: "10" },
 ];
 const fixtureFile = {
   name: "送电线路工-初级工.json",
@@ -39,10 +38,10 @@ const excelFixtureFile = {
   buffer: XLSX.write((() => {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["题干", "题型", "答案", "图片地址", "标签", "A", "B", "C"],
-      ["Excel 导入后的第一道题是什么？", "单选", "A", "", "Excel", "通过校验", "跳过校验", "无法判断"],
-      ["Excel 导入支持多选吗？", "多选", "AB", "", "Excel", "支持", "可以", "不支持"],
-      ["Excel 计算题的标准答案是多少？", "计算", "10", "https://example.com/question.png", "Excel，计算"],
+      ["题干", "题型", "答案", "标签", "A", "B", "C"],
+      ["Excel 导入后的第一道题是什么？", "单选", "A", "Excel", "通过校验", "跳过校验", "无法判断"],
+      ["Excel 导入支持多选吗？", "多选", "AB", "Excel", "支持", "可以", "不支持"],
+      ["Excel 计算题的标准答案是多少？", "计算", "10", "Excel，计算"],
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "题库");
     return workbook;
@@ -191,7 +190,7 @@ async function answerCurrentQuestion(page, optionIndexes, confirm = false) {
 
 async function pendingEventCount(page) {
   return page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open("memory-line-study");
+    const request = indexedDB.open("shijuan-study-v6");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;
@@ -204,6 +203,22 @@ async function pendingEventCount(page) {
       };
     };
   }));
+}
+
+async function attachFixtureImage(page) {
+  const bankCard = page.locator("button.bank-management-main").filter({ hasText: "送电线路工-初级工" }).first();
+  await bankCard.click();
+  await clickTextButton(page, "试题管理");
+  const question = page.locator(".managed-question-list article").filter({ hasText: "图片所示数值允许 1% 误差时" }).first();
+  await question.getByRole("button", { name: "编辑题目" }).click();
+  const stemEditor = page.locator(".question-editor .editor-rich-field").first();
+  const chooserPromise = page.waitForEvent("filechooser");
+  await stemEditor.getByRole("button", { name: /在文本块 .* 中选择图片/ }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(path.join(root, "public/icons/app-icon-192.png"));
+  await stemEditor.locator(".content-block-editor-image").waitFor({ state: "visible" });
+  await clickButton(page, "保存修改");
+  await page.getByRole("dialog", { name: "编辑题目" }).waitFor({ state: "hidden" });
 }
 
 async function runDesktop(page) {
@@ -223,6 +238,7 @@ async function runDesktop(page) {
   await excelInput.setInputFiles(excelFixtureFile);
   await expectNotice(page, /已从 Excel 导入/, "Excel import notice");
   await capture(page, contextName, "excel-imported");
+  await attachFixtureImage(page);
 
   await clickButton(page, "配置");
   await expectText(page, "答题配置");
@@ -257,8 +273,8 @@ async function runDesktop(page) {
   assert.ok(themeCheckOffset < 2, `theme checkmark must be vertically centered, offset was ${themeCheckOffset}px`);
   await expectText(page, "客户端版本");
   await page.evaluate(() => {
-    const raw = JSON.parse(window.localStorage.getItem("practice-preferences") ?? "{}");
-    window.localStorage.setItem("practice-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
+    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
+    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -321,7 +337,7 @@ async function runDesktop(page) {
   await answerCurrentQuestion(page, [0]);
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 5);
-  await page.locator(".question-image img").waitFor({ state: "visible" });
+  await page.locator(".asset-image img").waitFor({ state: "visible" });
   const calculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
   await calculationAnswer.fill("10.05");
   await clickTextButton(page, "确认答案");
@@ -367,7 +383,7 @@ async function runDesktop(page) {
   await autoThreshold.fill("1");
   await autoThreshold.blur();
   await page.waitForFunction(() => {
-    const raw = window.localStorage.getItem("practice-preferences");
+    const raw = window.localStorage.getItem("study-v6-preferences");
     if (!raw) return false;
     try { return Number(JSON.parse(raw).autoSyncEventThreshold) === 1; } catch { return false; }
   });

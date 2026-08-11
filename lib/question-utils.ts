@@ -1,3 +1,4 @@
+/** Legacy v5-only URL normalizer retained for the read-only migration source. */
 export function normalizeQuestionImageUrl(value: string | undefined) {
   const input = value?.trim();
   if (!input) return undefined;

@@ -33,7 +33,7 @@ export function ContentBlockRenderer({
         }
         return (
           <figure className="content-block-image" key={block.id}>
-            <AssetImage assetId={block.assetId} alt={block.alt || "题目插图"} loadAsset={loadAsset} retry={retryAsset ?? (loadAsset ? async (assetId) => { await loadAsset(assetId); } : undefined)} imageClassName={imageClassName} />
+            <AssetImage assetId={block.assetId} alt={block.alt || "题目插图"} loadAsset={loadAsset} retry={retryAsset} imageClassName={imageClassName} />
             {block.caption && <figcaption>{block.caption}</figcaption>}
           </figure>
         );

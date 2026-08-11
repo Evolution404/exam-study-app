@@ -6,7 +6,7 @@ const studyApp = read("app/study-app.tsx");
 const practiceSetup = read("app/practice-setup.tsx");
 const practiceHistory = read("app/practice-history.tsx");
 const styles = read("app/styles/components.css");
-const database = read("lib/db.ts");
+const database = read("lib/db-v6.ts");
 
 assert.match(studyApp, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(studyApp, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");
@@ -21,10 +21,10 @@ assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
 assert.match(studyApp, /await recordPracticeAnswer\(/, "answer submission must use the single domain-event writer");
 assert.doesNotMatch(studyApp, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
-assert.match(database, /type: "practice\.answer\.submitted"/, "one answer event must feed both attempt and practice projections");
-assert.doesNotMatch(database, /type: "practice\.answer\.saved",\s*payload/s, "new local writes must not emit the legacy answer projection event");
-assert.match(studyApp, /db\.practiceRuns\.where\("\[status\+updatedAt\]"\)/, "home must use the compound index for the latest in-progress practiceRun");
-assert.match(studyApp, /const run = runId \? await db\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same practiceRun by id");
+assert.match(database, /eventWithId\("practice\.answer\.submitted"/, "one answer event must feed both attempt and practice projections");
+assert.doesNotMatch(database, /eventWithId\("practice\.answer\.saved"/, "new local writes must not emit the legacy answer projection event");
+assert.match(studyApp, /dbV6\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v6 practiceRun");
+assert.match(studyApp, /const run = runId \? await dbV6\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v6 practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
 assert.match(studyApp, /<p>\{answeredInRun\} \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/p>/, "home must use the same answered/total metric as practice history");
 assert.doesNotMatch(studyApp, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
@@ -38,7 +38,7 @@ assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home 
 assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
 assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");
 assert.match(practiceSetup, /mode === "randomCustom" \? requestedRandomCount/, "custom random count must be passed as this run's limit");
-assert.match(practiceSetup, /不修改答题配置中的每组题数/, "custom random mode must remain independent from global preferences");
+assert.match(practiceSetup, /不修改全局配置/, "custom random mode must remain independent from global preferences");
 
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
 assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session");

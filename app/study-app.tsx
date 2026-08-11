@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, importQuestionBankV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
+import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, importQuestionBankV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
@@ -56,7 +56,7 @@ async function toggleQuestionFavorite(questionId: string) { return toggleQuestio
 async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string }) { return recordPracticeAnswerV6({ ...input, sourceBankId: input.bankId }); }
 async function savePracticeProgress(session: ActivePractice) { const current = await dbV6.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV6({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
 async function setPracticeRunStatus(runId: string, status: PracticeRunV6["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV6(runId, status, answers); }
-async function deletePracticeRun(runId: string) { await setPracticeRunStatus(runId, "abandoned"); return true; }
+async function deletePracticeRun(runId: string) { return deletePracticeRunV6(runId); }
 
 const PracticeSetupView = lazy(() => import("@/app/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
 const SearchView = lazy(() => import("@/app/search-view").then((module) => ({ default: module.SearchView })));

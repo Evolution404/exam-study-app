@@ -305,7 +305,12 @@ export class GitHubV6Remote {
     this.apiBaseUrl = (options.apiBaseUrl ?? options.baseUrl ?? GITHUB_V6_API).replace(/\/+$/, "");
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.timeoutMs = options.timeoutMs ?? 12_000;
+    // A content-addressed checkpoint for several thousand questions is a
+    // multi-megabyte upload.  Twelve seconds was sufficient for head/event
+    // traffic but caused safe, repeatable timeouts while publishing the first
+    // real v6 checkpoint.  Keep a finite timeout while allowing normal GitHub
+    // latency for large immutable objects.
+    this.timeoutMs = options.timeoutMs ?? 60_000;
     this.retryDelayMs = options.retryDelayMs ?? 100;
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw new TypeError("GitHub request timeout must be positive");
     if (!Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) throw new TypeError("GitHub retry delay must be non-negative");

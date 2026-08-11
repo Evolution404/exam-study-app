@@ -875,7 +875,16 @@ export function convertV5ToV6(input: V5ToV6Input): V5ToV6Conversion {
     else groups.push(mapped);
   }
   const mappedEvents = (input.hotEvents ?? []).map((event) => convertEvent(event, questionMap)).sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
-  const pages = eventPageFiles(mappedEvents);
+  const checkpointCursors = { ...input.checkpoint.cursors };
+  for (const event of mappedEvents) {
+    checkpointCursors[event.deviceId] = Math.max(checkpointCursors[event.deviceId] ?? 0, event.sequence);
+  }
+  // The migration checkpoint already contains the fully reduced result of
+  // every v5 hot event. Replaying those events after restoring the projection
+  // can replace complete runs with legacy partial payloads or double-apply
+  // statistics. Record their cursors as incorporated, but start the v6 hot
+  // tail empty; only events created by v6 clients are paged from this point.
+  const pages = eventPageFiles([]);
   const attemptsArchive = archiveFiles("attempts", archivedAttemptRows);
   const runsArchive = archiveFiles("practice-runs", archivedRunRows);
   const usedAssetIds = new Set([...byFingerprint.values()].flatMap((question) => question.content.filter((block): block is Extract<typeof block, { type: "image" }> => block.type === "image").map((block) => block.assetId)));
@@ -907,9 +916,9 @@ export function convertV5ToV6(input: V5ToV6Input): V5ToV6Conversion {
       imageAssets: usedImages.map(imageAssetForV6),
       reviewRounds: [],
       reviewRoundProgress: [],
-      events: mappedEvents,
+      events: [],
     },
-    cursors: { ...input.checkpoint.cursors },
+    cursors: checkpointCursors,
     retention: { recentAttemptLimit: RECENT_ATTEMPT_LIMIT, recentPracticeRunLimit: RECENT_RUN_LIMIT, oldestRecentAttemptAt: recentAttempts[0]?.createdAt ?? null },
     counts: {
       banks: effective.banks.length,
