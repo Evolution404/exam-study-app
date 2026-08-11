@@ -30,7 +30,7 @@ export interface QuestionV6 {
   options: ContentBlock[][];
   answer: string;
   tags: string[];
-  favorite: boolean;
+  favorite?: boolean;
   contentFingerprint: string;
   updatedAt: string;
   deviceId: string;

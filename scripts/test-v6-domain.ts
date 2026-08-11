@@ -100,11 +100,31 @@ assert.equal(deriveSearchText([{ id: "image", type: "image", assetId: "asset-1",
 assert.equal(summarizeContent([{ id: "text", type: "text", text: "A long preview" }], 4), "A l…");
 const sameContentDifferentBank = { ...question, id: "question-2", tags: ["other"], favorite: true };
 assert.equal(questionContentFingerprint(question), questionContentFingerprint(sameContentDifferentBank), "bank-independent fingerprint");
+assert.equal(
+  questionContentFingerprint(question),
+  questionContentFingerprint({
+    ...question,
+    content: [{ id: "part-a", type: "text", text: "s" }, { id: "part-b", type: "text", text: "ame" }],
+    options: [[{ id: "option-part-a", type: "text", text: "same" }], [{ id: "option-2", type: "text", text: "other" }]],
+  }),
+  "fingerprint ignores adjacent text block splitting",
+);
 assert.notEqual(questionContentFingerprint(question), questionContentFingerprint({ ...question, answer: "B" }));
 assert.notEqual(questionContentFingerprint(question), questionContentFingerprint({ ...question, type: "多选" }));
 assert.notEqual(
   questionContentFingerprint(question),
   questionContentFingerprint({ ...question, content: [{ id: "different", type: "image", assetId: "asset-2" }] }),
+);
+assert.notEqual(
+  questionContentFingerprint({
+    ...question,
+    content: [{ id: "text", type: "text", text: "same" }, { id: "image", type: "image", assetId: "asset-1" }],
+  }),
+  questionContentFingerprint({
+    ...question,
+    content: [{ id: "image", type: "image", assetId: "asset-1" }, { id: "text", type: "text", text: "same" }],
+  }),
+  "image position remains semantic",
 );
 
 const textBlocks: ContentBlock[] = [
@@ -127,4 +147,3 @@ assert.deepEqual(replaceContentBlock(textBlocks, "b", { id: "c", type: "text", t
 assert.deepEqual(deleteContentBlock(textBlocks, "a").map((block) => block.id), ["b"]);
 
 console.log("v6 domain tests passed: scopes, rounds, content blocks, fingerprints and pure editor operations");
-

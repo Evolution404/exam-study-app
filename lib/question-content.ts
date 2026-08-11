@@ -56,17 +56,34 @@ export function plainTextToContentBlocks(value: string, id = "text-0"): ContentB
   return [{ id, type: "text", text: value.replace(/\r\n?/g, "\n").replace(/[\u2028\u2029]/g, "\n") }];
 }
 
-function normalizedFingerprintBlock(block: ContentBlock): Record<string, string> {
-  return block.type === "text"
-    ? { type: "text", text: normalizeContentText(block.text) }
-    : { type: "image", assetId: block.assetId };
+function normalizedFingerprintBlocks(blocks: readonly ContentBlock[]): Array<Record<string, string>> {
+  const result: Array<Record<string, string>> = [];
+  let pendingText = "";
+  const flushText = () => {
+    if (!pendingText) return;
+    result.push({ type: "text", text: normalizeContentText(pendingText) });
+    pendingText = "";
+  };
+  for (const block of blocks) {
+    if (block.type === "text") {
+      // Text block boundaries are editor structure, not question semantics.
+      // Keep the raw pieces together until an image boundary, then normalize
+      // once so ["A", "B"] and ["AB"] fingerprint identically.
+      pendingText += block.text;
+    } else {
+      flushText();
+      result.push({ type: "image", assetId: block.assetId });
+    }
+  }
+  flushText();
+  return result;
 }
 
 function canonicalFingerprintPayload(input: QuestionContentFingerprintInput): string {
   return JSON.stringify({
     type: input.type,
-    content: input.content.map(normalizedFingerprintBlock),
-    options: input.options.map((option) => option.map(normalizedFingerprintBlock)),
+    content: normalizedFingerprintBlocks(input.content),
+    options: input.options.map((option) => normalizedFingerprintBlocks(option)),
     answer: normalizeContentText(input.answer),
   });
 }
@@ -227,4 +244,3 @@ export function deleteContentBlock(blocks: readonly ContentBlock[], blockId: str
   if (index < 0) return [...blocks];
   return [...blocks.slice(0, index), ...blocks.slice(index + 1)];
 }
-
