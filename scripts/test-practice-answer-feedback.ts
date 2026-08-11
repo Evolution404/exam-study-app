@@ -19,6 +19,10 @@ assert.doesNotMatch(studyApp, /你的选择[^\n]*<MathText/, "answer feedback mu
 assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
+assert.match(studyApp, /await recordPracticeAnswer\(/, "answer submission must use the single domain-event writer");
+assert.doesNotMatch(studyApp, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
+assert.match(database, /type: "practice\.answer\.submitted"/, "one answer event must feed both attempt and practice projections");
+assert.doesNotMatch(database, /type: "practice\.answer\.saved",\s*payload/s, "new local writes must not emit the legacy answer projection event");
 assert.match(studyApp, /db\.practiceRuns\.where\("\[status\+updatedAt\]"\)/, "home must use the compound index for the latest in-progress practiceRun");
 assert.match(studyApp, /const run = runId \? await db\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
@@ -42,4 +46,4 @@ assert.doesNotMatch(studyApp, /practiceSessionRef/, "periodic pull must not reta
 assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
 assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 
-console.log("practice UI tests passed: stable feedback, custom random runs, silent sync and one-source resume cards");
+console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, silent sync and one-source resume cards");

@@ -189,6 +189,23 @@ async function answerCurrentQuestion(page, optionIndexes, confirm = false) {
   }
 }
 
+async function pendingEventCount(page) {
+  return page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open("memory-line-study");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction("events", "readonly");
+      const count = transaction.objectStore("events").index("synced").count(IDBKeyRange.only(0));
+      count.onerror = () => reject(count.error);
+      count.onsuccess = () => {
+        database.close();
+        resolve(count.result);
+      };
+    };
+  }));
+}
+
 async function runDesktop(page) {
   const contextName = "desktop";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -272,8 +289,10 @@ async function runDesktop(page) {
   await capture(page, contextName, "practice-setup");
   await (await visibleLocator(page, page.locator(".setup-footer button"), "practice start button")).click();
   await page.locator(".question-card").waitFor({ state: "visible" });
+  const pendingBeforeFirstAnswer = await pendingEventCount(page);
   await answerCurrentQuestion(page, [0]);
   await expectText(page, "回答正确");
+  assert.equal(await pendingEventCount(page), pendingBeforeFirstAnswer + 1, "one submitted answer must add exactly one pending sync event");
   const note = page.locator('textarea[placeholder="写下错因、口诀或区分条件…"]');
   await note.fill("先确认线路和风险，再按规程巡视。");
   await expectText(page, "已自动保存");

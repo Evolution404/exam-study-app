@@ -36,6 +36,7 @@ import {
 import type {
   Attempt,
   GitHubSettings,
+  PracticeAnswerSubmittedPayload,
   PracticeRunDefinition,
   PracticeRunDefinitionReference,
   PracticeRun,
@@ -246,16 +247,29 @@ function runFromDefinition(definition: PracticeRunDefinition): PracticeRun {
 }
 
 function inlinePracticeEvents(events: readonly SyncEvent[]): ResolvedSyncEvent[] {
-  return events.map((event) => event.type === "practice.run.created"
-    ? { ...event, resolvedPayload: runFromDefinition(validatePracticeDefinition(event.payload)) }
-    : event);
+  return events.map((event) => {
+    if (event.type === "practice.run.created") {
+      return { ...event, resolvedPayload: runFromDefinition(validatePracticeDefinition(event.payload)) };
+    }
+    if (event.type === "practice.answer.submitted") {
+      const run = (event.payload as PracticeAnswerSubmittedPayload).run;
+      if (run && isRecord(run) && typeof run.id === "string") {
+        return { ...event, resolvedPayload: runFromDefinition(validatePracticeDefinition(run)) };
+      }
+    }
+    return event;
+  });
 }
 
 async function hydratePracticeEvents(client: GitHubV5Remote, events: readonly SyncEvent[]): Promise<ResolvedSyncEvent[]> {
   const references = new Map<string, SyncHeadDescriptorV5>();
   for (const event of events) {
-    if (event.type !== "practice.run.created") continue;
-    const reference = event.payload as PracticeRunDefinitionReference;
+    const reference = event.type === "practice.run.created"
+      ? event.payload as PracticeRunDefinitionReference
+      : event.type === "practice.answer.submitted"
+        ? (event.payload as PracticeAnswerSubmittedPayload).run as PracticeRunDefinitionReference | undefined
+        : undefined;
+    if (!reference) continue;
     validateSyncV5Descriptor(reference?.definition, "practiceDefinition");
     references.set(reference.definition.path, reference.definition);
   }
@@ -268,8 +282,13 @@ async function hydratePracticeEvents(client: GitHubV5Remote, events: readonly Sy
     definitions.set(descriptor.path, runFromDefinition(validatePracticeDefinition(payload.definition)));
   });
   return events.map((event) => {
-    if (event.type !== "practice.run.created") return event;
-    const path = (event.payload as PracticeRunDefinitionReference).definition.path;
+    const reference = event.type === "practice.run.created"
+      ? event.payload as PracticeRunDefinitionReference
+      : event.type === "practice.answer.submitted"
+        ? (event.payload as PracticeAnswerSubmittedPayload).run as PracticeRunDefinitionReference | undefined
+        : undefined;
+    if (!reference) return event;
+    const path = reference.definition.path;
     const run = definitions.get(path);
     if (!run) throw new Error(`远程练习定义缺失：${path}`);
     return { ...event, resolvedPayload: run };
@@ -405,11 +424,13 @@ async function prepareEventsForUpload(client: GitHubV5Remote, events: readonly S
   const uploadedDefinitions = new Map<string, SyncHeadDescriptorV5>();
   const logicalEvents: SyncEvent[] = [];
   for (const event of events) {
-    if (event.type !== "practice.run.created") {
+    const submitted = event.type === "practice.answer.submitted" ? event.payload as PracticeAnswerSubmittedPayload : undefined;
+    const definitionSource = event.type === "practice.run.created" ? event.payload : submitted?.run;
+    if (!definitionSource) {
       logicalEvents.push(event);
       continue;
     }
-    const definition = validatePracticeDefinition(event.payload);
+    const definition = validatePracticeDefinition(definitionSource);
     const text = JSON.stringify({
       formatVersion: 5,
       kind: "practice-run-definition",
@@ -432,7 +453,9 @@ async function prepareEventsForUpload(client: GitHubV5Remote, events: readonly S
       };
       uploadedDefinitions.set(digest, descriptor);
     }
-    logicalEvents.push({ ...event, payload: { definition: descriptor } satisfies PracticeRunDefinitionReference });
+    logicalEvents.push(event.type === "practice.run.created"
+      ? { ...event, payload: { definition: descriptor } satisfies PracticeRunDefinitionReference }
+      : { ...event, payload: { ...submitted!, run: { definition: descriptor } satisfies PracticeRunDefinitionReference } satisfies PracticeAnswerSubmittedPayload });
   }
   const prepared: SyncEvent[] = [];
   const uploadedPayloads = new Map<string, SyncHeadDescriptorV5>();
@@ -700,8 +723,13 @@ async function uploadPending(
       const selectedLocal = pending.slice(0, selected.length);
       await db.events.bulkPut(selectedLocal.map((event) => ({ ...event, synced: 1 as const })));
       const createdRunIds = selectedLocal
-        .filter((event) => event.type === "practice.run.created")
-        .map((event) => (event.payload as PracticeRunDefinition).id);
+        .flatMap((event) => {
+          if (event.type === "practice.run.created") return [(event.payload as PracticeRunDefinition).id];
+          if (event.type === "practice.answer.submitted" && (event.payload as PracticeAnswerSubmittedPayload).run) {
+            return [(event.payload as PracticeAnswerSubmittedPayload).attempt.runId];
+          }
+          return [];
+        });
       if (createdRunIds.length) await db.practiceRuns.where("id").anyOf(createdRunIds).modify({ definitionSynced: true });
       await db.syncFiles.bulkPut(descriptors.map((descriptor) => ({ path: descriptor.path, sha: descriptor.blobSha, appliedAt: next.generatedAt })));
       await saveHeadCache(settings, result.cache);

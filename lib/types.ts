@@ -123,6 +123,18 @@ export interface PracticeAnswerSyncPayload {
   answer: PracticeAnswerState;
 }
 
+/**
+ * One domain event for one submitted answer. The immutable attempt feeds
+ * history/statistics while the answer updates resumable practice progress.
+ * The first answer also carries the run definition; Sync v5 externalizes it
+ * to a content-addressed object before uploading the event page.
+ */
+export interface PracticeAnswerSubmittedPayload {
+  attempt: Attempt;
+  answer: PracticeAnswerState;
+  run?: PracticeRunDefinition | PracticeRunDefinitionReference;
+}
+
 export interface PracticeRunStatusSyncPayload {
   id: string;
   status: PracticeRunStatus;
@@ -249,7 +261,7 @@ export interface QuestionGroup {
 
 export interface SyncEvent {
   id: string;
-  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.created" | "practice.answer.saved" | "practice.run.status.changed" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
+  type: "bank.imported" | "bank.updated" | "bank.deleted" | "bankFolder.saved" | "bankFolder.deleted" | "attempt.created" | "note.upserted" | "question.created" | "question.updated" | "question.deleted" | "practice.run.created" | "practice.answer.saved" | "practice.answer.submitted" | "practice.run.status.changed" | "practice.run.deleted" | "questionGroup.saved" | "questionGroup.deleted";
   payload: unknown;
   deviceId: string;
   sequence: number;

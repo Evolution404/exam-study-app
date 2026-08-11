@@ -11,6 +11,7 @@ import type {
   PracticeRun,
   PracticeRunDefinition,
   PracticeAnswerSyncPayload,
+  PracticeAnswerSubmittedPayload,
   PracticeRunStatusSyncPayload,
   PracticeAnswerState,
   PracticeRunStats,
@@ -106,23 +107,6 @@ function runBankIds(run: PracticeRun) {
   return ["__all__", ...new Set(run.bankIds?.length ? run.bankIds : [run.bankId])];
 }
 
-function changedSubmittedAnswerIds(
-  previous: Record<string, PracticeAnswerState> | undefined,
-  next: Record<string, PracticeAnswerState>,
-) {
-  const changed: string[] = [];
-  const questionIds = new Set([...Object.keys(previous ?? {}), ...Object.keys(next)]);
-  for (const questionId of questionIds) {
-    const before = previous?.[questionId];
-    const after = next[questionId];
-    if (!before?.submitted && !after?.submitted) continue;
-    if (Boolean(before?.submitted) !== Boolean(after?.submitted)
-      || Boolean(before?.correct) !== Boolean(after?.correct)
-      || [...(before?.selected ?? [])].sort().join("") !== [...(after?.selected ?? [])].sort().join("")) changed.push(questionId);
-  }
-  return changed;
-}
-
 function practiceRunDefinition(run: PracticeRun): PracticeRunDefinition {
   return {
     id: run.id,
@@ -137,49 +121,6 @@ function practiceRunDefinition(run: PracticeRun): PracticeRunDefinition {
     optionOrders: run.optionOrders,
     startedAt: run.startedAt,
   };
-}
-
-async function ensurePracticeRunCreatedEvent(run: PracticeRun, deviceId: string) {
-  if (run.definitionSynced) return;
-  const pending = await db.events.where("synced").equals(0).filter((event) => (
-    event.type === "practice.run.created" && (event.payload as PracticeRunDefinition).id === run.id
-  )).first();
-  if (pending) return;
-  await db.events.put({
-    id: makeId("run-create"),
-    type: "practice.run.created",
-    payload: practiceRunDefinition(run),
-    deviceId,
-    sequence: nextSyncSequence(deviceId),
-    createdAt: run.startedAt,
-    synced: 0,
-  });
-}
-
-async function queuePracticeAnswerEvents(
-  run: PracticeRun,
-  questionIds: readonly string[],
-  deviceId: string,
-) {
-  for (const questionId of questionIds) {
-    const answer = run.answers[questionId];
-    if (!answer?.submitted) continue;
-    const pending = await db.events.where("synced").equals(0).filter((event) => {
-      if (event.type !== "practice.answer.saved") return false;
-      const payload = event.payload as PracticeAnswerSyncPayload;
-      return payload.runId === run.id && payload.questionId === questionId;
-    }).first();
-    const payload: PracticeAnswerSyncPayload = { runId: run.id, questionId, answer };
-    await db.events.put({
-      id: pending?.id ?? makeId("run-answer"),
-      type: "practice.answer.saved",
-      payload,
-      deviceId,
-      sequence: pending?.sequence ?? nextSyncSequence(deviceId),
-      createdAt: answer.updatedAt ?? run.updatedAt,
-      synced: 0,
-    });
-  }
 }
 
 function practiceEventRunId(event: SyncEvent) {
@@ -552,6 +493,87 @@ export async function recordAttempt(input: Omit<Attempt, "id" | "createdAt" | "d
   return attempt;
 }
 
+/**
+ * Persist one submitted answer as a single domain event. The local database
+ * still keeps separate attempt/statistics and practice-progress projections,
+ * but remote devices can rebuild both from this one event.
+ */
+export async function recordPracticeAnswer(
+  input: Omit<Attempt, "id" | "createdAt" | "deviceId" | "selected"> & { selected: string[] },
+) {
+  const createdAt = new Date().toISOString();
+  const deviceId = getDeviceId();
+  const eventId = makeId("run-answer");
+  const attempt: Attempt = {
+    runId: input.runId,
+    questionId: input.questionId,
+    bankId: input.bankId,
+    selected: input.selected.every((value) => /^[A-Z]$/.test(value))
+      ? [...input.selected].sort().join("")
+      : input.selected.join(""),
+    correct: input.correct,
+    elapsedMs: input.elapsedMs,
+    id: makeId("try"),
+    createdAt,
+    deviceId,
+  };
+  const answer: PracticeAnswerState = {
+    selected: input.selected,
+    submitted: true,
+    correct: input.correct,
+    updatedAt: createdAt,
+    deviceId,
+    eventId,
+  };
+
+  await db.transaction(
+    "rw",
+    [db.attempts, db.attemptStats, db.attemptDailyStats, db.practiceRuns, db.practiceRunStats, db.events],
+    async () => {
+      const current = await db.practiceRuns.get(input.runId);
+      if (!current || !current.questionIds.includes(input.questionId)) throw new Error("练习记录不存在或不包含当前题目。");
+
+      const definitionPending = current.definitionSynced || Boolean(await db.events.where("synced").equals(0).filter((event) => {
+        if (event.type === "practice.run.created") return (event.payload as PracticeRunDefinition).id === current.id;
+        if (event.type !== "practice.answer.submitted") return false;
+        const payload = event.payload as PracticeAnswerSubmittedPayload;
+        return payload.attempt?.runId === current.id && Boolean(payload.run);
+      }).first());
+      const payload: PracticeAnswerSubmittedPayload = {
+        attempt,
+        answer,
+        ...(!definitionPending ? { run: practiceRunDefinition(current) } : {}),
+      };
+      const next = mergePracticeRuns({
+        ...current,
+        answers: { [input.questionId]: answer },
+        updatedAt: createdAt,
+        revision: current.revision + 1,
+        lastAnsweredIndex: current.questionIds.indexOf(input.questionId),
+        syncDeviceId: deviceId,
+        syncEventId: eventId,
+      }, current, deviceId, eventId);
+
+      await db.attempts.put(attempt);
+      await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(attempt.questionId), attempt));
+      const dailyKey = attemptDailyKey(attempt);
+      await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), attempt));
+      await updatePracticeRunStats(current, next);
+      await db.practiceRuns.put(next);
+      await db.events.put({
+        id: eventId,
+        type: "practice.answer.submitted",
+        payload,
+        deviceId,
+        sequence: nextSyncSequence(deviceId),
+        createdAt,
+        synced: 0,
+      });
+    },
+  );
+  return { attempt, answer };
+}
+
 export async function saveNote(questionId: string, content: string) {
   const old = await db.notes.get(questionId);
   if (old?.content === content || (!old && !content.trim())) return old ?? {
@@ -594,7 +616,7 @@ export async function savePracticeProgress(session: ActivePractice) {
     status: "in_progress",
     revision: session.revision,
   };
-  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, db.events, async () => {
+  await db.transaction("rw", db.practiceRuns, db.practiceRunStats, async () => {
     const existingRun = await db.practiceRuns.get(run.id);
     const deviceId = getDeviceId();
     const savedRun = mergePracticeRuns({
@@ -604,14 +626,9 @@ export async function savePracticeProgress(session: ActivePractice) {
     }, existingRun, deviceId, run.updatedAt);
     await updatePracticeRunStats(existingRun, savedRun);
     await db.practiceRuns.put(savedRun);
-    // An empty practice is local draft state.  Publish the run only after a
-    // submitted answer changes; unconfirmed selections and navigation do not
-    // create noisy sync events.
-    const changedAnswerIds = changedSubmittedAnswerIds(existingRun?.answers, savedRun.answers);
-    if (changedAnswerIds.length) {
-      await ensurePracticeRunCreatedEvent(savedRun, deviceId);
-      await queuePracticeAnswerEvents(savedRun, changedAnswerIds, deviceId);
-    }
+    // Navigation and unconfirmed selections only update the local projection.
+    // Submitted answers are persisted atomically by recordPracticeAnswer(),
+    // which emits exactly one domain event for both history and run progress.
   });
   return session;
 }
@@ -637,8 +654,6 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     await updatePracticeRunStats(current, run);
     await db.practiceRuns.put(run);
     if (!Object.values(run.answers).some((answer) => answer.submitted)) return;
-    await ensurePracticeRunCreatedEvent(run, deviceId);
-    await queuePracticeAnswerEvents(run, changedSubmittedAnswerIds(current.answers, run.answers), deviceId);
     const pending = await db.events.where("synced").equals(0).filter((event) => (
       event.type === "practice.run.status.changed" && (event.payload as PracticeRunStatusSyncPayload).id === run.id
     )).first();
@@ -1443,6 +1458,46 @@ export async function applyRemoteEvents(events: ResolvedSyncEvent[]) {
             await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(incoming.questionId), incoming));
             const dailyKey = attemptDailyKey(incoming);
             await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), incoming));
+          }
+        } else if (event.type === "practice.answer.submitted") {
+          const payload = event.payload as PracticeAnswerSubmittedPayload;
+          const definedRun = event.resolvedPayload as PracticeRun | undefined;
+          if (definedRun && !await isDeletedAfter("practiceRun", definedRun.id, definedRun.updatedAt, event.deviceId, event.id)) {
+            await clearOlderTombstone("practiceRun", definedRun.id, definedRun.updatedAt, event.deviceId, event.id);
+            const current = await db.practiceRuns.get(definedRun.id);
+            const merged = mergePracticeRuns({
+              ...definedRun,
+              definitionSynced: true,
+              syncDeviceId: event.deviceId,
+              syncEventId: event.id,
+            }, current, event.deviceId, event.id);
+            await updatePracticeRunStats(current, merged);
+            await db.practiceRuns.put(merged);
+          }
+          const attempt = payload.attempt;
+          if (attempt?.id && await db.questions.get(attempt.questionId) && !await db.attempts.get(attempt.id)) {
+            await db.attempts.put(attempt);
+            await db.attemptStats.put(addAttemptToStats(await db.attemptStats.get(attempt.questionId), attempt));
+            const dailyKey = attemptDailyKey(attempt);
+            await db.attemptDailyStats.put(addAttemptToDailyStats(await db.attemptDailyStats.get(dailyKey), attempt));
+          }
+          const current = attempt?.runId ? await db.practiceRuns.get(attempt.runId) : undefined;
+          if (current && payload.answer?.submitted) {
+            const answer = {
+              ...payload.answer,
+              updatedAt: payload.answer.updatedAt ?? event.createdAt,
+              deviceId: payload.answer.deviceId ?? event.deviceId,
+              eventId: payload.answer.eventId ?? event.id,
+            };
+            const incoming: PracticeRun = {
+              ...current,
+              answers: { [attempt.questionId]: answer },
+              syncDeviceId: event.deviceId,
+              syncEventId: event.id,
+            };
+            const merged = mergePracticeRuns(incoming, current, event.deviceId, event.id);
+            await updatePracticeRunStats(current, merged);
+            await db.practiceRuns.put(merged);
           }
         } else if (event.type === "note.upserted") {
           const incoming = { ...(event.payload as Note), syncEventId: event.id };

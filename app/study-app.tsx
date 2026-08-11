@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { db, deletePracticeRun, getDeviceId, importQuestionBank, recordAttempt, saveNote, savePracticeProgress, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
+import { db, deletePracticeRun, getDeviceId, importQuestionBank, recordPracticeAnswer, saveNote, savePracticeProgress, setPracticeRunStatus, toggleQuestionFavorite, updateQuestion } from "@/lib/db";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
 import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
@@ -1425,14 +1425,14 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
       ? isCalculationAnswerCorrect(value, question.answer, preferences.calculationTolerancePercent)
       : value === [...question.answer].sort().join("");
     try {
-      await recordAttempt({ runId, questionId: question.id, bankId: question.bankId, selected: value, correct: isCorrect, elapsedMs: Date.now() - startedAt });
+      const result = await recordPracticeAnswer({ runId, questionId: question.id, bankId: question.bankId, selected: finalSelection, correct: isCorrect, elapsedMs: Date.now() - startedAt });
+      setSelected(finalSelection);
+      setSubmitted(true);
+      onStateChange(result.answer);
     } catch {
       answering.current = false;
       return;
     }
-    setSelected(finalSelection);
-    setSubmitted(true);
-    onStateChange({ selected: finalSelection, submitted: true, correct: isCorrect });
     playAnswerFeedback(isCorrect, preferences);
     if (isCorrect && preferences.autoNextCorrect && !isLast) {
       setAutoAdvancing(true);
@@ -1446,15 +1446,15 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     if (submitted || answering.current) return;
     answering.current = true;
     try {
-      await recordAttempt({ runId, questionId: question.id, bankId: question.bankId, selected: "", correct: false, elapsedMs: Date.now() - startedAt });
+      const result = await recordPracticeAnswer({ runId, questionId: question.id, bankId: question.bankId, selected: [], correct: false, elapsedMs: Date.now() - startedAt });
+      setSelected([]);
+      setCalculationDraft("");
+      setSubmitted(true);
+      onStateChange(result.answer);
     } catch {
       answering.current = false;
       return;
     }
-    setSelected([]);
-    setCalculationDraft("");
-    setSubmitted(true);
-    onStateChange({ selected: [], submitted: true, correct: false });
     playAnswerFeedback(false, preferences);
   }
 

@@ -459,10 +459,10 @@ assert.equal(remote.headPutStatuses.at(-1), 200);
 assert.equal(remote.head()?.eventPages.length, 1);
 
 // A four-bank-sized practice definition is much larger than one 256 KiB event
-// page. Sync v5 publishes it once as an immutable object and keeps the hot
-// event page bounded; another device restores the full order plus answer delta.
+// page. The first answer is still one logical event: Sync v5 externalizes its
+// embedded definition and another device restores both projections.
 await prepareUploadCase();
-const largeQuestionIds = Array.from({ length: 6_000 }, (_, index) => sha256(`large-practice-question-${index}`));
+const largeQuestionIds = [question.id, ...Array.from({ length: 5_999 }, (_, index) => sha256(`large-practice-question-${index}`))];
 const largeDefinition = {
   id: "large-practice-run",
   bankId: bank.id,
@@ -477,21 +477,15 @@ const largeDefinition = {
   startedAt: "2026-08-09T00:00:00.000Z",
 };
 assert.ok(byteLength(JSON.stringify(largeDefinition)) > SYNC_V5_MAX_EVENT_PAGE_BYTES);
-const largeCreated: SyncEvent = {
-  id: "large-practice-created",
-  type: "practice.run.created",
-  payload: largeDefinition,
-  deviceId: "large-practice-device",
-  sequence: 100,
-  createdAt: largeDefinition.startedAt,
-  synced: 0,
-};
 const largeAnswer: SyncEvent = {
   id: "large-practice-answer",
-  type: "practice.answer.saved",
+  type: "practice.answer.submitted",
   payload: {
-    runId: largeDefinition.id,
-    questionId: largeQuestionIds[0],
+    run: largeDefinition,
+    attempt: {
+      id: "large-practice-attempt", runId: largeDefinition.id, questionId: largeQuestionIds[0], bankId: bank.id,
+      selected: "A", correct: true, elapsedMs: 1_000, createdAt: "2026-08-09T00:01:00.000Z", deviceId: "large-practice-device",
+    },
     answer: { selected: ["A"], submitted: true, correct: true, updatedAt: "2026-08-09T00:01:00.000Z", deviceId: "large-practice-device" },
   },
   deviceId: "large-practice-device",
@@ -499,9 +493,9 @@ const largeAnswer: SyncEvent = {
   createdAt: "2026-08-09T00:01:00.000Z",
   synced: 0,
 };
-await db.events.bulkPut([largeCreated, largeAnswer]);
+await db.events.put(largeAnswer);
 const largeUpload = await syncWithGitHubV5(settings, token);
-assert.equal(largeUpload.pushed, 2);
+assert.equal(largeUpload.pushed, 1);
 assert.equal(remote.immutablePutPaths.some((path) => path.startsWith(SYNC_V5_PRACTICE_DEFINITION_PREFIX)), true);
 assert.equal(remote.head()?.eventPages.every((page) => page.size <= SYNC_V5_MAX_EVENT_PAGE_BYTES), true);
 await resetLocalDatabase();
@@ -509,6 +503,8 @@ await restoreFromGitHubV5(settings, token);
 const restoredLargeRun = await db.practiceRuns.get(largeDefinition.id);
 assert.equal(restoredLargeRun?.questionIds.length, largeQuestionIds.length);
 assert.equal(restoredLargeRun?.answers[largeQuestionIds[0]]?.submitted, true);
+assert.equal((await db.attempts.get("large-practice-attempt"))?.selected, "A");
+assert.equal((await db.attemptStats.get(question.id))?.total, 1, "the same event must rebuild attempt statistics");
 
 async function runCasMergeCase(status: 409 | 422, eventId: string, sequence: number) {
   await prepareUploadCase();

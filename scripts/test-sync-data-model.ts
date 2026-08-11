@@ -119,6 +119,7 @@ const {
   deleteQuestion,
   deletePracticeRun,
   recordAttempt,
+  recordPracticeAnswer,
   resetLocalDatabase,
   saveNote,
   savePracticeProgress,
@@ -226,35 +227,26 @@ assert.equal((await db.practiceRunStats.get("__all__"))?.total, 1);
 await savePracticeProgress(makeActivePractice({ ...run, updatedAt: isoAt(0), revision: 2 }, bank, question));
 assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type.startsWith("practice.")).count(), 0, "navigation without a submitted answer must not queue sync");
 assert.equal((await db.practiceRunStats.get(bank.id))?.total, 1, "saving a later revision must not double count the run");
-const answeredRun = {
-  ...run,
-  updatedAt: isoAt(0, 13, 1),
-  revision: 3,
-  answers: { [question.id]: { selected: ["A"], submitted: true, correct: true } },
-  lastAnsweredIndex: 0,
-};
-await savePracticeProgress(makeActivePractice(answeredRun, bank, question));
-const firstRunEvent = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.created").first();
-const firstAnswerEvent = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.answer.saved").first();
-assert.ok(firstRunEvent, "the first submitted answer must queue one immutable practice definition");
-assert.ok(firstAnswerEvent, "the first submitted answer must queue one small answer delta");
-await savePracticeProgress(makeActivePractice({ ...answeredRun, updatedAt: isoAt(0, 13, 2), revision: 4 }, bank, question));
-const unchangedRunEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.created").toArray();
-const unchangedAnswerEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.answer.saved").toArray();
-assert.equal(unchangedRunEvents.length, 1, "navigation after answering must not add another definition event");
-assert.equal(unchangedAnswerEvents.length, 1, "navigation after answering must not add another answer event");
-assert.equal(unchangedRunEvents[0].id, firstRunEvent.id);
-assert.equal(unchangedAnswerEvents[0].id, firstAnswerEvent.id);
+const firstSubmission = await recordPracticeAnswer({
+  runId: run.id, questionId: question.id, bankId: bank.id, selected: ["A"], correct: true, elapsedMs: 800,
+});
+const firstAnswerEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.answer.submitted").toArray();
+assert.equal(firstAnswerEvents.length, 1, "one submitted answer must queue exactly one domain event");
+assert.equal((firstAnswerEvents[0].payload as import("../lib/types").PracticeAnswerSubmittedPayload).attempt.id, firstSubmission.attempt.id);
+assert.ok((firstAnswerEvents[0].payload as import("../lib/types").PracticeAnswerSubmittedPayload).run, "the first answer event must carry the immutable practice definition");
+assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.created" || event.type === "practice.answer.saved").count(), 0, "a submission must not fan out into legacy practice events");
+const answeredRun = (await db.practiceRuns.get(run.id))!;
+assert.equal(answeredRun.answers[question.id].eventId, firstAnswerEvents[0].id);
+await savePracticeProgress(makeActivePractice({ ...answeredRun, updatedAt: isoAt(0, 13, 2), revision: answeredRun.revision + 1 }, bank, question));
+assert.equal(await db.events.where("synced").equals(0).count(), 1, "navigation after answering must not add another event");
 await db.practiceRuns.update(run.id, { definitionSynced: true });
 await db.events.where("synced").equals(0).modify({ synced: 1 });
-await savePracticeProgress(makeActivePractice({
-  ...answeredRun,
-  updatedAt: isoAt(0, 13, 3),
-  revision: 5,
-  answers: { [question.id]: { selected: ["B"], submitted: true, correct: false } },
-}, bank, question));
-assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.run.created").count(), 0, "a published definition must not be uploaded again for later answers");
-assert.equal(await db.events.where("synced").equals(0).filter((event) => event.type === "practice.answer.saved").count(), 1, "later answers stay as small deltas");
+await recordPracticeAnswer({
+  runId: run.id, questionId: question.id, bankId: bank.id, selected: ["B"], correct: false, elapsedMs: 900,
+});
+const laterAnswerEvents = await db.events.where("synced").equals(0).filter((event) => event.type === "practice.answer.submitted").toArray();
+assert.equal(laterAnswerEvents.length, 1, "each later answer must also queue exactly one event");
+assert.equal((laterAnswerEvents[0].payload as import("../lib/types").PracticeAnswerSubmittedPayload).run, undefined, "a published definition must not be attached again");
 const completed = await setPracticeRunStatus(run.id, "completed");
 assert.equal(completed?.status, "completed");
 assert.deepEqual(
