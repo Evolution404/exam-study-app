@@ -1,0 +1,210 @@
+.content-block-renderer {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  line-height: 1.65;
+}
+.content-block-renderer > .math-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.content-block-renderer[data-empty="true"] {
+  min-height: 1.4em;
+}
+
+.content-block-image,
+.asset-image {
+  margin: 0;
+  min-width: 0;
+}
+
+.content-block-image {
+  display: grid;
+  gap: 6px;
+}
+
+.content-block-image > figcaption {
+  color: var(--color-text-muted);
+  font-size: .85em;
+  line-height: 1.45;
+}
+
+.asset-image {
+  display: grid;
+  gap: 6px;
+}
+
+.asset-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--color-surface-muted);
+}
+
+.asset-image-status {
+  min-height: 72px;
+  padding: 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: .85em;
+}
+
+.asset-image[data-state="error"] .asset-image-status {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.asset-image[data-state="offline"] .asset-image-status {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.asset-image-retry,
+.content-block-editor-actions button {
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--color-primary);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.asset-image-retry:hover,
+.asset-image-retry:focus-visible,
+.content-block-editor-actions button:hover,
+.content-block-editor-actions button:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.asset-image-retry:disabled,
+.content-block-editor-actions button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.asset-image-alt {
+  color: var(--color-text-muted);
+  font-size: .8em;
+}
+
+.content-block-editor {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.content-block-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.content-block-editor-list {
+  display: grid;
+  gap: 10px;
+}
+
+.content-block-editor-item {
+  min-width: 0;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-raised);
+}
+
+.content-block-editor-text textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  line-height: 1.6;
+}
+
+.content-block-editor-text textarea:focus,
+.content-block-editor-image-fields input:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  outline-offset: 1px;
+  border-color: var(--color-primary);
+}
+
+.content-block-editor-image {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .8fr);
+  align-items: start;
+}
+
+.content-block-editor-image .asset-image {
+  min-width: 0;
+}
+
+.content-block-editor-image-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.content-block-editor-image-fields label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: .8em;
+}
+
+.content-block-editor-image-fields input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.content-block-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.content-block-editor-empty,
+.content-block-editor-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: .85em;
+}
+
+.content-block-editor-error {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+@media (max-width: 640px) {
+  .content-block-editor-image {
+    grid-template-columns: 1fr;
+  }
+}
