@@ -954,6 +954,22 @@ export async function savePracticeRunV6(run: PracticeRunV6): Promise<PracticeRun
   return updated;
 }
 
+/**
+ * Persist navigation and unsubmitted UI progress without creating a domain
+ * event. Submitted answers and status changes have their own single events;
+ * emitting a run snapshot here would reintroduce the historical two-events-
+ * per-answer bug and can exceed the event-page limit for large runs.
+ */
+export async function savePracticeProgressV6(run: PracticeRunV6): Promise<PracticeRunV6> {
+  const current = await dbV6.practiceRuns.get(run.id);
+  const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats], async () => {
+    await updatePracticeRunStatsInTx(current, updated);
+    await dbV6.practiceRuns.put(updated);
+  });
+  return updated;
+}
+
 export async function getReviewRoundQuestionIdsV6(roundId: string): Promise<string[]> {
   const round = await dbV6.reviewRounds.get(roundId);
   if (!round) throw new Error("复习轮次不存在或已被删除。");

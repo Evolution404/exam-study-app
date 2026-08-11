@@ -30,6 +30,7 @@ import {
   setPracticeRunStatusV6,
   splitQuestionV6,
   saveNoteV6,
+  savePracticeProgressV6,
 } from "../lib/db-v6";
 import type { BankFolderV6, BankQuestionMembership, ImageAsset, QuestionGroupV6, V6Event } from "../lib/v6-types";
 import { sha256Blob } from "../lib/image-assets";
@@ -137,6 +138,10 @@ const answerResult = await recordPracticeAnswerV6({ runId: cloneRun.id, question
 assert.equal(await dbV6.events.where("type").equals("practice.answer.submitted").count(), beforeEvents + 1);
 assert.equal(await applyV6Event(answerResult.event), false);
 assert.equal((await dbV6.reviewRoundProgress.get(`${parallelRound.id}:${split.clones[0].id}`)), undefined, "ordinary run does not advance a round");
+const eventCountAfterAnswer = await dbV6.events.count();
+const progressedRun = (await dbV6.practiceRuns.get(cloneRun.id))!;
+await savePracticeProgressV6({ ...progressedRun, lastAnsweredIndex: 0, revision: progressedRun.revision + 1, updatedAt: new Date().toISOString() });
+assert.equal(await dbV6.events.count(), eventCountAfterAnswer, "navigation progress must not emit a second run event");
 
 // Local folder/group/status actions must emit syncable v6 events instead of
 // letting pages write projection tables directly.
