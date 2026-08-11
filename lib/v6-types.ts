@@ -177,6 +177,7 @@ export type V6EventType =
   | "practice.answer.submitted"
   | "practice.run.saved"
   | "practice.run.status.changed"
+  | "practice.run.deleted"
   | "note.upserted"
   | "questionGroup.saved"
   | "questionGroup.deleted"

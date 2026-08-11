@@ -233,6 +233,15 @@ function tombstoneKey(entityType: string, entityId: string): string {
   return `${entityType}:${entityId}`;
 }
 
+function practiceEventRunId(event: V6Event): string | undefined {
+  const payload = event.payload as { id?: unknown; runId?: unknown } | undefined;
+  if (event.type === "practice.answer.submitted") return typeof payload?.runId === "string" ? payload.runId : undefined;
+  if (event.type === "practice.run.saved" || event.type === "practice.run.status.changed" || event.type === "practice.run.deleted") {
+    return typeof payload?.id === "string" ? payload.id : undefined;
+  }
+  return undefined;
+}
+
 function compareClock(left: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }, right: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }): number {
   return (left.updatedAt ?? left.createdAt ?? "").localeCompare(right.updatedAt ?? right.createdAt ?? "")
     || (left.deviceId ?? "").localeCompare(right.deviceId ?? "")
@@ -1110,6 +1119,29 @@ export async function setPracticeRunStatusV6(runId: string, status: PracticeRunV
   return updated;
 }
 
+/** Remove the run projection without deleting global question learning stats. */
+export async function deletePracticeRunV6(runId: string): Promise<boolean> {
+  const current = await dbV6.practiceRuns.get(runId);
+  if (!current) return false;
+  const hasSubmittedAnswer = Object.values(current.answers).some((answer) => answer.submitted);
+  const deletedAt = nowIso();
+  const deviceId = getV6DeviceId();
+  const eventId = makeV6Id("run-delete");
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.tombstones], async () => {
+    await updatePracticeRunStatsInTx(current, undefined);
+    await dbV6.practiceRuns.delete(runId);
+    const pending = await dbV6.events.where("synced").equals(0).filter((event) => practiceEventRunId(event) === runId).toArray();
+    if (pending.length) await dbV6.events.bulkDelete(pending.map((event) => event.id));
+    if (!hasSubmittedAnswer) return;
+    await dbV6.tombstones.put({
+      key: tombstoneKey("practiceRun", runId), entityType: "practiceRun", entityId: runId,
+      deletedAt, deviceId, eventId,
+    });
+    await dbV6.events.put(eventWithId("practice.run.deleted", { id: runId, deletedAt }, eventId, deletedAt, deviceId, 0));
+  });
+  return true;
+}
+
 export async function toggleQuestionFavoriteV6(questionId: string): Promise<QuestionV6> {
   const current = await dbV6.questions.get(questionId);
   if (!current) throw new Error("题目不存在或已被删除。");
@@ -1453,6 +1485,9 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         break;
       case "practice.run.saved": {
         const run = event.payload as PracticeRunV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
+        if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.practiceRuns.get(run.id);
         if (!current || compareClock(run, current) >= 0) {
           await updatePracticeRunStatsInTx(current, run);
@@ -1462,11 +1497,27 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
       }
       case "practice.run.status.changed": {
         const run = event.payload as PracticeRunV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
+        if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.practiceRuns.get(run.id);
         if (!current || compareClock(run, current) >= 0) {
           await updatePracticeRunStatsInTx(current, run);
           await dbV6.practiceRuns.put(run);
         }
+        break;
+      }
+      case "practice.run.deleted": {
+        const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", payload.id));
+        if (tombstone && compareClock(deletedClock, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        const current = await dbV6.practiceRuns.get(payload.id);
+        if (current && compareClock(deletedClock, current) < 0) break;
+        await updatePracticeRunStatsInTx(current, undefined);
+        await dbV6.practiceRuns.delete(payload.id);
+        await dbV6.tombstones.put({ key: tombstoneKey("practiceRun", payload.id), entityType: "practiceRun", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
         break;
       }
       case "note.upserted": {

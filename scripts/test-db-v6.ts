@@ -9,6 +9,7 @@ import {
   dbV6,
   deleteBankFolderV6,
   deleteBankV6,
+  deletePracticeRunV6,
   deleteQuestionGroupV6,
   deleteQuestionV6,
   getBankQuestionsV6,
@@ -160,6 +161,14 @@ assert.ok(await dbV6.tombstones.get(`questionGroup:${localGroup.id}`));
 const abandoned = await setPracticeRunStatusV6(cloneRun.id, "abandoned");
 assert.equal(abandoned?.status, "abandoned");
 assert.ok(await dbV6.events.where("type").equals("practice.run.status.changed").first());
+const cloneStatsBeforeRunDelete = (await dbV6.attemptStats.get(split.clones[0].id))?.total;
+assert.equal(await deletePracticeRunV6(cloneRun.id), true);
+assert.equal(await dbV6.practiceRuns.get(cloneRun.id), undefined);
+assert.equal((await dbV6.attemptStats.get(split.clones[0].id))?.total, cloneStatsBeforeRunDelete, "deleting a run keeps global learning stats");
+assert.ok(await dbV6.events.where("type").equals("practice.run.deleted").first());
+const staleRun = { ...cloneRun, updatedAt: "2000-01-01T00:00:00.000Z", deviceId: "remote" };
+assert.equal(await applyV6Event({ id: "run-stale-save", type: "practice.run.saved", payload: staleRun, deviceId: "remote", sequence: 99, createdAt: staleRun.updatedAt, synced: 1 }), true);
+assert.equal(await dbV6.practiceRuns.get(cloneRun.id), undefined, "stale run save must not cross a newer deletion tombstone");
 
 // Deleting a bank removes only joins, while global deletion clears history.
 await deleteBankV6(importedB.id);
