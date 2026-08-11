@@ -113,6 +113,29 @@ export interface CreatePracticeRunInputV6 {
   reviewRoundId?: string;
 }
 
+/** Complete projection shape accepted by the v6 atomic restore helper. */
+export interface V6RestoreState {
+  banks: BankV6[];
+  bankFolders: BankFolderV6[];
+  questions: QuestionV6[];
+  /** Wire checkpoints call this `memberships`; the alias eases internal callers. */
+  memberships?: BankQuestionMembership[];
+  bankQuestionMemberships?: BankQuestionMembership[];
+  imageAssets: ImageAsset[];
+  attempts: AttemptV6[];
+  attemptStats: AttemptStatsV6[];
+  attemptDailyStats: AttemptDailyStatsV6[];
+  notes: NoteV6[];
+  practiceRuns: PracticeRunV6[];
+  practiceRunStats: PracticeRunStatsV6[];
+  questionGroups: QuestionGroupV6[];
+  reviewRounds: ReviewRound[];
+  reviewRoundProgress: ReviewRoundProgress[];
+  tombstones: TombstoneV6[];
+  /** Optional event history embedded by migration-produced checkpoints. */
+  events?: V6Event[];
+}
+
 const imageMimeTypes = new Set(["image/webp", "image/jpeg", "image/png"]);
 let idCounter = 0;
 let sequenceCounter = 0;
@@ -1366,6 +1389,70 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
 
 export const reduceV6Event = applyV6Event;
 export const applyRemoteV6Event = applyV6Event;
+
+/**
+ * Replace every v6 projection and replay remote events atomically.
+ *
+ * The helper intentionally leaves `syncFiles` and `syncMeta` untouched: those
+ * tables are the v6 remote cache and are committed by the sync orchestrator
+ * only after this transaction succeeds.  Local pending events can optionally
+ * be projected back over the checkpoint while retaining their `synced: 0`
+ * marker, which is what pull/sync use to avoid losing offline edits.
+ */
+export async function restoreV6CheckpointAndEvents(
+  state: V6RestoreState,
+  remoteEvents: readonly V6Event[] = [],
+  options: { preservePending?: boolean } = {},
+): Promise<{ applied: number; preserved: number }> {
+  const pending = options.preservePending ? await dbV6.events.where("synced").equals(0).toArray() : [];
+  const remoteIds = new Set(remoteEvents.map((event) => event.id));
+  const cachedAssets = await dbV6.imageAssets.toArray();
+  const cachedBlobs = new Map(cachedAssets.filter((asset) => asset.blob).map((asset) => [asset.id, asset]));
+  const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];
+  const tables = [
+    dbV6.banks, dbV6.bankFolders, dbV6.questions, dbV6.bankQuestionMemberships, dbV6.imageAssets,
+    dbV6.attempts, dbV6.attemptStats, dbV6.attemptDailyStats, dbV6.notes, dbV6.practiceRuns,
+    dbV6.practiceRunStats, dbV6.questionGroups, dbV6.reviewRounds, dbV6.reviewRoundProgress,
+    dbV6.tombstones, dbV6.events,
+  ];
+  let applied = 0;
+  let preserved = 0;
+  await dbV6.transaction("rw", tables, async () => {
+    for (const table of tables) await table.clear();
+    await dbV6.banks.bulkPut(state.banks);
+    await dbV6.bankFolders.bulkPut(state.bankFolders);
+    await dbV6.questions.bulkPut(state.questions);
+    await dbV6.bankQuestionMemberships.bulkPut(memberships);
+    await dbV6.imageAssets.bulkPut(state.imageAssets.map((descriptor) => {
+      const cached = cachedBlobs.get(descriptor.id);
+      return cached?.blob && cached.size === descriptor.size ? { ...descriptor, blob: cached.blob } : descriptor;
+    }));
+    await dbV6.attempts.bulkPut(state.attempts);
+    await dbV6.attemptStats.bulkPut(state.attemptStats);
+    await dbV6.attemptDailyStats.bulkPut(state.attemptDailyStats);
+    await dbV6.notes.bulkPut(state.notes);
+    await dbV6.practiceRuns.bulkPut(state.practiceRuns);
+    await dbV6.practiceRunStats.bulkPut(state.practiceRunStats);
+    await dbV6.questionGroups.bulkPut(state.questionGroups);
+    await dbV6.reviewRounds.bulkPut(state.reviewRounds);
+    await dbV6.reviewRoundProgress.bulkPut(state.reviewRoundProgress);
+    await dbV6.tombstones.bulkPut(state.tombstones);
+
+    for (const event of remoteEvents) {
+      if (await applyV6Event(event)) applied += 1;
+    }
+    for (const event of pending) {
+      if (remoteIds.has(event.id)) continue;
+      if (await applyV6Event(event)) {
+        await dbV6.events.put({ ...event, synced: 0 });
+        preserved += 1;
+      }
+    }
+  });
+  return { applied, preserved };
+}
+
+export const applyV6CheckpointAndEvents = restoreV6CheckpointAndEvents;
 
 function assertDigest(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field}必须是 64 位小写 SHA-256 摘要`);

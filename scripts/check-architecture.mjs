@@ -37,71 +37,42 @@ const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match)
 if (databaseVersions.length !== 1 || databaseVersions[0] !== 10) fail("客户端只能声明当前数据库 v10");
 
 const sync = read("lib/github-sync.ts");
-const syncV5 = read("lib/github-sync-v5.ts");
-const syncV5Head = read("lib/sync-v5-head.ts");
-const syncV5Remote = read("lib/github-v5-remote.ts");
+const syncV6 = read("lib/github-sync-v6.ts");
+const syncV6Head = read("lib/sync-v6-head.ts");
+const syncV6Remote = read("lib/github-v6-remote.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
+if (/github-sync-v5|github-v5-remote|sync-v5|from ["']\.\/db["']/.test(sync)) fail("公开同步门面不得导入 v5 或旧 DB");
+if (!/SYNC_V6_HEAD_PATH\s*=\s*["']sync\/v6\/head\.json["']/.test(syncV6Head)
+  || !/SYNC_V6_HEAD_PATH/.test(syncV6Remote)
+  || !/GitHubV6Remote/.test(syncV6)
+  || !/syncWithGitHubV6/.test(syncV6)
+  || !/restoreFromGitHubV6/.test(syncV6)) {
+  fail("公开同步入口必须通过 Sync v6 固定 head 路径读写远程索引");
+}
+if (!/formatVersion:\s*6\b/.test(syncV6) || !/SYNC_V6_MAX_EVENT_PAGE_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV6Head)
+  || !/SYNC_V6_MAX_EVENT_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV6Head)
+  || !/SYNC_V6_MAX_HOT_EVENT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV6Head)) {
+  fail("Sync v6 必须保持事件、分页和热窗口上限");
+}
+if (!/syncWithGitHubV6 as syncWithGitHub/.test(sync)) fail("公开 syncWithGitHub 必须委托 v6");
+if (!/restoreFromGitHubV6 as restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHubV6 as restoreFullHistoryFromGitHub/.test(sync)) {
+  fail("公开恢复入口必须委托 v6");
+}
+if (/github-sync-v5|github-v5-remote|sync-v5/.test(syncV6)) fail("生产 v6 编排不得依赖 v5 transport");
 
-// v5 has one mutable object.  Keep the spelling in one protocol module and
-// require the GitHub transport to consume that constant instead of deriving a
-// branch- or repository-dependent head path.
-if (!/SYNC_V5_HEAD_PATH\s*=\s*["']sync\/v5\/head\.json["']/.test(syncV5Head)) {
-  fail("Sync v5 必须将固定 head 路径设为 sync/v5/head.json");
-}
-if (!/SYNC_V5_HEAD_PATH/.test(syncV5Remote) || !/GitHubV5Remote/.test(syncV5)) {
-  fail("公开同步入口必须通过 Sync v5 固定 head 路径读写远程索引");
-}
-if (!/formatVersion:\s*5\b/.test(syncV5) || !/syncWithGitHubV5/.test(syncV5) || !/restoreFromGitHubV5/.test(syncV5)) {
-  fail("公开同步入口必须实现同步协议 v5");
-}
-if (!/SYNC_V5_MAX_EVENT_PAGE_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV5Head)) {
-  fail("Sync v5 事件页必须保持 256 KiB 的有界传输颗粒度");
-}
-if (!/SYNC_V5_MAX_DESCRIPTOR_BYTES\s*=\s*32\s*\*\s*1024\s*\*\s*1024/.test(syncV5Head)
-  || !/SYNC_V5_PRACTICE_DEFINITION_PREFIX/.test(syncV5)
-  || !/practice\.answer\.saved/.test(db)) {
-  fail("Sync v5 必须使用 32 MiB 内容寻址对象和逐题练习增量事件");
-}
-if (/practice\.run\.saved/.test(db) || /单条同步事件超过 256 KiB/.test(syncV5)) {
-  fail("Sync v5 不得把完整 PracticeRun 快照作为热事件上传");
-}
-
-// The stable names consumed by the UI are thin wrappers around v5 only.
-const publicEntryNames = [
-  "syncWithGitHub",
-  "restoreFromGitHub",
-  "restoreFullHistoryFromGitHub",
-  "loadAttemptHistory",
-  "verifyGitHubVault",
-  "initializeGitHubVault",
-];
-const requiredPublicEntryNames = ["syncWithGitHub", "restoreFromGitHub", "restoreFullHistoryFromGitHub"];
-function exportedFunctionBlock(name) {
-  const match = sync.match(new RegExp(`export (?:async )?function ${name}\\b[\\s\\S]*?(?=\\nexport (?:async )?function |$)`));
-  return match?.[0] ?? "";
-}
-for (const name of requiredPublicEntryNames) {
-  if (!exportedFunctionBlock(name)) fail(`公开入口 ${name} 必须存在并指向 Sync v5`);
-}
-for (const name of publicEntryNames) {
-  const block = exportedFunctionBlock(name);
-  if (!block) continue;
-  if (!/V5/.test(block)) fail(`公开入口 ${name} 必须委托 Sync v5 实现`);
-  if (/sync\/v[23]\//.test(block) || /manifestPath|v3EventPrefix|v3CatalogPath/.test(block)) {
-    fail(`公开入口 ${name} 不得读写 v2/v3 路径`);
-  }
-}
-for (const match of sync.matchAll(/export (?:async )?function\s+(\w+)/g)) {
-  const name = match[1];
-  if (/v[23]/i.test(name) && !/(?:Legacy|Migration)/i.test(name)) {
-    fail(`旧版同步入口 ${name} 必须明确标记为 Legacy 或 Migration 内部实现`);
-  }
+// v5 is migration-only.  No app/lib production module may import it except
+// explicitly named migration helpers and the legacy implementation itself.
+for (const { file, source } of fs.readdirSync(path.join(root, "lib"), { recursive: true })
+  .filter((file) => typeof file === "string" && /\.tsx?$/.test(file))
+  .map((file) => ({ file, source: read(path.join("lib", file)) }))) {
+  if (["github-sync-v5.ts", "github-v5-remote.ts", "sync-v5-head.ts", "sync-v5-catalog.ts"].includes(file) || file.startsWith("migration/")) continue;
+  if (/from ["'][^"']*(?:github-sync-v5|github-v5-remote|sync-v5)[^"']*["']/.test(source)) fail(`${file} 只能由迁移模块读取 v5`);
 }
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 
 if (/sessions:\s*["']/.test(db)) fail("DB v10 必须删除重复的 active sessions 表");
-if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
+if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；仅公开写入 DB v10 / Sync v5 head。`);
+console.log(`架构检查通过：主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v6 namespace/head。`);
