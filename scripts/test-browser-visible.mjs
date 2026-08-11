@@ -221,6 +221,31 @@ async function attachFixtureImage(page) {
   await page.getByRole("dialog", { name: "编辑题目" }).waitFor({ state: "hidden" });
 }
 
+async function assertBankManagementActions(page, expectedColumns) {
+  const toolbar = page.locator(".bank-management-heading .heading-actions");
+  const buttons = toolbar.locator(":scope > button");
+  assert.equal(await buttons.count(), 5, "bank management toolbar must expose five actions");
+  const layout = await toolbar.evaluate((element) => ({
+    columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+    buttons: [...element.querySelectorAll(":scope > button")].map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        height: box.height,
+        scrollWidth: button.scrollWidth,
+        width: box.width,
+        whiteSpace: getComputedStyle(button).whiteSpace,
+      };
+    }),
+  }));
+  assert.equal(layout.columns, expectedColumns, `bank management toolbar must use ${expectedColumns} columns`);
+  const heights = layout.buttons.map(({ height }) => height);
+  assert.ok(Math.max(...heights) - Math.min(...heights) < 1, "bank management actions must have equal heights");
+  for (const button of layout.buttons) {
+    assert.equal(button.whiteSpace, "nowrap", "bank management action text must stay on one line");
+    assert.ok(button.scrollWidth <= button.width + 1, "bank management action text must fit its button");
+  }
+}
+
 async function runDesktop(page) {
   const contextName = "desktop";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -237,6 +262,7 @@ async function runDesktop(page) {
   const excelInput = page.locator('input[type="file"][accept*=".xlsx"]').first();
   await excelInput.setInputFiles(excelFixtureFile);
   await expectNotice(page, /已从 Excel 导入/, "Excel import notice");
+  await assertBankManagementActions(page, 5);
   await capture(page, contextName, "excel-imported");
   await attachFixtureImage(page);
 
@@ -403,6 +429,7 @@ async function runMobile(page) {
   await capture(page, contextName, "mobile-menu");
   await clickButton(page, "题库");
   await expectText(page, "题库管理");
+  await assertBankManagementActions(page, 2);
   const beforeTemplateDownload = page.url();
   const download = page.waitForEvent("download", { timeout: 3_000 }).catch(() => undefined);
   await clickTextButton(page, "下载 Excel 模板");
