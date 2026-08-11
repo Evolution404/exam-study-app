@@ -24,6 +24,7 @@
     "test:modal": "tsx scripts/test-modal-layering.ts",
     "test:v6-domain": "tsx scripts/test-v6-domain.ts",
     "test:image-assets": "tsx scripts/test-image-assets.ts",
+    "test:content-block-ui": "tsx scripts/test-content-block-ui.ts",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
