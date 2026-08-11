@@ -1,4 +1,4 @@
-export type QuestionType = "判断" | "单选" | "多选";
+export type QuestionType = "判断" | "单选" | "多选" | "计算";
 
 export interface Bank {
   id: string;
@@ -36,6 +36,7 @@ export interface Question {
   answer: string;
   options: string[];
   type: QuestionType;
+  imageUrl?: string;
   tags: string[];
   favorite?: boolean;
   userUpdatedAt?: string;

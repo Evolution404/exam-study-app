@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:modal",
+    "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:question-types && npm run test:modal",
     "typecheck": "tsc --noEmit",
     "test:architecture": "node scripts/check-architecture.mjs",
     "test:sync": "tsx scripts/test-sync-data-model.ts && tsx scripts/test-sync-entity-conflicts.ts && tsx scripts/test-sync-checkpoint-transaction.ts && tsx scripts/test-sync-restore-staging.ts && tsx scripts/test-sync-v5-head.ts && tsx scripts/test-github-v5-remote.ts && tsx scripts/test-sync-v5-catalog.ts && tsx scripts/test-sync-v5-integration.ts",
@@ -20,6 +20,7 @@
     "test:press-intent": "tsx scripts/test-press-intent.ts",
     "test:typography": "tsx scripts/test-display-typography.ts",
     "test:answer-ui": "tsx scripts/test-practice-answer-feedback.ts",
+    "test:question-types": "tsx scripts/test-question-types.ts",
     "test:modal": "tsx scripts/test-modal-layering.ts",
     "lint": "eslint . --ignore-pattern dist"
   },

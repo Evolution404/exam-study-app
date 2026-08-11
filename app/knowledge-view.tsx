@@ -49,7 +49,7 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
 
   async function replaceTag(from: string, to?: string) {
     const targets = (data?.questions ?? []).filter((question) => question.tags.includes(from));
-    await Promise.all(targets.map((question) => updateQuestion(question.id, { stem: question.stem, options: question.options, answer: question.answer, type: question.type, tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from) })));
+    await Promise.all(targets.map((question) => updateQuestion(question.id, { stem: question.stem, options: question.options, answer: question.answer, type: question.type, imageUrl: question.imageUrl, tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from) })));
     setActiveTag(undefined); setRenameValue("");
     onNotice(to ? `标签“${from}”已整理为“${to}”` : `标签“${from}”已从 ${targets.length} 道题移除`);
   }

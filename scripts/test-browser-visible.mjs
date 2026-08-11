@@ -11,6 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const baseUrl = (configuredBaseUrl || "http://127.0.0.1:5173").replace(/\/$/, "");
+const appBaseUrl = baseUrl.endsWith("/exam-study-app") ? baseUrl : `${baseUrl}/exam-study-app`;
 const artifactRoot = path.join(root, "artifacts", "browser-qa");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const runRoot = path.join(artifactRoot, runId);
@@ -25,6 +26,7 @@ const fixture = [
   { q: "哪些做法有助于安全巡视？", a: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], ans: ["A", "B"] },
   { q: "巡视前应确认天气和现场风险。", a: ["正确", "错误"], ans: "A" },
   { q: "发现异常后，最合适的第一步是什么？", a: ["立即离开并隐瞒", "按流程记录并报告", "自行拆除设备", "等待下次巡视"], ans: "B" },
+  { q: "图片所示数值允许 1% 误差时，计算结果是多少？", type: "计算", a: [], ans: "10", imageUrl: `${appBaseUrl}/icons/app-icon-192.png` },
 ];
 const fixtureFile = {
   name: "送电线路工-初级工.json",
@@ -37,9 +39,10 @@ const excelFixtureFile = {
   buffer: XLSX.write((() => {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["题干", "答案", "A", "B", "C"],
-      ["Excel 导入后的第一道题是什么？", "A", "通过校验", "跳过校验", "无法判断"],
-      ["Excel 导入支持多选吗？", "AB", "支持", "可以", "不支持"],
+      ["题干", "题型", "答案", "图片地址", "标签", "A", "B", "C"],
+      ["Excel 导入后的第一道题是什么？", "单选", "A", "", "Excel", "通过校验", "跳过校验", "无法判断"],
+      ["Excel 导入支持多选吗？", "多选", "AB", "", "Excel", "支持", "可以", "不支持"],
+      ["Excel 计算题的标准答案是多少？", "计算", "10", "https://example.com/question.png", "Excel，计算"],
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "题库");
     return workbook;
@@ -110,7 +113,7 @@ async function expectText(page, text, timeout = 10_000) {
   return locator;
 }
 
-async function waitForQuestion(page, number, total = 4) {
+async function waitForQuestion(page, number, total = 5) {
   const progress = page.locator(".practice-progress span");
   await progress.filter({ hasText: new RegExp(`^${number} / ${total} ·`) }).waitFor({ state: "visible" });
 }
@@ -214,6 +217,36 @@ async function runDesktop(page) {
   const groupSize = page.getByRole("spinbutton", { name: "每组题目数量" });
   await groupSize.fill("2");
   await groupSize.blur();
+  await clickTextButton(page, "深色");
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+  const darkInputStyles = await page.evaluate(() => {
+    const group = document.querySelector('input[aria-label="每组题目数量"]');
+    const goal = document.querySelector('input[aria-label="每日目标题数"]');
+    return {
+      groupInput: getComputedStyle(group).backgroundColor,
+      groupShell: getComputedStyle(group.parentElement).backgroundColor,
+      goalInput: getComputedStyle(goal).backgroundColor,
+      goalShell: getComputedStyle(goal.parentElement).backgroundColor,
+    };
+  });
+  assert.equal(darkInputStyles.groupInput, "rgba(0, 0, 0, 0)", "dark group-size input must use its field shell background");
+  assert.equal(darkInputStyles.goalInput, "rgba(0, 0, 0, 0)", "dark daily-goal input must use its field shell background");
+  assert.equal(darkInputStyles.groupShell, darkInputStyles.goalShell, "dark numeric field shells must use one consistent surface");
+  const themeCheckOffset = await page.locator('.theme-setting button.active > svg').evaluate((icon) => {
+    const iconBox = icon.getBoundingClientRect();
+    const buttonBox = icon.parentElement.getBoundingClientRect();
+    return Math.abs((iconBox.top + iconBox.height / 2) - (buttonBox.top + buttonBox.height / 2));
+  });
+  assert.ok(themeCheckOffset < 2, `theme checkmark must be vertically centered, offset was ${themeCheckOffset}px`);
+  await expectText(page, "客户端版本");
+  await page.evaluate(() => {
+    const raw = JSON.parse(window.localStorage.getItem("practice-preferences") ?? "{}");
+    window.localStorage.setItem("practice-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await clickButton(page, "配置");
+  await expectText(page, "答题配置");
 
   const shortcutHeading = page.getByRole("heading", { name: "电脑快捷键" });
   await shortcutHeading.scrollIntoViewIfNeeded();
@@ -243,7 +276,7 @@ async function runDesktop(page) {
   await expectText(page, "回答正确");
   const note = page.locator('textarea[placeholder="写下错因、口诀或区分条件…"]');
   await note.fill("先确认线路和风险，再按规程巡视。");
-  await clickTextButton(page, "保存解析");
+  await expectText(page, "已自动保存");
   await capture(page, contextName, "practice-answer");
 
   await clickButton(page, "打开题目总览");
@@ -251,6 +284,7 @@ async function runDesktop(page) {
   await capture(page, contextName, "practice-overview");
   await clickButton(page, "关闭题目总览");
   await clickTextButton(page, "下一题");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".practice-layout")).animationName === "question-page-forward");
   await waitForQuestion(page, 2);
   // The app keeps the stable type grouping order (single choice, multi
   // choice, judgment), so the fourth fixture row is the second visible item.
@@ -266,11 +300,25 @@ async function runDesktop(page) {
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 4);
   await answerCurrentQuestion(page, [0]);
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 5);
+  await page.locator(".question-image img").waitFor({ state: "visible" });
+  const calculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
+  await calculationAnswer.fill("10.05");
+  await clickTextButton(page, "确认答案");
+  await expectText(page, "回答正确");
   await clickTextButton(page, "查看本次结果");
   await expectText(page, "本次正确率");
   await capture(page, contextName, "practice-result");
+  await page.locator('button[aria-label^="查看第"]').first().click();
+  await page.getByRole("dialog", { name: "练习结果题目详情" }).waitFor({ state: "visible" });
+  await capture(page, contextName, "practice-result-detail");
+  await clickButton(page, "关闭题目详情");
 
   await clickTextButton(page, "返回练习记录");
+  await page.locator(".practice-hub-tabs button").first().click();
+  await page.locator(".practice-setup-card").waitFor({ state: "visible" });
+  assert.equal(await page.locator(".latest-practice-banner").count(), 0, "completed runs must not leave a latest-practice banner");
   await clickButton(page, "同步");
   await expectText(page, "GitHub 同步");
   await expectText(page, "清除本机所有数据");
@@ -320,6 +368,11 @@ async function runMobile(page) {
   await capture(page, contextName, "mobile-menu");
   await clickButton(page, "题库");
   await expectText(page, "题库管理");
+  const beforeTemplateDownload = page.url();
+  const download = page.waitForEvent("download", { timeout: 3_000 }).catch(() => undefined);
+  await clickTextButton(page, "下载 Excel 模板");
+  await download;
+  assert.equal(page.url(), beforeTemplateDownload, "mobile template download must keep the app on its current page");
   await capture(page, contextName, "banks");
   await clickButton(page, "打开导航");
   await clickButton(page, "练习");
@@ -338,6 +391,7 @@ async function runMobile(page) {
   const clearDataHeading = page.getByRole("heading", { name: "清除本机所有数据" });
   await clearDataHeading.scrollIntoViewIfNeeded();
   assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "mobile preferences must expose the site-data reset button");
+  await expectText(page, "客户端版本");
   await capture(page, contextName, "preferences-and-sync");
   const settingsCard = page.locator(".mobile-sync-settings .settings-card").first();
   const fields = settingsCard.locator("input");

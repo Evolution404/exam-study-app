@@ -3,8 +3,9 @@ import { Plus, Save, Trash2, X } from "lucide-react";
 import type { Question, QuestionType } from "@/lib/types";
 import { ModalPortal } from "@/app/modal-portal";
 import { AppSelect } from "@/app/app-select";
+import { QuestionImage } from "@/app/question-image";
 
-export type QuestionChanges = Pick<Question, "stem" | "options" | "answer" | "type" | "tags">;
+export type QuestionChanges = Pick<Question, "stem" | "options" | "answer" | "type" | "tags" | "imageUrl">;
 
 export function QuestionEditor({ question, onSave, onCancel, title = "编辑题目", eyebrow = "仅修改你的个人副本", submitLabel = "保存修改" }: {
   question: Question;
@@ -18,6 +19,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
   const [options, setOptions] = useState([...question.options]);
   const [answer, setAnswer] = useState(question.answer);
   const [type, setType] = useState<QuestionType>(question.type);
+  const [imageUrl, setImageUrl] = useState(question.imageUrl ?? "");
   const [tags, setTags] = useState(question.tags.join("，"));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -26,6 +28,12 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
     setType(value);
     if (value === "判断") {
       setOptions(["正确", "错误"]);
+      setAnswer("A");
+    } else if (value === "计算") {
+      setOptions([]);
+      setAnswer("");
+    } else if (type === "计算") {
+      setOptions(["", "", "", ""]);
       setAnswer("A");
     } else if (type === "判断") {
       setOptions(["", "", "", ""]);
@@ -49,6 +57,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
         options,
         answer,
         type,
+        imageUrl,
         tags: tags.split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean),
       });
     } catch (saveError) {
@@ -60,11 +69,13 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
   return <ModalPortal><div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
     <header><div><p className="eyebrow">{eyebrow}</p><h2 id="question-editor-title">{title}</h2></div><button className="icon-button" aria-label="关闭编辑器" onClick={onCancel}><X size={18} /></button></header>
     <div className="editor-body">
-      <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionType)} options={[{ value: "判断", label: "判断" }, { value: "单选", label: "单选" }, { value: "多选", label: "多选" }]} /></label>
+      <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionType)} options={[{ value: "判断", label: "判断" }, { value: "单选", label: "单选" }, { value: "多选", label: "多选" }, { value: "计算", label: "计算" }]} /></label>
       <label>题干<textarea value={stem} onChange={(event) => setStem(event.target.value)} rows={4} /><small>公式可使用 <code>$...$</code> 行内格式或 <code>$$...$$</code> 独立公式格式。</small></label>
-      <div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案</small></div>
-      <div className="editor-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div key={`${letter}-${index}`}><button aria-label={`将 ${letter} 设为正确答案`} className={answer.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><input value={option} onChange={(event) => setOptions(options.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`选项 ${letter}`} />{type !== "判断" && options.length > 2 && <button aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => { const next = options.filter((_, itemIndex) => itemIndex !== index); setOptions(next); setAnswer(""); }}><Trash2 size={16} /></button>}</div>; })}</div>
-      {type !== "判断" && options.length < 8 && <button className="add-option" onClick={() => setOptions([...options, ""])}><Plus size={16} />添加选项</button>}
+      <label>题目图片地址（可选）<input type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://example.com/question.png" /><small>填写完整的 http/https 图片地址；图片会显示在题干下方。</small></label>
+      {imageUrl.trim() && <QuestionImage src={imageUrl.trim()} alt="题目图片预览" />}
+      {type === "计算" ? <label>标准数值答案<input aria-label="计算题标准答案" type="number" inputMode="decimal" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="例如：12.5" /><small>答题时按配置页设置的相对误差比例判定。</small></label> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案</small></div>
+        <div className="editor-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div key={`${letter}-${index}`}><button aria-label={`将 ${letter} 设为正确答案`} className={answer.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><input value={option} onChange={(event) => setOptions(options.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`选项 ${letter}`} />{type !== "判断" && options.length > 2 && <button aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => { const next = options.filter((_, itemIndex) => itemIndex !== index); setOptions(next); setAnswer(""); }}><Trash2 size={16} /></button>}</div>; })}</div>
+        {type !== "判断" && options.length < 8 && <button className="add-option" onClick={() => setOptions([...options, ""])}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>
       {error && <p className="editor-error">{error}</p>}
     </div>

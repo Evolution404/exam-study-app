@@ -19,7 +19,7 @@ const baseModes: Array<{ id: PracticeMode; title: string; detail: string; icon: 
   { id: "advanced", title: "高级筛选", detail: "组合题型、状态、标签和数量", icon: Filter },
 ];
 
-const questionTypes: QuestionType[] = ["单选", "多选", "判断"];
+const questionTypes: QuestionType[] = ["单选", "多选", "判断", "计算"];
 
 function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));

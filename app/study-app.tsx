@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type Poin
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, Copy,
-  CircleHelp, FileUp, Grid3X3, Home, Library, Link2, ListFilter,
+  BadgeInfo, CircleHelp, FileUp, Grid3X3, Home, Library, Link2, ListFilter,
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
@@ -16,6 +16,7 @@ import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
 import type { SearchPracticeOptions } from "@/app/search-view";
 import type { BankQuickMode } from "@/app/bank-library-view";
 import { MathText } from "@/app/math-text";
+import { QuestionImage } from "@/app/question-image";
 import { ShortcutSetting } from "@/app/shortcut-setting";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { ModalPortal } from "@/app/modal-portal";
@@ -24,6 +25,7 @@ import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, formatKeyboardShortcut, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
 import { shouldSubmitOnChoice } from "@/lib/answer-submission";
+import { isCalculationAnswerCorrect } from "@/lib/question-utils";
 import type { ActivePractice, GitHubSettings, PracticeAnswerState, PracticeFilter, PracticeRun, Question, QuestionType } from "@/lib/types";
 
 const PracticeSetupView = lazy(() => import("@/app/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
@@ -65,6 +67,7 @@ interface PracticePreferences {
   autoSyncEventThreshold: number;
   periodicPullEnabled: boolean;
   periodicPullSeconds: number;
+  calculationTolerancePercent: number;
 }
 
 const DEFAULT_PREFERENCES: PracticePreferences = {
@@ -93,6 +96,7 @@ const DEFAULT_PREFERENCES: PracticePreferences = {
   autoSyncEventThreshold: 20,
   periodicPullEnabled: false,
   periodicPullSeconds: 300,
+  calculationTolerancePercent: 1,
 };
 
 function loadPreferences(): PracticePreferences {
@@ -106,6 +110,7 @@ function loadPreferences(): PracticePreferences {
       dailyGoalAccuracy: Math.min(100, Math.max(1, Math.floor(Number(saved.dailyGoalAccuracy) || 80))),
       autoSyncEventThreshold: Math.min(1_000, Math.max(1, Math.floor(Number(saved.autoSyncEventThreshold) || 20))),
       periodicPullSeconds: Math.min(86_400, Math.max(30, Math.floor(Number(saved.periodicPullSeconds) || 300))),
+      calculationTolerancePercent: Math.min(100, Math.max(0, Number(saved.calculationTolerancePercent) || 0)),
       themeMode: ["system", "light", "dark"].includes(saved.themeMode) ? saved.themeMode : "system",
       questionTransition: saved.questionTransition === "slide" ? "slide" : "instant",
       keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts),
@@ -116,6 +121,7 @@ function loadPreferences(): PracticePreferences {
 }
 
 function displayedAnswer(question: Question, optionOrder: number[]) {
+  if (question.type === "计算") return question.answer;
   return question.answer
     .split("")
     .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
@@ -126,6 +132,7 @@ function displayedAnswer(question: Question, optionOrder: number[]) {
 }
 
 function answerText(question: Question, optionOrder: number[]) {
+  if (question.type === "计算") return question.answer;
   return question.answer
     .split("")
     .map((letter) => letter.charCodeAt(0) - 65)
@@ -194,7 +201,17 @@ const modeLabels = {
   advanced: "高级筛选",
 };
 
-const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断"];
+const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
+
+function randomOptionOrder(question: Question, avoid?: number[]) {
+  const original = question.options.map((_, index) => index);
+  if (question.type === "判断" || question.type === "计算" || original.length < 2) return original;
+  const randomized = shuffle(original);
+  if (avoid?.length === randomized.length && randomized.every((value, index) => value === avoid[index])) {
+    return [...randomized.slice(1), randomized[0]];
+  }
+  return randomized;
+}
 
 function loadSelectedBankIds() {
   if (typeof window === "undefined") return [];
@@ -689,9 +706,7 @@ export function StudyApp() {
       shuffleOptions: preferences.shuffleOptions,
       optionOrders: preferences.shuffleOptions ? Object.fromEntries(questions.map((question) => [
         question.id,
-        question.type === "判断"
-          ? question.options.map((_, index) => index)
-          : shuffle(question.options.map((_, index) => index)),
+        randomOptionOrder(question),
       ])) : {},
       startedAt: now,
       updatedAt: now,
@@ -702,7 +717,7 @@ export function StudyApp() {
     setView("practice");
   }
 
-  async function startSearchPractice({ questions, label, shuffleOptions }: SearchPracticeOptions, questionId?: string) {
+  async function startSearchPractice({ questions, label, shuffleOptions }: SearchPracticeOptions, questionId?: string, avoidOptionOrders?: Record<string, number[]>) {
     const orderedQuestions = TYPE_ORDER.flatMap((type) => questions.filter((question) => question.type === type));
     const practiceBanks = banks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));
     if (!orderedQuestions.length || !practiceBanks.length) return;
@@ -722,9 +737,7 @@ export function StudyApp() {
       shuffleOptions,
       optionOrders: shuffleOptions ? Object.fromEntries(orderedQuestions.map((question) => [
         question.id,
-        question.type === "判断"
-          ? question.options.map((_, index) => index)
-          : shuffle(question.options.map((_, index) => index)),
+        randomOptionOrder(question, avoidOptionOrders?.[question.id]),
       ])) : {},
       startedAt: now,
       updatedAt: now,
@@ -910,12 +923,12 @@ export function StudyApp() {
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}><Suspense fallback={<div className="route-loading"><LoaderCircle className="spin" size={24} /><span>正在载入页面…</span></div>}>
           {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} stats={stats} banks={banks} latestPracticeRun={latestPracticeRun} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize))} onResume={(runId) => void resumePractice(runId)} onDiscardResume={(runId) => void discardSavedPractice(runId)} onMoreModes={() => setView("practiceSetup")} />}
           {view === "banks" && <BankLibraryView banks={banks} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
-          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
+          {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
-          {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} />}
+          {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label, previousOptionOrders) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions }, undefined, previousOptionOrders)} />}
           {view === "practice" && practiceSession && activeQuestion && (
             <Practice key={activeQuestion.id} runId={practiceSession.runId} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onEdit={async (changes) => { await updateQuestion(activeQuestion.id, changes); setNotice("题目和标签已保存，并加入同步队列"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />
           )}
@@ -1087,7 +1100,7 @@ function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, stats, banks,
     {latestPracticeRun && <section className="resume-card"><span><Play size={20} /></span><div className="resume-copy"><small>上次练习 · {latestPracticeRun.modeLabel}</small><strong>{latestPracticeRun.bankName}</strong><p>{answeredInRun} / {latestPracticeRun.questionIds.length} 已作答</p></div><div className="resume-card-actions"><button className="resume-continue" onClick={() => onResume(latestPracticeRun.id)}>继续练习<ChevronRight size={17} /></button><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={() => onDiscardResume(latestPracticeRun.id)}><X size={16} /></button></div></section>}
     {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
     <section className="home-feature-grid">
-      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
+      <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断、计算分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
       <article className="memory-card daily-goal-card"><span>今日目标</span><blockquote>{stats.todayAttempts} / {dailyGoalCount} 题</blockquote><div className="daily-goal-progress"><i style={{ width: `${countProgress}%` }} /></div><small>今日正确率 {todayAccuracy}% · 目标 {dailyGoalAccuracy}%</small>
         <p className={stats.todayAttempts >= dailyGoalCount && todayAccuracy >= dailyGoalAccuracy ? "achieved" : ""}>{stats.todayAttempts >= dailyGoalCount && todayAccuracy >= dailyGoalAccuracy ? "今日目标已达成" : stats.todayAttempts < dailyGoalCount ? `还差 ${dailyGoalCount - stats.todayAttempts} 题` : `正确率还差 ${Math.max(0, dailyGoalAccuracy - todayAccuracy)}%`}</p>
       </article>
@@ -1116,7 +1129,7 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange, onResto
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
     { key: "showAnswerOnWrong", title: "答错显示正确答案", detail: "立即标出错误选项和正确选项，方便当场纠正记忆。" },
     { key: "swipeNavigation", title: "左右滑动切换题目", detail: "向左滑进入下一题，向右滑返回上一题。" },
-    { key: "shuffleOptions", title: "随机排列选项", detail: "仅随机单选题和多选题；判断题始终保持“正确、错误”。" },
+    { key: "shuffleOptions", title: "随机排列选项", detail: "仅随机单选题和多选题；判断题和计算题不受影响。" },
     { key: "multiSelectAllAutoSubmit", title: "多选题全选后自动确认", detail: "点击“全选”后立即提交答案；关闭后只选中全部选项，可继续取消选项再手动确认。" },
   ];
   const feedbackItems: Array<{ key: "feedbackSound" | "feedbackHaptics"; title: string; detail: string }> = [
@@ -1138,10 +1151,11 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange, onResto
     </section>
     <div className="desktop-shortcut-settings"><ShortcutSetting value={preferences.keyboardShortcuts} onChange={(keyboardShortcuts) => onChange({ ...preferences, keyboardShortcuts })} /></div>
     <section className="preference-card"><div className="settings-title"><span><ListFilter /></span><div><h2>出题与复习</h2><p>控制抽题分布、默认顺序和错题复习节奏。</p></div></div><div className="preference-list">
-      <PreferenceSelect title="随机组题型分布" detail="均衡抽取会尽量平均包含单选、多选、判断；不足的题型由其他题型补足。" value={preferences.randomTypeBalance} onChange={(value) => onChange({ ...preferences, randomTypeBalance: value as PracticePreferences["randomTypeBalance"] })} options={[['balanced','尽量均衡'],['natural','按题库自然比例']]} />
+      <PreferenceSelect title="随机组题型分布" detail="均衡抽取会尽量平均包含单选、多选、判断、计算；不足的题型由其他题型补足。" value={preferences.randomTypeBalance} onChange={(value) => onChange({ ...preferences, randomTypeBalance: value as PracticePreferences["randomTypeBalance"] })} options={[['balanced','尽量均衡'],['natural','按题库自然比例']]} />
       <PreferenceSelect title="默认题目顺序" detail="进入练习中心和高级筛选时默认使用的题目顺序。" value={preferences.defaultOrder} onChange={(value) => onChange({ ...preferences, defaultOrder: value as PracticePreferences["defaultOrder"] })} options={[['sequential','题库顺序'],['random','随机打乱'],['difficulty','难题优先']]} />
       <PreferenceSelect title="答错后的复习方式" detail="立即重答会在当前题显示按钮；本组结束可在成绩页集中重练；留到下次进入错题练习。" value={preferences.wrongReappearance} onChange={(value) => onChange({ ...preferences, wrongReappearance: value as PracticePreferences["wrongReappearance"] })} options={[['immediate','立即重答'],['end','本组结束集中重练'],['next','留到下次错题练习']]} />
       <PreferenceSelect title="连续答对后移出错题" detail="题目答错或选择“不会”后进入错题；达到连续正确次数后自动移除。" value={String(preferences.wrongRemovalStreak)} onChange={(value) => onChange({ ...preferences, wrongRemovalStreak: Number(value) })} options={[['1','1 次'],['2','2 次'],['3','3 次'],['5','5 次']]} />
+      <ToleranceSetting value={preferences.calculationTolerancePercent} onChange={(calculationTolerancePercent) => onChange({ ...preferences, calculationTolerancePercent })} />
       {toggleRow({ key: "requireAllAnswered", title: "必须答完才能结束", detail: "打开后点击查看结果会自动定位到第一道未答题，不允许带着空题结束。" })}
     </div></section>
     <section className="preference-card"><div className="settings-title"><span><Target /></span><div><h2>阅读、反馈与目标</h2><p>调整显示密度，设置每天的练习目标。</p></div></div><div className="preference-list">
@@ -1150,6 +1164,7 @@ function PreferencesView({ preferences, pendingSync, onNotice, onChange, onResto
       {feedbackItems.map(toggleRow)}
     </div></section>
     <SyncAutomationSetting preferences={preferences} onChange={onChange} />
+    <BuildVersionCard />
     <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} /></div>
   </>;
 }
@@ -1201,9 +1216,26 @@ function GroupSizeSetting({ value, onChange }: { value: number; onChange: (value
   return <label className="preference-row number-preference"><div><strong>每组题目数量</strong><p>用于首页推荐和“随机一组”练习；可填写 1–500 题。</p></div><span className="number-setting"><input aria-label="每组题目数量" type="number" min="1" max="500" step="1" inputMode="numeric" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><em>题</em></span></label>;
 }
 
+function ToleranceSetting({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  function commit() {
+    const parsed = Number(draft);
+    const next = Math.min(100, Math.max(0, Number.isFinite(parsed) ? parsed : value));
+    setDraft(String(next));
+    onChange(next);
+  }
+  return <label className="preference-row number-preference"><div><strong>计算题允许误差</strong><p>按标准答案的相对误差比例判定；例如答案 100、误差 1% 时，99–101 都算正确。</p></div><span className="number-setting"><input aria-label="计算题允许误差" type="number" min="0" max="100" step="0.1" inputMode="decimal" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><em>%</em></span></label>;
+}
+
+function BuildVersionCard() {
+  const builtAt = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(__APP_COMMIT_TIME__));
+  return <section className="preference-card version-card"><div className="settings-title"><span><BadgeInfo /></span><div><h2>客户端版本</h2><p>用于确认当前设备是否已经加载最新发布版本。</p></div></div><dl><div><dt>提交哈希</dt><dd><code>{__APP_COMMIT_SHA__.slice(0, 12)}</code></dd></div><div><dt>提交时间</dt><dd>{builtAt}</dd></div></dl></section>;
+}
+
 function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onEdit, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onEdit: (changes: QuestionChanges) => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
+  const [calculationDraft, setCalculationDraft] = useState(question.type === "计算" ? initialState?.selected[0] ?? "" : "");
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
@@ -1212,8 +1244,12 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   const note = useLiveQuery(() => db.notes.get(question.id), [question.id]);
   const attemptSummary = useLiveQuery(async () => summarizeAttemptStats(await db.attemptStats.get(question.id)), [question.id]) ?? summarizeAttemptStats();
   const [draft, setDraft] = useState<string | null>(null);
+  const [noteSaveStatus, setNoteSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const autoNextTimer = useRef<number | undefined>(undefined);
   const copyStatusTimer = useRef<number | undefined>(undefined);
+  const noteSaveTimer = useRef<number | undefined>(undefined);
+  const draftRef = useRef("");
+  const noteDirty = useRef(false);
   const answering = useRef(false);
   const chooseShortcutRef = useRef<(letter: string) => void>(() => undefined);
   const submitShortcutRef = useRef<() => void>(() => undefined);
@@ -1222,22 +1258,49 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   const effectiveDraft = draft ?? note?.content ?? "";
   const displayOrder = optionOrder?.length === question.options.length ? optionOrder : question.options.map((_, optionIndex) => optionIndex);
   const displayAnswer = displayedAnswer(question, displayOrder);
-  const selectedCanonical = [...selected].sort().join("");
-  const selectedAnswer = selected
+  const selectedCanonical = question.type === "计算" ? selected[0] ?? "" : [...selected].sort().join("");
+  const selectedAnswer = question.type === "计算" ? selectedCanonical : selected
     .map((letter) => displayOrder.indexOf(letter.charCodeAt(0) - 65))
     .filter((displayIndex) => displayIndex >= 0)
     .map((displayIndex) => String.fromCharCode(65 + displayIndex))
     .sort()
     .join("");
-  const correct = submitted && selectedCanonical === [...question.answer].sort().join("");
+  const correct = submitted && (question.type === "计算"
+    ? isCalculationAnswerCorrect(selectedCanonical, question.answer, preferences.calculationTolerancePercent)
+    : selectedCanonical === [...question.answer].sort().join(""));
   const gaveUp = submitted && selected.length === 0;
   const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
   const isLast = index === total - 1;
 
+  useEffect(() => {
+    if (draft === null && note?.content !== undefined) draftRef.current = note.content;
+  }, [draft, note?.content]);
+
   useEffect(() => () => {
     window.clearTimeout(autoNextTimer.current);
     window.clearTimeout(copyStatusTimer.current);
-  }, []);
+    window.clearTimeout(noteSaveTimer.current);
+    if (noteDirty.current) void saveNote(question.id, draftRef.current);
+  }, [question.id]);
+
+  async function persistNoteDraft() {
+    const content = draftRef.current;
+    setNoteSaveStatus("saving");
+    await saveNote(question.id, content);
+    if (draftRef.current === content) {
+      noteDirty.current = false;
+      setNoteSaveStatus("saved");
+    }
+  }
+
+  function changeNoteDraft(value: string) {
+    setDraft(value);
+    draftRef.current = value;
+    noteDirty.current = true;
+    setNoteSaveStatus("idle");
+    window.clearTimeout(noteSaveTimer.current);
+    noteSaveTimer.current = window.setTimeout(() => void persistNoteDraft(), 650);
+  }
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 760px)").matches) return;
@@ -1354,18 +1417,22 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   }
 
   async function submit(valueList = selected) {
-    if (!valueList.length || submitted || answering.current) return;
+    const value = question.type === "计算" ? calculationDraft.trim() : [...valueList].sort().join("");
+    if (!value || (question.type === "计算" && !Number.isFinite(Number(value))) || submitted || answering.current) return;
     answering.current = true;
-    const value = [...valueList].sort().join("");
-    const isCorrect = value === [...question.answer].sort().join("");
+    const finalSelection = question.type === "计算" ? [value] : valueList;
+    const isCorrect = question.type === "计算"
+      ? isCalculationAnswerCorrect(value, question.answer, preferences.calculationTolerancePercent)
+      : value === [...question.answer].sort().join("");
     try {
       await recordAttempt({ runId, questionId: question.id, bankId: question.bankId, selected: value, correct: isCorrect, elapsedMs: Date.now() - startedAt });
     } catch {
       answering.current = false;
       return;
     }
+    setSelected(finalSelection);
     setSubmitted(true);
-    onStateChange({ selected: valueList, submitted: true, correct: isCorrect });
+    onStateChange({ selected: finalSelection, submitted: true, correct: isCorrect });
     playAnswerFeedback(isCorrect, preferences);
     if (isCorrect && preferences.autoNextCorrect && !isLast) {
       setAutoAdvancing(true);
@@ -1385,6 +1452,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
       return;
     }
     setSelected([]);
+    setCalculationDraft("");
     setSubmitted(true);
     onStateChange({ selected: [], submitted: true, correct: false });
     playAnswerFeedback(false, preferences);
@@ -1394,6 +1462,7 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
     window.clearTimeout(autoNextTimer.current);
     answering.current = false;
     setSelected([]);
+    setCalculationDraft("");
     setSubmitted(false);
     setAutoAdvancing(false);
     onStateChange({ selected: [], submitted: false });
@@ -1434,12 +1503,12 @@ function Practice({ runId, question, initialState, optionOrder, questionIds, que
   }
 
   return <><div className="practice-layout"><section ref={questionCardRef} className="question-card" data-no-pull-refresh><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1><MathText text={question.stem} /></h1>{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}<div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><p><MathText text={option} languageText={question.stem} /></p>{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>
-      {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>你的选择：{selectedAnswer || "不会"}｜正确答案：{displayAnswer}</p> : <p>你的选择：{selectedAnswer || "不会"}｜正确答案已按配置隐藏。</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><h1><MathText text={question.stem} /></h1><QuestionImage src={question.imageUrl} alt={`${question.stem}的题目图片`} />{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}{question.type === "计算" ? <div className={`calculation-answer ${submitted ? correct ? "correct" : "wrong" : ""}`}><label htmlFor={`calculation-answer-${question.id}`}>输入计算结果</label><input id={`calculation-answer-${question.id}`} aria-label="计算题答案" type="number" inputMode="decimal" value={submitted ? selectedCanonical : calculationDraft} disabled={submitted} onChange={(event) => setCalculationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder={`允许误差 ${preferences.calculationTolerancePercent}%`} /><small>按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定</small></div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.options[originalIndex]; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><p><MathText text={option} languageText={question.stem} /></p>{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
+      {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：确认 <kbd>{preferences.keyboardShortcuts.bindings.confirm.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.bindings.previous.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.bindings.next.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd></div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
-    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}{!submitted && (question.type === "多选" || !preferences.submitOnSelect) && <button className="primary practice-submit" disabled={!selected.length} onClick={() => void submit()}>确认答案</button>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary-action retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
-    {submitted && <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => setDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><button onClick={async () => { await saveNote(question.id, effectiveDraft); setDraft(effectiveDraft); }}>保存解析</button><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>关闭练习后可从首页继续，选项和当前进度都会保留。</small></aside>}</div>{overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
+    </div><div className={`practice-actions ${submitted ? "submitted" : ""}`}><button className="secondary-action practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && question.type !== "计算" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}{!submitted && (question.type === "计算" || question.type === "多选" || !preferences.submitOnSelect) && <button className="primary practice-submit" disabled={question.type === "计算" ? !calculationDraft.trim() || !Number.isFinite(Number(calculationDraft)) : !selected.length} onClick={() => void submit()}>确认答案</button>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary-action retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className={`${submitted ? "primary" : "secondary-action"} practice-next`} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : submitted ? "下一题" : "跳过 / 下一题"}<ChevronRight size={18} /></button>}</div></div></section>
+    {submitted && <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div><textarea value={effectiveDraft} onChange={(event) => changeNoteDraft(event.target.value)} placeholder="写下错因、口诀或区分条件…" /><span className={`note-save-status ${noteSaveStatus}`}>{noteSaveStatus === "saving" ? "正在自动保存…" : noteSaveStatus === "saved" ? "已自动保存" : "输入后自动保存"}</span><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>切换题目或离开页面前会自动保存解析。</small></aside>}</div>{overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}{editing && <QuestionEditor question={question} onCancel={() => setEditing(false)} onSave={async (changes) => { await onEdit(changes); setEditing(false); }} />}</>;
 }
 
 function QuestionOverview({ questionIds, questionTypes, answers, currentIndex, onClose, onJump }: { questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; currentIndex: number; onClose: () => void; onJump: (index: number) => void }) {

@@ -7,18 +7,18 @@
 ## 1. 当前基线
 
 - 当前分支：`main`
-- 本轮起始提交：`a36df2f feat: refine practice UX and complete sync v4`
-- 当前工作区已完成 Sync v5 升级，尚未提交；远端私有资料库已经发布 `sync/v5/head.json`。
+- 本轮起始提交：`e8a2648 feat: upgrade sync protocol and refine practice controls`；当前发布提交请以 `git log -1 --oneline` 为准。
+- 当前基线包含 Sync v5，以及图片题、计算题、结果详情、解析自动保存、构建版本显示和移动端体验改进。
 - 远端：`origin https://github.com/Evolution404/exam-study-app.git`
 - `origin/main` 与本地 `main` 在创建本文前一致。
 - 线上地址：<https://evolution404.github.io/exam-study-app/>
 - Pages 工作流：`.github/workflows/deploy-pages.yml`
-- 最近一次已验证的 Pages 运行：`31319818495`，build/deploy 均成功。
+- 最近一次已验证的 Pages 运行：`31455332754`，build/deploy 均成功。
 - Service Worker 缓存版本：`shijuan-v7`。
 - 数据库版本：IndexedDB/Dexie `v10`。
 - 同步协议：只允许 Sync `v5`；公开客户端没有 v2/v3 回退。
 
-本文本身是交接时新增的文件，因此新窗口看到 `HANDOFF.md` 未提交是正常的。除本文外，创建本文前工作区是干净的。
+交接时请始终以 `git status --short` 和 GitHub Pages 工作流状态重新确认工作区与线上版本。
 
 ## 2. 产品定位与数据边界
 
@@ -39,7 +39,7 @@
 
 - 答案提交后的勾/叉使用绝对定位固定在选项右侧，不再挤压或改变选项正文排版。
 - 正确反馈只显示答案字母，例如 `正确答案：A`，不重复完整选项。
-- 错误反馈显示 `你的选择：A｜正确答案：B`，同样不重复完整选项。
+- 错误反馈按 `正确答案：B｜你的选择：A` 的顺序显示，同样不重复完整选项。
 - 桌面端选项正文可用鼠标选择和复制；只有非文字区域保留按钮点击行为。
 - 中文题目在显示层转换中文标点，包括中文括号；题库底层仍保持英文标点。
 - “选择后立即提交”默认开启；关闭后单选/判断题需要点击确认答案。
@@ -49,6 +49,10 @@
 - 练习页的最近练习卡片也有继续、放弃和查看记录入口。
 - 练习中心新增“随机指定题数”：题数只作用于本次练习，不修改配置页的全局每组题数。
 - 手动同步、自动同步和定期拉取都不会重建正在显示的 `ActivePractice`，因此同步完成后当前题目、滚动位置和答题界面保持不变；远端合并仍直接写入 IndexedDB。
+- 滑动切题动画作用于完整练习布局，以整页宽度进出场，而不是题卡局部轻微位移。
+- 题目解析采用 650ms 防抖自动保存；切题或卸载时会立即补写未保存内容。
+- 题目支持完整 `http/https` 图片地址，并在题库编辑、搜索详情、练习和结果详情中显示。
+- 新增计算题：标准答案为有限数值，按配置页的允许误差百分比判定；标准答案为 0 时，百分比数值换算为同量级绝对误差，例如 1% 等于 ±0.01。
 
 ### PracticeRun 单一数据源与多设备合并
 
@@ -118,6 +122,14 @@ npx tsx scripts/migrate-cloud-v4-to-v5.ts Evolution404 exam-study-vault main --a
 - 自动同步、定期拉取、题目切换方式都位于配置页。
 - 桌面同步页和手机配置页的同步区域都有“清除本机所有数据”入口。二次确认后会清除题库、作答、练习、配置、GitHub 凭据、可访问 Cookie、local/session storage、全部 IndexedDB、Cache Storage 和 Service Worker，再以无查询参数/片段的站点地址重新载入；远端私有仓库不受影响。
 - 全部原生 `<select>` 已替换为 `app/app-select.tsx` 的 Radix Select，处理长文本、省略、换行、Portal 层级和移动端视口限高。
+- 夜间模式下数字输入框统一使用配置卡片底色，不再出现纯黑或亮色输入框；外观主题的勾选标记已垂直居中。
+- 配置页显示构建所对应的 Git 提交哈希和提交时间；构建时由 `vite.config.ts` 注入，便于客户端核对版本。
+
+### 练习记录与结果
+
+- 练习中心的最近练习卡片只显示真正处于 `in_progress` 状态的练习；全部完成或放弃后不再回退显示旧记录。
+- 已完成结果列表中的题目行可以点击，打开题干、图片、选项、正确答案、用户答案和个人解析详情。
+- “重练本次题目”仍复用同一组题，但开启随机选项顺序时会重新洗牌，并避免与上次顺序完全相同。
 
 ### 导入、UI 与性能
 
@@ -126,6 +138,8 @@ npx tsx scripts/migrate-cloud-v4-to-v5.ts Evolution404 exam-study-vault main --a
 - 模板文件：`public/题库模板.xlsx`
 - Excel 解析和严格校验：`lib/xlsx-import.ts`
 - Excel UI：`app/excel-import.tsx`
+- 当前 Excel 列为 `题干、题型、答案、图片地址、标签、A...`；模板说明已改为本项目的单选、多选、判断、计算、图片题格式，并可通过 `scripts/generate-xlsx-template.mjs` 重建。
+- 手机端下载模板优先使用系统文件分享，普通浏览器回退到 Blob 下载；下载不会把 PWA 导航到模板文件，页面可正常继续使用。
 - KaTeX 只在遇到公式时动态加载；CSS/字体也离开首屏资源。
 - 题库、练习、搜索、整理、同步、历史/结果页面均已按路由延迟加载。
 - 题目具有永久 `sortOrder`，DB v10 用 `[bankId+sortOrder]` 索引。
@@ -172,11 +186,12 @@ BASE_URL='https://evolution404.github.io/exam-study-app' npm run test:browser
 ```
 
 - 会测试桌面 1440×960 和手机 390×844。
-- 覆盖 JSON/Excel 导入、快捷键录入、配置、答对/答错、练习结果、同步错误反馈、自动同步和手机布局。
+- 覆盖 JSON/Excel 导入、图片与计算题、快捷键录入、配置、答对/答错、解析自动保存、练习结果详情、同步错误反馈、自动同步和手机布局。
 - GitHub API 在浏览器测试中使用 401 stub，避免写真实远端。
 - 截图写入被忽略的 `artifacts/browser-qa/<timestamp>/`。
 - 最近一次线上可见浏览器回归：`artifacts/browser-qa/2026-08-09T14-59-51-204Z/`，19 张截图，全部通过页面横向溢出断言。
-- 本轮修改后的本地可见浏览器回归：`artifacts/browser-qa/2026-08-11T03-23-39-849Z/`，20 张截图；覆盖随机指定题数，以及桌面/手机清除数据入口。
+- 上一轮本地可见浏览器回归：`artifacts/browser-qa/2026-08-11T03-23-39-849Z/`，20 张截图；覆盖随机指定题数，以及桌面/手机清除数据入口。
+- 本轮本地可见浏览器回归：`artifacts/browser-qa/2026-08-11T04-34-17-962Z/`，21 张截图；覆盖整页切题动画、夜间数字输入、主题勾选居中、版本信息、正确答案优先、解析自动保存、图片/计算题、结果详情、最近练习隐藏及手机模板下载留在应用内。
 
 ## 6. 发布流程
 

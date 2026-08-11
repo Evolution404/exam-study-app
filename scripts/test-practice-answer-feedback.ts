@@ -14,7 +14,7 @@ assert.match(styles, /\.options button \{ position:relative;/, "option cards mus
 assert.match(styles, /\.option-status \{ position:absolute;/, "answer icons must not participate in option text layout");
 assert.match(styles, /padding:10px 50px 10px 15px/, "every option must reserve the same stable status gutter before and after submission");
 assert.match(studyApp, /correct \? <p>正确答案：\{displayAnswer\}<\/p> : preferences\.showAnswerOnWrong/, "correct feedback must show only answer letters");
-assert.match(studyApp, /你的选择：\{selectedAnswer \|\| "不会"\}｜正确答案：\{displayAnswer\}/, "wrong feedback must show selected and correct letters without repeating option content");
+assert.match(studyApp, /正确答案：\{displayAnswer\}｜你的选择：\{selectedAnswer \|\| "不会"\}/, "wrong feedback must show the correct answer before the selected answer");
 assert.doesNotMatch(studyApp, /你的选择[^\n]*<MathText/, "answer feedback must never duplicate full option text");
 assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
@@ -27,6 +27,7 @@ assert.doesNotMatch(studyApp, /停在第 \{savedSession\.currentIndex/, "home mu
 assert.ok(studyApp.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < studyApp.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
 assert.match(practiceHistory, /onAbandon: \(runId: string\) => void/, "latest practice banner needs an abandon action");
 assert.match(practiceHistory, /className="latest-practice-abandon"/, "latest practice abandon action needs its compact button");
+assert.doesNotMatch(practiceHistory, /inProgress \?\? latest/, "practice center must hide the latest banner when no run is in progress");
 assert.match(styles, /\.resume-card-actions \{ display:flex; align-items:center; gap:8px; \}/, "home continue and abandon controls must share one ordered action row");
 assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home action row must keep abandon immediately right of continue");
 
@@ -38,5 +39,7 @@ assert.match(practiceSetup, /不修改答题配置中的每组题数/, "custom r
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
 assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session");
 assert.doesNotMatch(studyApp, /practiceSessionRef/, "periodic pull must not retain and replace the visible practice session");
+assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
+assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 
 console.log("practice UI tests passed: stable feedback, custom random runs, silent sync and one-source resume cards");

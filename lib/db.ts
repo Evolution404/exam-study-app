@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable, type InsertType, type Table } from "dexie";
 import { addAttemptToDailyStats, addAttemptToStats, attemptDailyKey, calendarDate } from "./practice-metrics";
+import { normalizeCalculationAnswer, normalizeQuestionImageUrl } from "./question-utils";
 import type {
   Attempt,
   AttemptDailyStats,
@@ -271,16 +272,24 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
     const stem = String(row.q ?? row.question ?? row.stem ?? "").trim();
+    const explicitType = String(row.type ?? row["题型"] ?? "").trim();
     const optionsRaw = row.a ?? row.options;
     const options = Array.isArray(optionsRaw) ? optionsRaw.map(String) : [];
     const answerRaw = row.ans ?? row.answer;
     const answer = Array.isArray(answerRaw) ? answerRaw.join("") : String(answerRaw ?? "");
-    if (!stem || !options.length || !answer) continue;
+    const type = explicitType === "计算" || explicitType === "判断" || explicitType === "单选" || explicitType === "多选"
+      ? explicitType
+      : options.length === 2 && options[0] === "正确" && options[1] === "错误"
+        ? "判断"
+        : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
+    if (!stem || !answer || (type !== "计算" && !options.length)) continue;
     const normalizedStem = normalizeStem(stem);
-    const id = await sha256(`${bankName}:${normalizedStem}:${JSON.stringify(options)}`);
-    const type = options.length === 2 && options[0] === "正确" && options[1] === "错误"
-      ? "判断"
-      : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
+    const normalizedAnswer = type === "计算" ? normalizeCalculationAnswer(answer) : answer.toUpperCase().replace(/[^A-Z]/g, "");
+    const id = await sha256(`${bankName}:${type}:${normalizedStem}:${JSON.stringify(options)}`);
+    const tagsRaw = row.tags ?? row["标签"];
+    const tags = Array.isArray(tagsRaw)
+      ? tagsRaw.map(String)
+      : String(tagsRaw ?? "").split(/[，,、\n]+/);
     questions.push({
       id,
       bankId,
@@ -288,10 +297,11 @@ export async function importQuestionBank(fileName: string, raw: unknown) {
       sortOrder,
       stem,
       normalizedStem,
-      answer: answer.toUpperCase().replace(/[^A-Z]/g, ""),
-      options,
+      answer: normalizedAnswer,
+      options: type === "计算" ? [] : options,
       type,
-      tags: [],
+      imageUrl: normalizeQuestionImageUrl(String(row.imageUrl ?? row.image ?? row["图片地址"] ?? "")),
+      tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))],
     });
   }
   if (!questions.length) throw new Error("题库中没有可导入的有效题目。");
@@ -436,19 +446,20 @@ export async function deleteBankFolder(folderId: string) {
   });
 }
 
-export async function createQuestion(bankId: string, changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags">) {
+export async function createQuestion(bankId: string, changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags" | "imageUrl">) {
   const bank = await db.banks.get(bankId);
   if (!bank) throw new Error("题库不存在或已被删除。");
   const stem = changes.stem.trim();
-  const options = changes.options.map((item) => item.trim());
-  const answer = changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
-  if (!stem || options.length < 2 || options.some((item) => !item)) throw new Error("题干和所有选项都不能为空。");
-  if (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length)) throw new Error("正确答案超出了现有选项范围。");
-  if (changes.type !== "多选" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
+  const options = changes.type === "计算" ? [] : changes.options.map((item) => item.trim());
+  const answer = changes.type === "计算" ? normalizeCalculationAnswer(changes.answer) : changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!stem) throw new Error("题干不能为空。");
+  if (changes.type !== "计算" && (options.length < 2 || options.some((item) => !item))) throw new Error("所有选项都不能为空，且至少需要两个选项。");
+  if (changes.type !== "计算" && (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length))) throw new Error("正确答案超出了现有选项范围。");
+  if (changes.type !== "多选" && changes.type !== "计算" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
   if (changes.type === "判断" && (options.length !== 2 || options[0] !== "正确" || options[1] !== "错误")) throw new Error("判断题选项必须依次为“正确、错误”。");
   const now = new Date().toISOString();
   const lastQuestion = await db.questions.where("bankId").equals(bankId).sortBy("sortOrder");
-  const question: Question = { id: makeId("question"), bankId, bankName: bankTitle(bank), sortOrder: (lastQuestion.at(-1)?.sortOrder ?? -1) + 1, stem, normalizedStem: normalizeStem(stem), answer, options, type: changes.type, tags: [...new Set(changes.tags.map((tag) => tag.trim()).filter(Boolean))], userUpdatedAt: now, userUpdatedBy: getDeviceId() };
+  const question: Question = { id: makeId("question"), bankId, bankName: bankTitle(bank), sortOrder: (lastQuestion.at(-1)?.sortOrder ?? -1) + 1, stem, normalizedStem: normalizeStem(stem), answer, options, type: changes.type, imageUrl: normalizeQuestionImageUrl(changes.imageUrl), tags: [...new Set(changes.tags.map((tag) => tag.trim()).filter(Boolean))], userUpdatedAt: now, userUpdatedBy: getDeviceId() };
   const updatedBank = { ...bank, questionCount: bank.questionCount + 1, updatedAt: now, deviceId: getDeviceId() };
   await db.transaction("rw", db.questions, db.banks, db.events, async () => {
     await db.questions.put(question); await db.banks.put(updatedBank);
@@ -738,16 +749,17 @@ export async function resetLocalDatabase() {
 
 export async function updateQuestion(
   questionId: string,
-  changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags">,
+  changes: Pick<Question, "stem" | "options" | "answer" | "type" | "tags" | "imageUrl">,
 ) {
   const current = await db.questions.get(questionId);
   if (!current) throw new Error("题目不存在或已被删除。");
   const stem = changes.stem.trim();
-  const options = changes.options.map((item) => item.trim());
-  const answer = changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
-  if (!stem || options.length < 2 || options.some((item) => !item)) throw new Error("题干和所有选项都不能为空。");
-  if (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length)) throw new Error("正确答案超出了现有选项范围。");
-  if (changes.type !== "多选" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
+  const options = changes.type === "计算" ? [] : changes.options.map((item) => item.trim());
+  const answer = changes.type === "计算" ? normalizeCalculationAnswer(changes.answer) : changes.answer.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!stem) throw new Error("题干不能为空。");
+  if (changes.type !== "计算" && (options.length < 2 || options.some((item) => !item))) throw new Error("所有选项都不能为空，且至少需要两个选项。");
+  if (changes.type !== "计算" && (!answer || [...answer].some((letter) => letter.charCodeAt(0) - 65 >= options.length))) throw new Error("正确答案超出了现有选项范围。");
+  if (changes.type !== "多选" && changes.type !== "计算" && answer.length !== 1) throw new Error("单选题和判断题只能设置一个正确答案。");
   if (changes.type === "判断" && (options.length !== 2 || options[0] !== "正确" || options[1] !== "错误")) throw new Error("判断题选项必须依次为“正确、错误”。");
   const updatedAt = new Date().toISOString();
   const question: Question = {
@@ -757,6 +769,7 @@ export async function updateQuestion(
     normalizedStem: normalizeStem(stem),
     options,
     answer,
+    imageUrl: normalizeQuestionImageUrl(changes.imageUrl),
     tags: [...new Set(changes.tags.map((tag) => tag.trim()).filter(Boolean))],
     userUpdatedAt: updatedAt,
     userUpdatedBy: getDeviceId(),
