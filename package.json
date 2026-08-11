@@ -24,7 +24,7 @@
     "test:question-types": "tsx scripts/test-question-types.ts",
     "test:modal": "tsx scripts/test-modal-layering.ts",
     "test:v6-domain": "tsx scripts/test-v6-domain.ts",
-    "test:db-v6": "tsx scripts/test-db-v6.ts",
+    "test:db-v6": "tsx scripts/test-db-v6.ts && tsx scripts/test-app-data-v6.ts",
     "test:image-assets": "tsx scripts/test-image-assets.ts",
     "test:content-block-ui": "tsx scripts/test-content-block-ui.ts",
     "test:review-scope-ui": "tsx scripts/test-review-scope-ui.ts",
