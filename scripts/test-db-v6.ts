@@ -7,7 +7,9 @@ import {
   createPracticeRunV6,
   createReviewRoundV6,
   dbV6,
+  deleteBankFolderV6,
   deleteBankV6,
+  deleteQuestionGroupV6,
   deleteQuestionV6,
   getBankQuestionsV6,
   getImageAssetBlobV6,
@@ -22,6 +24,10 @@ import {
   recordPracticeAnswerV6,
   removeMembershipV6,
   resetV6Database,
+  reorderBanksV6,
+  saveBankFolderV6,
+  saveQuestionGroupV6,
+  setPracticeRunStatusV6,
   splitQuestionV6,
   saveNoteV6,
 } from "../lib/db-v6";
@@ -131,6 +137,24 @@ const answerResult = await recordPracticeAnswerV6({ runId: cloneRun.id, question
 assert.equal(await dbV6.events.where("type").equals("practice.answer.submitted").count(), beforeEvents + 1);
 assert.equal(await applyV6Event(answerResult.event), false);
 assert.equal((await dbV6.reviewRoundProgress.get(`${parallelRound.id}:${split.clones[0].id}`)), undefined, "ordinary run does not advance a round");
+
+// Local folder/group/status actions must emit syncable v6 events instead of
+// letting pages write projection tables directly.
+const localFolder = await saveBankFolderV6({ name: "本地文件夹", description: "说明" });
+await reorderBanksV6([importedA.id, importedB.id], localFolder.id);
+assert.equal((await dbV6.banks.get(importedA.id))?.folderId, localFolder.id);
+assert.ok(await dbV6.events.where("type").equals("bankFolder.saved").first());
+assert.equal(await deleteBankFolderV6(localFolder.id), true);
+assert.equal((await dbV6.banks.get(importedA.id))?.folderId, undefined);
+assert.ok(await dbV6.tombstones.get(`bankFolder:${localFolder.id}`));
+
+const localGroup = await saveQuestionGroupV6({ name: "本地题组", type: "专题", description: "", items: [{ questionId: split.clones[0].id, note: "对照" }] });
+assert.equal((await dbV6.questionGroups.get(localGroup.id))?.items.length, 1);
+assert.equal(await deleteQuestionGroupV6(localGroup.id), true);
+assert.ok(await dbV6.tombstones.get(`questionGroup:${localGroup.id}`));
+const abandoned = await setPracticeRunStatusV6(cloneRun.id, "abandoned");
+assert.equal(abandoned?.status, "abandoned");
+assert.ok(await dbV6.events.where("type").equals("practice.run.status.changed").first());
 
 // Deleting a bank removes only joins, while global deletion clears history.
 await deleteBankV6(importedB.id);

@@ -401,6 +401,59 @@ export async function updateBankV6(bankId: string, changes: Partial<Pick<BankV6,
   return updated;
 }
 
+export async function reorderBanksV6(bankIds: readonly string[], folderId?: string): Promise<BankV6[]> {
+  const banks = (await dbV6.banks.bulkGet(uniqueStrings(bankIds))).filter(Boolean) as BankV6[];
+  if (!banks.length) return [];
+  const updatedAt = nowIso();
+  const deviceId = getV6DeviceId();
+  const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.events], async () => {
+    await dbV6.banks.bulkPut(rows);
+    await dbV6.events.bulkPut(rows.map((bank) => eventInTx("bank.updated", bank, updatedAt)));
+  });
+  return rows;
+}
+
+export async function saveBankFolderV6(input: Pick<BankFolderV6, "name" | "description"> & { id?: string }): Promise<BankFolderV6> {
+  const current = input.id ? await dbV6.bankFolders.get(input.id) : undefined;
+  const name = input.name.trim();
+  if (!name) throw new Error("请输入文件夹名称。");
+  const updatedAt = nowIso();
+  const folder: BankFolderV6 = {
+    id: input.id ?? makeV6Id("folder"),
+    name,
+    description: input.description.trim(),
+    sortOrder: current?.sortOrder ?? await dbV6.bankFolders.count(),
+    createdAt: current?.createdAt ?? updatedAt,
+    updatedAt,
+    deviceId: getV6DeviceId(),
+  };
+  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.tombstones, dbV6.events], async () => {
+    await dbV6.bankFolders.put(folder);
+    await dbV6.tombstones.delete(tombstoneKey("bankFolder", folder.id));
+    await dbV6.events.put(eventInTx("bankFolder.saved", folder, updatedAt));
+  });
+  return folder;
+}
+
+export async function deleteBankFolderV6(folderId: string): Promise<boolean> {
+  const current = await dbV6.bankFolders.get(folderId);
+  if (!current) return false;
+  const updatedAt = nowIso();
+  const deviceId = getV6DeviceId();
+  const event = eventWithId("bankFolder.deleted", { id: folderId, deletedAt: updatedAt }, makeV6Id("folder-delete"), updatedAt, deviceId, 0);
+  const banks = await dbV6.banks.where("folderId").equals(folderId).toArray();
+  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+    await dbV6.bankFolders.delete(folderId);
+    const detached = banks.map((bank) => ({ ...bank, folderId: undefined, updatedAt, deviceId }));
+    await dbV6.banks.bulkPut(detached);
+    await dbV6.events.bulkPut(detached.map((bank) => eventInTx("bank.updated", bank, updatedAt)));
+    await dbV6.tombstones.put({ key: tombstoneKey("bankFolder", folderId), entityType: "bankFolder", entityId: folderId, deletedAt: updatedAt, deviceId, eventId: event.id });
+    await dbV6.events.put(event);
+  });
+  return true;
+}
+
 /** Return memberships joined with their content, preserving sort order. */
 export async function getBankQuestionJoinsV6(bankId: string): Promise<BankQuestionJoinV6[]> {
   const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
@@ -976,6 +1029,76 @@ export async function archiveReviewRoundV6(roundId: string): Promise<ReviewRound
 }
 
 export const archiveRoundV6 = archiveReviewRoundV6;
+
+export async function saveQuestionGroupV6(input: Pick<QuestionGroupV6, "name" | "type" | "description" | "items"> & { id?: string }): Promise<QuestionGroupV6> {
+  const current = input.id ? await dbV6.questionGroups.get(input.id) : undefined;
+  const name = input.name.trim();
+  if (!name) throw new Error("请输入题组名称。");
+  const items = input.items
+    .filter((item, index, rows) => rows.findIndex((candidate) => candidate.questionId === item.questionId) === index)
+    .map((item) => ({ questionId: item.questionId, note: item.note.trim() }));
+  if (!items.length) throw new Error("题组至少需要一道题。");
+  const existingQuestions = new Set((await dbV6.questions.bulkGet(items.map((item) => item.questionId))).filter(Boolean).map((question) => question!.id));
+  if (items.some((item) => !existingQuestions.has(item.questionId))) throw new Error("题组包含不存在或已删除的题目。");
+  const updatedAt = nowIso();
+  const group: QuestionGroupV6 = {
+    id: input.id ?? makeV6Id("group"),
+    name,
+    type: input.type,
+    description: input.description.trim(),
+    items,
+    createdAt: current?.createdAt ?? updatedAt,
+    updatedAt,
+    deviceId: getV6DeviceId(),
+  };
+  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events], async () => {
+    await dbV6.questionGroups.put(group);
+    await dbV6.tombstones.delete(tombstoneKey("questionGroup", group.id));
+    await dbV6.events.put(eventInTx("questionGroup.saved", group, updatedAt));
+  });
+  return group;
+}
+
+export async function deleteQuestionGroupV6(groupId: string): Promise<boolean> {
+  const current = await dbV6.questionGroups.get(groupId);
+  if (!current) return false;
+  const deletedAt = nowIso();
+  const deviceId = getV6DeviceId();
+  const event = eventWithId("questionGroup.deleted", { id: groupId, deletedAt }, makeV6Id("group-delete"), deletedAt, deviceId, 0);
+  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events], async () => {
+    await dbV6.questionGroups.delete(groupId);
+    await dbV6.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId: event.id });
+    await dbV6.events.put(event);
+  });
+  return true;
+}
+
+export async function setPracticeRunStatusV6(runId: string, status: PracticeRunV6["status"], answers?: PracticeRunV6["answers"]): Promise<PracticeRunV6 | undefined> {
+  const current = await dbV6.practiceRuns.get(runId);
+  if (!current) return undefined;
+  const updatedAt = nowIso();
+  const updated: PracticeRunV6 = {
+    ...current,
+    answers: answers ?? current.answers,
+    status,
+    updatedAt,
+    completedAt: status === "completed" ? updatedAt : current.completedAt,
+    abandonedAt: status === "abandoned" ? updatedAt : undefined,
+    revision: current.revision + 1,
+  };
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
+    await updatePracticeRunStatsInTx(current, updated);
+    await dbV6.practiceRuns.put(updated);
+    await dbV6.events.put(eventInTx("practice.run.status.changed", updated, updatedAt));
+  });
+  return updated;
+}
+
+export async function toggleQuestionFavoriteV6(questionId: string): Promise<QuestionV6> {
+  const current = await dbV6.questions.get(questionId);
+  if (!current) throw new Error("题目不存在或已被删除。");
+  return updateQuestionV6(questionId, { favorite: !current.favorite });
+}
 
 async function autoCompleteRoundIfReadyInTx(roundId: string, emitCompletionEvent: boolean): Promise<void> {
   const round = await dbV6.reviewRounds.get(roundId);
