@@ -210,8 +210,8 @@ function tombstoneKey(entityType: string, entityId: string): string {
   return `${entityType}:${entityId}`;
 }
 
-function compareClock(left: { updatedAt?: string; deviceId?: string; id?: string }, right: { updatedAt?: string; deviceId?: string; id?: string }): number {
-  return (left.updatedAt ?? "").localeCompare(right.updatedAt ?? "")
+function compareClock(left: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }, right: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }): number {
+  return (left.updatedAt ?? left.createdAt ?? "").localeCompare(right.updatedAt ?? right.createdAt ?? "")
     || (left.deviceId ?? "").localeCompare(right.deviceId ?? "")
     || (left.id ?? "").localeCompare(right.id ?? "");
 }
@@ -223,6 +223,14 @@ function datePart(value: string): string {
 
 function dailyStatsKey(createdAt: string, questionId: string): string {
   return `${datePart(createdAt)}:${questionId}`;
+}
+
+async function latestImageAssetSavedEventInTx(assetId: string): Promise<V6Event | undefined> {
+  const events = await dbV6.events.where("type").equals("image.asset.saved").filter((event) => (
+    (event.payload as { id?: string }).id === assetId
+  )).toArray();
+  events.sort((left, right) => compareClock(right, left));
+  return events[0];
 }
 
 /** Dexie schema is intentionally one declaration only. */
@@ -1143,10 +1151,10 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
   if (await dbV6.events.get(input.id)) return false;
   const event: V6Event = { ...input, synced: 1 };
   await dbV6.transaction("rw", [
-    dbV6.banks, dbV6.bankQuestionMemberships, dbV6.questions, dbV6.attempts,
+    dbV6.banks, dbV6.bankFolders, dbV6.bankQuestionMemberships, dbV6.questions, dbV6.attempts,
     dbV6.attemptStats, dbV6.attemptDailyStats, dbV6.practiceRuns, dbV6.practiceRunStats,
     dbV6.notes, dbV6.reviewRounds, dbV6.reviewRoundProgress, dbV6.events,
-    dbV6.questionGroups, dbV6.tombstones, dbV6.questions, dbV6.bankQuestionMemberships,
+    dbV6.questionGroups, dbV6.imageAssets, dbV6.tombstones,
   ], async () => {
     switch (event.type) {
       case "bank.created":
@@ -1275,14 +1283,78 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         if (!current || compareClock(round, current) >= 0) await dbV6.reviewRounds.put(round);
         break;
       }
-      case "bankFolder.saved":
-      case "bankFolder.deleted":
-      case "questionGroup.saved":
-      case "questionGroup.deleted":
+      case "bankFolder.saved": {
+        const folder = event.payload as BankFolderV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("bankFolder", folder.id));
+        if (tombstone && compareClock(folder, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
+        const current = await dbV6.bankFolders.get(folder.id);
+        if (!current || compareClock(folder, current) >= 0) await dbV6.bankFolders.put(folder);
+        break;
+      }
+      case "bankFolder.deleted": {
+        const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("bankFolder", payload.id));
+        if (tombstone && compareClock(deletedClock, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        const current = await dbV6.bankFolders.get(payload.id);
+        if (current && compareClock(deletedClock, current) < 0) break;
+        await dbV6.bankFolders.delete(payload.id);
+        await dbV6.tombstones.put({ key: tombstoneKey("bankFolder", payload.id), entityType: "bankFolder", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
+        break;
+      }
+      case "questionGroup.saved": {
+        const group = event.payload as QuestionGroupV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("questionGroup", group.id));
+        if (tombstone && compareClock(group, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
+        const current = await dbV6.questionGroups.get(group.id);
+        if (!current || compareClock(group, current) >= 0) await dbV6.questionGroups.put(group);
+        break;
+      }
+      case "questionGroup.deleted": {
+        const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("questionGroup", payload.id));
+        if (tombstone && compareClock(deletedClock, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        const current = await dbV6.questionGroups.get(payload.id);
+        if (current && compareClock(deletedClock, current) < 0) break;
+        await dbV6.questionGroups.delete(payload.id);
+        await dbV6.tombstones.put({ key: tombstoneKey("questionGroup", payload.id), entityType: "questionGroup", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
+        break;
+      }
+      case "image.asset.saved": {
+        const descriptor = event.payload as ImageAsset;
+        assertImageAssetShape(descriptor);
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("imageAsset", descriptor.id));
+        if (tombstone && compareClock({ updatedAt: event.createdAt, deviceId: event.deviceId, id: event.id }, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
+        const current = await dbV6.imageAssets.get(descriptor.id);
+        const latestSaved = await latestImageAssetSavedEventInTx(descriptor.id);
+        if (!latestSaved || compareClock(event, latestSaved) >= 0) {
+          const preservedBlob = current?.blob && current.blob.size === descriptor.size ? current.blob : undefined;
+          await dbV6.imageAssets.put({ ...descriptor, ...(preservedBlob ? { blob: preservedBlob } : {}) });
+        }
+        break;
+      }
+      case "image.asset.deleted": {
+        const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("imageAsset", payload.id));
+        if (tombstone && compareClock(deletedClock, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        const current = await dbV6.imageAssets.get(payload.id);
+        const latestSaved = await latestImageAssetSavedEventInTx(payload.id);
+        if (current && latestSaved && compareClock(deletedClock, latestSaved) < 0) break;
+        await dbV6.imageAssets.delete(payload.id);
+        await dbV6.tombstones.put({ key: tombstoneKey("imageAsset", payload.id), entityType: "imageAsset", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
+        break;
+      }
       case "attempt.created":
-      case "image.asset.saved":
-        // These entity reducers are intentionally small; image blobs are
-        // delivered through the descriptor/blob cache APIs below.
+        // v6 attempts are emitted only as part of practice.answer.submitted;
+        // standalone legacy-style attempt events are intentionally ignored.
         break;
       default:
         break;
@@ -1308,7 +1380,7 @@ function assertImageAssetShape(asset: ImageAsset): void {
     assertDigest(asset.remote.sha256, "远端图片 sha256");
     if (asset.remote.sha256 !== asset.id) throw new TypeError("远端图片 sha256 必须与 id 一致");
     if (typeof asset.remote.path !== "string" || !asset.remote.path.trim()) throw new TypeError("远端图片路径不能为空");
-    if (typeof asset.remote.blobSha !== "string" || !/^[a-f0-9]{40,64}$/.test(asset.remote.blobSha)) throw new TypeError("远端图片 blobSha 无效");
+    if (typeof asset.remote.blobSha !== "string" || !/^[a-f0-9]{40}$/.test(asset.remote.blobSha)) throw new TypeError("远端图片 blobSha 无效");
     if (!Number.isSafeInteger(asset.remote.size) || asset.remote.size !== asset.size) throw new TypeError("远端图片 size 必须与 descriptor 一致");
   }
   if (asset.blob !== undefined && asset.blob.size !== asset.size) throw new TypeError("图片 blob size 与 descriptor 不一致");

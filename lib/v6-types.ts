@@ -11,10 +11,9 @@ import type {
 } from "./types";
 
 /**
- * v6 keeps the bank metadata shape familiar to the existing UI, but the
- * question count is always derived from the membership join table.  The
- * optional legacy fields are intentionally retained for a painless UI
- * integration; v6 never stores a bank id on a question.
+ * v6 reuses only the bank metadata concepts (name, folder, colour and order);
+ * question membership and all learning records live in v6-owned tables.  The
+ * v6 namespace never reads, migrates or falls back to the legacy database.
  */
 export interface BankV6 extends Omit<LegacyBank, "questionCount"> {
   sortOrder: number;
@@ -27,7 +26,7 @@ export type QuestionGroupV6 = LegacyQuestionGroup;
 export type SyncFileV6 = LegacySyncFile;
 export type SyncMetaV6 = LegacySyncMeta;
 export interface TombstoneV6 extends Omit<LegacySyncTombstone, "entityType"> {
-  entityType: LegacySyncTombstone["entityType"] | "membership";
+  entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset";
 }
 
 /** The question kinds currently supported by the v6 content model. */
@@ -184,7 +183,8 @@ export type V6EventType =
   | "review.round.saved"
   | "review.round.completed"
   | "review.round.archived"
-  | "image.asset.saved";
+  | "image.asset.saved"
+  | "image.asset.deleted";
 
 /** v6 only adds an optional review-round association to the existing run. */
 export type PracticeRunV6 = PracticeRun & { reviewRoundId?: string };

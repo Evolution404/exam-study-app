@@ -12,6 +12,7 @@ import {
   getBankQuestionsV6,
   getImageAssetBlobV6,
   getImageAssetDescriptorV6,
+  getImageAssetV6,
   getImageCacheSizeV6,
   getQuestionsForBanksV6,
   getReviewRoundQuestionIdsV6,
@@ -24,7 +25,7 @@ import {
   splitQuestionV6,
   saveNoteV6,
 } from "../lib/db-v6";
-import type { BankQuestionMembership, ImageAsset, V6Event } from "../lib/v6-types";
+import type { BankFolderV6, BankQuestionMembership, ImageAsset, QuestionGroupV6, V6Event } from "../lib/v6-types";
 import { sha256Blob } from "../lib/image-assets";
 
 const OLD_NAME = "memory-line-study";
@@ -159,6 +160,41 @@ assert.equal((await getImageAssetDescriptorV6(digest))?.blob, undefined);
 await clearImageCacheV6();
 assert.equal(await getImageCacheSizeV6(), 0);
 assert.ok(await getImageAssetDescriptorV6(digest));
+
+// Remote folder/group reducers use LWW tombstones instead of silently
+// dropping entities.  A stale save cannot resurrect a newer deletion.
+const folder: BankFolderV6 = { id: "remote-folder", name: "远端文件夹", description: "", sortOrder: 0, createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z", deviceId: "remote" };
+const folderSaved: V6Event = { id: "folder-save", type: "bankFolder.saved", payload: folder, deviceId: "remote", sequence: 1, createdAt: folder.updatedAt, synced: 1 };
+assert.equal(await applyV6Event(folderSaved), true);
+assert.equal((await dbV6.bankFolders.get(folder.id))?.name, "远端文件夹");
+const folderDeleted: V6Event = { id: "folder-delete", type: "bankFolder.deleted", payload: { id: folder.id, deletedAt: "2030-01-01T00:00:00.000Z" }, deviceId: "remote", sequence: 2, createdAt: "2030-01-01T00:00:00.000Z", synced: 1 };
+assert.equal(await applyV6Event(folderDeleted), true);
+assert.equal(await dbV6.bankFolders.get(folder.id), undefined);
+const folderStaleSave: V6Event = { ...folderSaved, id: "folder-stale-save", payload: { ...folder, name: "不应复活" } };
+assert.equal(await applyV6Event(folderStaleSave), true);
+assert.equal(await dbV6.bankFolders.get(folder.id), undefined);
+
+const group: QuestionGroupV6 = { id: "remote-group", name: "分组", type: "专题", description: "", items: [], createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z", deviceId: "remote" };
+assert.equal(await applyV6Event({ id: "group-save", type: "questionGroup.saved", payload: group, deviceId: "remote", sequence: 3, createdAt: group.updatedAt, synced: 1 }), true);
+assert.equal((await dbV6.questionGroups.get(group.id))?.name, "分组");
+assert.equal(await applyV6Event({ id: "group-delete", type: "questionGroup.deleted", payload: { id: group.id, deletedAt: "2030-01-01T00:00:00.000Z" }, deviceId: "remote", sequence: 4, createdAt: "2030-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await dbV6.questionGroups.get(group.id), undefined);
+assert.equal(await applyV6Event({ id: "group-stale-save", type: "questionGroup.saved", payload: group, deviceId: "remote", sequence: 5, createdAt: group.updatedAt, synced: 1 }), true);
+assert.equal(await dbV6.questionGroups.get(group.id), undefined);
+
+// A remote descriptor updates metadata but never evicts an existing local
+// blob.  Blob SHA is the protocol's strict 40-character Git SHA-1.
+const remoteDescriptor: ImageAsset = { ...asset, blob: undefined, remote: { ...asset.remote!, path: "sync/v6/assets/remote.png" } };
+assert.equal(await putImageAssetV6(asset), asset);
+assert.equal(await applyV6Event({ id: "asset-remote-save", type: "image.asset.saved", payload: remoteDescriptor, deviceId: "remote", sequence: 6, createdAt: "2040-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal((await getImageAssetBlobV6(digest))?.size, blob.size);
+assert.equal((await getImageAssetDescriptorV6(digest))?.remote?.path, "sync/v6/assets/remote.png");
+await assert.rejects(() => putImageAssetV6({ ...asset, remote: { ...asset.remote!, blobSha: "a".repeat(41) } }), /blobSha/);
+await assert.rejects(() => putImageAssetV6({ ...asset, remote: { ...asset.remote!, blobSha: "a".repeat(64) } }), /blobSha/);
+assert.equal(await applyV6Event({ id: "asset-remote-delete", type: "image.asset.deleted", payload: { id: digest, deletedAt: "2050-01-01T00:00:00.000Z" }, deviceId: "remote", sequence: 7, createdAt: "2050-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await getImageAssetV6(digest), undefined);
+assert.equal(await applyV6Event({ id: "asset-stale-save", type: "image.asset.saved", payload: remoteDescriptor, deviceId: "remote", sequence: 8, createdAt: "2040-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await getImageAssetV6(digest), undefined);
 
 const oldCheck = new Dexie(OLD_NAME);
 oldCheck.version(1).stores({ sentinel: "id" });
