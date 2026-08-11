@@ -20,7 +20,8 @@ assert.throws(() => normalizeQuestionImageUrl("javascript:alert(1)"), /http/);
 
 assert.match(editor, /value: "计算", label: "计算"/, "question editor must expose calculation questions");
 assert.match(editor, /题目图片地址（可选）/, "question editor must expose an image URL");
-assert.match(xlsx, /"题干", "题型", "答案", "图片地址", "标签"/, "Excel parser must use the current project columns");
+assert.match(xlsx, /"题干", "题型", "答案", "标签"/, "Excel parser must use the current text-only project columns");
+assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public image URLs");
 assert.match(studyApp, /aria-label="计算题答案"/, "practice must render a numeric calculation answer input");
 assert.match(studyApp, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
 assert.match(studyApp, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
