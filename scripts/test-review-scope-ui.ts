@@ -32,7 +32,8 @@ assert.equal(clampProgressScopeDays("12.9"), 12, "custom scope days use whole da
 assert.equal(clampProgressScopeDays("not-a-number"), 90, "invalid custom scope days use a safe default");
 assert.equal(progressScopeChoiceKey({ type: "rolling", days: 90 }), "rolling:90");
 assert.equal(progressScopeChoiceKey({ type: "rolling", days: 91 }), "custom");
-assert.match(PROGRESS_SCOPE_EXPLANATION, /不影响终身统计/, "scope copy explains the lifetime-statistics boundary");
+assert.match(PROGRESS_SCOPE_EXPLANATION, /首页和题库/, "scope copy explains where the selected range is applied");
+assert.match(PROGRESS_SCOPE_EXPLANATION, /收藏、标签和个人解析不随时间变化/, "scope copy separates time-based statistics from asset properties");
 
 const activeA = round("active-a", "active", ["bank-a"]);
 const activeB = round("active-b", "active", ["bank-b"]);

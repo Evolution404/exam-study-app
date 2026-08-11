@@ -26,14 +26,16 @@ assert.doesNotMatch(database, /eventWithId\("practice\.answer\.saved"/, "new loc
 assert.match(studyApp, /dbV6\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v6 practiceRun");
 assert.match(studyApp, /const run = runId \? await dbV6\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v6 practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
-assert.match(studyApp, /<p>\{answeredInRun\} \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/p>/, "home must use the same answered/total metric as practice history");
+assert.match(studyApp, /<span><b>\{answeredInRun\}<\/b> \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/span>/, "home must use the same answered/total metric as practice history");
 assert.doesNotMatch(studyApp, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
 assert.ok(studyApp.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < studyApp.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
 assert.match(practiceHistory, /onAbandon: \(runId: string\) => void/, "latest practice banner needs an abandon action");
 assert.match(practiceHistory, /className="latest-practice-abandon"/, "latest practice abandon action needs its compact button");
 assert.doesNotMatch(practiceHistory, /inProgress \?\? latest/, "practice center must hide the latest banner when no run is in progress");
-assert.match(styles, /\.resume-card-actions \{ display:flex; align-items:center; gap:8px; \}/, "home continue and abandon controls must share one ordered action row");
+assert.match(styles, /\.resume-card-actions\{grid-column:3;grid-row:1;display:flex;align-items:center;gap:8px\}/, "home continue and abandon controls must share one ordered action row");
 assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home action row must keep abandon immediately right of continue");
+assert.match(styles, /\.resume-card small\{color:var\(--ink\)/, "resume card hierarchy must use readable primary text");
+assert.match(styles, /\.resume-progress>i>b/, "resume card must render a dedicated progress bar");
 
 assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
 assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");

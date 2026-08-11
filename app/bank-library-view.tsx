@@ -17,7 +17,7 @@ import { createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteQuestio
 import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
 import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
-import { isQuestionDoneInScope, normalizeProgressScope, type ProgressScope } from "@/lib/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/progress-scope";
 import { ContentBlockRenderer } from "@/app/content-block-renderer";
 type Bank = BankV6;
 type BankFolder = BankFolderV6;
@@ -39,7 +39,7 @@ function fullDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { yea
 function sortedBanks(banks: Bank[]) { return [...banks].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)); }
 
 type QuestionPreset = "all" | "attempted" | "unattempted" | "wrong" | "favorite" | "noted" | "tagged" | "mastered" | "difficult" | "repeatWrong" | "stubborn" | "favoriteUnanswered" | "wrongNoted" | "staleWrong";
-type ActivityRange = 1 | 7 | 30;
+type ActivityRange = 1 | 7 | 30 | "custom";
 
 const PRESET_LABELS: Record<QuestionPreset, string> = {
   all: "全部题目", attempted: "已做题目", unattempted: "未做题目", wrong: "当前错题",
@@ -64,7 +64,7 @@ function runAccuracy(run: PracticeRun) {
   return percent(answered.filter((answer) => answer.correct).length, answered.length);
 }
 
-export function BankLibraryView({ banks, progressScope = { type: "rolling", days: 90 }, wrongRemovalStreak, onImport, onOpenRun, onNotice }: { banks: Bank[]; progressScope?: ProgressScope; wrongRemovalStreak: number; onImport: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
+export function BankLibraryView({ banks, progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", wrongRemovalStreak, onImport, onOpenRun, onNotice }: { banks: Bank[]; progressScope?: ProgressScope; progressScopeLabel?: string; wrongRemovalStreak: number; onImport: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
   const folders = useLiveQuery(() => dbV6.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
   const [activeBankId, setActiveBankId] = useState<string>();
   const [tab, setTab] = useState<"overview" | "questions">("overview");
@@ -105,7 +105,7 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
     } finally { setDeleting(false); }
   }
 
-  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="移除这个题库？" tone="danger" busy={deleting} confirmLabel="移除题库" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>题库“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其 memberships 将被移除</strong><span>题目本身、历史作答和解析会保留；失去全部题库归属的题目可在“未归档题目”中找回。</span></>} /></>;
+  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} progressScopeLabel={progressScopeLabel} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="移除这个题库？" tone="danger" busy={deleting} confirmLabel="移除题库" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>题库“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其 memberships 将被移除</strong><span>题目本身、历史作答和解析会保留；失去全部题库归属的题目可在“未归档题目”中找回。</span></>} /></>;
   return <>
     <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>拖动调整顺序，用文件夹聚合题库；做题请前往练习中心。</p></div><div className="heading-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><button onClick={() => setShowUnfiled((value) => !value)}>{showUnfiled ? "隐藏未归档" : "未归档题目"}</button><ExcelImportActions onNotice={onNotice} /><button className="primary" onClick={onImport}><FileUp size={17} />导入 JSON</button></div></div>
     {showUnfiled && <UnfiledQuestionSection questions={unfiledQuestions} onNotice={onNotice} />}
@@ -129,41 +129,46 @@ function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpe
   return <section className={`bank-folder ${draggedBankId ? "drag-active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onDrop(); }}><header><span className="folder-icon">{folder ? <FolderOpen size={18} /> : <Library size={18} />}</span><div><h2>{folder?.name ?? "未分组"}</h2><p>{folder?.description || `${banks.length} 个题库`}</p></div><strong>{banks.length}</strong>{folder && <div className="folder-actions"><button aria-label={`编辑文件夹${folder.name}`} onClick={onEditFolder}><Pencil size={15} /></button><button aria-label={`删除文件夹${folder.name}`} onClick={onDeleteFolder}><Trash2 size={15} /></button></div>}</header><div className="bank-management-grid">{banks.map((bank, index) => <article key={bank.id} draggable onDragStart={() => onDrag(bank.id)} onDragEnd={() => onDrag(undefined)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); event.preventDefault(); onDrop(bank.id); }}><span className="bank-drag"><GripVertical size={18} /></span><button className="bank-management-main" onClick={() => onOpen(bank)}><span className="bank-color" style={{ background: bank.color || "#dfe9e2" }}><BookOpenCheck size={18} /></span><span><strong>{bankTitle(bank)}</strong><small>{bank.questionCount.toLocaleString()} 题 · {fullDate(bank.importedAt)}</small></span><ChevronRight size={17} /></button><div className="bank-order-buttons"><button aria-label="向上移动" disabled={index === 0} onClick={() => onMove(bank, -1)}><ArrowUp size={14} /></button><button aria-label="向下移动" disabled={index === banks.length - 1} onClick={() => onMove(bank, 1)}><ArrowDown size={14} /></button></div></article>)}</div>{!banks.length && <div className="folder-drop-empty"><Folder size={20} />将题库拖到这里</div>}</section>;
 }
 
-function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onTab, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; progressScope: ProgressScope; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
+function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wrongRemovalStreak, onTab, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; progressScope: ProgressScope; progressScopeLabel: string; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
   const [questionPreset, setQuestionPreset] = useState<QuestionPreset>("all");
   const [activityRange, setActivityRange] = useState<ActivityRange>(7);
   const [referenceTime] = useState(Date.now);
+  const defaultCustomFrom = new Date(referenceTime);
+  defaultCustomFrom.setDate(defaultCustomFrom.getDate() - 6);
+  const [customActivityRange, setCustomActivityRange] = useState({ from: calendarDate(defaultCustomFrom), to: calendarDate(new Date(referenceTime)) });
   const dataset = useLiveQuery(async () => {
-    const dailyCutoff = new Date();
-    dailyCutoff.setDate(dailyCutoff.getDate() - 34);
     const views = await listQuestionViewsForBankV6(bank.id);
     const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
     const questionIds = new Set(questions.map((question) => question.id));
-    const [rawStats, dailyStats, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
+    const [rawStats, rawAttempts, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
       dbV6.attemptStats.toArray(),
-      dbV6.attemptDailyStats.where("date").aboveOrEqual(calendarDate(dailyCutoff)).toArray(),
+      dbV6.attempts.toArray(),
       dbV6.notes.toArray(),
       dbV6.practiceRuns.toArray(),
       dbV6.practiceRunStats.get(bank.id),
       dbV6.reviewRoundProgress.toArray(),
     ]);
     const attemptStats = rawStats.filter((stats) => questionIds.has(stats.questionId)).map((stats) => ({ ...stats, bankId: bank.id }));
-    return { questions, attemptStats, dailyStats: dailyStats.filter((row) => questionIds.has(row.questionId)), notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress: roundProgress.filter((row) => questionIds.has(row.questionId)) };
+    return { questions, lifetimeAttemptStats: attemptStats, attempts: rawAttempts.filter((attempt) => questionIds.has(attempt.questionId)), notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress: roundProgress.filter((row) => questionIds.has(row.questionId)) };
   }, [bank.id]);
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);
-  const attemptStats = useMemo(() => dataset?.attemptStats ?? [], [dataset]);
-  const dailyStats = useMemo(() => dataset?.dailyStats ?? [], [dataset]);
+  const lifetimeAttemptStats = useMemo(() => dataset?.lifetimeAttemptStats ?? [], [dataset]);
+  const attempts = useMemo(() => dataset?.attempts ?? [], [dataset]);
   const notes = useMemo(() => dataset?.notes ?? [], [dataset]);
   const runs = useMemo(() => dataset?.runs ?? [], [dataset]);
   const runStats = dataset?.runStats;
   const roundProgress = useMemo(() => dataset?.roundProgress ?? [], [dataset?.roundProgress]);
-  const normalizedScope = normalizeProgressScope(progressScope);
+  const normalizedScope = useMemo(() => normalizeProgressScope(progressScope), [progressScope]);
+  const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats(questions.map((question) => question.id), normalizedScope, attempts, roundProgress, referenceTime), [questions, normalizedScope, attempts, roundProgress, referenceTime]);
+  const attemptStats = useMemo<AttemptStats[]>(() => [...scopedStatsByQuestion.values()].map((stats) => ({
+    ...stats, bankId: bank.id, giveUps: stats.giveUps ?? 0, totalElapsedMs: stats.totalElapsedMs ?? 0,
+    firstAttemptCorrect: stats.firstAttemptCorrect ?? false, recentOutcomes: [],
+  })), [bank.id, scopedStatsByQuestion]);
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
   const dashboard = useMemo(() => {
     const noteIds = new Set(notes.map((note) => note.questionId));
     const summaries = new Map(questions.map((question) => [question.id, summarizeAttemptStats(statsByQuestion.get(question.id))]));
     const attempted = questions.filter((question) => isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime));
-    const lifetimeAttempted = questions.filter((question) => (summaries.get(question.id)?.total ?? 0) > 0);
     const doneByQuestion = new Map(questions.map((question) => [question.id, isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)]));
     const wrong = questions.filter((question) => statsNeedWrongReview(statsByQuestion.get(question.id), wrongRemovalStreak));
     const mastered = questions.filter((question) => (statsByQuestion.get(question.id)?.currentCorrectStreak ?? 0) >= wrongRemovalStreak);
@@ -184,16 +189,22 @@ function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onT
       return { name, count: tagged.length, wrong: taggedWrong, accuracy: percent(totals.correct, totals.total) };
     }).sort((a, b) => b.wrong - a.wrong || b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
     const orderedRuns = [...runs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const activityCutoff = new Date(referenceTime);
-    activityCutoff.setHours(0, 0, 0, 0);
-    activityCutoff.setDate(activityCutoff.getDate() - (activityRange - 1));
-    const activityCutoffKey = calendarDate(activityCutoff);
-    const oldest = activityCutoff.getTime();
-    const rangeDaily = dailyStats.filter((row) => row.date >= activityCutoffKey);
-    const activityTotals = rangeDaily.reduce((result, row) => ({ total: result.total + row.total, correct: result.correct + row.correct }), { total: 0, correct: 0 });
-    const activeQuestionIds = new Set(rangeDaily.map((row) => row.questionId));
-    const newQuestions = attemptStats.filter((stats) => activeQuestionIds.has(stats.questionId) && new Date(stats.firstAttemptAt).getTime() >= oldest).length;
-    const totals = attemptStats.reduce((result, stats) => ({ total: result.total + stats.total, correct: result.correct + stats.correct, wrong: result.wrong + stats.wrong, giveUps: result.giveUps + stats.giveUps, elapsed: result.elapsed + stats.totalElapsedMs }), { total: 0, correct: 0, wrong: 0, giveUps: 0, elapsed: 0 });
+    const activityTo = activityRange === "custom" ? customActivityRange.to : calendarDate(new Date(referenceTime));
+    const activityFrom = (() => {
+      if (activityRange === "custom") return customActivityRange.from;
+      const cutoff = new Date(referenceTime);
+      cutoff.setHours(0, 0, 0, 0);
+      cutoff.setDate(cutoff.getDate() - (activityRange - 1));
+      return calendarDate(cutoff);
+    })();
+    const rangeAttempts = attempts.filter((attempt) => {
+      const date = calendarDate(attempt.createdAt);
+      return activityFrom <= activityTo && date >= activityFrom && date <= activityTo;
+    });
+    const activeQuestionIds = new Set(rangeAttempts.map((attempt) => attempt.questionId));
+    const activityTotals = rangeAttempts.reduce((result, attempt) => ({ total: result.total + 1, correct: result.correct + (attempt.correct ? 1 : 0) }), { total: 0, correct: 0 });
+    const newQuestions = lifetimeAttemptStats.filter((stats) => activeQuestionIds.has(stats.questionId) && calendarDate(stats.firstAttemptAt) >= activityFrom && calendarDate(stats.firstAttemptAt) <= activityTo).length;
+    const totals = summarizeScopedQuestionStats(scopedStatsByQuestion);
     const averageDifficulty = attempted.length ? Math.round(attempted.reduce((sum, question) => sum + (summaries.get(question.id)?.difficulty ?? 0), 0) / attempted.length) : 0;
     return {
       noteIds, summaries, types, difficulty, tags, orderedRuns,
@@ -201,12 +212,12 @@ function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onT
       completion: percent(attempted.length, questions.length), wrong: wrong.length, mastered: mastered.length,
       favorites: questions.filter((question) => question.favorite).length, noted: noteIds.size,
       tagged: questions.filter((question) => question.tags.length).length,
-      totalAttempts: totals.total, totalCorrect: totals.correct, totalWrong: totals.wrong,
-      accuracy: percent(totals.correct, totals.total), firstAccuracy: percent(attemptStats.filter((stats) => stats.firstAttemptCorrect).length, attemptStats.length),
-      averageAttempts: lifetimeAttempted.length ? (totals.total / lifetimeAttempted.length).toFixed(1) : "0",
+      totalAttempts: totals.attempts, totalCorrect: totals.correct, totalWrong: totals.wrong,
+      accuracy: percent(totals.correct, totals.attempts), firstAccuracy: totals.firstKnown ? percent(totals.firstCorrect, totals.firstKnown) : undefined,
+      averageAttempts: totals.attemptedQuestions ? (totals.attempts / totals.attemptedQuestions).toFixed(1) : "0",
       giveUps: totals.giveUps, averageDifficulty,
-      totalElapsed: totals.elapsed,
-      lastAttempt: [...attemptStats].sort((a, b) => b.latestAttemptAt.localeCompare(a.latestAttemptAt))[0],
+      totalElapsed: totals.totalElapsedMs,
+      lastAttempt: totals.lastAttemptAt,
       activity: { attempts: activityTotals.total, questions: activeQuestionIds.size, newQuestions, accuracy: percent(activityTotals.correct, activityTotals.total) },
       runCounts: { total: runStats?.total ?? runs.length, completed: runStats?.completed ?? runs.filter((run) => run.status === "completed").length, inProgress: runStats?.inProgress ?? runs.filter((run) => run.status === "in_progress").length, abandoned: runStats?.abandoned ?? runs.filter((run) => run.status === "abandoned").length },
       priorities: {
@@ -219,7 +230,7 @@ function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onT
         staleWrong: wrong.filter((question) => (summaries.get(question.id)?.latest ?? referenceTime) < referenceTime - 30 * 86_400_000).length,
       },
     };
-  }, [questions, attemptStats, dailyStats, notes, runs, runStats, roundProgress, statsByQuestion, wrongRemovalStreak, activityRange, referenceTime, normalizedScope]);
+  }, [questions, attemptStats, attempts, lifetimeAttemptStats, notes, runs, runStats, roundProgress, statsByQuestion, scopedStatsByQuestion, wrongRemovalStreak, activityRange, customActivityRange, referenceTime, normalizedScope]);
 
   function openQuestions(preset: QuestionPreset) {
     setQuestionPreset(preset);
@@ -239,38 +250,38 @@ function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onT
       <section className="bank-profile-strip">
         <span className="bank-profile-color" style={{ background: bank.color || "#dfe9e2" }}><BookOpenCheck size={22} /></span>
         <div><strong>{bankTitle(bank)}</strong><small>{bank.name !== bankTitle(bank) ? `系统原名：${bank.name} · ` : ""}{folderName} · 导入于 {fullDate(bank.importedAt)}</small></div>
-        <span>{questions.length.toLocaleString()} 道题</span>
+        <span>{questions.length.toLocaleString()} 道题 · {progressScopeLabel}</span>
       </section>
 
       <section className="bank-progress-hero">
         <div className="bank-progress-ring" style={{ background: `conic-gradient(#3f7258 ${dashboard.completion}%, #dfe5df 0)` }}><span><strong>{dashboard.completion}%</strong><small>完成度</small></span></div>
-        <div className="bank-progress-copy"><span className="section-kicker">学习进度</span><h2>已做 {dashboard.attempted} 题，还有 {dashboard.unattempted} 题等待开始</h2><p>当前错题 {dashboard.wrong} 道；连续答对 {wrongRemovalStreak} 次后计入已掌握并移出错题。</p><div className="bank-progress-bar"><i style={{ width: `${dashboard.completion}%` }} /></div></div>
-        <div className="bank-progress-side"><span>最近练习</span><strong>{formatDateTime(dashboard.lastAttempt?.latestAttemptAt)}</strong><small>{latestRun ? `${latestRun.modeLabel} · ${latestRun.status === "completed" ? "已完成" : latestRun.status === "abandoned" ? "已放弃" : "进行中"}` : "还没有练习记录"}</small></div>
+        <div className="bank-progress-copy"><span className="section-kicker">学习进度 · {progressScopeLabel}</span><h2>已做 {dashboard.attempted} 题，还有 {dashboard.unattempted} 题等待开始</h2><p>{progressScopeLabel}内错题 {dashboard.wrong} 道；连续答对 {wrongRemovalStreak} 次后计入已掌握并移出错题。</p><div className="bank-progress-bar"><i style={{ width: `${dashboard.completion}%` }} /></div></div>
+        <div className="bank-progress-side"><span>{progressScopeLabel}最近作答</span><strong>{formatDateTime(dashboard.lastAttempt)}</strong><small>{latestRun ? `${latestRun.modeLabel} · ${latestRun.status === "completed" ? "已完成" : latestRun.status === "abandoned" ? "已放弃" : "进行中"}` : "还没有练习记录"}</small></div>
       </section>
 
       <section className="bank-kpi-grid" aria-label="题库核心指标">
-        <DashboardMetric icon={<CheckCircle2 />} label="已做题目" value={dashboard.attempted} detail={`${dashboard.completion}% 完成（${normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前轮次"}）`} onClick={() => openQuestions("attempted")} />
-        <DashboardMetric icon={<AlertTriangle />} label="当前错题" value={dashboard.wrong} detail={`连续对 ${wrongRemovalStreak} 次移除`} tone="warning" onClick={() => openQuestions("wrong")} />
-        <DashboardMetric icon={<Target />} label="已掌握" value={dashboard.mastered} detail="达到连续正确阈值" onClick={() => openQuestions("mastered")} />
-        <DashboardMetric icon={<Bookmark />} label="收藏题目" value={dashboard.favorites} detail="用户主动收藏" onClick={() => openQuestions("favorite")} />
-        <DashboardMetric icon={<NotebookPen />} label="个人解析" value={dashboard.noted} detail="已有笔记或解析" onClick={() => openQuestions("noted")} />
-        <DashboardMetric icon={<Tag />} label="已打标签" value={dashboard.tagged} detail={`共 ${dashboard.tags.length} 个标签`} onClick={() => openQuestions("tagged")} />
-        <DashboardMetric icon={<FileText />} label="未做题目" value={dashboard.unattempted} detail="尚无作答记录" onClick={() => openQuestions("unattempted")} />
-        <DashboardMetric icon={<Gauge />} label="平均难度" value={dashboard.averageDifficulty} suffix="/100" detail="根据终身作答动态计算" onClick={() => openQuestions("difficult")} />
+        <DashboardMetric icon={<CheckCircle2 />} label="已做题目" value={dashboard.attempted} detail={`${dashboard.completion}% 完成 · ${progressScopeLabel}`} onClick={() => openQuestions("attempted")} />
+        <DashboardMetric icon={<AlertTriangle />} label="当前错题" value={dashboard.wrong} detail={`${progressScopeLabel} · 连续对 ${wrongRemovalStreak} 次移除`} tone="warning" onClick={() => openQuestions("wrong")} />
+        <DashboardMetric icon={<Target />} label="已掌握" value={dashboard.mastered} detail={`${progressScopeLabel} · 达到连续正确阈值`} onClick={() => openQuestions("mastered")} />
+        <DashboardMetric icon={<Bookmark />} label="收藏题目" value={dashboard.favorites} detail="题库属性 · 不受时间范围影响" onClick={() => openQuestions("favorite")} />
+        <DashboardMetric icon={<NotebookPen />} label="个人解析" value={dashboard.noted} detail="题库属性 · 不受时间范围影响" onClick={() => openQuestions("noted")} />
+        <DashboardMetric icon={<Tag />} label="已打标签" value={dashboard.tagged} detail={`${dashboard.tags.length} 个标签 · 不受时间范围影响`} onClick={() => openQuestions("tagged")} />
+        <DashboardMetric icon={<FileText />} label="未做题目" value={dashboard.unattempted} detail={`${progressScopeLabel}尚无作答`} onClick={() => openQuestions("unattempted")} />
+        <DashboardMetric icon={<Gauge />} label="平均难度" value={dashboard.averageDifficulty} suffix="/100" detail={`根据${progressScopeLabel}作答动态计算`} onClick={() => openQuestions("difficult")} />
       </section>
 
       <div className="bank-dashboard-grid">
-        <section className="bank-dashboard-panel bank-performance-panel"><PanelTitle icon={<BarChart3 />} eyebrow="答题表现" title="累计表现（终身）" /><div className="bank-performance-grid">
-          <DashboardNumber value={dashboard.totalAttempts} label="总作答（终身）" />
-          <DashboardNumber value={`${dashboard.accuracy}%`} label="总正确率（终身）" />
-          <DashboardNumber value={`${dashboard.firstAccuracy}%`} label="首次正确率（终身）" />
-          <DashboardNumber value={dashboard.averageAttempts} label="每题平均作答（终身）" />
-          <DashboardNumber value={dashboard.totalCorrect} label="答对次数（终身）" />
-          <DashboardNumber value={dashboard.totalWrong} label="答错次数（终身）" />
-          <DashboardNumber value={dashboard.giveUps} label="不会次数（终身）" />
-          <DashboardNumber value={formatDuration(dashboard.totalElapsed)} label="累计用时（终身）" />
+        <section className="bank-dashboard-panel bank-performance-panel"><PanelTitle icon={<BarChart3 />} eyebrow="答题表现" title={`范围表现（${progressScopeLabel}）`} /><div className="bank-performance-grid">
+          <DashboardNumber value={dashboard.totalAttempts} label="总作答" />
+          <DashboardNumber value={`${dashboard.accuracy}%`} label="总正确率" />
+          <DashboardNumber value={dashboard.firstAccuracy === undefined ? "—" : `${dashboard.firstAccuracy}%`} label="首次正确率" />
+          <DashboardNumber value={dashboard.averageAttempts} label="每题平均作答" />
+          <DashboardNumber value={dashboard.totalCorrect} label="答对次数" />
+          <DashboardNumber value={dashboard.totalWrong} label="答错次数" />
+          <DashboardNumber value={dashboard.giveUps ?? "—"} label="不会次数" />
+          <DashboardNumber value={dashboard.totalElapsed === undefined ? "—" : formatDuration(dashboard.totalElapsed)} label="累计用时" />
         </div></section>
-        <section className="bank-dashboard-panel bank-activity-panel"><PanelTitle icon={<CalendarClock />} eyebrow="近期活跃" title="练习节奏" /><div className="bank-range-tabs">{([1, 7, 30] as ActivityRange[]).map((days) => <button key={days} className={activityRange === days ? "active" : ""} onClick={() => setActivityRange(days)}>{days === 1 ? "今天" : `${days} 天`}</button>)}</div><div className="bank-activity-grid">
+        <section className="bank-dashboard-panel bank-activity-panel"><PanelTitle icon={<CalendarClock />} eyebrow="近期活跃" title="练习节奏" /><div className="bank-range-tabs">{([1, 7, 30] as const).map((days) => <button key={days} className={activityRange === days ? "active" : ""} onClick={() => setActivityRange(days)}>{days === 1 ? "今天" : `${days} 天`}</button>)}<button className={activityRange === "custom" ? "active" : ""} onClick={() => setActivityRange("custom")}>自定义</button></div>{activityRange === "custom" && <div className="bank-custom-range"><label>开始日期<input type="date" value={customActivityRange.from} max={customActivityRange.to} onChange={(event) => setCustomActivityRange((current) => ({ ...current, from: event.target.value }))} /></label><span>至</span><label>结束日期<input type="date" value={customActivityRange.to} min={customActivityRange.from} max={calendarDate(new Date(referenceTime))} onChange={(event) => setCustomActivityRange((current) => ({ ...current, to: event.target.value }))} /></label></div>}<div className="bank-activity-grid">
           <DashboardNumber value={dashboard.activity.attempts} label="作答次数" />
           <DashboardNumber value={dashboard.activity.questions} label="练习题数" />
           <DashboardNumber value={dashboard.activity.newQuestions} label="新做题目" />

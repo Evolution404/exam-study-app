@@ -33,7 +33,8 @@ import type { ActivePractice, GitHubSettings } from "@/lib/types";
 import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/v6-types";
 import type { V6PracticeFilter } from "@/app/practice-setup";
 import type { ProgressScope } from "@/lib/progress-scope";
-import { normalizeProgressScope, isQuestionDoneInScope } from "@/lib/progress-scope";
+import { buildScopedQuestionStats, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
+import { classifyNoticeTone } from "@/lib/notice-tone";
 
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV6;
@@ -454,6 +455,10 @@ export function StudyApp() {
     };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
   const reviewRounds = useLiveQuery(() => dbV6.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
+  const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
+  const selectedScopeLabel = normalizedProgressScope.type === "round"
+    ? reviewRounds.find((round) => round.id === normalizedProgressScope.roundId)?.name || "当前复习轮次"
+    : progressScopeLabel(normalizedProgressScope);
   const activeBankKey = activeBankIds.join("|");
   const scopeProgress = useLiveQuery(async () => {
     if (!activeBankIds.length) return { completed: 0, total: 0 };
@@ -462,6 +467,24 @@ export function StudyApp() {
     const completed = ids.filter((id) => isQuestionDoneInScope(id, normalizeProgressScope(preferences.progressScope), stats, roundProgress, Date.now())).length;
     return { completed, total: ids.length };
   }, [activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
+  const scopeStats = useLiveQuery(async () => {
+    const questionIds = activeBankIds.length
+      ? [...new Set((await dbV6.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
+      : await dbV6.questions.toCollection().primaryKeys();
+    const [attempts, roundProgress, notes] = await Promise.all([
+      dbV6.attempts.toArray(), dbV6.reviewRoundProgress.toArray(), dbV6.notes.toArray(),
+    ]);
+    const questionIdSet = new Set(questionIds);
+    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, Date.now()));
+    return {
+      questions: questionIds.length,
+      attempts: summary.attempts,
+      correct: summary.correct,
+      notes: notes.filter((note) => questionIdSet.has(note.questionId) && note.content.trim()).length,
+      last: summary.lastAttemptAt,
+      bankCount: activeBankIds.length || banks.length,
+    };
+  }, [activeBankKey, preferences.progressScope, banks.length]) ?? { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
 
   async function onImport(file?: File) {
     if (!file) return;
@@ -968,12 +991,12 @@ export function StudyApp() {
 
         {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
 
-        {notice && <div className="toast"><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
+        {notice && <div className={`toast ${classifyNoticeTone(notice)}`}><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}><Suspense fallback={<div className="route-loading"><LoaderCircle className="spin" size={24} /><span>正在载入页面…</span></div>}>
-          {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} scopeProgress={scopeProgress} progressScope={preferences.progressScope} stats={stats} banks={banks} latestPracticeRun={latestPracticeRun} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize, preferences.progressScope))} onResume={(runId) => void resumePractice(runId)} onDiscardResume={(runId) => void discardSavedPractice(runId)} onMoreModes={() => setView("practiceSetup")} />}
-          {view === "banks" && <BankLibraryView banks={banks} progressScope={preferences.progressScope} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
+          {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} scopeProgress={scopeProgress} progressScope={preferences.progressScope} scopeLabel={selectedScopeLabel} scopeStats={scopeStats} stats={stats} banks={banks} latestPracticeRun={latestPracticeRun} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize, preferences.progressScope))} onResume={(runId) => void resumePractice(runId)} onDiscardResume={(runId) => void discardSavedPractice(runId)} onMoreModes={() => setView("practiceSetup")} />}
+          {view === "banks" && <BankLibraryView banks={banks} progressScope={preferences.progressScope} progressScopeLabel={selectedScopeLabel} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} progressScope={preferences.progressScope} rounds={reviewRounds} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize, preferences.progressScope), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
@@ -1134,12 +1157,14 @@ function PullToRefresh() {
   return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
 
-function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeProgress, progressScope, stats, banks, latestPracticeRun, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
+function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeProgress, progressScope, scopeLabel, scopeStats, stats, banks, latestPracticeRun, selectedBankIds, onBankToggle, onImport, onStart, onResume, onDiscardResume, onMoreModes }: {
   groupSize: number;
   dailyGoalCount: number;
   dailyGoalAccuracy: number;
   scopeProgress: { completed: number; total: number };
   progressScope: ProgressScope;
+  scopeLabel: string;
+  scopeStats: { questions: number; attempts: number; correct: number; notes: number; bankCount: number; last?: string };
   stats: { questions: number; attempts: number; correct: number; todayAttempts: number; todayCorrect: number; pending: number; notes: number; last?: string };
   banks: Array<{ id: string; name: string; displayName?: string; questionCount: number }>;
   latestPracticeRun?: PracticeRun;
@@ -1147,15 +1172,16 @@ function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeProgress
   onBankToggle: (bankId: string) => void;
   onImport: () => void; onStart: () => void; onResume: (runId: string) => void; onDiscardResume: (runId: string) => void; onMoreModes: () => void;
 }) {
-  const accuracy = stats.attempts ? Math.round(stats.correct / stats.attempts * 100) : 0;
+  const scopeAccuracy = scopeStats.attempts ? Math.round(scopeStats.correct / scopeStats.attempts * 100) : 0;
   const todayAccuracy = stats.todayAttempts ? Math.round(stats.todayCorrect / stats.todayAttempts * 100) : 0;
   const countProgress = Math.min(100, Math.round(stats.todayAttempts / dailyGoalCount * 100));
   const selectedBanks = banks.filter((bank) => selectedBankIds.includes(bank.id));
   const selectedQuestions = selectedBanks.reduce((total, bank) => total + bank.questionCount, 0);
   const answeredInRun = latestPracticeRun ? Object.values(latestPracticeRun.answers).filter((answer) => answer.submitted).length : 0;
+  const resumeProgress = latestPracticeRun?.questionIds.length ? Math.round(answeredInRun / latestPracticeRun.questionIds.length * 100) : 0;
   return <>
     <div className="home-heading"><h1>今日练习</h1><p>选择题库开始练习，或继续上次进度。</p>{selectedBanks.length > 0 && <small>当前口径已做 {scopeProgress.completed} / {scopeProgress.total}（{progressScope.type === "rolling" ? `近 ${progressScope.days} 天` : progressScope.type === "lifetime" ? "全部时间" : "当前轮次"}）</small>}</div>
-    {latestPracticeRun && <section className="resume-card"><span><Play size={20} /></span><div className="resume-copy"><small>上次练习 · {latestPracticeRun.modeLabel}</small><strong>{latestPracticeRun.bankName}</strong><p>{answeredInRun} / {latestPracticeRun.questionIds.length} 已作答</p></div><div className="resume-card-actions"><button className="resume-continue" onClick={() => onResume(latestPracticeRun.id)}>继续练习<ChevronRight size={17} /></button><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={() => onDiscardResume(latestPracticeRun.id)}><X size={16} /></button></div></section>}
+    {latestPracticeRun && <section className="resume-card"><span className="resume-mark"><Play size={21} /></span><div className="resume-copy"><small>继续上次练习</small><strong>{latestPracticeRun.bankName}</strong><p>{latestPracticeRun.modeLabel}</p></div><div className="resume-progress"><div><span><b>{answeredInRun}</b> / {latestPracticeRun.questionIds.length} 已作答</span><strong>{resumeProgress}%</strong></div><i aria-label={`练习进度 ${resumeProgress}%`}><b style={{ width: `${resumeProgress}%` }} /></i></div><div className="resume-card-actions"><button className="resume-continue" onClick={() => onResume(latestPracticeRun.id)}>继续练习<ChevronRight size={17} /></button><button className="resume-discard" aria-label="放弃上次练习" title="放弃上次练习" onClick={() => onDiscardResume(latestPracticeRun.id)}><X size={16} /></button></div></section>}
     {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className="home-bank-grid">{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
     <section className="home-feature-grid">
       <article className="daily-practice"><div><span className="section-kicker">今日推荐</span><h2>来一组 {groupSize} 题</h2><p>{selectedBankIds.length ? "从已选题库随机抽题，再按单选、多选、判断、计算分组。" : "请先选择题库，或进入更多练习模式选择题库。"}</p><div><button disabled={!selectedBankIds.length} onClick={onStart}>开始这一组<ChevronRight size={17} /></button><button className="feature-secondary" onClick={onMoreModes}><ListFilter size={16} />更多练习模式</button></div></div><span className="daily-number"><strong>{groupSize}</strong><small>题</small></span></article>
@@ -1164,10 +1190,10 @@ function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeProgress
       </article>
     </section>
     <section className="stat-grid">
-      <Stat icon={<BookOpen />} label="题目总数" value={stats.questions.toLocaleString()} foot={`${banks.length} 个题库`} />
-      <Stat icon={<Target />} label="累计作答（终身）" value={stats.attempts.toLocaleString()} foot={`最近：${formatDate(stats.last)}`} />
-      <Stat icon={<Check />} label="正确率（终身）" value={`${accuracy}%`} foot={stats.attempts ? `${stats.correct} 次答对` : "等待第一次作答"} />
-      <Stat icon={<NotebookPen />} label="个人解析" value={stats.notes.toLocaleString()} foot="沉淀自己的记忆钩子" />
+      <Stat icon={<BookOpen />} label="范围题目" value={scopeStats.questions.toLocaleString()} foot={`${scopeStats.bankCount} 个题库 · ${scopeLabel}`} />
+      <Stat icon={<Target />} label={`作答（${scopeLabel}）`} value={scopeStats.attempts.toLocaleString()} foot={`最近：${formatDate(scopeStats.last)}`} />
+      <Stat icon={<Check />} label={`正确率（${scopeLabel}）`} value={`${scopeAccuracy}%`} foot={scopeStats.attempts ? `${scopeStats.correct} 次答对` : "当前范围尚未作答"} />
+      <Stat icon={<NotebookPen />} label="个人解析（当前题库范围）" value={scopeStats.notes.toLocaleString()} foot="不受时间范围影响" />
     </section>
     <section className="section-block"><div className="section-title"><div><span className="section-kicker">题库管理</span><h2>继续扩充你的练习范围</h2></div><button className="text-button" onClick={onImport}><FileUp size={16} />导入题库</button></div></section>
   </>;

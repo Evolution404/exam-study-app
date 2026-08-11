@@ -125,7 +125,26 @@ async function expectNotice(page, pattern, description = "notice") {
 }
 
 async function expectSyncFailureNotice(page) {
-  return expectNotice(page, /GitHub|同步|失败|401/, "sync failure notice");
+  const notice = await expectNotice(page, /GitHub|同步|失败|401/, "sync failure notice");
+  const tone = await notice.evaluate((element) => ({
+    errorClass: element.classList.contains("error"),
+    color: getComputedStyle(element).color,
+    expectedColor: getComputedStyle(document.documentElement).getPropertyValue("--color-danger").trim(),
+    background: getComputedStyle(element).backgroundColor,
+    expectedBackground: getComputedStyle(document.documentElement).getPropertyValue("--color-danger-soft").trim(),
+  }));
+  assert.equal(tone.errorClass, true, "sync failure notice must use the error tone");
+  const resolveColor = (value) => {
+    const probe = document.createElement("span");
+    probe.style.color = value;
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  };
+  assert.equal(tone.color, await page.evaluate(resolveColor, tone.expectedColor), "sync failure notice must use the danger text color");
+  assert.equal(tone.background, await page.evaluate(resolveColor, tone.expectedBackground), "sync failure notice must use the danger background");
+  return notice;
 }
 
 async function capture(page, contextName, label) {
@@ -208,6 +227,13 @@ async function pendingEventCount(page) {
 async function attachFixtureImage(page) {
   const bankCard = page.locator("button.bank-management-main").filter({ hasText: "送电线路工-初级工" }).first();
   await bankCard.click();
+  await expectText(page, "范围表现（近 90 天）");
+  await clickButton(page, "自定义");
+  const activityDates = page.locator(".bank-custom-range input[type=date]");
+  assert.equal(await activityDates.count(), 2, "bank activity range must expose custom start and end dates");
+  await activityDates.nth(0).fill("2026-08-01");
+  await activityDates.nth(1).fill("2026-08-11");
+  await capture(page, "desktop", "bank-custom-range");
   await clickTextButton(page, "试题管理");
   const question = page.locator(".managed-question-list article").filter({ hasText: "图片所示数值允许 1% 误差时" }).first();
   await question.getByRole("button", { name: "编辑题目" }).click();
@@ -255,6 +281,9 @@ async function runDesktop(page) {
 
   await importFixture(page);
   await expectText(page, "送电线路工-初级工");
+  await clickButton(page, "今日");
+  const scopedAttemptLabel = page.locator(".stat-card > span:not(.stat-icon)").filter({ hasText: "作答" }).first();
+  assert.equal(await scopedAttemptLabel.innerText(), "作答（近 90 天）", "home statistics must show the selected progress scope");
   await capture(page, contextName, "home-imported");
 
   await clickButton(page, "题库");
@@ -297,6 +326,11 @@ async function runDesktop(page) {
     return Math.abs((iconBox.top + iconBox.height / 2) - (buttonBox.top + buttonBox.height / 2));
   });
   assert.ok(themeCheckOffset < 2, `theme checkmark must be vertically centered, offset was ${themeCheckOffset}px`);
+  await page.getByRole("radio", { name: /永久/ }).click();
+  await clickButton(page, "今日");
+  await expectText(page, "作答（全部时间）");
+  await clickButton(page, "配置");
+  await expectText(page, "答题配置");
   await expectText(page, "客户端版本");
   await page.evaluate(() => {
     const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
@@ -445,6 +479,21 @@ async function runMobile(page) {
   await page.locator(".question-card").waitFor({ state: "visible" });
   await capture(page, contextName, "practice");
   await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  const resumeTone = await page.locator(".resume-copy strong").evaluate((element) => ({
+    color: getComputedStyle(element).color,
+    expected: getComputedStyle(document.documentElement).getPropertyValue("--ink").trim(),
+  }));
+  assert.equal(resumeTone.color, await page.evaluate((value) => {
+    const probe = document.createElement("span");
+    probe.style.color = value;
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  }, resumeTone.expected), "resume card title must use the primary text color");
+  assert.ok(await page.locator(".resume-progress > i").isVisible(), "resume card must show a progress bar");
+  await capture(page, contextName, "home-resume");
   await clickButton(page, "打开导航");
   await clickButton(page, "配置");
   await expectText(page, "答题配置");

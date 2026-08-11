@@ -1,4 +1,4 @@
-import type { ReviewRoundProgress } from "./v6-types";
+import type { AttemptV6, ReviewRoundProgress } from "./v6-types";
 
 /** Minimal global projection required to decide whether a question is done. */
 export interface ProgressAttemptStats {
@@ -16,6 +16,33 @@ export interface ProgressCompletion {
   total: number;
   completed: number;
   percent: number;
+}
+
+export interface ScopedQuestionStats {
+  questionId: string;
+  total: number;
+  correct: number;
+  wrong: number;
+  giveUps?: number;
+  totalElapsedMs?: number;
+  firstAttemptAt: string;
+  firstAttemptCorrect?: boolean;
+  latestAttemptAt: string;
+  hasBeenWrong: boolean;
+  currentCorrectStreak: number;
+  correctStreakAfterWrong: number;
+}
+
+export interface ScopedAttemptSummary {
+  attempts: number;
+  correct: number;
+  wrong: number;
+  giveUps?: number;
+  totalElapsedMs?: number;
+  attemptedQuestions: number;
+  firstCorrect: number;
+  firstKnown: number;
+  lastAttemptAt?: string;
 }
 
 export type ReferenceTime = Date | string | number;
@@ -127,5 +154,124 @@ export function calculateProgressCompletion(
     total: uniqueQuestionIds.length,
     completed,
     percent: uniqueQuestionIds.length ? Math.round(completed / uniqueQuestionIds.length * 100) : 0,
+  };
+}
+
+/**
+ * Build per-question statistics for the exact user-selected scope.
+ * Rolling/lifetime scopes use immutable attempts so accuracy and streaks are
+ * exact. Named rounds use their durable aggregate projection; fields that
+ * cannot be reconstructed after a run is deleted remain explicitly unknown.
+ */
+export function buildScopedQuestionStats(
+  questionIds: readonly string[],
+  scope: ProgressScope,
+  attempts: readonly AttemptV6[],
+  roundProgress: readonly ReviewRoundProgress[],
+  referenceTime: ReferenceTime,
+): Map<string, ScopedQuestionStats> {
+  const ids = new Set(questionIds);
+  const normalized = normalizeProgressScope(scope);
+  if (normalized.type === "round") {
+    return new Map(roundProgress
+      .filter((row) => row.roundId === normalized.roundId && ids.has(row.questionId) && row.attempts > 0)
+      .map((row) => [row.questionId, {
+        questionId: row.questionId,
+        total: row.attempts,
+        correct: row.correct,
+        wrong: row.wrong,
+        firstAttemptAt: row.firstAttemptAt,
+        latestAttemptAt: row.latestAttemptAt,
+        hasBeenWrong: row.wrong > 0,
+        currentCorrectStreak: row.wrong === 0 ? row.correct : 0,
+        correctStreakAfterWrong: 0,
+      }]));
+  }
+
+  const referenceMs = epochMs(referenceTime);
+  const cutoff = normalized.type === "rolling" ? referenceMs - normalized.days * DAY_MS : null;
+  const grouped = new Map<string, AttemptV6[]>();
+  for (const attempt of attempts) {
+    if (!ids.has(attempt.questionId)) continue;
+    const createdAt = new Date(attempt.createdAt).getTime();
+    if (!Number.isFinite(createdAt) || createdAt > referenceMs || (cutoff !== null && createdAt < cutoff)) continue;
+    const rows = grouped.get(attempt.questionId);
+    if (rows) rows.push(attempt);
+    else grouped.set(attempt.questionId, [attempt]);
+  }
+
+  const result = new Map<string, ScopedQuestionStats>();
+  for (const [questionId, rows] of grouped) {
+    const ordered = [...rows].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    let correct = 0;
+    let wrong = 0;
+    let giveUps = 0;
+    let totalElapsedMs = 0;
+    let hasBeenWrong = false;
+    let currentCorrectStreak = 0;
+    for (const row of ordered) {
+      if (row.correct) {
+        correct += 1;
+        currentCorrectStreak += 1;
+      } else {
+        wrong += 1;
+        hasBeenWrong = true;
+        currentCorrectStreak = 0;
+      }
+      if (!row.selected) giveUps += 1;
+      totalElapsedMs += Math.max(0, row.elapsedMs || 0);
+    }
+    result.set(questionId, {
+      questionId,
+      total: ordered.length,
+      correct,
+      wrong,
+      giveUps,
+      totalElapsedMs,
+      firstAttemptAt: ordered[0].createdAt,
+      firstAttemptCorrect: ordered[0].correct,
+      latestAttemptAt: ordered.at(-1)!.createdAt,
+      hasBeenWrong,
+      currentCorrectStreak,
+      correctStreakAfterWrong: hasBeenWrong ? currentCorrectStreak : 0,
+    });
+  }
+  return result;
+}
+
+export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQuestionStats>): ScopedAttemptSummary {
+  let attempts = 0;
+  let correct = 0;
+  let wrong = 0;
+  let giveUps = 0;
+  let totalElapsedMs = 0;
+  let completeDetails = true;
+  let firstCorrect = 0;
+  let firstKnown = 0;
+  let lastAttemptAt: string | undefined;
+  for (const row of stats.values()) {
+    attempts += row.total;
+    correct += row.correct;
+    wrong += row.wrong;
+    if (row.giveUps === undefined || row.totalElapsedMs === undefined) completeDetails = false;
+    else {
+      giveUps += row.giveUps;
+      totalElapsedMs += row.totalElapsedMs;
+    }
+    if (row.firstAttemptCorrect !== undefined) {
+      firstKnown += 1;
+      if (row.firstAttemptCorrect) firstCorrect += 1;
+    }
+    if (!lastAttemptAt || row.latestAttemptAt > lastAttemptAt) lastAttemptAt = row.latestAttemptAt;
+  }
+  return {
+    attempts,
+    correct,
+    wrong,
+    ...(completeDetails ? { giveUps, totalElapsedMs } : {}),
+    attemptedQuestions: stats.size,
+    firstCorrect,
+    firstKnown,
+    lastAttemptAt,
   };
 }

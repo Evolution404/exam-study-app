@@ -7,7 +7,7 @@ export const PROGRESS_SCOPE_MIN_DAYS = 1;
 export const PROGRESS_SCOPE_MAX_DAYS = 36_500;
 export const PROGRESS_SCOPE_PRESET_DAYS = [30, 90, 180] as const;
 
-export const PROGRESS_SCOPE_EXPLANATION = "这个口径只影响已做、未做和完成度，不影响终身统计。";
+export const PROGRESS_SCOPE_EXPLANATION = "这个范围统一用于首页和题库的进度、作答次数、正确率与难度；收藏、标签和个人解析不随时间变化。";
 
 export interface ProgressScopePreset {
   key: string;
@@ -127,7 +127,7 @@ export function ProgressScopeSetting({ value, onChange, rounds = [], disabled = 
         onClick={() => select({ type: "lifetime" })}
       >
         <strong>永久</strong>
-        <small>全部时间，不改变终身统计</small>
+        <small>显示全部历史作答</small>
       </button>
       <button
         type="button"

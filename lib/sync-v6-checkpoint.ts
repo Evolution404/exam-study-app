@@ -240,12 +240,15 @@ function validateMembership(value: unknown, banks: Set<string>, questions: Set<s
   assertString(value.deviceId, `state.memberships[${index}].deviceId`);
 }
 
-function validateAttempt(value: unknown, runs: Set<string>, questions: Set<string>, index: number): asserts value is AttemptV6 {
+function validateAttempt(value: unknown, questions: Set<string>, index: number): asserts value is AttemptV6 {
   if (!isRecord(value)) fail(`state.attempts[${index}] must be an object`);
   assertEntityId(value.id, `state.attempts[${index}].id`);
   assertEntityId(value.runId, `state.attempts[${index}].runId`);
   assertEntityId(value.questionId, `state.attempts[${index}].questionId`);
-  if (!runs.has(value.runId)) fail(`state.attempts[${index}] references missing run ${value.runId}`);
+  // A practice run is a removable UI/history projection, while attempts are
+  // permanent learning history.  Deleting a run deliberately keeps its
+  // attempts and global statistics, so runId is provenance rather than a
+  // checkpoint foreign key.
   if (!questions.has(value.questionId)) fail(`state.attempts[${index}] references missing question ${value.questionId}`);
   assertString(value.selected, `state.attempts[${index}].selected`, true);
   if (typeof value.correct !== "boolean") fail(`state.attempts[${index}].correct must be boolean`);
@@ -395,7 +398,7 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
   const runs = new Set<string>();
   state.practiceRuns.forEach((run, index) => { validateRun(run, banks, questions, rounds, index); if (runs.has(run.id)) fail(`duplicate practice run ${run.id}`); runs.add(run.id); });
   const attempts = new Set<string>();
-  state.attempts.forEach((attempt, index) => { validateAttempt(attempt, migrationShape ? new Set([...runs, attempt.runId]) : runs, questions, index); if (attempts.has(attempt.id)) fail(`duplicate attempt ${attempt.id}`); attempts.add(attempt.id); });
+  state.attempts.forEach((attempt, index) => { validateAttempt(attempt, questions, index); if (attempts.has(attempt.id)) fail(`duplicate attempt ${attempt.id}`); attempts.add(attempt.id); });
   const eventAttemptIds = new Set((state.events ?? []).flatMap((event) => {
     const payload = event.payload;
     if (!isRecord(payload) || !isRecord(payload.attempt) || typeof payload.attempt.id !== "string") return [];

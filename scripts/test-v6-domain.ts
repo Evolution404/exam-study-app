@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import type { AttemptStats } from "../lib/types";
 import {
   calculateProgressCompletion,
+  buildScopedQuestionStats,
   isQuestionDoneInScope,
   normalizeProgressScope,
   progressScopeCutoff,
   progressScopeKey,
   progressScopeLabel,
+  summarizeScopedQuestionStats,
 } from "../lib/progress-scope";
 import {
   deleteContentBlock,
@@ -20,7 +22,7 @@ import {
   replaceContentBlock,
   summarizeContent,
 } from "../lib/question-content";
-import type { ContentBlock, QuestionV6, ReviewRoundProgress } from "../lib/v6-types";
+import type { AttemptV6, ContentBlock, QuestionV6, ReviewRoundProgress } from "../lib/v6-types";
 
 const reference = "2026-01-01T00:00:00.000Z";
 const day = 24 * 60 * 60 * 1000;
@@ -79,6 +81,28 @@ assert.deepEqual(
   { total: 3, completed: 1, percent: 33 },
   "completion deduplicates question IDs",
 );
+
+const scopedAttempt = (id: string, questionId: string, createdAt: string, correct: boolean, selected = "A"): AttemptV6 => ({
+  id, runId: "run-1", questionId, createdAt, correct, selected, elapsedMs: 100, deviceId: "device-a",
+});
+const scopedAttempts = [
+  scopedAttempt("old", "q1", new Date(Date.parse(reference) - 91 * day).toISOString(), false),
+  scopedAttempt("wrong", "q1", new Date(Date.parse(reference) - 3 * day).toISOString(), false, ""),
+  scopedAttempt("correct", "q1", new Date(Date.parse(reference) - day).toISOString(), true),
+  scopedAttempt("q2", "q2", reference, true),
+];
+const rollingStats = buildScopedQuestionStats(["q1", "q2"], { type: "rolling", days: 90 }, scopedAttempts, [], reference);
+assert.equal(rollingStats.get("q1")?.total, 2, "rolling statistics exclude attempts before the exact cutoff");
+assert.equal(rollingStats.get("q1")?.correctStreakAfterWrong, 1, "rolling statistics preserve outcome order");
+assert.deepEqual(summarizeScopedQuestionStats(rollingStats), {
+  attempts: 3, correct: 2, wrong: 1, giveUps: 1, totalElapsedMs: 300, attemptedQuestions: 2,
+  firstCorrect: 1, firstKnown: 2, lastAttemptAt: reference,
+});
+const selectedRoundStats = buildScopedQuestionStats(["q1"], { type: "round", roundId: "round-1" }, [], [{
+  ...roundProgress("round-1", "q1", 3), correct: 2, wrong: 1,
+}], reference);
+assert.equal(selectedRoundStats.get("q1")?.total, 3, "round statistics use the durable round projection");
+assert.equal(summarizeScopedQuestionStats(selectedRoundStats).giveUps, undefined, "unrecoverable round detail stays unknown instead of being fabricated");
 
 assert.equal(normalizeContentText("  A\r\n B  "), "A\nB");
 assert.deepEqual(plainTextToContentBlocks("a\r\nb"), [{ id: "text-0", type: "text", text: "a\nb" }]);

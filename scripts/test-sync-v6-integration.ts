@@ -6,6 +6,7 @@ import {
   clearImageCacheV6,
   createQuestionV6,
   createPracticeRunV6,
+  deletePracticeRunV6,
   dbV6,
   importQuestionBankV6,
   putImageAssetV6,
@@ -124,6 +125,14 @@ try {
   conflictNext = true;
   await syncWithGitHubV6(settings, token);
   assert.equal((await dbV6.events.get(result.event.id))?.synced, 1, "event is marked synced only after CAS success");
+
+  // Runs are removable history cards; attempts and global learning stats must
+  // survive that deletion and still form a valid sync checkpoint.
+  assert.equal(await deletePracticeRunV6(run.id), true, "answered run can be removed");
+  const checkpointAfterRunDeletion = await createSyncCheckpointV6();
+  assert.ok(checkpointAfterRunDeletion.state.attempts.some((attempt) => attempt.runId === run.id), "attempt survives run deletion");
+  assert.ok(!checkpointAfterRunDeletion.state.practiceRuns.some((item) => item.id === run.id), "deleted run is absent from checkpoint");
+  encodeSyncCheckpointV6(checkpointAfterRunDeletion);
 
   await createQuestionV6(bank.id, { type: "单选", stem: "CAS failure", options: ["A", "B"], answer: "A" });
   alwaysConflict = true;
