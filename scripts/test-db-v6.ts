@@ -32,7 +32,7 @@ import {
   saveNoteV6,
   savePracticeProgressV6,
 } from "../lib/db-v6";
-import type { BankFolderV6, BankQuestionMembership, ImageAsset, QuestionGroupV6, V6Event } from "../lib/v6-types";
+import type { BankFolderV6, BankQuestionMembership, BankV6, ImageAsset, QuestionGroupV6, QuestionV6, V6Event } from "../lib/v6-types";
 import { sha256Blob } from "../lib/image-assets";
 
 const OLD_NAME = "memory-line-study";
@@ -224,6 +224,55 @@ assert.equal(await applyV6Event({ id: "asset-remote-delete", type: "image.asset.
 assert.equal(await getImageAssetV6(digest), undefined);
 assert.equal(await applyV6Event({ id: "asset-stale-save", type: "image.asset.saved", payload: remoteDescriptor, deviceId: "remote", sequence: 8, createdAt: "2040-01-01T00:00:00.000Z", synced: 1 }), true);
 assert.equal(await getImageAssetV6(digest), undefined);
+
+// Bank/question entity tombstones use the same deterministic clock rules as
+// folders and groups. A remote global deletion also removes every learning
+// projection, including group membership and practice-run answers.
+const conflictBank: BankV6 = {
+  ...importedA,
+  id: "conflict-bank",
+  name: "冲突题库",
+  importedAt: "2020-01-01T00:00:00.000Z",
+  updatedAt: "2020-01-01T00:00:00.000Z",
+  deviceId: "remote",
+};
+assert.equal(await applyV6Event({ id: "bank-conflict-save", type: "bank.created", payload: conflictBank, deviceId: "remote", sequence: 9, createdAt: conflictBank.updatedAt, synced: 1 }), true);
+assert.equal(await applyV6Event({ id: "bank-conflict-delete", type: "bank.deleted", payload: { id: conflictBank.id, deletedAt: "2030-01-01T00:00:00.000Z" }, deviceId: "remote", sequence: 10, createdAt: "2030-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await applyV6Event({ id: "bank-conflict-stale-save", type: "bank.updated", payload: conflictBank, deviceId: "remote", sequence: 11, createdAt: conflictBank.updatedAt, synced: 1 }), true);
+assert.equal(await dbV6.banks.get(conflictBank.id), undefined, "stale bank update must not cross a newer tombstone");
+
+const conflictQuestion: QuestionV6 = {
+  ...extra,
+  id: "conflict-question",
+  contentFingerprint: "f".repeat(64),
+  updatedAt: "2020-01-01T00:00:00.000Z",
+  deviceId: "remote",
+};
+assert.equal(await applyV6Event({ id: "question-conflict-save", type: "question.upserted", payload: conflictQuestion, deviceId: "remote", sequence: 12, createdAt: conflictQuestion.updatedAt, synced: 1 }), true);
+const conflictMembership: BankQuestionMembership = {
+  key: `${importedA.id}:${conflictQuestion.id}`,
+  bankId: importedA.id,
+  questionId: conflictQuestion.id,
+  sortOrder: 999,
+  addedAt: conflictQuestion.updatedAt,
+  updatedAt: conflictQuestion.updatedAt,
+  deviceId: "remote",
+};
+assert.equal(await applyV6Event({ id: "question-conflict-member", type: "membership.saved", payload: conflictMembership, deviceId: "remote", sequence: 13, createdAt: conflictMembership.updatedAt, synced: 1 }), true);
+const conflictRun = await createPracticeRunV6({ bankIds: [importedA.id], questionIds: [conflictQuestion.id] });
+await recordPracticeAnswerV6({ runId: conflictRun.id, questionId: conflictQuestion.id, selected: ["A"], correct: true });
+const conflictGroup = await saveQuestionGroupV6({ name: "待全局删除", type: "专题", description: "", items: [{ questionId: conflictQuestion.id, note: "" }] });
+assert.equal(await applyV6Event({ id: "question-conflict-delete", type: "question.deleted", payload: { id: conflictQuestion.id, deletedAt: "2030-01-01T00:00:00.000Z" }, deviceId: "remote", sequence: 14, createdAt: "2030-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await dbV6.questions.get(conflictQuestion.id), undefined);
+assert.equal(await dbV6.attemptStats.get(conflictQuestion.id), undefined);
+assert.equal(await dbV6.questionGroups.get(conflictGroup.id), undefined);
+assert.deepEqual((await dbV6.practiceRuns.get(conflictRun.id))?.questionIds, []);
+assert.equal(await applyV6Event({ id: "question-conflict-stale-save", type: "question.upserted", payload: conflictQuestion, deviceId: "remote", sequence: 15, createdAt: conflictQuestion.updatedAt, synced: 1 }), true);
+assert.equal(await dbV6.questions.get(conflictQuestion.id), undefined, "stale question update must not cross a newer tombstone");
+
+const orphanMembership = { ...conflictMembership, key: `missing-bank:${extra.id}`, bankId: "missing-bank", questionId: extra.id };
+assert.equal(await applyV6Event({ id: "orphan-membership-save", type: "membership.saved", payload: orphanMembership, deviceId: "remote", sequence: 16, createdAt: "2040-01-01T00:00:00.000Z", synced: 1 }), true);
+assert.equal(await dbV6.bankQuestionMemberships.get(orphanMembership.key), undefined, "membership cannot point at a missing parent");
 
 const oldCheck = new Dexie(OLD_NAME);
 oldCheck.version(1).stores({ sentinel: "id" });

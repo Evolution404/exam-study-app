@@ -1322,19 +1322,31 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
       case "bank.created":
       case "bank.updated": {
         const bank = event.payload as BankV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("bank", bank.id));
+        if (tombstone && compareClock(bank, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.banks.get(bank.id);
         if (!current || compareClock(bank, current) >= 0) await dbV6.banks.put(bank);
         break;
       }
       case "bank.deleted": {
         const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("bank", payload.id));
+        if (tombstone && compareClock(deletedClock, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        const current = await dbV6.banks.get(payload.id);
+        if (current && compareClock(deletedClock, current) < 0) break;
         await dbV6.bankQuestionMemberships.where("bankId").equals(payload.id).delete();
         await dbV6.banks.delete(payload.id);
-        await dbV6.tombstones.put({ key: tombstoneKey("bank", payload.id), entityType: "bank", entityId: payload.id, deletedAt: payload.deletedAt ?? event.createdAt, deviceId: event.deviceId, eventId: event.id });
+        await dbV6.tombstones.put({ key: tombstoneKey("bank", payload.id), entityType: "bank", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
         break;
       }
       case "question.upserted": {
         const question = event.payload as QuestionV6;
+        const tombstone = await dbV6.tombstones.get(tombstoneKey("question", question.id));
+        if (tombstone && compareClock(question, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
+        if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.questions.get(question.id);
         if (!current || compareClock(question, current) >= 0) await dbV6.questions.put(question);
         break;
@@ -1362,13 +1374,19 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
       }
       case "question.deleted": {
         const payload = event.payload as { id: string; deletedAt?: string };
+        const deletedAt = payload.deletedAt ?? event.createdAt;
+        const deletedClock = { updatedAt: deletedAt, deviceId: event.deviceId, id: event.id };
+        const existingTombstone = await dbV6.tombstones.get(tombstoneKey("question", payload.id));
+        if (existingTombstone && compareClock(deletedClock, { updatedAt: existingTombstone.deletedAt, deviceId: existingTombstone.deviceId, id: existingTombstone.eventId }) <= 0) break;
+        const currentQuestion = await dbV6.questions.get(payload.id);
+        if (currentQuestion && compareClock(deletedClock, currentQuestion) < 0) break;
         await dbV6.questions.delete(payload.id);
         const memberships = await dbV6.bankQuestionMemberships.where("questionId").equals(payload.id).toArray();
         await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
         for (const membership of memberships) {
           await dbV6.tombstones.put({
             key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
-            deletedAt: payload.deletedAt ?? event.createdAt, deviceId: event.deviceId, eventId: event.id,
+            deletedAt, deviceId: event.deviceId, eventId: event.id,
           });
         }
         await dbV6.attempts.where("questionId").equals(payload.id).delete();
@@ -1376,11 +1394,36 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         await dbV6.attemptDailyStats.where("questionId").equals(payload.id).delete();
         await dbV6.reviewRoundProgress.where("questionId").equals(payload.id).delete();
         await dbV6.notes.delete(payload.id);
-        await dbV6.tombstones.put({ key: tombstoneKey("question", payload.id), entityType: "question", entityId: payload.id, deletedAt: payload.deletedAt ?? event.createdAt, deviceId: event.deviceId, eventId: event.id });
+        const groups = await dbV6.questionGroups.toArray();
+        for (const group of groups) {
+          const items = group.items.filter((item) => item.questionId !== payload.id);
+          if (items.length === group.items.length) continue;
+          if (items.length) await dbV6.questionGroups.put({ ...group, items, updatedAt: deletedAt });
+          else await dbV6.questionGroups.delete(group.id);
+        }
+        const runs = await dbV6.practiceRuns.toArray();
+        for (const run of runs) {
+          if (!run.questionIds.includes(payload.id)) continue;
+          const answers = { ...run.answers };
+          delete answers[payload.id];
+          const questionTypes = { ...run.questionTypes };
+          delete questionTypes[payload.id];
+          const updatedRun = {
+            ...run,
+            questionIds: run.questionIds.filter((questionId) => questionId !== payload.id),
+            answers,
+            questionTypes,
+            updatedAt: deletedAt,
+          };
+          await updatePracticeRunStatsInTx(run, updatedRun);
+          await dbV6.practiceRuns.put(updatedRun);
+        }
+        await dbV6.tombstones.put({ key: tombstoneKey("question", payload.id), entityType: "question", entityId: payload.id, deletedAt, deviceId: event.deviceId, eventId: event.id });
         break;
       }
       case "membership.saved": {
         const membership = normalizeMembership(event.payload as BankQuestionMembership);
+        if (!await dbV6.banks.get(membership.bankId) || !await dbV6.questions.get(membership.questionId)) break;
         const tombstone = await dbV6.tombstones.get(tombstoneKey("membership", membership.key));
         if (tombstone && compareClock(membership, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
         if (tombstone) await dbV6.tombstones.delete(tombstone.key);
