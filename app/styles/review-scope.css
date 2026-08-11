@@ -240,7 +240,7 @@
 .review-round-primary {
   flex: none;
   border-color: transparent;
-  color: #fff;
+  color: var(--color-surface-raised);
   background: var(--color-primary);
 }
 
@@ -293,8 +293,8 @@
 }
 
 .review-round-status.completed {
-  color: #51647e;
-  background: #e3e9f2;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
 }
 
 .review-round-card-actions {

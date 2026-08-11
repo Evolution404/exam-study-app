@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { V6_DATABASE_NAME, dbV6 } from "./db-v6";
 
 function deleteCookie(name: string, path: string, domain?: string) {
   document.cookie = `${name}=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}${domain ? `; domain=${domain}` : ""}; SameSite=Lax`;
@@ -34,9 +34,11 @@ export async function clearAllSiteData() {
   await Promise.all(registrations.map((registration) => registration.unregister()));
   if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
 
-  db.close();
+  dbV6.close();
   const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
-  const names = new Set(["memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
+  // The reset action is deliberately broader than normal v6 startup: it is
+  // the one user-authorised path that also removes an abandoned legacy DB.
+  const names = new Set([V6_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
   localStorage.clear();
