@@ -570,7 +570,7 @@ function mapDailyStats(rows: readonly AttemptDailyStats[], map: ReadonlyMap<stri
   for (const row of rows) {
     const questionId = mapQuestionId(map, row.questionId);
     if (!questionId) continue;
-    const key = `${row.date}\u0000${questionId}`;
+    const key = `${row.date}:${questionId}`;
     const prior = byKey.get(key);
     if (!prior) byKey.set(key, { ...row, key, questionId });
     else {

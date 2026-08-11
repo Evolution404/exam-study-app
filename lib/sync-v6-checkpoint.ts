@@ -291,7 +291,7 @@ function validateRun(value: unknown, banks: Set<string>, questions: Set<string>,
   }
 }
 
-function validateStats(state: SyncCheckpointV6State, questions: Set<string>, attempts: Set<string>, rounds: Set<string>, migrationShape = false): void {
+function validateStats(state: SyncCheckpointV6State, questions: Set<string>, attempts: Set<string>, rounds: Set<string>): void {
   state.attemptStats.forEach((stats, index) => {
     if (!isRecord(stats)) fail(`state.attemptStats[${index}] must be an object`);
     assertString(stats.questionId, `state.attemptStats[${index}].questionId`);
@@ -316,7 +316,7 @@ function validateStats(state: SyncCheckpointV6State, questions: Set<string>, att
     if (!/^\d{4}-\d{2}-\d{2}$/.test(stats.date)) fail(`state.attemptDailyStats[${index}].date is invalid`);
     assertString(stats.questionId, `state.attemptDailyStats[${index}].questionId`);
     if (!questions.has(stats.questionId)) fail(`state.attemptDailyStats[${index}] references missing question`);
-    if (stats.key !== `${stats.date}:${stats.questionId}` && (!migrationShape || stats.key !== `${stats.date}\u0000${stats.questionId}`)) fail(`state.attemptDailyStats[${index}].key is not canonical`);
+    if (stats.key !== `${stats.date}:${stats.questionId}`) fail(`state.attemptDailyStats[${index}].key is not canonical`);
     ["total", "correct", "wrong", "giveUps", "totalElapsedMs"].forEach((field) => assertSafeInt(stats[field], `state.attemptDailyStats[${index}].${field}`));
   });
   state.reviewRoundProgress.forEach((progress, index) => {
@@ -345,6 +345,14 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
     "banks", "bankFolders", "questions", "memberships", "imageAssets", "attemptStats", "attemptDailyStats", "attempts", "notes", "practiceRuns", "practiceRunStats", "questionGroups", "reviewRounds", "reviewRoundProgress", "tombstones",
   ];
   for (const field of arrayFields) assertArray((state as unknown as Record<string, unknown>)[field], `state.${field}`);
+  // The first v5→v6 converter used a NUL separator for daily-stat keys while
+  // the live v6 database has always used a colon.  Normalize that exact
+  // historical shape before validation so a restored migration checkpoint
+  // can immediately publish a canonical v6 checkpoint on its next sync.
+  state.attemptDailyStats.forEach((stats) => {
+    if (isRecord(stats) && typeof stats.date === "string" && typeof stats.questionId === "string"
+      && stats.key === `${stats.date}\u0000${stats.questionId}`) stats.key = `${stats.date}:${stats.questionId}`;
+  });
   if (state.events !== undefined) {
     assertArray(state.events, "state.events");
     state.events.forEach(validateEmbeddedEvent);
@@ -404,7 +412,7 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
     if (!isRecord(payload) || !isRecord(payload.attempt) || typeof payload.attempt.id !== "string") return [];
     return [payload.attempt.id];
   }));
-  validateStats(state, questions, migrationShape ? new Set([...attempts, ...eventAttemptIds, ...state.attemptStats.flatMap((stats) => stats.recentOutcomes.map((outcome) => outcome.id))]) : new Set([...attempts, ...eventAttemptIds]), rounds, migrationShape);
+  validateStats(state, questions, migrationShape ? new Set([...attempts, ...eventAttemptIds, ...state.attemptStats.flatMap((stats) => stats.recentOutcomes.map((outcome) => outcome.id))]) : new Set([...attempts, ...eventAttemptIds]), rounds);
   state.notes.forEach((note, index) => { if (!isRecord(note)) fail(`state.notes[${index}] must be an object`); assertString(note.questionId, `state.notes[${index}].questionId`); if (!questions.has(note.questionId)) fail(`state.notes[${index}] references missing question`); assertString(note.content, `state.notes[${index}].content`, true); assertSafeInt(note.revision, `state.notes[${index}].revision`); assertDate(note.updatedAt, `state.notes[${index}].updatedAt`); assertString(note.deviceId, `state.notes[${index}].deviceId`); });
   state.questionGroups.forEach((group, index) => { if (!isRecord(group)) fail(`state.questionGroups[${index}] must be an object`); assertEntityId(group.id, `state.questionGroups[${index}].id`); assertString(group.name, `state.questionGroups[${index}].name`); assertArray(group.items, `state.questionGroups[${index}].items`); group.items.forEach((item, itemIndex) => { if (!isRecord(item)) fail(`state.questionGroups[${index}].items[${itemIndex}] must be an object`); assertString(item.questionId, `state.questionGroups[${index}].items[${itemIndex}].questionId`); if (!questions.has(item.questionId)) fail(`state.questionGroups[${index}] references missing question`); assertString(item.note, `state.questionGroups[${index}].items[${itemIndex}].note`, true); }); assertDate(group.createdAt, `state.questionGroups[${index}].createdAt`); assertDate(group.updatedAt, `state.questionGroups[${index}].updatedAt`); assertString(group.deviceId, `state.questionGroups[${index}].deviceId`); });
   state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); if (stats.key !== undefined) assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`); if (stats.bankId !== "__all__" && !banks.has(stats.bankId)) fail(`state.practiceRunStats[${index}] references missing bank`); ["total", "completed", "inProgress", "abandoned"].forEach((field) => assertSafeInt(stats[field], `state.practiceRunStats[${index}].${field}`)); assertDate(stats.latestUpdatedAt, `state.practiceRunStats[${index}].latestUpdatedAt`); });
@@ -449,6 +457,24 @@ function withoutBlobs(asset: ImageAsset): Omit<ImageAsset, "blob"> {
   return descriptor;
 }
 
+function canonicalAttemptDailyStats(rows: readonly AttemptDailyStatsV6[]): AttemptDailyStatsV6[] {
+  const merged = new Map<string, AttemptDailyStatsV6>();
+  for (const row of rows) {
+    const key = `${row.date}:${row.questionId}`;
+    const current = merged.get(key);
+    if (!current) merged.set(key, { ...row, key });
+    else merged.set(key, {
+      ...current,
+      total: current.total + row.total,
+      correct: current.correct + row.correct,
+      wrong: current.wrong + row.wrong,
+      giveUps: current.giveUps + row.giveUps,
+      totalElapsedMs: current.totalElapsedMs + row.totalElapsedMs,
+    });
+  }
+  return [...merged.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
 function countsFor(state: SyncCheckpointV6State): SyncCheckpointV6Counts {
   return {
     banks: state.banks.length, bankFolders: state.bankFolders.length, questions: state.questions.length, memberships: state.memberships.length,
@@ -468,7 +494,7 @@ function cloneState(state: V6RestoreState & { memberships?: BankQuestionMembersh
     imageAssets: state.imageAssets.map(withoutBlobs),
     attempts: state.attempts.map((item) => ({ ...item })),
     attemptStats: state.attemptStats.map((item) => ({ ...item, recentOutcomes: item.recentOutcomes.map((outcome) => ({ ...outcome })) })),
-    attemptDailyStats: state.attemptDailyStats.map((item) => ({ ...item })),
+    attemptDailyStats: canonicalAttemptDailyStats(state.attemptDailyStats),
     notes: state.notes.map((item) => ({ ...item })),
     practiceRuns: state.practiceRuns.map((item) => ({ ...item, bankIds: [...item.bankIds], questionIds: [...item.questionIds], questionTypes: { ...item.questionTypes }, answers: { ...item.answers }, optionOrders: { ...item.optionOrders } })),
     practiceRunStats: state.practiceRunStats.map((item) => ({ ...item })),

@@ -13,7 +13,7 @@ import {
   recordPracticeAnswerV6,
   resetV6Database,
 } from "../lib/db-v6";
-import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
+import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
 import { downloadImageAssetV6, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
 import type { SyncHeadV6 } from "../lib/sync-v6-head";
 import { sha256Blob } from "../lib/image-assets";
@@ -133,6 +133,25 @@ try {
   assert.ok(checkpointAfterRunDeletion.state.attempts.some((attempt) => attempt.runId === run.id), "attempt survives run deletion");
   assert.ok(!checkpointAfterRunDeletion.state.practiceRuns.some((item) => item.id === run.id), "deleted run is absent from checkpoint");
   encodeSyncCheckpointV6(checkpointAfterRunDeletion);
+
+  // The original remote v5→v6 migration used a NUL separator in daily-stat
+  // keys.  Reading that checkpoint must upgrade the key, and a local row
+  // restored from it must never make the next ordinary sync fail validation.
+  const daily = checkpointAfterRunDeletion.state.attemptDailyStats[0]!;
+  const legacyDailyCheckpoint = structuredClone(checkpointAfterRunDeletion);
+  legacyDailyCheckpoint.state.attemptDailyStats[0] = { ...daily, key: `${daily.date}\u0000${daily.questionId}` };
+  const normalizedDailyCheckpoint = parseSyncCheckpointV6(JSON.stringify(legacyDailyCheckpoint));
+  assert.equal(normalizedDailyCheckpoint.state.attemptDailyStats[0].key, `${daily.date}:${daily.questionId}`);
+  await dbV6.attemptDailyStats.delete(daily.key);
+  await dbV6.attemptDailyStats.bulkPut([
+    { ...daily, key: `${daily.date}\u0000${daily.questionId}` },
+    { ...daily, key: `${daily.date}:${daily.questionId}`, total: 2, correct: 2 },
+  ]);
+  const republishedDailyCheckpoint = await createSyncCheckpointV6();
+  const republishedDaily = republishedDailyCheckpoint.state.attemptDailyStats.filter((row) => row.questionId === daily.questionId && row.date === daily.date);
+  assert.equal(republishedDaily.length, 1, "legacy and canonical daily rows merge into one canonical row");
+  assert.equal(republishedDaily[0].key, `${daily.date}:${daily.questionId}`);
+  assert.equal(republishedDaily[0].total, daily.total + 2);
 
   await createQuestionV6(bank.id, { type: "单选", stem: "CAS failure", options: ["A", "B"], answer: "A" });
   alwaysConflict = true;
