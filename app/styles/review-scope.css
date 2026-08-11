@@ -1,0 +1,672 @@
+/* Progress-scope and review-round controls are standalone so callers can place
+   them in settings, practice setup, or a future review workspace. */
+.review-scope-control,
+.review-round-manager,
+.practice-round-picker {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  padding: clamp(16px, 3vw, 24px);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.review-scope-heading,
+.review-round-manager-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.review-scope-heading h2,
+.review-round-manager-heading h2 {
+  margin: 5px 0 6px;
+  font: 600 clamp(20px, 3vw, 28px)/1.2 Georgia, "Noto Serif SC", serif;
+}
+
+.review-scope-heading p,
+.review-round-manager-heading p,
+.practice-round-picker > p {
+  margin: 0;
+  max-width: 680px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.review-scope-kicker {
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.review-scope-current {
+  flex: none;
+  max-width: 220px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: var(--color-primary);
+  background: var(--color-surface-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.review-scope-choice-grid {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-scope-choice-grid button,
+.review-scope-round-list button {
+  min-width: 0;
+  min-height: 68px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 11px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.review-scope-choice-grid button:hover,
+.review-scope-round-list button:hover,
+.review-scope-choice-grid button:focus-visible,
+.review-scope-round-list button:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.review-scope-choice-grid button.selected,
+.review-scope-round-list button.selected {
+  border-color: var(--color-primary);
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.review-scope-choice-grid button:disabled,
+.review-scope-round-list button:disabled,
+.review-round-manager button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.review-scope-choice-grid strong,
+.review-scope-round-list strong,
+.review-scope-choice-grid small,
+.review-scope-round-list small {
+  overflow-wrap: anywhere;
+}
+
+.review-scope-choice-grid small,
+.review-scope-round-list small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-scope-custom {
+  margin-top: 13px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+}
+
+.review-scope-custom.active {
+  border-style: solid;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.review-scope-custom > label {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-scope-custom > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.review-scope-custom input {
+  width: 112px;
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.review-scope-custom input:focus-visible,
+.review-round-name-field input:focus-visible {
+  border-color: var(--color-primary);
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  outline-offset: 1px;
+}
+
+.review-scope-custom > small {
+  flex: 1 1 250px;
+  min-width: 180px;
+  font-size: 10px;
+}
+
+.review-scope-rounds {
+  margin-top: 20px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 17px;
+}
+
+.review-scope-subheading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-scope-subheading strong {
+  font-size: 12px;
+}
+
+.review-scope-subheading small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-scope-round-list {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.review-scope-round-list button {
+  min-height: 62px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.review-scope-round-list button > span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.review-scope-round-list em {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.review-round-primary,
+.review-round-danger,
+.review-round-end,
+.review-round-card-actions button,
+.review-round-complete-action button,
+.review-round-editor > header button,
+.review-round-editor > footer button {
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  padding: 8px 12px;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-round-primary {
+  flex: none;
+  border-color: transparent;
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.review-round-primary:hover,
+.review-round-primary:focus-visible {
+  background: var(--color-primary-strong);
+}
+
+.review-round-list {
+  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.review-round-card {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--color-surface-raised);
+}
+
+.review-round-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-round-card h3 {
+  margin: 6px 0 4px;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.review-round-card > header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-round-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.review-round-status.completed {
+  color: #51647e;
+  background: #e3e9f2;
+}
+
+.review-round-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.review-round-card-actions button:hover,
+.review-round-card-actions button:focus-visible,
+.review-round-complete-action button:hover,
+.review-round-complete-action button:focus-visible,
+.review-round-editor > header button:hover,
+.review-round-editor > header button:focus-visible,
+.review-round-editor > footer button:hover,
+.review-round-editor > footer button:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.review-round-archive {
+  color: var(--color-text-muted) !important;
+}
+
+.review-round-metrics {
+  margin-top: 15px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.review-round-metrics > span {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 3px;
+  background: var(--color-surface);
+}
+
+.review-round-metrics strong {
+  overflow-wrap: anywhere;
+  font: 600 21px/1.1 Georgia, serif;
+}
+
+.review-round-metrics small {
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.review-round-banks {
+  margin-top: 13px;
+  display: grid;
+  gap: 7px;
+}
+
+.review-round-banks > strong {
+  font-size: 11px;
+}
+
+.review-round-banks > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-round-banks span {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 5px 8px;
+  overflow-wrap: anywhere;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-size: 10px;
+}
+
+.review-round-snapshot {
+  margin: 13px 0 0;
+  border-radius: 9px;
+  padding: 9px 10px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.review-round-complete-action {
+  margin-top: 13px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-round-end {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.review-round-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.review-round-empty {
+  margin-top: 20px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.review-round-empty strong {
+  font-size: 13px;
+}
+
+.review-round-empty p {
+  margin: 7px 0 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-round-editor {
+  margin-top: 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--color-surface-muted);
+}
+
+.review-round-editor > header,
+.review-round-editor > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-round-editor h3 {
+  margin: 5px 0 0;
+  font-size: 16px;
+}
+
+.review-round-editor > header button {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
+.review-round-name-field {
+  margin-top: 15px;
+  display: grid;
+  gap: 6px;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-round-name-field input {
+  min-height: 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  font: inherit;
+  font-weight: 400;
+}
+
+.review-round-bank-picker {
+  margin: 15px 0 0;
+  border: 0;
+  padding: 0;
+}
+
+.review-round-bank-picker legend {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-round-bank-picker > div {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 7px;
+}
+
+.review-round-bank-picker label,
+.practice-round-options label {
+  min-width: 0;
+  min-height: 48px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.review-round-bank-picker label:focus-within,
+.practice-round-options label:focus-within,
+.review-round-bank-picker label:hover,
+.practice-round-options label:hover {
+  border-color: var(--color-primary);
+}
+
+.review-round-bank-picker input,
+.practice-round-options input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.review-round-bank-picker label > span,
+.practice-round-options label > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.review-round-bank-picker strong,
+.practice-round-options strong {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.review-round-bank-picker small,
+.practice-round-options small {
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.review-round-bank-picker > p {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.review-round-editor-error {
+  margin: 11px 0 0;
+  color: var(--color-danger);
+  font-size: 10px;
+}
+
+.review-round-editor > footer {
+  margin-top: 17px;
+  justify-content: flex-end;
+}
+
+.practice-round-picker {
+  border-radius: 14px;
+}
+
+.practice-round-picker legend {
+  padding: 0 4px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.practice-round-options {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.practice-round-options label.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.practice-round-empty {
+  display: block;
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .review-scope-heading,
+  .review-round-manager-heading,
+  .review-scope-subheading {
+    display: grid;
+    gap: 10px;
+  }
+
+  .review-scope-current {
+    justify-self: start;
+  }
+
+  .review-scope-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-scope-choice-grid button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .review-round-manager-heading .review-round-primary {
+    width: 100%;
+  }
+
+  .review-round-card > header {
+    display: grid;
+  }
+
+  .review-round-card-actions {
+    justify-content: flex-start;
+  }
+
+  .review-round-card-actions button {
+    flex: 1 1 130px;
+  }
+
+  .review-round-complete-action {
+    justify-content: flex-start;
+  }
+
+  .review-round-complete-action span {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .review-scope-control,
+  .review-round-manager,
+  .practice-round-picker {
+    border-radius: 14px;
+    padding: 14px;
+  }
+
+  .review-scope-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-scope-choice-grid button:last-child {
+    grid-column: auto;
+  }
+
+  .review-scope-custom {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .review-scope-custom > small {
+    min-width: 0;
+  }
+
+  .review-round-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .review-round-metrics > span:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-scope-control *,
+  .review-round-manager *,
+  .practice-round-picker * {
+    scroll-behavior: auto;
+  }
+}
