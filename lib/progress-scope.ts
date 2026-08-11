@@ -1,5 +1,11 @@
-import type { AttemptStats } from "./types";
 import type { ReviewRoundProgress } from "./v6-types";
+
+/** Minimal global projection required to decide whether a question is done. */
+export interface ProgressAttemptStats {
+  questionId: string;
+  total: number;
+  latestAttemptAt: string;
+}
 
 export type ProgressScope =
   | { type: "lifetime" }
@@ -64,7 +70,7 @@ export function progressScopeCutoff(scope: ProgressScope, referenceTime: Referen
   return epochMs(referenceTime) - normalized.days * DAY_MS;
 }
 
-function statsForQuestion(questionId: string, stats: readonly AttemptStats[]): AttemptStats | undefined {
+function statsForQuestion(questionId: string, stats: readonly ProgressAttemptStats[]): ProgressAttemptStats | undefined {
   return stats.find((candidate) => candidate.questionId === questionId);
 }
 
@@ -87,7 +93,7 @@ function hasRoundProgress(progress: ReviewRoundProgress | undefined): boolean {
 export function isQuestionDoneInScope(
   questionId: string,
   scope: ProgressScope,
-  attemptStats: readonly AttemptStats[],
+  attemptStats: readonly ProgressAttemptStats[],
   roundProgress: readonly ReviewRoundProgress[],
   referenceTime: ReferenceTime,
 ): boolean {
@@ -108,7 +114,7 @@ export function isQuestionDoneInScope(
 export function calculateProgressCompletion(
   questionIds: readonly string[],
   scope: ProgressScope,
-  attemptStats: readonly AttemptStats[],
+  attemptStats: readonly ProgressAttemptStats[],
   roundProgress: readonly ReviewRoundProgress[],
   referenceTime: ReferenceTime,
 ): ProgressCompletion {
@@ -123,4 +129,3 @@ export function calculateProgressCompletion(
     percent: uniqueQuestionIds.length ? Math.round(completed / uniqueQuestionIds.length * 100) : 0,
   };
 }
-
