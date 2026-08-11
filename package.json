@@ -30,6 +30,7 @@
     "test:image-assets": "tsx scripts/test-image-assets.ts",
     "test:content-block-ui": "tsx scripts/test-content-block-ui.ts",
     "test:review-scope-ui": "tsx scripts/test-review-scope-ui.ts",
+    "test:v6-ui": "tsx scripts/test-v6-ui-data-flow.ts",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {

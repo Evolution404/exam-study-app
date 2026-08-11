@@ -208,3 +208,106 @@
     grid-template-columns: 1fr;
   }
 }
+
+.unfiled-question-section {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.unfiled-question-section > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.unfiled-question-section > header h2 {
+  margin: 4px 0;
+  color: var(--color-text);
+  font-size: 1.1rem;
+}
+
+.unfiled-question-section > header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: .85rem;
+}
+
+.unfiled-question-section > header > strong {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font-size: .9rem;
+}
+
+.shared-edit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.shared-edit-dialog {
+  width: min(560px, 100%);
+  max-height: min(720px, calc(100dvh - 32px));
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 20px 60px var(--color-overlay);
+}
+
+.shared-edit-dialog > header,
+.shared-edit-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.shared-edit-dialog > header {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shared-edit-dialog > header h2 {
+  margin: 4px 0 0;
+  font-size: 1.2rem;
+}
+
+.shared-edit-dialog > p {
+  margin: 0;
+  padding: 14px 18px 0;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.shared-edit-memberships {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+}
+
+.shared-edit-memberships label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-surface-raised);
+}
+
+.shared-edit-dialog > footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-border);
+}

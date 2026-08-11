@@ -1,14 +1,31 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Layers3, Merge, Pencil, Play, Plus, Search, Tags, Trash2, X } from "lucide-react";
-import { db, deleteQuestionGroup, saveQuestionGroup, updateQuestion } from "@/lib/db";
+import { dbV6, deleteQuestionGroupV6, saveQuestionGroupV6, updateQuestionV6 } from "@/lib/db-v6";
+import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import { summarizeAttemptStats } from "@/lib/practice-metrics";
-import type { Question, QuestionGroup, QuestionGroupItem, QuestionGroupType } from "@/lib/types";
+import type { QuestionGroupV6 } from "@/lib/v6-types";
+import type { QuestionGroupItem } from "@/lib/types";
+import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { MathText } from "@/app/math-text";
 import { AppSelect } from "@/app/app-select";
+import { ContentBlockRenderer } from "@/app/content-block-renderer";
 
+type Question = QuestionViewModel;
+type QuestionGroup = QuestionGroupV6;
+type QuestionGroupType = QuestionGroupV6["type"];
 const GROUP_TYPES: QuestionGroupType[] = ["易混", "相似", "前置", "重复", "专题", "自定义"];
+
+async function allQuestionViews(): Promise<Question[]> {
+  const banks = await dbV6.banks.toArray();
+  const views = await listQuestionViewsForBanksV6(banks.map((bank) => bank.id));
+  return views.map((view) => {
+    const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
+    const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
+    return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
+  });
+}
 
 export function KnowledgeView({ initialQuestionIds, onStartTag, onStartQuestions, onNotice }: {
   initialQuestionIds?: string[];
@@ -29,10 +46,10 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [activeTag, setActiveTag] = useState<string>();
   const [renameValue, setRenameValue] = useState("");
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
-  const data = useLiveQuery(async () => ({ questions: await db.questions.toArray(), attemptStats: await db.attemptStats.toArray() }), []);
+  const data = useLiveQuery(async () => ({ questions: await allQuestionViews(), attemptStats: await dbV6.attemptStats.toArray() }), []);
   const tags = useMemo(() => {
     const questions = data?.questions ?? [];
-    const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, stats]));
+    const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, { ...stats, bankId: "" }]));
     return [...new Set(questions.flatMap((question) => question.tags))].map((name) => {
       const tagged = questions.filter((question) => question.tags.includes(name));
       const summary = tagged.reduce((result, question) => {
@@ -49,16 +66,16 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
 
   async function replaceTag(from: string, to?: string) {
     const targets = (data?.questions ?? []).filter((question) => question.tags.includes(from));
-    await Promise.all(targets.map((question) => updateQuestion(question.id, { stem: question.stem, options: question.options, answer: question.answer, type: question.type, imageUrl: question.imageUrl, tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from) })));
+    await Promise.all(targets.map((question) => updateQuestionV6(question.id, { tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from) })));
     setActiveTag(undefined); setRenameValue("");
     onNotice(to ? `标签“${from}”已整理为“${to}”` : `标签“${from}”已从 ${targets.length} 道题移除`);
   }
 
-  return <><div className="tag-workspace"><section className="tag-browser"><header><div className="knowledge-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户标签" /></div><span>{tags.length} 个标签</span></header>{tags.length ? <div className="tag-card-grid">{tags.map((item) => <article className={activeTag === item.name ? "active" : ""} key={item.name}><button onClick={() => { setActiveTag(item.name); setRenameValue(item.name); }}><Tags size={17} /><span><strong>{item.name}</strong><small>{item.count} 道题 · 正确率 {item.accuracy}% · 难度 {item.difficulty}</small></span><ChevronRight size={16} /></button><button className="tag-quick-practice" onClick={() => onStart(item.name)}><Play size={14} />练习</button></article>)}</div> : <div className="knowledge-empty"><Tags /><h2>还没有用户标签</h2><p>标签由你自己添加，只负责分类和筛选，不会自动创建题组。</p></div>}</section>{selected && <aside className="tag-detail"><header><div><span className="section-kicker">标签详情</span><h2>{selected.name}</h2></div><button className="icon-button" onClick={() => setActiveTag(undefined)}><X size={17} /></button></header><div className="tag-detail-stats"><span><strong>{selected.count}</strong>相关题目</span><span><strong>{selected.accuracy}%</strong>正确率</span><span><strong>{selected.difficulty}</strong>平均难度</span></div><label>重命名或合并标签<input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} /><small>目标名称已存在时会合并；题组不受影响。</small></label><div className="tag-manage-actions"><button disabled={!renameValue.trim() || renameValue.trim() === selected.name} onClick={() => void replaceTag(selected.name, renameValue.trim())}><Merge size={16} />保存或合并</button><button className="danger-button" onClick={() => setDeleteTagPrompt(selected.name)}><Trash2 size={16} />删除标签</button></div><button className="primary full" onClick={() => onStart(selected.name)}><Play size={17} />练习这个标签</button><div className="tag-question-preview">{selected.questions.slice(0, 12).map((question, index) => <p key={question.id}><span>{index + 1}</span><MathText text={question.stem} /></p>)}</div></aside>}</div><ConfirmDialog open={Boolean(deleteTagPrompt)} eyebrow="标签管理" title="移除这个标签？" tone="danger" confirmLabel="移除标签" onCancel={() => setDeleteTagPrompt(undefined)} onConfirm={() => { if (deleteTagPrompt) void replaceTag(deleteTagPrompt); setDeleteTagPrompt(undefined); }} description={<><strong>标签“{deleteTagPrompt}”会从相关题目中移除</strong><span>题目和题组不会被删除，此操作会加入同步队列。</span></>} /></>;
+  return <><div className="tag-workspace"><section className="tag-browser"><header><div className="knowledge-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户标签" /></div><span>{tags.length} 个标签</span></header>{tags.length ? <div className="tag-card-grid">{tags.map((item) => <article className={activeTag === item.name ? "active" : ""} key={item.name}><button onClick={() => { setActiveTag(item.name); setRenameValue(item.name); }}><Tags size={17} /><span><strong>{item.name}</strong><small>{item.count} 道题 · 正确率 {item.accuracy}% · 难度 {item.difficulty}</small></span><ChevronRight size={16} /></button><button className="tag-quick-practice" onClick={() => onStart(item.name)}><Play size={14} />练习</button></article>)}</div> : <div className="knowledge-empty"><Tags /><h2>还没有用户标签</h2><p>标签由你自己添加，只负责分类和筛选，不会自动创建题组。</p></div>}</section>{selected && <aside className="tag-detail"><header><div><span className="section-kicker">标签详情</span><h2>{selected.name}</h2></div><button className="icon-button" onClick={() => setActiveTag(undefined)}><X size={17} /></button></header><div className="tag-detail-stats"><span><strong>{selected.count}</strong>相关题目</span><span><strong>{selected.accuracy}%</strong>正确率</span><span><strong>{selected.difficulty}</strong>平均难度</span></div><label>重命名或合并标签<input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} /><small>目标名称已存在时会合并；题组不受影响。</small></label><div className="tag-manage-actions"><button disabled={!renameValue.trim() || renameValue.trim() === selected.name} onClick={() => void replaceTag(selected.name, renameValue.trim())}><Merge size={16} />保存或合并</button><button className="danger-button" onClick={() => setDeleteTagPrompt(selected.name)}><Trash2 size={16} />删除标签</button></div><button className="primary full" onClick={() => onStart(selected.name)}><Play size={17} />练习这个标签</button><div className="tag-question-preview">{selected.questions.slice(0, 12).map((question, index) => <p key={question.id}><span>{index + 1}</span><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /></p>)}</div></aside>}</div><ConfirmDialog open={Boolean(deleteTagPrompt)} eyebrow="标签管理" title="移除这个标签？" tone="danger" confirmLabel="移除标签" onCancel={() => setDeleteTagPrompt(undefined)} onConfirm={() => { if (deleteTagPrompt) void replaceTag(deleteTagPrompt); setDeleteTagPrompt(undefined); }} description={<><strong>标签“{deleteTagPrompt}”会从相关题目中移除</strong><span>题目和题组不会被删除，此操作会加入同步队列。</span></>} /></>;
 }
 
 function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQuestionIds?: string[]; onStart: (questions: Question[], label: string) => void; onNotice: (message: string) => void }) {
-  const data = useLiveQuery(async () => ({ questions: await db.questions.toArray(), groups: await db.questionGroups.orderBy("updatedAt").reverse().toArray() }), []);
+  const data = useLiveQuery(async () => ({ questions: await allQuestionViews(), groups: await dbV6.questionGroups.orderBy("updatedAt").reverse().toArray() }), []);
   const [editingId, setEditingId] = useState<string>();
   const [name, setName] = useState("");
   const [type, setType] = useState<QuestionGroupType>("易混");
@@ -74,7 +91,7 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   function edit(group: QuestionGroup) { setEditingId(group.id); setName(group.name); setType(group.type); setDescription(group.description); setItems(group.items); setQuery(""); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function move(index: number, offset: number) { const next = [...items]; const target = index + offset; if (target < 0 || target >= next.length) return; [next[index], next[target]] = [next[target], next[index]]; setItems(next); }
   async function save() {
-    try { const group = await saveQuestionGroup({ id: editingId, name, type, description, items }); onNotice(`题组“${group.name}”已保存，共 ${group.items.length} 道题`); reset(); }
+      try { const group = await saveQuestionGroupV6({ id: editingId, name, type, description, items }); onNotice(`题组“${group.name}”已保存，共 ${group.items.length} 道题`); reset(); }
     catch (error) { onNotice(error instanceof Error ? error.message : "题组保存失败"); }
   }
 
@@ -85,6 +102,6 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
       <footer>{editingId && <button onClick={reset}>取消编辑</button>}<button className="primary" disabled={!name.trim() || !items.length} onClick={() => void save()}><Check size={16} />保存题组</button></footer>
     </section>
     <section className="group-list"><header><div><span className="section-kicker">独立于标签的精细整理</span><h2>{data?.groups.length ?? 0} 个题组</h2></div></header>{data?.groups.length ? <div>{data.groups.map((group) => { const groupQuestions = group.items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question)); return <article key={group.id}><header><span className="group-type">{group.type}</span><div><h3>{group.name}</h3><p>{group.description || "未填写题组说明"}</p></div><strong>{groupQuestions.length} 题</strong></header><ol>{groupQuestions.slice(0, 4).map((question, index) => <li key={question.id}><span>{index + 1}</span><MathText text={question.stem} /></li>)}</ol>{groupQuestions.length > 4 && <small>还有 {groupQuestions.length - 4} 道题</small>}<footer><button onClick={() => edit(group)}><Pencil size={15} />编辑</button><button onClick={() => onStart(groupQuestions, `题组 · ${group.name}`)}><Play size={15} />练习题组</button><button className="danger-button" onClick={() => setDeleteGroupPrompt(group)}><Trash2 size={15} />删除</button></footer></article>; })}</div> : <div className="knowledge-empty"><Layers3 /><h2>还没有题组</h2><p>在上方搜索并添加若干题目，建立第一组易混题、专题题或自定义题组。</p></div>}</section>
-    <ConfirmDialog open={Boolean(deleteGroupPrompt)} eyebrow="题组管理" title="删除这个题组？" tone="danger" confirmLabel="删除题组" onCancel={() => setDeleteGroupPrompt(undefined)} onConfirm={() => { if (deleteGroupPrompt) void deleteQuestionGroup(deleteGroupPrompt.id).then(() => onNotice(`题组“${deleteGroupPrompt.name}”已删除`)); setDeleteGroupPrompt(undefined); }} description={<><strong>题组“{deleteGroupPrompt?.name}”将被删除</strong><span>题组内的题目和标签会保留，此操作会加入同步队列。</span></>} />
+    <ConfirmDialog open={Boolean(deleteGroupPrompt)} eyebrow="题组管理" title="删除这个题组？" tone="danger" confirmLabel="删除题组" onCancel={() => setDeleteGroupPrompt(undefined)} onConfirm={() => { if (deleteGroupPrompt) void deleteQuestionGroupV6(deleteGroupPrompt.id).then(() => onNotice(`题组“${deleteGroupPrompt.name}”已删除`)); setDeleteGroupPrompt(undefined); }} description={<><strong>题组“{deleteGroupPrompt?.name}”将被删除</strong><span>题组内的题目和标签会保留，此操作会加入同步队列。</span></>} />
   </div>;
 }

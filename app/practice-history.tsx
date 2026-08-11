@@ -1,15 +1,16 @@
 import { useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, BookOpenCheck, Check, CheckCircle2, ChevronRight, Clock3, History, Play, RotateCcw, Trash2, X, XCircle } from "lucide-react";
-import { db } from "@/lib/db";
+import { dbV6 } from "@/lib/db-v6";
 import { MathText } from "@/app/math-text";
+import { ContentBlockRenderer } from "@/app/content-block-renderer";
 import { ModalPortal } from "@/app/modal-portal";
-import { QuestionImage } from "@/app/question-image";
-import type { PracticeRun, Question, QuestionType } from "@/lib/types";
+import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
+import type { PracticeRunV6, QuestionTypeV6 } from "@/lib/v6-types";
 
-const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
+const TYPE_ORDER: QuestionTypeV6[] = ["单选", "多选", "判断", "计算"];
 
-function runStats(run: PracticeRun) {
+function runStats(run: PracticeRunV6) {
   const submitted = Object.values(run.answers).filter((answer) => answer.submitted);
   const correct = submitted.filter((answer) => answer.correct).length;
   return { answered: submitted.length, correct, wrong: submitted.length - correct, accuracy: submitted.length ? Math.round(correct / submitted.length * 100) : 0 };
@@ -19,10 +20,10 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-const statusText: Record<PracticeRun["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
+const statusText: Record<PracticeRunV6["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
 
 export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onViewAll: () => void }) {
-  const run = useLiveQuery(() => db.practiceRuns.where("[status+updatedAt]").between(["in_progress", ""], ["in_progress", "\uffff"]).reverse().first(), []);
+  const run = useLiveQuery(() => dbV6.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((rows) => rows.at(-1)), []);
   if (!run) return null;
   const stats = runStats(run);
   return <section className="latest-practice-banner">
@@ -31,7 +32,7 @@ export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onC
   </section>;
 }
 
-function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRun; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
+function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRunV6; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
   const stats = runStats(run);
   const [offset, setOffset] = useState(0);
   const drag = useRef<{ x: number; y: number; offset: number; horizontal: boolean } | null>(null);
@@ -68,8 +69,8 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
 }
 
 export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
-  const runs = useLiveQuery(() => db.practiceRuns.orderBy("startedAt").reverse().toArray(), []) ?? [];
-  const [status, setStatus] = useState<"all" | PracticeRun["status"]>("all");
+  const runs = useLiveQuery(() => dbV6.practiceRuns.orderBy("startedAt").reverse().toArray(), []) ?? [];
+  const [status, setStatus] = useState<"all" | PracticeRunV6["status"]>("all");
   const visible = status === "all" ? runs : runs.filter((run) => run.status === status);
   return <section className="practice-history-card">
     <header><div><span className="section-kicker">每次练习都有迹可循</span><h2>练习记录</h2><p>进行中、已完成和已放弃的练习都会保留。</p></div><History size={24} /></header>
@@ -78,14 +79,17 @@ export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { o
   </section>;
 }
 
-export function PracticeRunResult({ runId, onBack, onContinue, onRepeat }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: Question[], label: string, previousOptionOrders: Record<string, number[]>) => void }) {
+export function PracticeRunResult({ runId, onBack, onContinue, onRepeat }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: QuestionViewModel[], label: string, previousOptionOrders: Record<string, number[]>) => void }) {
   const data = useLiveQuery(async () => {
-    const run = await db.practiceRuns.get(runId);
+    const run = await dbV6.practiceRuns.get(runId);
     if (!run) return undefined;
-    return { run, questions: (await db.questions.bulkGet(run.questionIds)).filter((question): question is Question => Boolean(question)) };
+    const questions = (await dbV6.questions.bulkGet(run.questionIds)).filter(Boolean);
+    const memberships = await dbV6.bankQuestionMemberships.toArray();
+    const banks = await dbV6.banks.toArray();
+    return { run, questions: questions.map((question) => { const membership = memberships.find((item) => item.questionId === question!.id); const bank = banks.find((item) => item.id === membership?.bankId); return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
   }, [runId]);
   const [filter, setFilter] = useState<"all" | "wrong" | "unanswered">("all");
-  const [detailQuestion, setDetailQuestion] = useState<Question>();
+  const [detailQuestion, setDetailQuestion] = useState<QuestionViewModel>();
   const ordered = useMemo(() => {
     if (!data) return [];
     const index = new Map(data.run.questionIds.map((id, itemIndex) => [id, itemIndex]));
@@ -113,7 +117,7 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat }: { run
   </section>;
 }
 
-function ResultQuestionDetail({ question, answer, onClose }: { question: Question; answer?: PracticeRun["answers"][string]; onClose: () => void }) {
-  const note = useLiveQuery(() => db.notes.get(question.id), [question.id]);
-  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="search-question-detail result-question-detail" role="dialog" aria-modal="true" aria-label="练习结果题目详情"><header><div><span className="section-kicker">练习结果详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><h1><MathText text={question.stem} /></h1><QuestionImage src={question.imageUrl} alt={`${question.stem}的题目图片`} />{question.type !== "计算" && <ol>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <li className={question.answer.includes(letter) ? "answer" : ""} key={`${option}-${index}`}><span>{letter}</span><MathText text={option} languageText={question.stem} />{question.answer.includes(letter) && <Check size={16} />}</li>; })}</ol>}<section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p>你的答案：{answer?.submitted ? answer.selected.length ? question.type === "计算" ? answer.selected[0] : [...answer.selected].sort().join("") : "不会" : "未作答"}</p></section><section className="search-detail-note"><strong>个人解析</strong><p>{note?.content || "还没有个人解析。"}</p></section></div></aside></div></ModalPortal>;
+function ResultQuestionDetail({ question, answer, onClose }: { question: QuestionViewModel; answer?: PracticeRunV6["answers"][string]; onClose: () => void }) {
+  const note = useLiveQuery(() => dbV6.notes.get(question.id), [question.id]);
+  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="search-question-detail result-question-detail" role="dialog" aria-modal="true" aria-label="练习结果题目详情"><header><div><span className="section-kicker">练习结果详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} />{question.type !== "计算" && <ol>{question.canonical.options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <li className={question.answer.includes(letter) ? "answer" : ""} key={`${option}-${index}`}><span>{letter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV6} />{question.answer.includes(letter) && <Check size={16} />}</li>; })}</ol>}<section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p>你的答案：{answer?.submitted ? answer.selected.length ? question.type === "计算" ? answer.selected[0] : [...answer.selected].sort().join("") : "不会" : "未作答"}</p></section><section className="search-detail-note"><strong>个人解析</strong><p>{note?.content || "还没有个人解析。"}</p></section></div></aside></div></ModalPortal>;
 }

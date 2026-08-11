@@ -8,18 +8,29 @@ import {
   FolderOpen, FolderPlus, Gauge, GripVertical, History, Library, NotebookPen, Pencil,
   Plus, Search, Tag, Target, Trash2, X,
 } from "lucide-react";
-import { QuestionEditor, type QuestionChanges } from "@/app/question-editor";
+import { loadImageAssetV6, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/question-editor";
 import { ExcelImportActions } from "@/app/excel-import";
 import { AppSelect } from "@/app/app-select";
-import { MathText } from "@/app/math-text";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { ModalPortal } from "@/app/modal-portal";
-import {
-  createQuestion, db, deleteBank, deleteBankFolder, deleteQuestion, reorderBanks, saveBank,
-  saveBankFolder, updateQuestion,
-} from "@/lib/db";
+import { createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteQuestionV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, updateBankV6 } from "@/lib/db-v6";
+import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
+import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
-import type { AttemptStats, Bank, BankFolder, Note, PracticeRun, Question, QuestionType } from "@/lib/types";
+import { isQuestionDoneInScope, normalizeProgressScope, type ProgressScope } from "@/lib/progress-scope";
+import { ContentBlockRenderer } from "@/app/content-block-renderer";
+type Bank = BankV6;
+type BankFolder = BankFolderV6;
+type Question = QuestionViewModel;
+type QuestionType = QuestionTypeV6;
+type Note = NoteV6;
+type PracticeRun = PracticeRunV6;
+type AttemptStats = AttemptStatsV6 & { bankId: string };
+
+async function reorderBanks(ids: string[], folderId?: string) { await reorderBanksV6(ids, folderId); }
+async function saveBank(id: string, changes: Partial<Pick<BankV6, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>) { return updateBankV6(id, changes); }
+async function saveBankFolder(input: Partial<BankFolder>): Promise<BankFolder> { return saveBankFolderV6({ id: input.id, name: input.name?.trim() || "未命名文件夹", description: input.description ?? "" }); }
+async function deleteBankFolder(id: string): Promise<void> { await deleteBankFolderV6(id); }
 
 export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
@@ -53,8 +64,8 @@ function runAccuracy(run: PracticeRun) {
   return percent(answered.filter((answer) => answer.correct).length, answered.length);
 }
 
-export function BankLibraryView({ banks, wrongRemovalStreak, onImport, onOpenRun, onNotice }: { banks: Bank[]; wrongRemovalStreak: number; onImport: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
-  const folders = useLiveQuery(() => db.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
+export function BankLibraryView({ banks, progressScope = { type: "rolling", days: 90 }, wrongRemovalStreak, onImport, onOpenRun, onNotice }: { banks: Bank[]; progressScope?: ProgressScope; wrongRemovalStreak: number; onImport: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
+  const folders = useLiveQuery(() => dbV6.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
   const [activeBankId, setActiveBankId] = useState<string>();
   const [tab, setTab] = useState<"overview" | "questions">("overview");
   const [editingBank, setEditingBank] = useState<Bank>();
@@ -63,8 +74,10 @@ export function BankLibraryView({ banks, wrongRemovalStreak, onImport, onOpenRun
   const [pendingBankDelete, setPendingBankDelete] = useState<Bank>();
   const [pendingFolderDelete, setPendingFolderDelete] = useState<BankFolder>();
   const [deleting, setDeleting] = useState(false);
+  const [showUnfiled, setShowUnfiled] = useState(false);
   const ordered = sortedBanks(banks);
   const activeBank = banks.find((bank) => bank.id === activeBankId);
+  const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestionsV6() : Promise.resolve([]), [showUnfiled]) ?? [];
 
   async function placeBank(bankId: string, folderId: string | undefined, beforeId?: string) {
     const members = sortedBanks(banks.filter((bank) => bank.folderId === folderId && bank.id !== bankId));
@@ -86,15 +99,16 @@ export function BankLibraryView({ banks, wrongRemovalStreak, onImport, onOpenRun
   async function removeBank(bank: Bank) {
     try {
       setDeleting(true);
-      await deleteBank(bank.id);
+      await deleteBankV6(bank.id);
       setActiveBankId(undefined); setTab("overview"); setPendingBankDelete(undefined);
       onNotice(`题库“${bankTitle(bank)}”已删除`);
     } finally { setDeleting(false); }
   }
 
-  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="永久删除这个题库？" tone="danger" busy={deleting} confirmLabel="永久删除" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其中 {pendingBankDelete?.questionCount ?? 0} 道题会被删除</strong><span>相关作答记录和解析也会删除，并同步到其他设备。此操作无法撤销。</span></>} /></>;
+  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="移除这个题库？" tone="danger" busy={deleting} confirmLabel="移除题库" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>题库“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其 memberships 将被移除</strong><span>题目本身、历史作答和解析会保留；失去全部题库归属的题目可在“未归档题目”中找回。</span></>} /></>;
   return <>
-    <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>拖动调整顺序，用文件夹聚合题库；做题请前往练习中心。</p></div><div className="heading-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><ExcelImportActions onNotice={onNotice} /><button className="primary" onClick={onImport}><FileUp size={17} />导入 JSON</button></div></div>
+    <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>拖动调整顺序，用文件夹聚合题库；做题请前往练习中心。</p></div><div className="heading-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><button onClick={() => setShowUnfiled((value) => !value)}>{showUnfiled ? "隐藏未归档" : "未归档题目"}</button><ExcelImportActions onNotice={onNotice} /><button className="primary" onClick={onImport}><FileUp size={17} />导入 JSON</button></div></div>
+    {showUnfiled && <UnfiledQuestionSection questions={unfiledQuestions} onNotice={onNotice} />}
     {banks.length ? <div className="bank-folder-list">
       {folders.map((folder) => <BankFolderSection key={folder.id} folder={folder} banks={ordered.filter((bank) => bank.folderId === folder.id)} draggedBankId={draggedBankId} onDrag={setDraggedBankId} onDrop={(beforeId) => draggedBankId && void placeBank(draggedBankId, folder.id, beforeId)} onOpen={(bank) => setActiveBankId(bank.id)} onMove={moveBank} onEditFolder={() => setFolderDialog(folder)} onDeleteFolder={() => setPendingFolderDelete(folder)} />)}
       <BankFolderSection banks={ordered.filter((bank) => !bank.folderId || !folders.some((folder) => folder.id === bank.folderId))} draggedBankId={draggedBankId} onDrag={setDraggedBankId} onDrop={(beforeId) => draggedBankId && void placeBank(draggedBankId, undefined, beforeId)} onOpen={(bank) => setActiveBankId(bank.id)} onMove={moveBank} />
@@ -105,27 +119,36 @@ export function BankLibraryView({ banks, wrongRemovalStreak, onImport, onOpenRun
   </>;
 }
 
+function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV6[]; onNotice: (message: string) => void }) {
+  const [editing, setEditing] = useState<QuestionV6>();
+  const models = questions.map((question) => toQuestionViewModel(question));
+  return <section className="unfiled-question-section"><header><div><span className="section-kicker">全局题目仍保留</span><h2>未归档题目</h2><p>这些题目暂时没有任何题库 membership；历史作答和解析不会被自动删除。</p></div><strong>{questions.length} 道题</strong></header>{models.length ? <div className="managed-question-list">{models.map((question) => <article key={question.id}><span>·</span><button onClick={() => setEditing(question.canonical)}><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>{question.type} · {question.tags.join("、") || "无标签"}</small></button></article>)}</div> : <p className="question-manager-empty">暂无未归档题目。</p>}{editing && <SharedQuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("未归档题目已保存"); }} />}</section>;
+}
+
 function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
   return <section className={`bank-folder ${draggedBankId ? "drag-active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onDrop(); }}><header><span className="folder-icon">{folder ? <FolderOpen size={18} /> : <Library size={18} />}</span><div><h2>{folder?.name ?? "未分组"}</h2><p>{folder?.description || `${banks.length} 个题库`}</p></div><strong>{banks.length}</strong>{folder && <div className="folder-actions"><button aria-label={`编辑文件夹${folder.name}`} onClick={onEditFolder}><Pencil size={15} /></button><button aria-label={`删除文件夹${folder.name}`} onClick={onDeleteFolder}><Trash2 size={15} /></button></div>}</header><div className="bank-management-grid">{banks.map((bank, index) => <article key={bank.id} draggable onDragStart={() => onDrag(bank.id)} onDragEnd={() => onDrag(undefined)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); event.preventDefault(); onDrop(bank.id); }}><span className="bank-drag"><GripVertical size={18} /></span><button className="bank-management-main" onClick={() => onOpen(bank)}><span className="bank-color" style={{ background: bank.color || "#dfe9e2" }}><BookOpenCheck size={18} /></span><span><strong>{bankTitle(bank)}</strong><small>{bank.questionCount.toLocaleString()} 题 · {fullDate(bank.importedAt)}</small></span><ChevronRight size={17} /></button><div className="bank-order-buttons"><button aria-label="向上移动" disabled={index === 0} onClick={() => onMove(bank, -1)}><ArrowUp size={14} /></button><button aria-label="向下移动" disabled={index === banks.length - 1} onClick={() => onMove(bank, 1)}><ArrowDown size={14} /></button></div></article>)}</div>{!banks.length && <div className="folder-drop-empty"><Folder size={20} />将题库拖到这里</div>}</section>;
 }
 
-function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
+function BankDetail({ bank, folders, progressScope, tab, wrongRemovalStreak, onTab, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; progressScope: ProgressScope; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
   const [questionPreset, setQuestionPreset] = useState<QuestionPreset>("all");
   const [activityRange, setActivityRange] = useState<ActivityRange>(7);
   const [referenceTime] = useState(Date.now);
   const dataset = useLiveQuery(async () => {
     const dailyCutoff = new Date();
     dailyCutoff.setDate(dailyCutoff.getDate() - 34);
-    const [questions, attemptStats, dailyStats, allNotes, runs, runStats] = await Promise.all([
-      db.questions.where("bankId").equals(bank.id).toArray(),
-      db.attemptStats.where("bankId").equals(bank.id).toArray(),
-      db.attemptDailyStats.where("date").aboveOrEqual(calendarDate(dailyCutoff)).filter((row) => row.bankId === bank.id).toArray(),
-      db.notes.toArray(),
-      db.practiceRuns.filter((run) => run.bankId === bank.id || run.bankIds?.includes(bank.id)).toArray(),
-      db.practiceRunStats.get(bank.id),
-    ]);
+    const views = await listQuestionViewsForBankV6(bank.id);
+    const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
     const questionIds = new Set(questions.map((question) => question.id));
-    return { questions, attemptStats, dailyStats, notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs, runStats };
+    const [rawStats, dailyStats, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
+      dbV6.attemptStats.toArray(),
+      dbV6.attemptDailyStats.where("date").aboveOrEqual(calendarDate(dailyCutoff)).toArray(),
+      dbV6.notes.toArray(),
+      dbV6.practiceRuns.toArray(),
+      dbV6.practiceRunStats.get(bank.id),
+      dbV6.reviewRoundProgress.toArray(),
+    ]);
+    const attemptStats = rawStats.filter((stats) => questionIds.has(stats.questionId)).map((stats) => ({ ...stats, bankId: bank.id }));
+    return { questions, attemptStats, dailyStats: dailyStats.filter((row) => questionIds.has(row.questionId)), notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress: roundProgress.filter((row) => questionIds.has(row.questionId)) };
   }, [bank.id]);
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);
   const attemptStats = useMemo(() => dataset?.attemptStats ?? [], [dataset]);
@@ -133,11 +156,15 @@ function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onE
   const notes = useMemo(() => dataset?.notes ?? [], [dataset]);
   const runs = useMemo(() => dataset?.runs ?? [], [dataset]);
   const runStats = dataset?.runStats;
+  const roundProgress = useMemo(() => dataset?.roundProgress ?? [], [dataset?.roundProgress]);
+  const normalizedScope = normalizeProgressScope(progressScope);
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
   const dashboard = useMemo(() => {
     const noteIds = new Set(notes.map((note) => note.questionId));
     const summaries = new Map(questions.map((question) => [question.id, summarizeAttemptStats(statsByQuestion.get(question.id))]));
-    const attempted = questions.filter((question) => (summaries.get(question.id)?.total ?? 0) > 0);
+    const attempted = questions.filter((question) => isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime));
+    const lifetimeAttempted = questions.filter((question) => (summaries.get(question.id)?.total ?? 0) > 0);
+    const doneByQuestion = new Map(questions.map((question) => [question.id, isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)]));
     const wrong = questions.filter((question) => statsNeedWrongReview(statsByQuestion.get(question.id), wrongRemovalStreak));
     const mastered = questions.filter((question) => (statsByQuestion.get(question.id)?.currentCorrectStreak ?? 0) >= wrongRemovalStreak);
     const types = Object.fromEntries((["单选", "多选", "判断", "计算"] as QuestionType[]).map((type) => [type, questions.filter((question) => question.type === type).length])) as Record<QuestionType, number>;
@@ -176,7 +203,7 @@ function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onE
       tagged: questions.filter((question) => question.tags.length).length,
       totalAttempts: totals.total, totalCorrect: totals.correct, totalWrong: totals.wrong,
       accuracy: percent(totals.correct, totals.total), firstAccuracy: percent(attemptStats.filter((stats) => stats.firstAttemptCorrect).length, attemptStats.length),
-      averageAttempts: attempted.length ? (totals.total / attempted.length).toFixed(1) : "0",
+      averageAttempts: lifetimeAttempted.length ? (totals.total / lifetimeAttempted.length).toFixed(1) : "0",
       giveUps: totals.giveUps, averageDifficulty,
       totalElapsed: totals.elapsed,
       lastAttempt: [...attemptStats].sort((a, b) => b.latestAttemptAt.localeCompare(a.latestAttemptAt))[0],
@@ -187,12 +214,12 @@ function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onE
         repeatWrong: questions.filter((question) => (summaries.get(question.id)?.wrong ?? 0) >= 2).length,
         difficult: questions.filter((question) => (summaries.get(question.id)?.difficulty ?? 0) >= 70 && (summaries.get(question.id)?.total ?? 0) > 0).length,
         stubborn: questions.filter((question) => (summaries.get(question.id)?.total ?? 0) >= 3 && statsNeedWrongReview(statsByQuestion.get(question.id), wrongRemovalStreak)).length,
-        favoriteUnanswered: questions.filter((question) => question.favorite && !(summaries.get(question.id)?.total ?? 0)).length,
+        favoriteUnanswered: questions.filter((question) => question.favorite && !doneByQuestion.get(question.id)).length,
         wrongNoted: wrong.filter((question) => noteIds.has(question.id)).length,
         staleWrong: wrong.filter((question) => (summaries.get(question.id)?.latest ?? referenceTime) < referenceTime - 30 * 86_400_000).length,
       },
     };
-  }, [questions, attemptStats, dailyStats, notes, runs, runStats, statsByQuestion, wrongRemovalStreak, activityRange, referenceTime]);
+  }, [questions, attemptStats, dailyStats, notes, runs, runStats, roundProgress, statsByQuestion, wrongRemovalStreak, activityRange, referenceTime, normalizedScope]);
 
   function openQuestions(preset: QuestionPreset) {
     setQuestionPreset(preset);
@@ -222,26 +249,26 @@ function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onE
       </section>
 
       <section className="bank-kpi-grid" aria-label="题库核心指标">
-        <DashboardMetric icon={<CheckCircle2 />} label="已做题目" value={dashboard.attempted} detail={`${dashboard.completion}% 完成`} onClick={() => openQuestions("attempted")} />
+        <DashboardMetric icon={<CheckCircle2 />} label="已做题目" value={dashboard.attempted} detail={`${dashboard.completion}% 完成（${normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前轮次"}）`} onClick={() => openQuestions("attempted")} />
         <DashboardMetric icon={<AlertTriangle />} label="当前错题" value={dashboard.wrong} detail={`连续对 ${wrongRemovalStreak} 次移除`} tone="warning" onClick={() => openQuestions("wrong")} />
         <DashboardMetric icon={<Target />} label="已掌握" value={dashboard.mastered} detail="达到连续正确阈值" onClick={() => openQuestions("mastered")} />
         <DashboardMetric icon={<Bookmark />} label="收藏题目" value={dashboard.favorites} detail="用户主动收藏" onClick={() => openQuestions("favorite")} />
         <DashboardMetric icon={<NotebookPen />} label="个人解析" value={dashboard.noted} detail="已有笔记或解析" onClick={() => openQuestions("noted")} />
         <DashboardMetric icon={<Tag />} label="已打标签" value={dashboard.tagged} detail={`共 ${dashboard.tags.length} 个标签`} onClick={() => openQuestions("tagged")} />
         <DashboardMetric icon={<FileText />} label="未做题目" value={dashboard.unattempted} detail="尚无作答记录" onClick={() => openQuestions("unattempted")} />
-        <DashboardMetric icon={<Gauge />} label="平均难度" value={dashboard.averageDifficulty} suffix="/100" detail="根据答题动态计算" onClick={() => openQuestions("difficult")} />
+        <DashboardMetric icon={<Gauge />} label="平均难度" value={dashboard.averageDifficulty} suffix="/100" detail="根据终身作答动态计算" onClick={() => openQuestions("difficult")} />
       </section>
 
       <div className="bank-dashboard-grid">
-        <section className="bank-dashboard-panel bank-performance-panel"><PanelTitle icon={<BarChart3 />} eyebrow="答题表现" title="累计表现" /><div className="bank-performance-grid">
-          <DashboardNumber value={dashboard.totalAttempts} label="总作答" />
-          <DashboardNumber value={`${dashboard.accuracy}%`} label="总正确率" />
-          <DashboardNumber value={`${dashboard.firstAccuracy}%`} label="首次正确率" />
-          <DashboardNumber value={dashboard.averageAttempts} label="每题平均作答" />
-          <DashboardNumber value={dashboard.totalCorrect} label="答对次数" />
-          <DashboardNumber value={dashboard.totalWrong} label="答错次数" />
-          <DashboardNumber value={dashboard.giveUps} label="不会次数" />
-          <DashboardNumber value={formatDuration(dashboard.totalElapsed)} label="累计用时" />
+        <section className="bank-dashboard-panel bank-performance-panel"><PanelTitle icon={<BarChart3 />} eyebrow="答题表现" title="累计表现（终身）" /><div className="bank-performance-grid">
+          <DashboardNumber value={dashboard.totalAttempts} label="总作答（终身）" />
+          <DashboardNumber value={`${dashboard.accuracy}%`} label="总正确率（终身）" />
+          <DashboardNumber value={`${dashboard.firstAccuracy}%`} label="首次正确率（终身）" />
+          <DashboardNumber value={dashboard.averageAttempts} label="每题平均作答（终身）" />
+          <DashboardNumber value={dashboard.totalCorrect} label="答对次数（终身）" />
+          <DashboardNumber value={dashboard.totalWrong} label="答错次数（终身）" />
+          <DashboardNumber value={dashboard.giveUps} label="不会次数（终身）" />
+          <DashboardNumber value={formatDuration(dashboard.totalElapsed)} label="累计用时（终身）" />
         </div></section>
         <section className="bank-dashboard-panel bank-activity-panel"><PanelTitle icon={<CalendarClock />} eyebrow="近期活跃" title="练习节奏" /><div className="bank-range-tabs">{([1, 7, 30] as ActivityRange[]).map((days) => <button key={days} className={activityRange === days ? "active" : ""} onClick={() => setActivityRange(days)}>{days === 1 ? "今天" : `${days} 天`}</button>)}</div><div className="bank-activity-grid">
           <DashboardNumber value={dashboard.activity.attempts} label="作答次数" />
@@ -264,12 +291,12 @@ function BankDetail({ bank, folders, tab, wrongRemovalStreak, onTab, onBack, onE
         </div></section>
       </div>
 
-      <section className="bank-dashboard-panel"><PanelTitle icon={<Tag />} eyebrow="知识标签" title="标签掌握情况" />{dashboard.tags.length ? <div className="bank-tag-table"><div><span>标签</span><span>题目</span><span>当前错题</span><span>正确率</span></div>{dashboard.tags.slice(0, 10).map((tag) => <div key={tag.name}><strong>{tag.name}</strong><span>{tag.count}</span><span>{tag.wrong}</span><span>{tag.accuracy}%</span></div>)}</div> : <div className="bank-panel-empty"><Tag size={20} /><span>还没有用户标签，可在试题管理或答题界面添加。</span></div>}</section>
+        <section className="bank-dashboard-panel"><PanelTitle icon={<Tag />} eyebrow="知识标签" title="标签掌握情况" />{dashboard.tags.length ? <div className="bank-tag-table"><div><span>标签</span><span>题目</span><span>当前错题</span><span>终身正确率</span></div>{dashboard.tags.slice(0, 10).map((tag) => <div key={tag.name}><strong>{tag.name}</strong><span>{tag.count}</span><span>{tag.wrong}</span><span>{tag.accuracy}%</span></div>)}</div> : <div className="bank-panel-empty"><Tag size={20} /><span>还没有用户标签，可在试题管理或答题界面添加。</span></div>}</section>
 
       <section className="bank-dashboard-panel"><PanelTitle icon={<History />} eyebrow="练习记录" title="最近练习" /><div className="bank-run-summary"><span>共 {dashboard.runCounts.total} 次</span><span>{dashboard.runCounts.completed} 次完成</span><span>{dashboard.runCounts.inProgress} 次进行中</span><span>{dashboard.runCounts.abandoned} 次放弃</span></div>{dashboard.orderedRuns.length ? <div className="bank-recent-runs">{dashboard.orderedRuns.slice(0, 5).map((run) => <button key={run.id} onClick={() => onOpenRun(run.id)}><span className={`run-status ${run.status}`}>{run.status === "completed" ? "已完成" : run.status === "abandoned" ? "已放弃" : "进行中"}</span><span><strong>{run.modeLabel}</strong><small>{formatDateTime(run.updatedAt)}</small></span><span>{runAnswered(run)} / {run.questionIds.length} 题</span><strong>{runAccuracy(run)}%</strong><ChevronRight size={16} /></button>)}</div> : <div className="bank-panel-empty"><Clock3 size={20} /><span>还没有练习记录。</span></div>}</section>
 
       <section className="bank-profile-details"><div><span>系统原名</span><strong>{bank.name}</strong></div><div><span>所属文件夹</span><strong>{folderName}</strong></div><div><span>导入日期</span><strong>{fullDate(bank.importedAt)}</strong></div><div><span>题库信息更新</span><strong>{formatDateTime(bank.updatedAt || bank.importedAt)}</strong></div></section>
-    </div> : <QuestionManager bank={bank} questions={questions} attemptStats={attemptStats} notes={notes} preset={questionPreset} wrongRemovalStreak={wrongRemovalStreak} referenceTime={referenceTime} onPresetChange={setQuestionPreset} onNotice={onNotice} />}
+    </div> : <QuestionManager bank={bank} questions={questions} attemptStats={attemptStats} notes={notes} roundProgress={roundProgress} progressScope={progressScope} preset={questionPreset} wrongRemovalStreak={wrongRemovalStreak} referenceTime={referenceTime} onPresetChange={setQuestionPreset} onNotice={onNotice} />}
   </>;
 }
 
@@ -281,7 +308,7 @@ function PanelTitle({ icon, eyebrow, title }: { icon: ReactNode; eyebrow: string
 function Distribution({ label, count, total, color }: { label: string; count: number; total: number; color: string }) { return <div className="bank-distribution"><span>{label}</span><div><i style={{ width: `${percent(count, total)}%`, background: color }} /></div><strong>{count}<small>{percent(count, total)}%</small></strong></div>; }
 function PriorityButton({ label, count, onClick, wide }: { label: string; count: number; onClick: () => void; wide?: boolean }) { return <button className={wide ? "wide" : ""} onClick={onClick}><span>{label}</span><strong>{count}</strong><ChevronRight size={15} /></button>; }
 
-function QuestionManager({ bank, questions, attemptStats, notes, preset, wrongRemovalStreak, referenceTime, onPresetChange, onNotice }: { bank: Bank; questions: Question[]; attemptStats: AttemptStats[]; notes: Note[]; preset: QuestionPreset; wrongRemovalStreak: number; referenceTime: number; onPresetChange: (preset: QuestionPreset) => void; onNotice: (message: string) => void }) {
+function QuestionManager({ bank, questions, attemptStats, notes, roundProgress = [], progressScope = { type: "rolling", days: 90 }, preset, wrongRemovalStreak, referenceTime, onPresetChange, onNotice }: { bank: Bank; questions: Question[]; attemptStats: AttemptStats[]; notes: Note[]; roundProgress?: Array<{ key: string; roundId: string; questionId: string; attempts: number; correct: number; wrong: number; firstAttemptAt: string; latestAttemptAt: string }>; progressScope?: ProgressScope; preset: QuestionPreset; wrongRemovalStreak: number; referenceTime: number; onPresetChange: (preset: QuestionPreset) => void; onNotice: (message: string) => void }) {
   const [query, setQuery] = useState(""); const [type, setType] = useState<"全部" | QuestionType>("全部"); const [visible, setVisible] = useState(80); const [editing, setEditing] = useState<Question>(); const [adding, setAdding] = useState(false); const [pendingDelete, setPendingDelete] = useState<Question>(); const [deleting, setDeleting] = useState(false);
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
   const noteIds = useMemo(() => new Set(notes.filter((note) => note.content.trim()).map((note) => note.questionId)), [notes]);
@@ -290,20 +317,37 @@ function QuestionManager({ bank, questions, attemptStats, notes, preset, wrongRe
     if (![question.stem, ...question.options, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))) return false;
     const stats = statsByQuestion.get(question.id);
     const summary = summarizeAttemptStats(stats);
+    const doneInScope = isQuestionDoneInScope(question.id, progressScope, attemptStats, roundProgress, referenceTime);
     const wrong = statsNeedWrongReview(stats, wrongRemovalStreak);
     const stale = (summary.latest ?? referenceTime) < referenceTime - 30 * 86_400_000;
     const matches: Record<QuestionPreset, boolean> = {
-      all: true, attempted: summary.total > 0, unattempted: summary.total === 0, wrong,
+      all: true, attempted: doneInScope, unattempted: !doneInScope, wrong,
       favorite: Boolean(question.favorite), noted: noteIds.has(question.id), tagged: question.tags.length > 0,
       mastered: (stats?.currentCorrectStreak ?? 0) >= wrongRemovalStreak, difficult: summary.total > 0 && summary.difficulty >= 70,
       repeatWrong: summary.wrong >= 2, stubborn: summary.total >= 3 && wrong,
-      favoriteUnanswered: Boolean(question.favorite) && summary.total === 0,
+      favoriteUnanswered: Boolean(question.favorite) && !doneInScope,
       wrongNoted: wrong && noteIds.has(question.id), staleWrong: wrong && stale,
     };
     return matches[preset];
-  }), [questions, query, type, preset, statsByQuestion, noteIds, wrongRemovalStreak, referenceTime]);
-  const blank: Question = { id: "new", bankId: bank.id, bankName: bankTitle(bank), sortOrder: questions.length, stem: "", normalizedStem: "", answer: "A", options: ["", "", "", ""], type: "单选", tags: [] };
-  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p><div className="managed-question-list">{filtered.slice(0, visible).map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id}><span>{index + 1}</span><button onClick={() => setEditing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><strong><MathText text={question.stem} /></strong><small>答案 {question.answer} · 作答 {summary.total} 次 · 正确 {summary.correct} · 错误 {summary.wrong}</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <QuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSave={async (changes) => { await updateQuestion(editing.id, changes); setEditing(undefined); onNotice("题目已保存"); }} />}{adding && <QuestionEditor question={blank} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges) => { await createQuestion(bank.id, changes); setAdding(false); onNotice("新题目已添加"); }} />}<ConfirmDialog open={Boolean(pendingDelete)} eyebrow="试题管理" title="删除这道题？" tone="danger" busy={deleting} confirmLabel="删除题目" onCancel={() => setPendingDelete(undefined)} onConfirm={async () => { if (!pendingDelete) return; try { setDeleting(true); await deleteQuestion(pendingDelete.id); setPendingDelete(undefined); onNotice("题目已删除"); } finally { setDeleting(false); } }} description={<><strong>{pendingDelete?.stem.slice(0, 48)}</strong><span>相关作答记录和解析也会一并删除，此操作会加入同步队列。</span></>} /></section>;
+  }), [questions, query, type, preset, statsByQuestion, noteIds, wrongRemovalStreak, referenceTime, attemptStats, roundProgress, progressScope]);
+  const blankCanonical: QuestionV6 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), answer: "A", tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };
+  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p><div className="managed-question-list">{filtered.slice(0, visible).map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id}><span>{index + 1}</span><button onClick={() => setEditing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>答案 {question.answer} · 作答 {summary.total} 次（终身） · 正确 {summary.correct} 次（终身） · 错误 {summary.wrong} 次（终身）</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <SharedQuestionEditor question={editing.canonical} preferredBankId={bank.id} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("题目已保存"); }} />}{adding && <QuestionEditor question={blankCanonical} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges) => { await createQuestionV6(bank.id, changes); setAdding(false); onNotice("新题目已添加"); }} />}<BankQuestionDeleteDialog question={pendingDelete} bank={bank} busy={deleting} onClose={() => setPendingDelete(undefined)} onBusy={setDeleting} onNotice={onNotice} /></section>;
+}
+
+function BankQuestionDeleteDialog({ question, bank, busy, onClose, onBusy, onNotice }: { question?: Question; bank: Bank; busy: boolean; onClose: () => void; onBusy: (value: boolean) => void; onNotice: (message: string) => void }) {
+  if (!question) return null;
+  const target = question;
+  async function removeFromBank() {
+    try { onBusy(true); await removeMembershipV6(bank.id, target.id); onClose(); onNotice(`题目已从「${bankTitle(bank)}」移除，可在未归档题目中找回`); }
+    catch (error) { onNotice(error instanceof Error ? error.message : "移除题目失败"); }
+    finally { onBusy(false); }
+  }
+  async function deleteGlobally() {
+    try { onBusy(true); await deleteQuestionV6(target.id); onClose(); onNotice("题目及全部学习记录已删除"); }
+    catch (error) { onNotice(error instanceof Error ? error.message : "删除题目失败"); }
+    finally { onBusy(false); }
+  }
+  return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="simple-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-question-delete-title"><header><div><span className="section-kicker">试题管理</span><h2 id="bank-question-delete-title">如何处理这道题？</h2></div><button className="icon-button" disabled={busy} onClick={onClose} aria-label="取消删除题目"><X size={17} /></button></header><p><strong>{target.stem.slice(0, 64)}</strong></p><div className="delete-choice-list"><button disabled={busy} onClick={() => void removeFromBank()}><span>仅从当前题库移除</span><small>保留全局题目、历史作答和解析；题目会进入未归档题目。</small></button><button className="danger-button" disabled={busy} onClick={() => void deleteGlobally()}><span>全局删除题目及学习记录</span><small>从所有题库移除，并删除作答、解析、题组和练习引用。</small></button></div>{busy && <p>正在处理…</p>}<footer><button disabled={busy} onClick={onClose}>取消</button></footer></section></div></ModalPortal>;
 }
 
 function BankEditDialog({ bank, folders, onClose, onSaved }: { bank: Bank; folders: BankFolder[]; onClose: () => void; onSaved: (name: string) => void }) {

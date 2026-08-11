@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Download, FileSpreadsheet, LoaderCircle } from "lucide-react";
-import { importQuestionBank } from "@/lib/db";
+import { importQuestionBankV6 } from "@/lib/db-v6";
 import { importFileName, parseQuestionBankWorkbook } from "@/lib/xlsx-import";
 
 export function ExcelImportActions({ onNotice }: { onNotice: (message: string) => void }) {
@@ -46,7 +46,7 @@ export function ExcelImportActions({ onNotice }: { onNotice: (message: string) =
       onNotice("正在校验 Excel 题库…");
       const bankFileName = importFileName(file.name);
       const questions = await parseQuestionBankWorkbook(await file.arrayBuffer());
-      const bank = await importQuestionBank(bankFileName, questions);
+      const bank = await importQuestionBankV6(bankFileName, questions);
       onNotice(`已从 Excel 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Excel 题库导入失败");
