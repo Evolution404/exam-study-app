@@ -23,6 +23,7 @@
     "test:question-types": "tsx scripts/test-question-types.ts",
     "test:modal": "tsx scripts/test-modal-layering.ts",
     "test:v6-domain": "tsx scripts/test-v6-domain.ts",
+    "test:image-assets": "tsx scripts/test-image-assets.ts",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
