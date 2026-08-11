@@ -15,6 +15,8 @@
   --color-success-soft: #e4f1e8;
   --color-warning: #985921;
   --color-warning-soft: #f5e2c4;
+  --color-info: #426985;
+  --color-info-soft: #e5eef4;
   --color-danger: #a45238;
   --color-danger-soft: #fbf0eb;
   --color-overlay: #13231b99;
@@ -50,6 +52,8 @@ html[data-theme="dark"] {
   --color-success-soft: #1e382a;
   --color-warning: #e1bd78;
   --color-warning-soft: #49391f;
+  --color-info: #7fb4d2;
+  --color-info-soft: #203440;
   --color-danger: #e38f70;
   --color-danger-soft: #41271f;
   --color-overlay: #0009;
