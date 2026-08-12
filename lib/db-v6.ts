@@ -1901,9 +1901,7 @@ export async function restoreV6CheckpointAndEvents(
     await dbV6.reviewRoundProgress.bulkPut(state.reviewRoundProgress);
     await dbV6.tombstones.bulkPut(state.tombstones);
 
-    for (const event of remoteEvents) {
-      if (await applyV6Event(event, resolvedDefinitions)) applied += 1;
-    }
+    applied += await applyEventsWithDeferredAnswersV6(remoteEvents, resolvedDefinitions);
     for (const event of pending) {
       if (remoteIds.has(event.id)) continue;
       if (await applyV6Event(event, resolvedDefinitions)) {
@@ -1913,6 +1911,33 @@ export async function restoreV6CheckpointAndEvents(
     }
   });
   return { applied, preserved };
+}
+
+/**
+ * Apply remote events with order-independent answers.  Event pages are
+ * path-sorted, never chronological, so a submitted answer can be replayed
+ * before the run snapshot that materializes its run; applying it then would
+ * silently drop the answer (`applyAnswerPayloadInTx` only merges into an
+ * existing run).  Answers for not-yet-materialized runs are buffered and
+ * replayed once after the batch, by which time the run snapshot has applied.
+ */
+async function applyEventsWithDeferredAnswersV6(events: readonly V6Event[], definitions: Record<string, RunDefinitionV6> | undefined): Promise<number> {
+  let applied = 0;
+  const deferred: V6Event[] = [];
+  for (const event of events) {
+    if (event.type === "practice.answer.submitted") {
+      const runId = (event.payload as { runId?: unknown } | undefined)?.runId;
+      if (typeof runId === "string" && !(await dbV6.practiceRuns.get(runId))) {
+        deferred.push(event);
+        continue;
+      }
+    }
+    if (await applyV6Event(event, definitions)) applied += 1;
+  }
+  for (const event of deferred) {
+    if (await applyV6Event(event, definitions)) applied += 1;
+  }
+  return applied;
 }
 
 export const applyV6CheckpointAndEvents = restoreV6CheckpointAndEvents;

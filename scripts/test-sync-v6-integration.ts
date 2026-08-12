@@ -13,6 +13,7 @@ import {
   putImageAssetV6,
   recordPracticeAnswerV6,
   resetV6Database,
+  runDefinitionRef,
   serializeRunDefinition,
 } from "../lib/db-v6";
 import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
@@ -212,6 +213,8 @@ try {
   const full = await restoreFullHistoryFromGitHubV6(settings, token);
   assert.equal(full.archivedAttempts, 1, "full restore reads archive attempts");
   assert.ok(await dbV6.attempts.get(archivedAttempt.id));
+  // The run itself was removed as a history card above; its attempt survives.
+  assert.equal(await dbV6.practiceRuns.get(run.id), undefined, "deleted run stays deleted after restore");
 
   // A 6,000-question checkpoint is complete and remains a single immutable
   // object; no mutable head event tail is needed for the imported questions.
@@ -298,6 +301,34 @@ try {
   const plainParsed = JSON.parse(new TextDecoder().decode((await serializeRunDefinition(plainRun)).bytes)) as { orders?: unknown; shuffleOptions?: boolean };
   assert.equal(plainParsed.shuffleOptions, false);
   assert.equal(plainParsed.orders, undefined, "non-shuffled runs omit orders entirely");
+
+  // Event pages are path-sorted, never chronological: an answer event can be
+  // replayed before the run creation snapshot that materializes its run, and
+  // restore must not drop that answer.  The checkpoint predates the run (an
+  // incremental publication reuses it), so the run exists only in the events.
+  await resetV6Database();
+  const orderBank = await importQuestionBankV6("order.json", [
+    { q: "o1", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "o2", type: "单选", a: ["甲", "乙"], ans: "A" },
+  ]);
+  const preCheckpoint = await createSyncCheckpointV6();
+  const orderMems = await dbV6.bankQuestionMemberships.where("bankId").equals(orderBank.id).sortBy("sortOrder");
+  const orderIds = orderMems.map((member) => member.questionId);
+  const orderRun = await createPracticeRunV6({ bankId: orderBank.id, questionIds: orderIds });
+  await recordPracticeAnswerV6({ runId: orderRun.id, questionId: orderIds[0], selected: ["A"], correct: true });
+  await recordPracticeAnswerV6({ runId: orderRun.id, questionId: orderIds[1], selected: ["A"], correct: true });
+  const orderEvents = await dbV6.events.toArray();
+  const orderRunSaved = orderEvents.find((event) => event.type === "practice.run.saved")!;
+  const orderAnswers = orderEvents.filter((event) => event.type === "practice.answer.submitted");
+  assert.equal(orderAnswers.length, 2, "two answer events emitted");
+  const badOrder = [...orderAnswers, orderRunSaved];
+  const orderRef = await runDefinitionRef(orderRun);
+  const orderDefinition = await serializeRunDefinition(orderRun);
+  const orderResult = await applySyncCheckpointV6(preCheckpoint, badOrder, {}, { [orderRef.path]: orderDefinition.value });
+  assert.equal(orderResult.applied, 3, "all three events apply");
+  const orderRestored = (await dbV6.practiceRuns.get(orderRun.id))!;
+  assert.equal(Object.values(orderRestored.answers).filter((answer) => answer.submitted).length, 2, "answers replay after the run snapshot materializes");
+  assert.equal(orderRestored.questionIds.join(","), orderIds.join(","), "run definition materializes from its ref");
 
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));
