@@ -39,6 +39,13 @@ assert.match(bank, /type="date"/);
 const renderer = source("content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
+const componentStyles = readFileSync(new URL("../app/styles/components.css", import.meta.url), "utf8");
+assert.match(componentStyles, /\.question-body h1,\.practice-stem\s*\{[^}]*clamp\(21px,3vw,29px\)/, "富内容题干必须继承原答题页的标准字号");
+assert.match(componentStyles, /font-small[^}]*\.practice-stem[^}]*clamp\(18px,2\.4vw,24px\)/, "较小字号必须作用于富内容题干");
+assert.match(componentStyles, /font-large[^}]*\.practice-stem[^}]*clamp\(25px,3\.4vw,33px\)/, "较大字号必须作用于富内容题干");
+assert.match(componentStyles, /font-xlarge[^}]*\.practice-stem[^}]*clamp\(29px,4vw,38px\)/, "特大字号必须作用于富内容题干");
+assert.match(componentStyles, /\.practice-option-content\{[^}]*font-size:15px/, "富内容选项必须恢复标准阅读字号");
+
 const history = source("practice-history.tsx");
 assert.match(history, /练习结果详情/);
 assert.match(history, /重练本次题目/);
