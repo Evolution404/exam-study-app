@@ -30,7 +30,10 @@ import {
   SYNC_V6_CHECKPOINT_PREFIX,
   SYNC_V6_EVENT_PREFIX,
   SYNC_V6_IMMUTABLE_PREFIX,
+  SYNC_V6_MAX_EVENT_PAGES,
+  SYNC_V6_MAX_HOT_EVENT_BYTES,
   encodeSyncV6Event,
+  mergeSyncV6EventPages,
   planSyncV6HotTail,
   validateSyncHeadV6,
   type SyncHeadV6,
@@ -267,22 +270,24 @@ async function ensureAssetFiles(client: GitHubV6Remote, onProgress?: SyncV6Progr
     index += 1;
     const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
     const expectedPath = `${SYNC_V6_ASSET_PREFIX}${asset.id}.${extension}`;
-    if (asset.blob) {
+    // Content addressing makes an existing remote descriptor authoritative:
+    // the same id/size can only describe the same bytes, so an already
+    // published asset needs no second upload (or 422 reconcile) on this sync.
+    const alreadyPublished = Boolean(
+      asset.remote && asset.remote.path === expectedPath && asset.remote.sha256 === asset.id && asset.remote.size === asset.size,
+    );
+    if (!alreadyPublished && asset.blob) {
       const blobSha256 = await sha256Blob(asset.blob);
       if (blobSha256 !== asset.id) throw new Error(`图片 ${asset.id} 本地 Blob 摘要校验失败。`);
       const uploaded = await client.putImmutable({ path: expectedPath, bytes: new Uint8Array(await asset.blob.arrayBuffer()), kind: "asset", sha256: asset.id, size: asset.size });
       const remoteDescriptor = { path: expectedPath, blobSha: uploaded.blobSha, sha256: asset.id, size: asset.size };
-      if (!asset.remote || asset.remote.path !== expectedPath || asset.remote.blobSha !== uploaded.blobSha || asset.remote.size !== asset.size) {
-        // Metadata is part of the v6 checkpoint.  Do not emit a second domain
-        // event here: the immutable checkpoint itself captures this update.
-        await dbV6.imageAssets.put({ ...asset, remote: remoteDescriptor });
-      }
-      files.push({ path: expectedPath, bytes: new Uint8Array(await asset.blob.arrayBuffer()), kind: "asset" });
-    } else if (asset.remote) {
-      if (asset.remote.path !== expectedPath || asset.remote.sha256 !== asset.id || asset.remote.size !== asset.size) throw new Error(`图片 ${asset.id} 远端 descriptor 不符合 v6 约束。`);
-    } else {
+      // Metadata is part of the v6 checkpoint.  Do not emit a second domain
+      // event here: the immutable checkpoint itself captures this update.
+      await dbV6.imageAssets.put({ ...asset, remote: remoteDescriptor });
+    } else if (!alreadyPublished) {
       throw new Error(`图片 ${asset.id} 缺少本地 Blob，无法首次上传远端资产。`);
     }
+    if (asset.blob) files.push({ path: expectedPath, bytes: new Uint8Array(await asset.blob.arrayBuffer()), kind: "asset" });
     report(onProgress, "upload", `正在准备图片资产 ${index}/${assets.length}`, 4 + index / Math.max(1, assets.length) * 16);
   }
   return files;
@@ -299,18 +304,38 @@ function pendingEventsForUpload(events: readonly V6Event[]): V6Event[] {
   return eventsToUpload;
 }
 
-async function catalogForPublication(client: GitHubV6Remote, checkpoint: SyncCheckpointV6, expectedHead: SyncHeadV6): Promise<SyncV6ArchiveCatalog> {
-  // Preserve migration archives (and any future archive segments) when a
-  // device performs an ordinary v6 sync after a quick restore.  Publishing a
-  // fresh empty catalog here would silently make full-history restore lose
-  // those immutable objects.
-  const existingPath = expectedHead.archiveCatalog.path;
-  if (!/\/0{64}\.json$/.test(existingPath)) {
-    const existing = parseJson<SyncV6ArchiveCatalog>(await client.readBlob(expectedHead.archiveCatalog), "远程 v6 历史目录");
-    validateSyncV6ArchiveCatalog(existing);
-    return existing;
+/** A placeholder descriptor marks an uninitialised (migration/initial) head. */
+function isPlaceholderDescriptor(descriptor: SyncV6Descriptor): boolean {
+  return /\/0{64}\.json$/.test(descriptor.path);
+}
+
+/**
+ * Decide whether the merged event tail (existing hot pages plus the new batch)
+ * stays inside the bounded hot window.  When it does not, publication must
+ * write a fresh checkpoint so the head can trim back to the new batch only.
+ */
+function mergedEventPagesFit(existing: readonly SyncV6EventPageDescriptor[], additions: readonly SyncV6PublicationFile[]): boolean {
+  const paths = new Set<string>(existing.map((page) => page.path));
+  let bytes = existing.reduce((sum, page) => sum + page.size, 0);
+  for (const file of additions) {
+    paths.add(file.path);
+    bytes += file.bytes instanceof Uint8Array ? file.bytes.byteLength : file.bytes instanceof ArrayBuffer ? file.bytes.byteLength : new TextEncoder().encode(String(file.bytes)).byteLength;
   }
-  return createSyncV6ArchiveCatalog(checkpoint);
+  return paths.size <= SYNC_V6_MAX_EVENT_PAGES && bytes <= SYNC_V6_MAX_HOT_EVENT_BYTES;
+}
+
+/**
+ * Decide the archive catalog for the next head.  The catalog is content
+ * addressed and immutable, so an existing real catalog is preserved simply by
+ * reusing its descriptor; only the empty placeholder needs a fresh publish.
+ */
+async function catalogForPublication(expectedHead: SyncHeadV6, checkpoint: SyncCheckpointV6): Promise<{ reuse: SyncV6Descriptor } | { fresh: SyncV6PublicationFile }> {
+  if (isPlaceholderDescriptor(expectedHead.archiveCatalog)) {
+    const catalog = createSyncV6ArchiveCatalog(checkpoint);
+    const catalogBytes = new TextEncoder().encode(JSON.stringify(catalog));
+    return { fresh: { path: digestPath(SYNC_V6_ARCHIVE_CATALOG_PREFIX, await digest(catalogBytes)), bytes: catalogBytes, kind: "archiveCatalog" } };
+  }
+  return { reuse: expectedHead.archiveCatalog };
 }
 
 async function publicationFor(
@@ -320,13 +345,8 @@ async function publicationFor(
   expectedHead: SyncHeadV6,
   assetFiles: SyncV6PublicationFile[] | undefined,
   onProgress?: SyncV6ProgressCallback,
-): Promise<{ files: SyncV6PublicationFile[]; head: SyncHeadV6; pendingIds: string[] }> {
+): Promise<{ files: SyncV6PublicationFile[]; head: SyncHeadV6; pendingIds: string[]; compacted: boolean }> {
   const assets = assetFiles ?? await ensureAssetFiles(client, range(onProgress, 0, 24));
-  const checkpointBytes = encodeSyncCheckpointV6(checkpoint);
-  const checkpointSha = await digest(checkpointBytes);
-  const catalog = await catalogForPublication(client, checkpoint, expectedHead);
-  const catalogBytes = new TextEncoder().encode(JSON.stringify(catalog));
-  const catalogSha = await digest(catalogBytes);
   const events = pendingEventsForUpload(pending);
   const hot = planSyncV6HotTail(events);
   const pageFiles: SyncV6PublicationFile[] = hot.pages.map((page) => ({ path: digestPath(SYNC_V6_EVENT_PREFIX, ""), bytes: page.bytes, kind: "eventPage" }));
@@ -337,13 +357,57 @@ async function publicationFor(
     const bytes = page.bytes instanceof Uint8Array ? page.bytes : new TextEncoder().encode(String(page.bytes));
     pageFiles[index] = { ...page, path: digestPath(SYNC_V6_EVENT_PREFIX, await digest(bytes)) };
   }
-  const immutable: SyncV6PublicationFile[] = [
-    { path: digestPath(SYNC_V6_CHECKPOINT_PREFIX, checkpointSha), bytes: checkpointBytes, kind: "checkpoint" },
-    { path: `${SYNC_V6_ARCHIVE_CATALOG_PREFIX}${catalogSha}.json`, bytes: catalogBytes, kind: "archiveCatalog" },
-    ...pageFiles,
-  ];
+  // A fresh checkpoint is required when the remote head is still a placeholder,
+  // when the merged tail would overflow the hot window, or when any pending
+  // event cannot fit an event page and must be covered by the checkpoint
+  // projection instead.  Small, fully-pageable syncs reuse the existing
+  // checkpoint and append event pages only.
+  const compacted = isPlaceholderDescriptor(expectedHead.checkpoint)
+    || hot.requiresCheckpoint
+    || events.length < pending.length
+    || !mergedEventPagesFit(expectedHead.eventPages, pageFiles);
+  const catalog = await catalogForPublication(expectedHead, checkpoint);
+
+  if (compacted) {
+    const checkpointBytes = encodeSyncCheckpointV6(checkpoint);
+    const checkpointSha = await digest(checkpointBytes);
+    const immutable: SyncV6PublicationFile[] = [
+      { path: digestPath(SYNC_V6_CHECKPOINT_PREFIX, checkpointSha), bytes: checkpointBytes, kind: "checkpoint" },
+    ];
+    const catalogFile = "fresh" in catalog ? catalog.fresh : undefined;
+    if (catalogFile) immutable.push(catalogFile);
+    immutable.push(...pageFiles);
+    const uploadedDescriptors = new Map<string, SyncV6Descriptor>();
+    for (const file of immutable) {
+      const uploaded = await client.putImmutable(file);
+      uploadedDescriptors.set(file.path, { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size });
+    }
+    const checkpointDescriptor = uploadedDescriptors.get(immutable[0].path)!;
+    const catalogDescriptor = catalogFile ? uploadedDescriptors.get(catalogFile.path)! : expectedHead.archiveCatalog;
+    const pageDescriptors: SyncV6EventPageDescriptor[] = pageFiles.map((file, index) => {
+      const descriptor = uploadedDescriptors.get(file.path)!;
+      const pageEvents = hot.pages[index].events as V6Event[];
+      return { ...descriptor, count: pageEvents.length, deviceCursors: eventCursors(pageEvents) };
+    }).sort((left, right) => left.path.localeCompare(right.path));
+    const nextHead: SyncHeadV6 = {
+      formatVersion: 6,
+      generatedAt: checkpoint.generatedAt,
+      checkpoint: checkpointDescriptor,
+      archiveCatalog: catalogDescriptor,
+      eventPages: pageDescriptors,
+      ...(expectedHead.source ? { source: expectedHead.source } : {}),
+    };
+    validateSyncHeadV6(nextHead);
+    // Events omitted from the hot tail are still covered by this complete
+    // checkpoint.  They are acknowledged only after the head CAS succeeds.
+    return { files: [...assets, ...immutable], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: true };
+  }
+
+  // Incremental publication: the remote checkpoint already covers everything
+  // before the hot window, so append only the new event pages and reuse the
+  // existing checkpoint and archive catalog descriptors without re-uploading.
   const uploadedDescriptors = new Map<string, SyncV6Descriptor>();
-  for (const file of immutable) {
+  for (const file of pageFiles) {
     const uploaded = await client.putImmutable(file);
     uploadedDescriptors.set(file.path, { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size });
   }
@@ -355,15 +419,13 @@ async function publicationFor(
   const nextHead: SyncHeadV6 = {
     formatVersion: 6,
     generatedAt: checkpoint.generatedAt,
-    checkpoint: uploadedDescriptors.get(immutable[0].path)!,
-    archiveCatalog: uploadedDescriptors.get(immutable[1].path)!,
-    eventPages: pageDescriptors,
+    checkpoint: expectedHead.checkpoint,
+    archiveCatalog: expectedHead.archiveCatalog,
+    eventPages: mergeSyncV6EventPages(expectedHead.eventPages, pageDescriptors),
     ...(expectedHead.source ? { source: expectedHead.source } : {}),
   };
   validateSyncHeadV6(nextHead);
-  // Events omitted from the hot tail are still covered by this complete
-  // checkpoint.  They are acknowledged only after the head CAS succeeds.
-  return { files: [...assets, ...immutable], head: nextHead, pendingIds: pending.map((event) => event.id) };
+  return { files: [...assets, ...pageFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: false };
 }
 
 async function markUploadedEvents(ids: readonly string[], generatedAt: string): Promise<void> {
@@ -477,7 +539,7 @@ export async function syncWithGitHubV6(settings: GitHubSettings, token: string, 
       await saveRemoteCache(settings, { owner: settings.owner, repo: settings.repo, branch: branchFor(settings), cachedAt: checkpoint.generatedAt, checkpoint, markers, head: committed.cache });
       const remaining = await dbV6.events.where("synced").equals(0).count();
       report(onProgress, "complete", remaining ? `本轮同步完成，还有 ${remaining} 条待同步` : "同步完成", 100);
-      return { pulled, pushed: publication.pendingIds.length, remaining, deferred: 0, formatVersion: 6 as const, compacted: true, migrated: false };
+      return { pulled, pushed: publication.pendingIds.length, remaining, deferred: 0, formatVersion: 6 as const, compacted: publication.compacted, migrated: false };
     }
     // CAS failed: no pending event is marked synced.  Read the winner and
     // replay its checkpoint/pages before rebuilding our immutable snapshot.
