@@ -132,8 +132,6 @@ export interface V6RestoreState {
   reviewRounds: ReviewRound[];
   reviewRoundProgress: ReviewRoundProgress[];
   tombstones: TombstoneV6[];
-  /** Optional event history embedded by migration-produced checkpoints. */
-  events?: V6Event[];
 }
 
 const imageMimeTypes = new Set(["image/webp", "image/jpeg", "image/png"]);

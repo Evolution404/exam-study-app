@@ -63,9 +63,11 @@ assert.ok(plan.hotBytes <= SYNC_V6_MAX_HOT_EVENT_BYTES);
 assert.throws(() => assertSyncV6HotTail(events), /checkpoint\/archive/);
 assert.equal(assertSyncV6HotTail(events, { checkpointPublished: true }).requiresCheckpoint, true);
 
-// A complete source marker is accepted only for migration provenance.
+// A legacy migration source marker on an existing head is ignored for
+// validation: remote heads created before the v5 cleanup may still carry it,
+// while new publications omit the field entirely.
 validateSyncHeadV6({ ...empty, source: { protocol: 5, headPath: "sync/v5/head.json", headBlobSha: sha1("f"), generatedAt } });
-assert.throws(() => validateSyncHeadV6({ ...empty, source: { protocol: 4, headPath: "sync/v4/head.json", headBlobSha: sha1("f"), generatedAt } }), /source/);
+validateSyncHeadV6({ ...empty, source: { protocol: 4, headPath: "sync/v4/head.json", headBlobSha: sha1("f"), generatedAt } });
 
 const publication = createSyncV6PublicationPlan({
   assets: [{ path: `${SYNC_V6_ASSET_PREFIX}${sha256("1")}.png`, bytes: "asset", kind: "asset" }],

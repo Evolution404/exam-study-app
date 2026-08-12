@@ -10,7 +10,6 @@
  */
 import { dbV6, restoreV6CheckpointAndEvents, type V6RestoreState } from "./db-v6";
 import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
-import { encodeSyncV6Event } from "./sync-v6-head";
 import { SYNC_V6_ARCHIVE_PREFIX, validateSyncV6Descriptor, type SyncV6Descriptor } from "./sync-v6-head";
 import type {
   AttemptDailyStatsV6,
@@ -33,12 +32,6 @@ export interface SyncCheckpointV6State extends V6RestoreState {
   memberships: BankQuestionMembership[];
   /** Image descriptors only; `blob` is forbidden in checkpoint JSON. */
   imageAssets: Array<Omit<ImageAsset, "blob">>;
-  /** Migration checkpoints embed their event history in the state object. */
-  events?: V6Event[];
-  /** Legacy migration names retained as read-only aliases. */
-  recentAttemptDailyStats?: AttemptDailyStatsV6[];
-  recentAttempts?: AttemptV6[];
-  recentPracticeRuns?: PracticeRunV6[];
 }
 
 export interface SyncCheckpointV6Counts {
@@ -132,25 +125,13 @@ function assertEntityId(value: unknown, field: string): asserts value is string 
 }
 
 function normalizeStateAliases(state: Record<string, unknown>): void {
-  if (state.attemptDailyStats === undefined && Array.isArray(state.recentAttemptDailyStats)) state.attemptDailyStats = state.recentAttemptDailyStats;
-  if (state.attempts === undefined && Array.isArray(state.recentAttempts)) state.attempts = state.recentAttempts;
-  if (state.practiceRuns === undefined && Array.isArray(state.recentPracticeRuns)) state.practiceRuns = state.recentPracticeRuns;
+  // Practice-run statistics are keyed by bank; older rows may omit the key.
   if (Array.isArray(state.practiceRunStats)) {
     state.practiceRunStats = state.practiceRunStats.map((value) => {
       if (!isRecord(value) || value.key !== undefined || typeof value.bankId !== "string") return value;
       return { ...value, key: value.bankId };
     });
   }
-}
-
-function validateEmbeddedEvent(value: unknown, index: number): asserts value is V6Event {
-  if (!isRecord(value)) fail(`state.events[${index}] must be an object`);
-  for (const field of ["id", "type", "deviceId", "createdAt"]) assertString(value[field], `state.events[${index}].${field}`);
-  assertSafeInt(value.sequence, `state.events[${index}].sequence`);
-  // Migration-produced event history predates the local synced marker; such
-  // events are treated as already published during restore.
-  if (value.synced !== undefined && value.synced !== 0 && value.synced !== 1) fail(`state.events[${index}].synced must be 0 or 1`);
-  encodeSyncV6Event(value);
 }
 
 function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "blob">>, index: number): asserts asset is Omit<ImageAsset, "blob"> {
@@ -339,24 +320,10 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
   if (!isRecord(value.state)) fail("state must be an object");
   normalizeStateAliases(value.state);
   const state = value.state as unknown as SyncCheckpointV6State;
-  const migrationShape = (state as unknown as Record<string, unknown>).recentAttempts !== undefined
-    || (state as unknown as Record<string, unknown>).recentPracticeRuns !== undefined;
   const arrayFields: Array<keyof SyncCheckpointV6State> = [
     "banks", "bankFolders", "questions", "memberships", "imageAssets", "attemptStats", "attemptDailyStats", "attempts", "notes", "practiceRuns", "practiceRunStats", "questionGroups", "reviewRounds", "reviewRoundProgress", "tombstones",
   ];
   for (const field of arrayFields) assertArray((state as unknown as Record<string, unknown>)[field], `state.${field}`);
-  // The first v5→v6 converter used a NUL separator for daily-stat keys while
-  // the live v6 database has always used a colon.  Normalize that exact
-  // historical shape before validation so a restored migration checkpoint
-  // can immediately publish a canonical v6 checkpoint on its next sync.
-  state.attemptDailyStats.forEach((stats) => {
-    if (isRecord(stats) && typeof stats.date === "string" && typeof stats.questionId === "string"
-      && stats.key === `${stats.date}\u0000${stats.questionId}`) stats.key = `${stats.date}:${stats.questionId}`;
-  });
-  if (state.events !== undefined) {
-    assertArray(state.events, "state.events");
-    state.events.forEach(validateEmbeddedEvent);
-  }
 
   const folders = new Set<string>();
   state.bankFolders.forEach((folder, index) => {
@@ -379,7 +346,7 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
   state.memberships.forEach((membership, index) => { validateMembership(membership, banks, questions, index); if (memberships.has(membership.key)) fail(`duplicate membership ${membership.key}`); memberships.add(membership.key); });
   for (const bank of state.banks) {
     const expected = state.memberships.filter((membership) => membership.bankId === bank.id).length;
-    if (!migrationShape && bank.questionCount !== expected) fail(`bank ${bank.id} questionCount does not match memberships`);
+    if (bank.questionCount !== expected) fail(`bank ${bank.id} questionCount does not match memberships`);
   }
 
   const rounds = new Set<string>();
@@ -407,12 +374,7 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
   state.practiceRuns.forEach((run, index) => { validateRun(run, banks, questions, rounds, index); if (runs.has(run.id)) fail(`duplicate practice run ${run.id}`); runs.add(run.id); });
   const attempts = new Set<string>();
   state.attempts.forEach((attempt, index) => { validateAttempt(attempt, questions, index); if (attempts.has(attempt.id)) fail(`duplicate attempt ${attempt.id}`); attempts.add(attempt.id); });
-  const eventAttemptIds = new Set((state.events ?? []).flatMap((event) => {
-    const payload = event.payload;
-    if (!isRecord(payload) || !isRecord(payload.attempt) || typeof payload.attempt.id !== "string") return [];
-    return [payload.attempt.id];
-  }));
-  validateStats(state, questions, migrationShape ? new Set([...attempts, ...eventAttemptIds, ...state.attemptStats.flatMap((stats) => stats.recentOutcomes.map((outcome) => outcome.id))]) : new Set([...attempts, ...eventAttemptIds]), rounds);
+  validateStats(state, questions, attempts, rounds);
   state.notes.forEach((note, index) => { if (!isRecord(note)) fail(`state.notes[${index}] must be an object`); assertString(note.questionId, `state.notes[${index}].questionId`); if (!questions.has(note.questionId)) fail(`state.notes[${index}] references missing question`); assertString(note.content, `state.notes[${index}].content`, true); assertSafeInt(note.revision, `state.notes[${index}].revision`); assertDate(note.updatedAt, `state.notes[${index}].updatedAt`); assertString(note.deviceId, `state.notes[${index}].deviceId`); });
   state.questionGroups.forEach((group, index) => { if (!isRecord(group)) fail(`state.questionGroups[${index}] must be an object`); assertEntityId(group.id, `state.questionGroups[${index}].id`); assertString(group.name, `state.questionGroups[${index}].name`); assertArray(group.items, `state.questionGroups[${index}].items`); group.items.forEach((item, itemIndex) => { if (!isRecord(item)) fail(`state.questionGroups[${index}].items[${itemIndex}] must be an object`); assertString(item.questionId, `state.questionGroups[${index}].items[${itemIndex}].questionId`); if (!questions.has(item.questionId)) fail(`state.questionGroups[${index}] references missing question`); assertString(item.note, `state.questionGroups[${index}].items[${itemIndex}].note`, true); }); assertDate(group.createdAt, `state.questionGroups[${index}].createdAt`); assertDate(group.updatedAt, `state.questionGroups[${index}].updatedAt`); assertString(group.deviceId, `state.questionGroups[${index}].deviceId`); });
   state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); if (stats.key !== undefined) assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`); if (stats.bankId !== "__all__" && !banks.has(stats.bankId)) fail(`state.practiceRunStats[${index}] references missing bank`); ["total", "completed", "inProgress", "abandoned"].forEach((field) => assertSafeInt(stats[field], `state.practiceRunStats[${index}].${field}`)); assertDate(stats.latestUpdatedAt, `state.practiceRunStats[${index}].latestUpdatedAt`); });
@@ -420,10 +382,6 @@ export function validateSyncCheckpointV6(value: unknown): asserts value is SyncC
 
   if (!isRecord(value.cursors)) fail("cursors must be an object");
   for (const [deviceId, sequence] of Object.entries(value.cursors)) { assertString(deviceId, "cursor device id"); assertSafeInt(sequence, `cursors.${deviceId}`); }
-  for (const event of state.events ?? []) {
-    const cursor = value.cursors[event.deviceId];
-    if (typeof cursor !== "number" || cursor < event.sequence) fail(`cursors.${event.deviceId} does not cover embedded events`);
-  }
   if (!isRecord(value.counts)) fail("counts must be an object");
   const counts = value.counts as Record<string, unknown>;
   const expected: SyncCheckpointV6Counts = {
@@ -502,7 +460,6 @@ function cloneState(state: V6RestoreState & { memberships?: BankQuestionMembersh
     reviewRounds: state.reviewRounds.map((item) => ({ ...item, bankIds: [...item.bankIds], finalQuestionIds: item.finalQuestionIds ? [...item.finalQuestionIds] : undefined })),
     reviewRoundProgress: state.reviewRoundProgress.map((item) => ({ ...item })),
     tombstones: state.tombstones.map((item) => ({ ...item })),
-    ...(state.events ? { events: state.events.map((event) => ({ ...event })) } : {}),
   };
 }
 
@@ -514,8 +471,7 @@ export async function createSyncCheckpointV6(generatedAt = new Date().toISOStrin
     dbV6.questionGroups.toArray(), dbV6.reviewRounds.toArray(), dbV6.reviewRoundProgress.toArray(), dbV6.tombstones.toArray(), dbV6.events.toArray(),
   ]);
   // The local checkpoint is a projection, not an event log.  Event rows are
-  // paged separately; only migration-produced checkpoints may embed a
-  // bounded `state.events` history for compatibility.
+  // paged separately into the head's hot event window.
   const state = cloneState({ banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones });
   const cursors: Record<string, number> = {};
   for (const event of events) cursors[event.deviceId] = Math.max(cursors[event.deviceId] ?? 0, event.sequence);
@@ -581,10 +537,7 @@ export function validateSyncV6ArchiveCatalog(value: unknown): asserts value is S
 /** Restore the complete checkpoint and replay event pages in one DB transaction. */
 export async function applySyncCheckpointV6(checkpoint: SyncCheckpointV6, events: readonly V6Event[] = [], options: { preservePending?: boolean } = {}): Promise<{ applied: number; preserved: number }> {
   validateSyncCheckpointV6(checkpoint);
-  const embedded = checkpoint.state.events ?? [];
-  const seen = new Set<string>();
-  const allEvents = [...embedded, ...events].filter((event) => !seen.has(event.id) && (seen.add(event.id), true));
-  return restoreV6CheckpointAndEvents(checkpoint.state, allEvents, options);
+  return restoreV6CheckpointAndEvents(checkpoint.state, events, options);
 }
 
 export const restoreSyncCheckpointV6 = applySyncCheckpointV6;

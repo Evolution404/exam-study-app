@@ -8,7 +8,6 @@
 
 export const SYNC_V6_HEAD_PATH = "sync/v6/head.json";
 export const SYNC_V6_MANIFEST_PATH = SYNC_V6_HEAD_PATH;
-export const SYNC_V5_SOURCE_HEAD_PATH = "sync/v5/head.json";
 
 export const SYNC_V6_CHECKPOINT_PREFIX = "sync/v6/checkpoints/";
 export const SYNC_V6_ARCHIVE_PREFIX = "sync/v6/archive/";
@@ -54,20 +53,12 @@ export interface SyncV6EventPageDescriptor extends SyncV6Descriptor {
   deviceCursors: Record<string, number>;
 }
 
-export interface SyncV6Source {
-  protocol: 5;
-  headPath: typeof SYNC_V5_SOURCE_HEAD_PATH;
-  headBlobSha: string;
-  generatedAt: string;
-}
-
 export interface SyncHeadV6 {
   formatVersion: 6;
   generatedAt: string;
   checkpoint: SyncV6Descriptor;
   archiveCatalog: SyncV6Descriptor;
   eventPages: SyncV6EventPageDescriptor[];
-  source?: SyncV6Source;
 }
 
 export type SyncManifestV6 = SyncHeadV6;
@@ -238,14 +229,6 @@ function validateEventPage(value: unknown, index: number): asserts value is Sync
   assertCursors(value.deviceCursors, `eventPages[${index}].deviceCursors`);
 }
 
-function validateSource(value: unknown): asserts value is SyncV6Source {
-  if (!isRecord(value) || value.protocol !== 5 || value.headPath !== SYNC_V5_SOURCE_HEAD_PATH) {
-    fail("source must identify a v5 head");
-  }
-  assertSha(value.headBlobSha, "source.headBlobSha", SHA1);
-  assertDate(value.generatedAt, "source.generatedAt");
-}
-
 /** Strictly validate an unknown value as a v6 hot head. */
 export function validateSyncHeadV6(value: unknown): asserts value is SyncHeadV6 {
   if (!isRecord(value) || value.formatVersion !== 6) fail("formatVersion must be 6");
@@ -269,7 +252,6 @@ export function validateSyncHeadV6(value: unknown): asserts value is SyncHeadV6 
       fail("eventPages must be sorted by path");
     }
   }
-  if (value.source !== undefined) validateSource(value.source);
 }
 
 export function isSyncHeadV6(value: unknown): value is SyncHeadV6 {
@@ -343,7 +325,6 @@ export function appendSyncV6EventPages(
     checkpoint: cloneSyncV6Descriptor(head.checkpoint),
     archiveCatalog: cloneSyncV6Descriptor(head.archiveCatalog),
     eventPages: mergeSyncV6EventPages(head.eventPages, additions),
-    ...(head.source ? { source: { ...head.source } } : {}),
   };
   validateSyncHeadV6(next);
   return next;

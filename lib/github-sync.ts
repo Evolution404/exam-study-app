@@ -1,8 +1,8 @@
 /** Stable public synchronization facade.
  *
  * UI imports stay intentionally unchanged while production synchronization is
- * v6-only.  Legacy v5 code is not imported here; migration-only tooling may
- * continue to import it directly.
+ * v6-only.  The legacy v5 protocol has been removed; every entry here
+ * delegates to the v6 implementation.
  */
 export {
   clearImageCacheV6,

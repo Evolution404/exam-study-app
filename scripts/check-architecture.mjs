@@ -32,9 +32,6 @@ if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器
 const studyApp = read("app/study-app.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
-const db = read("lib/db.ts");
-const databaseVersions = [...db.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-if (databaseVersions.length !== 1 || databaseVersions[0] !== 10) fail("客户端只能声明当前数据库 v10");
 const dbV6 = read("lib/db-v6.ts");
 const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
@@ -68,21 +65,12 @@ if (!/restoreFromGitHubV6 as restoreFromGitHub/.test(sync) || !/restoreFullHisto
 }
 if (/github-sync-v5|github-v5-remote|sync-v5/.test(syncV6)) fail("生产 v6 编排不得依赖 v5 transport");
 
-// v5 is migration-only.  No app/lib production module may import it except
-// explicitly named migration helpers and the legacy implementation itself.
-for (const { file, source } of fs.readdirSync(path.join(root, "lib"), { recursive: true })
-  .filter((file) => typeof file === "string" && /\.tsx?$/.test(file))
-  .map((file) => ({ file, source: read(path.join("lib", file)) }))) {
-  if (["github-sync-v5.ts", "github-v5-remote.ts", "sync-v5-head.ts", "sync-v5-catalog.ts"].includes(file) || file.startsWith("migration/")) continue;
-  if (/from ["'][^"']*(?:github-sync-v5|github-v5-remote|sync-v5)[^"']*["']/.test(source)) fail(`${file} 只能由迁移模块读取 v5`);
-}
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
   if (/from ["']@\/lib\/db["']/.test(source)) fail(`${file} 不得读取旧本地数据库`);
   if (/\bimageUrl\b|题目图片地址/.test(source)) fail(`${file} 不得使用公开图片 URL 字段`);
 }
 
-if (/sessions:\s*["']/.test(db)) fail("DB v10 必须删除重复的 active sessions 表");
-if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${db}\n${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
+if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
 console.log(`架构检查通过：v6 独立数据库、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v6 namespace/head。`);

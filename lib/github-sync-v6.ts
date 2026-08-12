@@ -249,7 +249,7 @@ function mergeArchivedRows(checkpoint: SyncCheckpointV6, archived: ArchivedRowsV
   for (const row of archived.practiceRuns) if (row && typeof row.id === "string") runsById.set(row.id, row);
   const attempts = [...attemptsById.values()];
   const practiceRuns = [...runsById.values()];
-  const nextState = { ...state, attempts, practiceRuns, recentAttempts: attempts, recentPracticeRuns: practiceRuns };
+  const nextState = { ...state, attempts, practiceRuns };
   const counts = {
     ...checkpoint.counts,
     attempts: attempts.length,
@@ -395,7 +395,6 @@ async function publicationFor(
       checkpoint: checkpointDescriptor,
       archiveCatalog: catalogDescriptor,
       eventPages: pageDescriptors,
-      ...(expectedHead.source ? { source: expectedHead.source } : {}),
     };
     validateSyncHeadV6(nextHead);
     // Events omitted from the hot tail are still covered by this complete
@@ -422,7 +421,6 @@ async function publicationFor(
     checkpoint: expectedHead.checkpoint,
     archiveCatalog: expectedHead.archiveCatalog,
     eventPages: mergeSyncV6EventPages(expectedHead.eventPages, pageDescriptors),
-    ...(expectedHead.source ? { source: expectedHead.source } : {}),
   };
   validateSyncHeadV6(nextHead);
   return { files: [...assets, ...pageFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: false };
