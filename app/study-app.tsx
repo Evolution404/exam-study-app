@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, importQuestionBankV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
+import { resumeIndexAfterLastAnswer } from "@/lib/practice-resume";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
 import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
@@ -278,19 +279,6 @@ function quickFilter(bankIds: string[], mode: BankQuickMode = "random30", groupS
     lastAttemptTo: "",
     progressScope: normalizeProgressScope(progressScope),
   };
-}
-
-function resumeIndexAfterLastAnswer(
-  questionIds: string[],
-  answers: Record<string, PracticeAnswerState>,
-) {
-  if (!questionIds.length) return 0;
-  // Derive the resume position from the submitted answers themselves.  The
-  // run's `lastAnsweredIndex` is a derived hint that sync restores can leave
-  // stale (event replay order is not chronological), so trusting it here made
-  // continue-practice jump back to an already-answered question.
-  const lastAnsweredIndex = questionIds.reduce((last, questionId, index) => answers[questionId]?.submitted ? index : last, -1);
-  return Math.min(lastAnsweredIndex + 1, questionIds.length - 1);
 }
 
 function activePracticeFromRun(run: PracticeRun, preferredIndex?: number): ActivePractice {

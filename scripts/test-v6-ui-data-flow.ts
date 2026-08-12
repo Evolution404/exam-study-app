@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isQuestionDoneInScope, normalizeProgressScope } from "../lib/progress-scope";
 import { classifyNoticeTone } from "../lib/notice-tone";
+import { resumeIndexAfterLastAnswer } from "../lib/practice-resume";
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");
@@ -51,7 +52,25 @@ assert.match(history, /练习结果详情/);
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
 
+// Continue-practice resume position: one past the furthest answered question,
+// except when the final question is answered — then jump to the first
+// unanswered question instead of re-showing the answered last one.
+const answered = (indexes: number[]) => {
+  const answers: Record<string, { submitted: boolean }> = {};
+  for (const index of indexes) answers[`q${index}`] = { submitted: true, selected: ["A"] };
+  return answers as Parameters<typeof resumeIndexAfterLastAnswer>[1];
+};
+const resumeIds = ["q0", "q1", "q2", "q3", "q4"];
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 1])), 2, "顺序作答从最后一题之后继续");
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 2])), 3, "跳答时从最远已答之后继续");
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 1, 2, 3, 4])), 4, "全部答完回退到最后一题");
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 1, 3, 4])), 2, "最后一题已答时从第一道未做的开始");
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 4])), 1, "最后一题已答且中间有缺口时从第一道未做的开始");
+assert.equal(resumeIndexAfterLastAnswer(resumeIds, {}), 0, "未作答从第一题开始");
+assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
+
 const study = source("study-app.tsx");
+assert.match(study, /resumeIndexAfterLastAnswer/);
 assert.match(study, /savePracticeProgressV6/);
 assert.match(study, /recordPracticeAnswerV6/);
 assert.equal((study.match(/recordPracticeAnswerV6\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v6 record API");
