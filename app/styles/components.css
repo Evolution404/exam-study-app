@@ -243,7 +243,7 @@ html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>bu
 html[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),textarea,select){border-color:#3a493f!important;color:var(--ink)!important;background:#111813!important}
 html[data-theme="dark"] :is(.number-setting input,.goal-preference input){background:transparent!important}
 html[data-theme="dark"] :where(.preference-row,.practice-actions,.practice-head,.question-editor>header,.question-editor>footer,.question-overview>header,.overview-legend,.search-question-detail>header,.search-question-detail>footer,.simple-dialog>header,.simple-dialog>footer,.search-practice-dialog>header,.search-practice-dialog>footer){border-color:var(--line)}
-html[data-theme="dark"] .simple-dialog>footer button{background:#242d27;color:var(--ink)}
+html[data-theme="dark"] :where(.simple-dialog>footer button,.review-scope-choice-grid button.selected,.review-scope-round-list button.selected){background:#20352a;color:#b7d6c3}
 html[data-theme="dark"] :where(.search-results>div>button:hover,.search-results>div>button:focus-visible,.search-result-list article:hover,.bank-recent-runs button:hover,.relation-picker-results button:hover){background:#202d25}
 html[data-theme="dark"] :where(.question-meta em,.result-type,.search-type,.run-status,.bank-run-summary span,.bank-profile-strip>span:last-child,.tag-detail-stats span,.overview-trigger){color:#a9c8b5;background:#25362c}
 html[data-theme="dark"] :is(.options button>span,.editor-options button,.search-detail-body li>span,.search-clear,.number-setting,.goal-preference>span label,.select-preference select){border-color:var(--line);color:var(--ink);background:#242d27}

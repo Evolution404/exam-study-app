@@ -670,9 +670,3 @@
     scroll-behavior: auto;
   }
 }
-
-html[data-theme="dark"] .review-scope-choice-grid button.selected,
-html[data-theme="dark"] .review-scope-round-list button.selected {
-  color: #b7d6c3;
-  border-color: #4c8a6a;
-}
