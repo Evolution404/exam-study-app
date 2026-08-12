@@ -9,9 +9,11 @@ import {
   deletePracticeRunV6,
   dbV6,
   importQuestionBankV6,
+  materializePracticeRunV6,
   putImageAssetV6,
   recordPracticeAnswerV6,
   resetV6Database,
+  serializeRunDefinition,
 } from "../lib/db-v6";
 import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
 import { downloadImageAssetV6, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
@@ -274,6 +276,28 @@ try {
   const wideBytes = new TextEncoder().encode(JSON.stringify(widePayload)).byteLength;
   assert.ok(wideBytes < 4096, `run event is independent of bank size: ${wideBytes} bytes`);
   assert.ok(/^sync\/v6\/objects\/[a-f0-9]{64}\.json$/.test(widePayload.definition.path), "definition ref names a content-addressed object");
+
+  // The definition object itself is compact: each question id appears once,
+  // with parallel type/order arrays instead of three id-keyed maps.
+  const wideDefinition = await serializeRunDefinition(wideRun);
+  const wideParsed = JSON.parse(new TextDecoder().decode(wideDefinition.bytes)) as { ids: string[]; types: string[]; orders: number[][]; questionIds?: unknown; questionTypes?: unknown; optionOrders?: unknown };
+  assert.equal(wideParsed.ids.length, 300, "ids array is aligned with the run");
+  assert.equal(wideParsed.types.length, 300, "types array is aligned with ids");
+  assert.equal(wideParsed.orders.length, 300, "orders array is aligned with ids");
+  assert.equal(wideParsed.questionIds, undefined, "definition no longer embeds an id-keyed questionIds map");
+  assert.equal(wideParsed.questionTypes, undefined, "definition no longer embeds an id-keyed questionTypes map");
+  assert.equal(wideParsed.optionOrders, undefined, "definition no longer embeds an id-keyed optionOrders map");
+  assert.ok(wideDefinition.bytes.byteLength < 40 * 1024, `compact definition object: ${wideDefinition.bytes.byteLength} bytes`);
+  const rebuiltWide = materializePracticeRunV6(wideParsed, widePayload);
+  assert.equal(rebuiltWide.questionIds.join(","), wideRun.questionIds.join(","), "materialized ids match");
+  assert.deepEqual(rebuiltWide.questionTypes, wideRun.questionTypes, "materialized types match");
+  assert.deepEqual(rebuiltWide.optionOrders, wideRun.optionOrders, "materialized orders match");
+
+  // Non-shuffled runs omit the orders array entirely.
+  const plainRun = await createPracticeRunV6({ bankId: wideBank.id, questionIds: wideMems.slice(0, 2).map((member) => member.questionId), shuffleOptions: false });
+  const plainParsed = JSON.parse(new TextDecoder().decode((await serializeRunDefinition(plainRun)).bytes)) as { orders?: unknown; shuffleOptions?: boolean };
+  assert.equal(plainParsed.shuffleOptions, false);
+  assert.equal(plainParsed.orders, undefined, "non-shuffled runs omit orders entirely");
 
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));

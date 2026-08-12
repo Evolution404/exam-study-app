@@ -69,7 +69,13 @@ export interface RunDefinitionRefV6 {
   size: number;
 }
 
-/** Immutable projection stored in a sync/v6/objects/<sha256>.json object. */
+/**
+ * Immutable projection stored in a sync/v6/objects/<sha256>.json object.
+ * Question ids appear once; `types` and `orders` are parallel arrays aligned
+ * with `ids` (the historical three id-keyed maps repeated the 64-char id
+ * three times, tripling the object).  `orders` is omitted entirely when the
+ * run is not shuffled.
+ */
 export interface RunDefinitionV6 {
   formatVersion: 6;
   kind: "runDefinition";
@@ -79,12 +85,12 @@ export interface RunDefinitionV6 {
   bankName: string;
   mode: string;
   modeLabel: string;
-  questionIds: string[];
-  questionTypes: Record<string, QuestionType>;
   shuffleOptions: boolean;
-  optionOrders: Record<string, number[]>;
   startedAt: string;
   reviewRoundId?: string;
+  ids: string[];
+  types: QuestionType[];
+  orders?: number[][];
 }
 
 /** Mutable snapshot carried by practice.run.saved / practice.run.status.changed. */
@@ -114,16 +120,17 @@ export function isRunDefinitionRefV6(value: unknown): value is RunDefinitionRefV
 
 export function isRunDefinitionV6(value: unknown): value is RunDefinitionV6 {
   if (!isRecord(value)) return false;
-  const { formatVersion, kind, runId, bankId, bankIds, questionIds, questionTypes, shuffleOptions, optionOrders, startedAt, reviewRoundId } = value;
+  const { formatVersion, kind, runId, bankId, bankIds, ids, types, orders, shuffleOptions, startedAt, reviewRoundId } = value;
   return formatVersion === 6
     && kind === "runDefinition"
     && typeof runId === "string"
     && typeof bankId === "string"
     && Array.isArray(bankIds) && bankIds.every((id) => typeof id === "string")
-    && Array.isArray(questionIds) && questionIds.every((id) => typeof id === "string")
-    && isRecord(questionTypes) && Object.values(questionTypes).every((type) => typeof type === "string")
+    && Array.isArray(ids) && ids.every((id) => typeof id === "string")
+    && Array.isArray(types) && types.length === ids.length && types.every((type) => typeof type === "string")
     && typeof shuffleOptions === "boolean"
-    && isRecord(optionOrders) && Object.values(optionOrders).every((order) => Array.isArray(order) && order.every((item) => typeof item === "number"))
+    && (orders === undefined
+      || (Array.isArray(orders) && orders.length === ids.length && orders.every((order) => Array.isArray(order) && order.every((item) => typeof item === "number"))))
     && typeof startedAt === "string"
     && (reviewRoundId === undefined || typeof reviewRoundId === "string");
 }
@@ -139,12 +146,12 @@ export function runDefinitionValue(run: PracticeRunV6): RunDefinitionV6 {
     bankName: run.bankName,
     mode: run.mode,
     modeLabel: run.modeLabel,
-    questionIds: run.questionIds,
-    questionTypes: run.questionTypes,
     shuffleOptions: run.shuffleOptions,
-    optionOrders: run.optionOrders,
     startedAt: run.startedAt,
     ...(run.reviewRoundId ? { reviewRoundId: run.reviewRoundId } : {}),
+    ids: run.questionIds,
+    types: run.questionIds.map((id) => run.questionTypes[id]),
+    ...(run.shuffleOptions ? { orders: run.questionIds.map((id) => run.optionOrders[id] ?? []) } : {}),
   };
 }
 
@@ -162,6 +169,12 @@ export async function runDefinitionRef(run: PracticeRunV6): Promise<RunDefinitio
 
 /** Rebuild the full run projection from its externalized definition. */
 export function materializePracticeRunV6(definition: RunDefinitionV6, payload: PracticeRunSnapshotV6Payload): PracticeRunV6 {
+  const questionTypes: Record<string, QuestionType> = {};
+  const optionOrders: Record<string, number[]> = {};
+  definition.ids.forEach((id, index) => {
+    questionTypes[id] = definition.types[index];
+    if (definition.orders) optionOrders[id] = definition.orders[index];
+  });
   return {
     id: definition.runId,
     bankId: definition.bankId,
@@ -169,10 +182,10 @@ export function materializePracticeRunV6(definition: RunDefinitionV6, payload: P
     bankName: definition.bankName,
     mode: definition.mode as PracticeRunV6["mode"],
     modeLabel: definition.modeLabel,
-    questionIds: definition.questionIds,
-    questionTypes: definition.questionTypes,
+    questionIds: definition.ids,
+    questionTypes,
     shuffleOptions: definition.shuffleOptions,
-    optionOrders: definition.optionOrders,
+    optionOrders,
     startedAt: definition.startedAt,
     reviewRoundId: definition.reviewRoundId,
     answers: payload.answers,
@@ -185,7 +198,7 @@ export function materializePracticeRunV6(definition: RunDefinitionV6, payload: P
   };
 }
 
-function practiceRunSnapshotPayload(run: PracticeRunV6, definition: RunDefinitionRefV6): PracticeRunSnapshotV6Payload {
+export function practiceRunSnapshotPayload(run: PracticeRunV6, definition: RunDefinitionRefV6): PracticeRunSnapshotV6Payload {
   return {
     runId: run.id,
     definition,
