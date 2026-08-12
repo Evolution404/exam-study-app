@@ -1203,7 +1203,7 @@ function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, on
   ];
   const feedbackItems: Array<{ key: "feedbackSound" | "feedbackHaptics"; title: string; detail: string }> = [
     { key: "feedbackSound", title: "答题提示音", detail: "用轻提示音区分答对和答错；系统静音时可能不播放。" },
-    { key: "feedbackHaptics", title: "答题振动反馈", detail: "支持振动的手机会在判题后给出轻触反馈。" },
+    { key: "feedbackHaptics", title: "答题振动反馈", detail: "vibrate" in navigator ? "支持振动的手机会在判题后给出轻触反馈。" : "iPhone/Safari 不支持振动，此选项仅在 Android 上生效。" },
   ];
   const toggleRow = (item: { key: keyof Pick<PracticePreferences, "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit" | "feedbackSound" | "feedbackHaptics" | "requireAllAnswered">; title: string; detail: string }) => <label aria-label={item.title} className="preference-row" key={item.key}><div><strong>{item.title}</strong><p>{item.detail}</p></div><input aria-label={item.title} type="checkbox" checked={Boolean(preferences[item.key])} onChange={(event) => onChange({ ...preferences, [item.key]: event.target.checked })} /><span className="toggle" aria-hidden="true" /></label>;
   return <><div className="page-heading compact"><div><p className="eyebrow">练习偏好</p><h1>答题配置</h1><p>设置只保存在当前浏览器，不会修改题库内容。</p></div></div>
