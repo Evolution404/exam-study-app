@@ -33,6 +33,7 @@
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
+    "@fontsource/noto-serif-sc": "^5.2.8",
     "@radix-ui/react-select": "^2.3.7",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
