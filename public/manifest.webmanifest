@@ -1,10 +1,10 @@
 {
   "name": "拾卷 · 本地优先背题",
   "short_name": "拾卷",
-  "id": "/exam-study-app/",
+  "id": "./",
   "description": "导入题库、记录练习并通过 GitHub 多端同步。",
-  "start_url": "/exam-study-app/",
-  "scope": "/exam-study-app/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f3f0e9",
   "theme_color": "#203a2e",
