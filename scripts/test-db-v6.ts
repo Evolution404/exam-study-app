@@ -33,7 +33,7 @@ import {
   saveNoteV6,
   savePracticeProgressV6,
 } from "../lib/db-v6";
-import type { BankFolderV6, BankQuestionMembership, BankV6, ImageAsset, QuestionGroupV6, QuestionV6, V6Event } from "../lib/v6-types";
+import type { BankFolderV6, BankQuestionMembership, BankV6, ImageAsset, NoteV6, QuestionGroupV6, QuestionV6, V6Event } from "../lib/v6-types";
 import { sha256Blob } from "../lib/image-assets";
 
 const OLD_NAME = "memory-line-study";
@@ -104,6 +104,30 @@ assert.equal(await dbV6.bankQuestionMemberships.get(lwwMembership.key), undefine
 const freshSave: V6Event = { ...removal, id: "remote-membership-fresh-save", type: "membership.saved", payload: { ...lwwMembership, updatedAt: "2100-01-01T00:00:00.000Z" }, createdAt: "2100-01-01T00:00:00.000Z" };
 assert.equal(await applyV6Event(freshSave), true);
 assert.ok(await dbV6.bankQuestionMemberships.get(lwwMembership.key));
+
+// Autosave dedup: repeated edits of the same question collapse into one
+// pending event (last content wins) until the batch is published.
+const pendingNoteEvents = (questionId: string) => dbV6.events.where("type").equals("note.upserted").filter((event) => event.synced === 0 && (event.payload as NoteV6).questionId === questionId);
+assert.equal(await pendingNoteEvents(shared.id).count(), 1, "existing pending note event");
+const firstNoteEventId = (await pendingNoteEvents(shared.id).first())!.id;
+const secondNote = await saveNoteV6(shared.id, "解析 最终版");
+await saveNoteV6(shared.id, "解析 最终版 v2");
+assert.equal(await pendingNoteEvents(shared.id).count(), 1, "repeated autosaves keep one pending event");
+const mergedNoteEvent = (await pendingNoteEvents(shared.id).first())!;
+assert.equal(mergedNoteEvent.id, firstNoteEventId, "merged event keeps its id and sequence");
+assert.equal((mergedNoteEvent.payload as NoteV6).content, "解析 最终版 v2", "merged event carries the latest content");
+assert.equal((mergedNoteEvent.payload as NoteV6).revision, secondNote.revision + 1, "merged event carries the latest revision");
+const otherQuestionId = (await getBankQuestionsV6(importedB.id))[0].id;
+assert.notEqual(otherQuestionId, shared.id);
+const pendingNoteCountBefore = await dbV6.events.where("type").equals("note.upserted").filter((event) => event.synced === 0).count();
+await saveNoteV6(otherQuestionId, "另一道题的解析");
+assert.equal(await dbV6.events.where("type").equals("note.upserted").filter((event) => event.synced === 0).count(), pendingNoteCountBefore + 1, "different questions keep separate events");
+// A published event is never merged again: the next edit starts a fresh event.
+await dbV6.events.put({ ...mergedNoteEvent, synced: 1 as const });
+await saveNoteV6(shared.id, "同步后的新编辑");
+assert.equal(await pendingNoteEvents(shared.id).count(), 1);
+const freshNoteEvent = (await pendingNoteEvents(shared.id).first())!;
+assert.notEqual(freshNoteEvent.id, mergedNoteEvent.id, "post-sync edits create a new pending event");
 
 // Review target is dynamic while active and stable after completion.
 const round = await createReviewRoundV6({ name: "round", bankIds: [importedA.id] });

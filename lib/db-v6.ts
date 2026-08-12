@@ -1036,7 +1036,12 @@ export async function saveNoteV6(questionId: string, content: string): Promise<N
   if (old?.content === content) return old;
   await dbV6.transaction("rw", [dbV6.notes, dbV6.events], async () => {
     await dbV6.notes.put(note);
-    await dbV6.events.put(eventInTx("note.upserted", note, timestamp));
+    // Autosave may fire many times before a sync.  Merge repeated edits of
+    // the same question into the existing pending event (keeping its id and
+    // sequence) instead of growing the pending queue with intermediate drafts.
+    const pending = await dbV6.events.where("type").equals("note.upserted").filter((event) => event.synced === 0 && (event.payload as NoteV6).questionId === questionId).first();
+    if (pending) await dbV6.events.put({ ...pending, payload: note });
+    else await dbV6.events.put(eventInTx("note.upserted", note, timestamp));
   });
   return note;
 }
