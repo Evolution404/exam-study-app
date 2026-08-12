@@ -54,8 +54,8 @@ if (!/SYNC_V6_HEAD_PATH\s*=\s*["']sync\/v6\/head\.json["']/.test(syncV6Head)
   || !/restoreFromGitHubV6/.test(syncV6)) {
   fail("公开同步入口必须通过 Sync v6 固定 head 路径读写远程索引");
 }
-if (!/formatVersion:\s*6\b/.test(syncV6) || !/SYNC_V6_MAX_EVENT_PAGE_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV6Head)
-  || !/SYNC_V6_MAX_EVENT_BYTES\s*=\s*256\s*\*\s*1024/.test(syncV6Head)
+if (!/formatVersion:\s*6\b/.test(syncV6) || !/SYNC_V6_MAX_EVENT_PAGE_BYTES\s*=\s*1024\s*\*\s*1024/.test(syncV6Head)
+  || !/SYNC_V6_MAX_EVENT_BYTES\s*=\s*1024\s*\*\s*1024/.test(syncV6Head)
   || !/SYNC_V6_MAX_HOT_EVENT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV6Head)) {
   fail("Sync v6 必须保持事件、分页和热窗口上限");
 }

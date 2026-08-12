@@ -17,8 +17,8 @@ export const SYNC_V6_IMMUTABLE_PREFIX = "sync/v6/objects/";
 export const SYNC_V6_ASSET_PREFIX = "sync/v6/assets/";
 export const SYNC_V6_IMAGE_PREFIX = SYNC_V6_ASSET_PREFIX;
 
-export const SYNC_V6_MAX_EVENT_BYTES = 256 * 1024;
-export const SYNC_V6_MAX_EVENT_PAGE_BYTES = 256 * 1024;
+export const SYNC_V6_MAX_EVENT_BYTES = 1024 * 1024;
+export const SYNC_V6_MAX_EVENT_PAGE_BYTES = 1024 * 1024;
 export const SYNC_V6_MAX_EVENT_PAGE_COUNT = 250;
 export const SYNC_V6_MAX_HOT_EVENT_BYTES = 4 * 1024 * 1024;
 /** A second name makes the aggregate budget unambiguous to callers. */

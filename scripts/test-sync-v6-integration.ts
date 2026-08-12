@@ -144,7 +144,7 @@ try {
   // A large question projection is still covered by the immutable checkpoint;
   // its oversized domain event must not enter a hot page, but all pending ids
   // are acknowledged only after the checkpoint head CAS succeeds.
-  const largeQuestion = await createQuestionV6(bank.id, { type: "单选", stem: "x".repeat(300_000), options: ["A", "B"], answer: "A" });
+  const largeQuestion = await createQuestionV6(bank.id, { type: "单选", stem: "x".repeat(1_200_000), options: ["A", "B"], answer: "A" });
   const largeEvent = (await dbV6.events.toArray()).find((event) => event.type === "question.upserted" && (event.payload as { id?: string }).id === largeQuestion.id)!;
   alwaysConflict = true;
   await assert.rejects(() => syncWithGitHubV6(settings, token));

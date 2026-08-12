@@ -52,7 +52,7 @@ assert.equal(encodeSyncV6Event(chinese).byteLength, new TextEncoder().encode(JSO
 assert.throws(() => encodeSyncV6Event({ value: "中".repeat(SYNC_V6_MAX_EVENT_BYTES) }), /UTF-8 bytes/);
 assert.throws(() => encodeSyncV6EventPage(Array.from({ length: 2 }, () => ({ value: "x".repeat(SYNC_V6_MAX_EVENT_PAGE_BYTES / 2) }))), /event page exceeds/);
 
-const events = Array.from({ length: 6000 }, (_, index) => ({ id: index, stem: "题目内容".repeat(100) }));
+const events = Array.from({ length: 6000 }, (_, index) => ({ id: index, stem: "题目内容".repeat(400) }));
 const pages = paginateSyncV6Events(events);
 assert.ok(pages.length > Math.ceil(events.length / 250));
 assert.ok(pages.every((item) => item.count <= 250 && item.size <= SYNC_V6_MAX_EVENT_PAGE_BYTES));
