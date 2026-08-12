@@ -97,6 +97,45 @@ function report(onProgress: SyncV6ProgressCallback | undefined, phase: SyncV6Pro
   onProgress?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))) });
 }
 
+/**
+ * Maximum concurrent immutable blob downloads during a sync.  Event pages,
+ * archive segments and run definitions are independent content-addressed reads,
+ * so they parallelise safely; the bound keeps the request rate predictable for
+ * GitHub's API and for flaky proxies (a single oversized blob is still one
+ * request — this only affects the many small page/segment reads).
+ */
+const SYNC_V6_DOWNLOAD_CONCURRENCY = 6;
+
+/**
+ * Run `fn` over `items` with bounded concurrency, preserving input order in the
+ * result.  `onProgress` fires once per completion (not per start) so callers can
+ * report "n/total" regardless of which request finished first.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  fn: (item: T, index: number) => Promise<R>,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<R[]> {
+  const total = items.length;
+  const results = new Array<R>(total);
+  if (!total) return results;
+  let cursor = 0;
+  let completed = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= total) return;
+      results[index] = await fn(items[index], index);
+      completed += 1;
+      onProgress?.(completed, total);
+    }
+  }
+  const workers = Array.from({ length: Math.min(SYNC_V6_DOWNLOAD_CONCURRENCY, total) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 function range(onProgress: SyncV6ProgressCallback | undefined, start: number, end: number): SyncV6ProgressCallback | undefined {
   if (!onProgress) return undefined;
   return (progress) => report(onProgress, progress.phase, progress.label, start + (end - start) * progress.percent / 100);
@@ -196,13 +235,12 @@ async function downloadState(client: GitHubV6Remote, headRead: Exclude<SyncV6Hea
   const head = headRead.head;
   report(onProgress, "download", "正在下载 v6 完整检查点", 8);
   const checkpoint = parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
-  const events: V6Event[] = [];
-  for (let index = 0; index < head.eventPages.length; index += 1) {
-    const descriptor = head.eventPages[index];
-    const page = parseEventPage(await client.readBlob(descriptor), descriptor);
-    events.push(...page);
-    report(onProgress, "download", `正在下载近期更改 ${index + 1}/${head.eventPages.length}`, 12 + (index + 1) / Math.max(1, head.eventPages.length) * 60);
-  }
+  const pages = await mapWithConcurrency(
+    head.eventPages,
+    (descriptor) => client.readBlob(descriptor).then((bytes) => parseEventPage(bytes, descriptor)),
+    (completed, total) => report(onProgress, "download", `正在下载近期更改 ${completed}/${total}`, 12 + completed / Math.max(1, total) * 60),
+  );
+  const events: V6Event[] = pages.flat();
   return {
     checkpoint,
     events,
@@ -226,21 +264,26 @@ async function downloadArchiveRows(client: GitHubV6Remote, head: SyncHeadV6, onP
   ];
   const attempts: AttemptV6[] = [];
   const practiceRuns: PracticeRunV6[] = [];
-  for (let index = 0; index < all.length; index += 1) {
-    const { kind, segment } = all[index];
-    const payload = parseJson<unknown>(await client.readBlob(segment), `远程 v6 ${kind} 历史分段`);
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      throw new Error(`远程 v6 ${kind} 历史分段格式校验失败：${segment.path}`);
-    }
-    const envelope = payload as { formatVersion?: unknown; kind?: unknown; rows?: unknown };
-    if (envelope.formatVersion !== 6 || envelope.kind !== kind || !Array.isArray(envelope.rows)) {
-      throw new Error(`远程 v6 ${kind} 历史分段格式校验失败：${segment.path}`);
-    }
-    const rows = envelope.rows;
-    if (rows.length !== segment.count) throw new Error(`远程 v6 历史分段 ${segment.path} 条数校验失败。`);
+  const payloads = await mapWithConcurrency(
+    all,
+    async ({ kind, segment }) => {
+      const payload = parseJson<unknown>(await client.readBlob(segment), `远程 v6 ${kind} 历史分段`);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error(`远程 v6 ${kind} 历史分段格式校验失败：${segment.path}`);
+      }
+      const envelope = payload as { formatVersion?: unknown; kind?: unknown; rows?: unknown };
+      if (envelope.formatVersion !== 6 || envelope.kind !== kind || !Array.isArray(envelope.rows)) {
+        throw new Error(`远程 v6 ${kind} 历史分段格式校验失败：${segment.path}`);
+      }
+      const rows = envelope.rows;
+      if (rows.length !== segment.count) throw new Error(`远程 v6 历史分段 ${segment.path} 条数校验失败。`);
+      return { kind, rows };
+    },
+    (completed, total) => report(onProgress, "history", `正在下载完整历史 ${completed}/${total}`, 40 + completed / Math.max(1, total) * 36),
+  );
+  for (const { kind, rows } of payloads) {
     if (kind === "attempts") attempts.push(...rows as AttemptV6[]);
     else practiceRuns.push(...rows as PracticeRunV6[]);
-    report(onProgress, "history", `正在下载完整历史 ${index + 1}/${all.length}`, 40 + (index + 1) / Math.max(1, all.length) * 36);
   }
   return { attempts, practiceRuns };
 }
@@ -327,25 +370,32 @@ async function ensureRunDefinitions(client: GitHubV6Remote, pending: readonly V6
  * projections need no fetch (the restore derives them locally); the rest are
  * pulled from the vault and integrity checked against the event's ref.
  */
-async function collectRunDefinitions(client: GitHubV6Remote, checkpoint: SyncCheckpointV6, events: readonly V6Event[]): Promise<Record<string, RunDefinitionV6>> {
-  const wanted = runDefinitionRefsFromEvents(events);
-  const definitions: Record<string, RunDefinitionV6> = {};
-  for (const [path, ref] of wanted) {
+async function collectRunDefinitions(client: GitHubV6Remote, checkpoint: SyncCheckpointV6, events: readonly V6Event[], onProgress?: (completed: number, total: number) => void): Promise<Record<string, RunDefinitionV6>> {
+  // Runs that are already tombstoned in the checkpoint or removed by a
+  // run.deleted event in this batch end deleted: their definition is never
+  // needed (materialization is skipped during apply), so do not fetch it.
+  const doomed = new Set(checkpoint.state.tombstones.filter((tombstone) => tombstone.entityType === "practiceRun").map((tombstone) => tombstone.entityId));
+  for (const event of events) {
+    if (event.type === "practice.run.deleted") {
+      const payload = event.payload as { id?: unknown; runId?: unknown } | undefined;
+      const id = typeof payload?.runId === "string" ? payload.runId : (typeof payload?.id === "string" ? payload.id : undefined);
+      if (id) doomed.add(id);
+    }
+  }
+  const wanted = [...runDefinitionRefsFromEvents(events)].filter(([, ref]) => !doomed.has(ref.runId));
+  const entries = await mapWithConcurrency(wanted, async ([path, ref]) => {
     const run = checkpoint.state.practiceRuns.find((item) => item.id === ref.runId);
     if (run) {
       const derived = await serializeRunDefinition(run);
-      if (derived.sha256 === ref.sha256) {
-        definitions[path] = derived.value;
-        continue;
-      }
+      if (derived.sha256 === ref.sha256) return [path, derived.value] as const;
       throw new Error(`练习 ${ref.runId} 的定义与检查点投影不一致`);
     }
     const bytes = await client.readImmutableContents(path, { sha256: ref.sha256, size: ref.size });
     const definition = parseJson<RunDefinitionV6>(bytes, `练习定义 ${path}`);
     if (!isRunDefinitionV6(definition) || definition.runId !== ref.runId) throw new Error(`练习定义对象 ${path} 内容无效`);
-    definitions[path] = definition;
-  }
-  return definitions;
+    return [path, definition] as const;
+  }, onProgress);
+  return Object.fromEntries(entries);
 }
 
 function pendingEventsForUpload(events: readonly V6Event[]): V6Event[] {
@@ -501,8 +551,11 @@ async function markersCurrent(head: SyncHeadV6): Promise<{ checkpoint: boolean; 
 }
 
 async function applyDownloadedState(client: GitHubV6Remote, state: DownloadedV6State, preservePending: boolean, onProgress?: SyncV6ProgressCallback): Promise<number> {
-  report(onProgress, "merge", "正在原子应用 v6 检查点和事件", 78);
-  const definitions = await collectRunDefinitions(client, state.checkpoint, state.events);
+  report(onProgress, "merge", "正在准备练习定义", 78);
+  const definitions = await collectRunDefinitions(client, state.checkpoint, state.events, (completed, total) => {
+    report(onProgress, "merge", `正在读取练习定义 ${completed}/${total}`, 78 + completed / Math.max(1, total) * 10);
+  });
+  report(onProgress, "merge", "正在原子应用 v6 检查点和事件", 88);
   const result = await applySyncCheckpointV6(state.checkpoint, state.events, { preservePending }, definitions);
   await dbV6.syncFiles.bulkPut(state.markers);
   report(onProgress, "merge", `已应用 ${result.applied} 条远程事件`, 90);
@@ -511,8 +564,8 @@ async function applyDownloadedState(client: GitHubV6Remote, state: DownloadedV6S
 
 async function applyMissingPages(client: GitHubV6Remote, descriptors: readonly SyncV6EventPageDescriptor[]): Promise<number> {
   if (!descriptors.length) return 0;
-  const events: V6Event[] = [];
-  for (const descriptor of descriptors) events.push(...parseEventPage(await client.readBlob(descriptor), descriptor));
+  const pages = await mapWithConcurrency(descriptors, (descriptor) => client.readBlob(descriptor).then((bytes) => parseEventPage(bytes, descriptor)));
+  const events: V6Event[] = pages.flat();
   // Rebuilding the local checkpoint here gives event application the same
   // atomic rollback semantics as a full restore without reading any legacy DB.
   const checkpoint = await createSyncCheckpointV6();
@@ -642,8 +695,11 @@ export async function restoreFullHistoryFromGitHubV6(settings: GitHubSettings, t
   report(onProgress, "history", "正在下载 v6 历史归档", 40);
   const archived = await downloadArchiveRows(client, read.head, onProgress);
   const merged = mergeArchivedRows(downloaded.checkpoint, archived);
+  report(onProgress, "merge", "正在读取练习定义", 80);
+  const definitions = await collectRunDefinitions(client, merged, downloaded.events, (completed, total) => {
+    report(onProgress, "merge", `正在读取练习定义 ${completed}/${total}`, 80 + completed / Math.max(1, total) * 8);
+  });
   report(onProgress, "merge", "正在原子提交 v6 完整历史", 88);
-  const definitions = await collectRunDefinitions(client, merged, downloaded.events);
   const applied = await applySyncCheckpointV6(merged, downloaded.events, { preservePending: false }, definitions);
   await dbV6.syncFiles.bulkPut(downloaded.markers);
   await saveHeadCache(settings, read.cache);

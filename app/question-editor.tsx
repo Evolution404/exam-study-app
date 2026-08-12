@@ -124,6 +124,13 @@ export function QuestionEditor({
   const [type, setType] = useState<QuestionTypeV6>(question.type);
   const [tags, setTags] = useState(question.tags.join("，"));
   const [note, setNote] = useState(initialNote);
+  // The existing note is loaded asynchronously by the shared editor (useLiveQuery),
+  // so `initialNote` arrives after mount; sync it into the field until the user
+  // starts editing, so a question that already has a note shows its content.
+  const noteLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!noteLoadedRef.current && initialNote) { setNote(initialNote); noteLoadedRef.current = true; }
+  }, [initialNote]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 

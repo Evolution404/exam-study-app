@@ -18,7 +18,7 @@ import {
   serializeRunDefinition,
 } from "../lib/db-v6";
 import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
-import { downloadImageAssetV6, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
+import { downloadImageAssetV6, mapWithConcurrency, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
 import type { SyncHeadV6 } from "../lib/sync-v6-head";
 import { GitHubV6Remote } from "../lib/github-v6-remote";
 import { sha256Blob } from "../lib/image-assets";
@@ -195,6 +195,28 @@ try {
   await assert.rejects(() => applySyncCheckpointV6(checkpoint, [missingDefinition]));
   assert.equal(await dbV6.banks.count(), beforeBanks, "missing run definition rolls back atomically");
 
+  // A run that ends this batch deleted (doomed) must restore without fetching
+  // its definition: materialization is skipped during apply, so an absent
+  // definition for a doomed run is not an error.
+  const doomedRunEvent: V6Event = {
+    id: "doomed-run-saved", type: "practice.run.saved",
+    payload: { runId: "doomed-run", definition: { path: `sync/v6/objects/${"8".repeat(64)}.json`, sha256: "8".repeat(64), size: 1 }, answers: {}, status: "in_progress", updatedAt: checkpoint.generatedAt, revision: 1 },
+    deviceId: "remote", sequence: 3, createdAt: checkpoint.generatedAt, synced: 1,
+  };
+  const doomedDeleteEvent: V6Event = {
+    id: "doomed-run-deleted", type: "practice.run.deleted",
+    payload: { id: "doomed-run", deletedAt: checkpoint.generatedAt },
+    deviceId: "remote", sequence: 4, createdAt: checkpoint.generatedAt, synced: 1,
+  };
+  // The real checkpoint has no tombstone for "doomed-run"; only the hot-window
+  // run.deleted event marks it doomed.  Applying both events must succeed even
+  // though the definition object does not exist remotely (this mirrors the 14
+  // orphaned deleted-run definitions currently in the live vault).
+  const appliedDoomed = await applySyncCheckpointV6(checkpoint, [doomedRunEvent, doomedDeleteEvent], { preservePending: true });
+  assert.ok(appliedDoomed.applied >= 2, "doomed run saved+deleted applies without fetching its definition");
+  assert.equal(await dbV6.practiceRuns.get("doomed-run"), undefined, "doomed run does not survive restore");
+  assert.ok(await dbV6.tombstones.get("practiceRun:doomed-run"), "doomed run leaves a tombstone");
+
   await clearImageCacheV6();
   assert.equal(await downloadImageAssetV6(settings, token, assetId).then((downloaded) => downloaded.size), blob.size, "lazy asset download validates and caches blob");
 
@@ -361,6 +383,31 @@ try {
   files.set(`sync/v6/objects/${sha256(rawProbe)}.json`, { bytes: rawProbe, sha: rawSha });
   blobs.set(rawSha, rawProbe);
   assert.deepEqual([...await probeClient.readBlob(rawSha, { size: rawProbe.byteLength, sha256: sha256(rawProbe) })], [...rawProbe], "pre-existing raw objects read unchanged");
+
+  // Parallel download helper: bounded concurrency, input-order preservation,
+  // and per-completion progress.  Event pages rely on order so the deferred
+  // answer replay still sees pages in descriptor order.
+  const ordered = await mapWithConcurrency([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], async (value) => {
+    await new Promise((resolve) => setTimeout(resolve, value)); // smaller values resolve later on purpose
+    return value * 2;
+  });
+  assert.deepEqual(ordered, [20, 18, 16, 14, 12, 10, 8, 6, 4, 2], "mapWithConcurrency must preserve input order regardless of resolution order");
+  let inflight = 0;
+  let maxInflight = 0;
+  const probed = await mapWithConcurrency(Array.from({ length: 20 }, (_, i) => i), async (value) => {
+    inflight += 1;
+    maxInflight = Math.max(maxInflight, inflight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inflight -= 1;
+    return value;
+  });
+  assert.equal(probed.length, 20);
+  assert.ok(maxInflight <= 6, `mapWithConcurrency must bound concurrency (observed ${maxInflight})`);
+  assert.ok(maxInflight > 1, "mapWithConcurrency must actually run in parallel");
+  const progressLog: number[] = [];
+  await mapWithConcurrency([1, 2, 3], async (v) => v, (completed) => progressLog.push(completed));
+  assert.deepEqual(progressLog, [1, 2, 3], "mapWithConcurrency progress must report 1..total per completion");
+  assert.deepEqual(await mapWithConcurrency([], async (v) => v), [], "mapWithConcurrency handles empty input");
 
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));

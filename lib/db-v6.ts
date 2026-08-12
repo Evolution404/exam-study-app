@@ -400,6 +400,27 @@ function practiceEventRunId(event: V6Event): string | undefined {
   return undefined;
 }
 
+/**
+ * Runs that end this batch deleted: already tombstoned in the checkpoint, or
+ * removed by a `practice.run.deleted` event in the batch.  Their immutable
+ * definition objects never need to be fetched or materialized — a run.saved for
+ * a doomed run is a no-op (the tombstone check would discard it), so skipping
+ * its definition download and materialization is observationally identical and
+ * avoids fetching the large definitions of deleted big runs on every restore.
+ */
+function doomedPracticeRunIds(state: V6RestoreState, ...eventBatches: ReadonlyArray<readonly V6Event[]>): Set<string> {
+  const ids = new Set<string>();
+  for (const tombstone of state.tombstones) if (tombstone.entityType === "practiceRun") ids.add(tombstone.entityId);
+  for (const batch of eventBatches) for (const event of batch) {
+    if (event.type === "practice.run.deleted") {
+      const id = practiceEventRunId(event);
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+
 function compareClock(left: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }, right: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }): number {
   return (left.updatedAt ?? left.createdAt ?? "").localeCompare(right.updatedAt ?? right.createdAt ?? "")
     || (left.deviceId ?? "").localeCompare(right.deviceId ?? "")
@@ -1554,7 +1575,7 @@ async function materializeRunEventPayloadV6(payload: unknown, definitions: Recor
 }
 
 /** Apply one remote event exactly once.  Existing event ids are no-ops. */
-export async function applyV6Event(input: V6Event, definitions?: Record<string, RunDefinitionV6>): Promise<boolean> {
+export async function applyV6Event(input: V6Event, definitions?: Record<string, RunDefinitionV6>, doomedRunIds?: Set<string>): Promise<boolean> {
   if (await dbV6.events.get(input.id)) return false;
   const event: V6Event = { ...input, synced: 1 };
   await dbV6.transaction("rw", [
@@ -1697,6 +1718,11 @@ export async function applyV6Event(input: V6Event, definitions?: Record<string, 
         await applyAnswerPayloadInTx(event.payload as PracticeAnswerSubmittedV6Payload, event, false);
         break;
       case "practice.run.saved": {
+        // A run that ends this batch deleted (doomed) never needs to be
+        // materialized: its definition would be fetched only to be discarded
+        // by the tombstone check below.  Skip both the fetch and the work.
+        const doomedRunId = practiceEventRunId(event);
+        if (doomedRunId && doomedRunIds?.has(doomedRunId)) break;
         const run = await materializeRunEventPayloadV6(event.payload, definitions);
         const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
@@ -1712,6 +1738,8 @@ export async function applyV6Event(input: V6Event, definitions?: Record<string, 
         break;
       }
       case "practice.run.status.changed": {
+        const doomedRunId = practiceEventRunId(event);
+        if (doomedRunId && doomedRunIds?.has(doomedRunId)) break;
         const run = await materializeRunEventPayloadV6(event.payload, definitions);
         const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
@@ -1860,13 +1888,16 @@ export async function restoreV6CheckpointAndEvents(
   // operation, so awaiting it inside the restore transaction would commit it
   // prematurely.  Orchestrators pass fetched definitions; anything still
   // missing is derived from the checkpoint projections or from pre-restore
-  // local runs (the source of locally pending run events).
+  // local runs (the source of locally pending run events).  Definitions for
+  // runs that end this batch deleted are skipped (doomed) — they would be
+  // discarded by the tombstone check anyway.
+  const doomed = doomedPracticeRunIds(state, remoteEvents, pending);
   const resolvedDefinitions = { ...definitions };
   const wantedDefinitions = runDefinitionRefsFromEvents([...remoteEvents, ...pending]);
   if (wantedDefinitions.size) {
     const candidates = [...state.practiceRuns, ...(await dbV6.practiceRuns.toArray())];
     for (const [path, ref] of wantedDefinitions) {
-      if (resolvedDefinitions[path]) continue;
+      if (resolvedDefinitions[path] || doomed.has(ref.runId)) continue;
       const run = candidates.find((item) => item.id === ref.runId);
       if (run) {
         const derived = await serializeRunDefinition(run);
@@ -1906,10 +1937,10 @@ export async function restoreV6CheckpointAndEvents(
     await dbV6.reviewRoundProgress.bulkPut(state.reviewRoundProgress);
     await dbV6.tombstones.bulkPut(state.tombstones);
 
-    applied += await applyEventsWithDeferredAnswersV6(remoteEvents, resolvedDefinitions);
+    applied += await applyEventsWithDeferredAnswersV6(remoteEvents, resolvedDefinitions, doomed);
     for (const event of pending) {
       if (remoteIds.has(event.id)) continue;
-      if (await applyV6Event(event, resolvedDefinitions)) {
+      if (await applyV6Event(event, resolvedDefinitions, doomed)) {
         await dbV6.events.put({ ...event, synced: 0 });
         preserved += 1;
       }
@@ -1926,7 +1957,7 @@ export async function restoreV6CheckpointAndEvents(
  * existing run).  Answers for not-yet-materialized runs are buffered and
  * replayed once after the batch, by which time the run snapshot has applied.
  */
-async function applyEventsWithDeferredAnswersV6(events: readonly V6Event[], definitions: Record<string, RunDefinitionV6> | undefined): Promise<number> {
+async function applyEventsWithDeferredAnswersV6(events: readonly V6Event[], definitions: Record<string, RunDefinitionV6> | undefined, doomed?: Set<string>): Promise<number> {
   let applied = 0;
   const deferred: V6Event[] = [];
   for (const event of events) {
@@ -1937,10 +1968,10 @@ async function applyEventsWithDeferredAnswersV6(events: readonly V6Event[], defi
         continue;
       }
     }
-    if (await applyV6Event(event, definitions)) applied += 1;
+    if (await applyV6Event(event, definitions, doomed)) applied += 1;
   }
   for (const event of deferred) {
-    if (await applyV6Event(event, definitions)) applied += 1;
+    if (await applyV6Event(event, definitions, doomed)) applied += 1;
   }
   return applied;
 }
