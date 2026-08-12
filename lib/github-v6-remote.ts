@@ -376,6 +376,16 @@ export class GitHubV6Remote {
     return blobSha;
   }
 
+  /**
+   * Read an immutable content-addressed object by path without a blob SHA in
+   * hand (e.g. a run definition referenced by an event): resolve the Git blob
+   * id through Contents metadata, then fetch and integrity-verify the bytes.
+   */
+  async readImmutableContents(path: string, expected: SyncV6BlobExpectation): Promise<Uint8Array> {
+    const blobSha = await this.readContentsMetadata(path);
+    return this.readBlob(blobSha, expected);
+  }
+
   /** Read the only mutable object through Contents GET and honor ETag/304. */
   async readHead(cache?: SyncV6HeadCache | SyncHeadV6): Promise<SyncV6HeadReadResult> {
     const previous = normalizeCache(cache);

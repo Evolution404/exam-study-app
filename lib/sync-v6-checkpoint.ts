@@ -8,7 +8,7 @@
  * represented by one bounded restore object instead of an unbounded event
  * tail.
  */
-import { dbV6, restoreV6CheckpointAndEvents, type V6RestoreState } from "./db-v6";
+import { dbV6, restoreV6CheckpointAndEvents, type RunDefinitionV6, type V6RestoreState } from "./db-v6";
 import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
 import { SYNC_V6_ARCHIVE_PREFIX, validateSyncV6Descriptor, type SyncV6Descriptor } from "./sync-v6-head";
 import type {
@@ -535,9 +535,9 @@ export function validateSyncV6ArchiveCatalog(value: unknown): asserts value is S
 }
 
 /** Restore the complete checkpoint and replay event pages in one DB transaction. */
-export async function applySyncCheckpointV6(checkpoint: SyncCheckpointV6, events: readonly V6Event[] = [], options: { preservePending?: boolean } = {}): Promise<{ applied: number; preserved: number }> {
+export async function applySyncCheckpointV6(checkpoint: SyncCheckpointV6, events: readonly V6Event[] = [], options: { preservePending?: boolean } = {}, definitions?: Record<string, RunDefinitionV6>): Promise<{ applied: number; preserved: number }> {
   validateSyncCheckpointV6(checkpoint);
-  return restoreV6CheckpointAndEvents(checkpoint.state, events, options);
+  return restoreV6CheckpointAndEvents(checkpoint.state, events, options, definitions);
 }
 
 export const restoreSyncCheckpointV6 = applySyncCheckpointV6;

@@ -121,10 +121,16 @@ try {
   const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [question.questionId] });
   const result = await recordPracticeAnswerV6({ runId: run.id, questionId: question.questionId, selected: ["A"], correct: true });
   assert.equal(await dbV6.events.where("type").equals("practice.answer.submitted").count(), 1, "one answer emits one event");
+  const runSavedEvent = (await dbV6.events.toArray()).find((event) => event.type === "practice.run.saved" && event.payload?.runId === run.id)!;
+  const runSnapshot = runSavedEvent.payload as { definition?: { path: string }; questionIds?: unknown; optionOrders?: unknown };
+  assert.ok(runSnapshot.definition, "run events carry a content-addressed definition ref");
+  assert.equal(runSnapshot.questionIds, undefined, "run definition is externalized, not embedded");
+  assert.equal(runSnapshot.optionOrders, undefined, "option orders live in the immutable definition object");
 
   conflictNext = true;
   await syncWithGitHubV6(settings, token);
   assert.equal((await dbV6.events.get(result.event.id))?.synced, 1, "event is marked synced only after CAS success");
+  assert.ok(files.has(runSnapshot.definition!.path), "run definition object is published to the vault");
 
   // Runs are removable history cards; attempts and global learning stats must
   // survive that deletion and still form a valid sync checkpoint.
@@ -153,6 +159,8 @@ try {
   await syncWithGitHubV6(settings, token);
   assert.equal((await dbV6.events.get(largeEvent.id))?.synced, 1, "checkpoint-covered oversized event is acknowledged after CAS");
   assert.equal(await dbV6.events.where("synced").equals(0).count(), 0, "successful checkpoint CAS drains all pending events");
+  const definitionPutCount = calls.filter((call) => call.method === "PUT" && call.path.includes("/objects/")).length;
+  assert.equal(definitionPutCount, 1, "a run definition is uploaded exactly once across syncs");
   const publishedHead = JSON.parse(new TextDecoder().decode(head!.bytes)) as SyncHeadV6;
   const publishedPages = publishedHead.eventPages.map((page) => new TextDecoder().decode(files.get(page.path)?.bytes ?? new Uint8Array()));
   assert.ok(publishedPages.every((page) => !page.includes(largeEvent.id)), "oversized event is omitted from event pages");
@@ -164,6 +172,13 @@ try {
   const malformed: V6Event = { id: "bad-asset", type: "image.asset.saved", payload: { id: "bad" }, deviceId: "remote", sequence: 1, createdAt: checkpoint.generatedAt, synced: 1 };
   await assert.rejects(() => applySyncCheckpointV6(checkpoint, [malformed]));
   assert.equal(await dbV6.banks.count(), beforeBanks, "restore failure rolls back atomically");
+  const missingDefinition: V6Event = {
+    id: "run-missing-definition", type: "practice.run.saved",
+    payload: { runId: "ghost-run", definition: { path: `sync/v6/objects/${"9".repeat(64)}.json`, sha256: "9".repeat(64), size: 1 }, answers: {}, status: "in_progress", updatedAt: checkpoint.generatedAt, revision: 1 },
+    deviceId: "remote", sequence: 2, createdAt: checkpoint.generatedAt, synced: 1,
+  };
+  await assert.rejects(() => applySyncCheckpointV6(checkpoint, [missingDefinition]));
+  assert.equal(await dbV6.banks.count(), beforeBanks, "missing run definition rolls back atomically");
 
   await clearImageCacheV6();
   assert.equal(await downloadImageAssetV6(settings, token, assetId).then((downloaded) => downloaded.size), blob.size, "lazy asset download validates and caches blob");
@@ -240,6 +255,25 @@ try {
   const furthestAnswered = afterRestoreRun.questionIds.reduce((last, questionId, index) => afterRestoreRun.answers[questionId]?.submitted ? index : last, -1);
   assert.equal(furthestAnswered, 3, "restore replay keeps every submitted answer");
   assert.equal(afterRestoreRun.lastAnsweredIndex, furthestAnswered, "restore replay must not regress the progress hint");
+
+  // Externalized definitions make run events independent of bank size: a
+  // 300-question shuffled run once embedded questionIds + questionTypes +
+  // optionOrders (~60KB) into every snapshot event; it now carries only the
+  // content-addressed ref plus the mutable snapshot.
+  await resetV6Database();
+  const wideBank = await importQuestionBankV6("wide.json", Array.from({ length: 300 }, (_, index) => ({ q: `wide ${index}`, type: "单选", a: ["甲", "乙", "丙"], ans: "A" })));
+  const wideMems = await dbV6.bankQuestionMemberships.where("bankId").equals(wideBank.id).sortBy("sortOrder");
+  const wideRun = await createPracticeRunV6({
+    bankId: wideBank.id,
+    questionIds: wideMems.map((member) => member.questionId),
+    shuffleOptions: true,
+    optionOrders: Object.fromEntries(wideMems.map((member) => [member.questionId, [0, 1, 2]])),
+  });
+  const wideSaved = (await dbV6.events.toArray()).find((event) => event.type === "practice.run.saved" && event.payload?.runId === wideRun.id)!;
+  const widePayload = wideSaved.payload as { definition: { path: string } };
+  const wideBytes = new TextEncoder().encode(JSON.stringify(widePayload)).byteLength;
+  assert.ok(wideBytes < 4096, `run event is independent of bank size: ${wideBytes} bytes`);
+  assert.ok(/^sync\/v6\/objects\/[a-f0-9]{64}\.json$/.test(widePayload.definition.path), "definition ref names a content-addressed object");
 
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));

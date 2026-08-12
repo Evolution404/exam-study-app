@@ -8,13 +8,14 @@
  * continues to use its own database.
  */
 import Dexie, { type EntityTable } from "dexie";
-import { sha256Blob } from "./image-assets";
+import { sha256Blob, sha256Bytes } from "./image-assets";
 import {
   normalizeContentText,
   plainTextToContentBlocks,
   questionContentFingerprint,
 } from "./question-content";
 import { normalizeCalculationAnswer } from "./question-utils";
+import type { PracticeAnswerState, PracticeRunStatus, QuestionType } from "./types";
 import type {
   AttemptDailyStatsV6,
   AttemptStatsV6,
@@ -38,6 +39,7 @@ import type {
   V6Event,
   V6EventType,
 } from "./v6-types";
+import { SYNC_V6_IMMUTABLE_PREFIX } from "./sync-v6-head";
 
 export const V6_DATABASE_NAME = "shijuan-study-v6" as const;
 
@@ -53,6 +55,148 @@ export interface PracticeAnswerSubmittedV6Payload {
   runId: string;
   questionId: string;
   reviewRoundId?: string;
+}
+
+/**
+ * The immutable part of a practice run is externalized into a content
+ * addressed object so run events stay small regardless of bank size.  The
+ * ref names the object by path and digest; the mutable snapshot (answers,
+ * status, timestamps) stays in the event payload itself.
+ */
+export interface RunDefinitionRefV6 {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+/** Immutable projection stored in a sync/v6/objects/<sha256>.json object. */
+export interface RunDefinitionV6 {
+  formatVersion: 6;
+  kind: "runDefinition";
+  runId: string;
+  bankId: string;
+  bankIds: string[];
+  bankName: string;
+  mode: string;
+  modeLabel: string;
+  questionIds: string[];
+  questionTypes: Record<string, QuestionType>;
+  shuffleOptions: boolean;
+  optionOrders: Record<string, number[]>;
+  startedAt: string;
+  reviewRoundId?: string;
+}
+
+/** Mutable snapshot carried by practice.run.saved / practice.run.status.changed. */
+export interface PracticeRunSnapshotV6Payload {
+  runId: string;
+  definition: RunDefinitionRefV6;
+  answers: Record<string, PracticeAnswerState>;
+  status: PracticeRunStatus;
+  updatedAt: string;
+  revision: number;
+  lastAnsweredIndex?: number;
+  completedAt?: string;
+  abandonedAt?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isRunDefinitionRefV6(value: unknown): value is RunDefinitionRefV6 {
+  if (!isRecord(value)) return false;
+  const { path, sha256, size } = value;
+  if (typeof path !== "string" || typeof sha256 !== "string" || !/^[a-f0-9]{64}$/.test(sha256)) return false;
+  const digest = /^sync\/v6\/objects\/([a-f0-9]{64})\.json$/.exec(path)?.[1];
+  return digest === sha256 && typeof size === "number" && Number.isSafeInteger(size) && size >= 0;
+}
+
+export function isRunDefinitionV6(value: unknown): value is RunDefinitionV6 {
+  if (!isRecord(value)) return false;
+  const { formatVersion, kind, runId, bankId, bankIds, questionIds, questionTypes, shuffleOptions, optionOrders, startedAt, reviewRoundId } = value;
+  return formatVersion === 6
+    && kind === "runDefinition"
+    && typeof runId === "string"
+    && typeof bankId === "string"
+    && Array.isArray(bankIds) && bankIds.every((id) => typeof id === "string")
+    && Array.isArray(questionIds) && questionIds.every((id) => typeof id === "string")
+    && isRecord(questionTypes) && Object.values(questionTypes).every((type) => typeof type === "string")
+    && typeof shuffleOptions === "boolean"
+    && isRecord(optionOrders) && Object.values(optionOrders).every((order) => Array.isArray(order) && order.every((item) => typeof item === "number"))
+    && typeof startedAt === "string"
+    && (reviewRoundId === undefined || typeof reviewRoundId === "string");
+}
+
+/** Deterministic immutable definition value for a run. */
+export function runDefinitionValue(run: PracticeRunV6): RunDefinitionV6 {
+  return {
+    formatVersion: 6,
+    kind: "runDefinition",
+    runId: run.id,
+    bankId: run.bankId,
+    bankIds: run.bankIds,
+    bankName: run.bankName,
+    mode: run.mode,
+    modeLabel: run.modeLabel,
+    questionIds: run.questionIds,
+    questionTypes: run.questionTypes,
+    shuffleOptions: run.shuffleOptions,
+    optionOrders: run.optionOrders,
+    startedAt: run.startedAt,
+    ...(run.reviewRoundId ? { reviewRoundId: run.reviewRoundId } : {}),
+  };
+}
+
+export async function serializeRunDefinition(run: PracticeRunV6): Promise<{ value: RunDefinitionV6; bytes: Uint8Array; sha256: string; size: number }> {
+  const value = runDefinitionValue(run);
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  return { value, bytes, sha256: await sha256Bytes(bytes), size: bytes.byteLength };
+}
+
+/** Content-addressed reference to a run's immutable definition. */
+export async function runDefinitionRef(run: PracticeRunV6): Promise<RunDefinitionRefV6> {
+  const { sha256, size } = await serializeRunDefinition(run);
+  return { path: `${SYNC_V6_IMMUTABLE_PREFIX}${sha256}.json`, sha256, size };
+}
+
+/** Rebuild the full run projection from its externalized definition. */
+export function materializePracticeRunV6(definition: RunDefinitionV6, payload: PracticeRunSnapshotV6Payload): PracticeRunV6 {
+  return {
+    id: definition.runId,
+    bankId: definition.bankId,
+    bankIds: definition.bankIds,
+    bankName: definition.bankName,
+    mode: definition.mode as PracticeRunV6["mode"],
+    modeLabel: definition.modeLabel,
+    questionIds: definition.questionIds,
+    questionTypes: definition.questionTypes,
+    shuffleOptions: definition.shuffleOptions,
+    optionOrders: definition.optionOrders,
+    startedAt: definition.startedAt,
+    reviewRoundId: definition.reviewRoundId,
+    answers: payload.answers,
+    status: payload.status,
+    updatedAt: payload.updatedAt,
+    revision: payload.revision,
+    lastAnsweredIndex: payload.lastAnsweredIndex,
+    completedAt: payload.completedAt,
+    abandonedAt: payload.abandonedAt,
+  };
+}
+
+function practiceRunSnapshotPayload(run: PracticeRunV6, definition: RunDefinitionRefV6): PracticeRunSnapshotV6Payload {
+  return {
+    runId: run.id,
+    definition,
+    answers: run.answers,
+    status: run.status,
+    updatedAt: run.updatedAt,
+    revision: run.revision,
+    lastAnsweredIndex: run.lastAnsweredIndex,
+    completedAt: run.completedAt,
+    abandonedAt: run.abandonedAt,
+  };
 }
 
 export interface PracticeAnswerV6 {
@@ -235,6 +379,9 @@ function practiceEventRunId(event: V6Event): string | undefined {
   const payload = event.payload as { id?: unknown; runId?: unknown } | undefined;
   if (event.type === "practice.answer.submitted") return typeof payload?.runId === "string" ? payload.runId : undefined;
   if (event.type === "practice.run.saved" || event.type === "practice.run.status.changed" || event.type === "practice.run.deleted") {
+    // The new snapshot payload names the run explicitly; legacy events carried
+    // the full run projection under its own id.
+    if (typeof payload?.runId === "string") return payload.runId;
     return typeof payload?.id === "string" ? payload.id : undefined;
   }
   return undefined;
@@ -942,10 +1089,13 @@ export async function createPracticeRunV6(input: CreatePracticeRunInputV6 = {}):
     lastAnsweredIndex: input.lastAnsweredIndex,
     reviewRoundId: input.reviewRoundId,
   };
+  // The immutable definition is externalized: the event carries only a
+  // content-addressed ref plus the mutable snapshot, independent of bank size.
+  const snapshot = practiceRunSnapshotPayload(run, await runDefinitionRef(run));
   await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
     await dbV6.practiceRuns.put(run);
     await updatePracticeRunStatsInTx(undefined, run);
-    await dbV6.events.put(eventInTx("practice.run.saved", run, timestamp));
+    await dbV6.events.put(eventInTx("practice.run.saved", snapshot, timestamp));
   });
   return run;
 }
@@ -953,10 +1103,11 @@ export async function createPracticeRunV6(input: CreatePracticeRunInputV6 = {}):
 export async function savePracticeRunV6(run: PracticeRunV6): Promise<PracticeRunV6> {
   const current = await dbV6.practiceRuns.get(run.id);
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
+  const snapshot = practiceRunSnapshotPayload(updated, await runDefinitionRef(updated));
   await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV6.practiceRuns.put(updated);
-    await dbV6.events.put(eventInTx("practice.run.saved", updated, updated.updatedAt));
+    await dbV6.events.put(eventInTx("practice.run.saved", snapshot, updated.updatedAt));
   });
   return updated;
 }
@@ -1109,10 +1260,11 @@ export async function setPracticeRunStatusV6(runId: string, status: PracticeRunV
     abandonedAt: status === "abandoned" ? updatedAt : undefined,
     revision: current.revision + 1,
   };
+  const snapshot = practiceRunSnapshotPayload(updated, await runDefinitionRef(updated));
   await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV6.practiceRuns.put(updated);
-    await dbV6.events.put(eventInTx("practice.run.status.changed", updated, updatedAt));
+    await dbV6.events.put(eventInTx("practice.run.status.changed", snapshot, updatedAt));
   });
   return updated;
 }
@@ -1351,8 +1503,40 @@ export async function recordPracticeAnswerV6(input: PracticeAnswerInputV6): Prom
   return { attempt, answer, event };
 }
 
+/**
+ * Every run definition ref referenced by run events, deduplicated by object
+ * path.  The caller resolves each ref into a definition before replay; the
+ * data layer must not hash inside a Dexie transaction (an untracked await
+ * would commit it prematurely), so resolution always happens beforehand.
+ */
+export function runDefinitionRefsFromEvents(events: readonly V6Event[]): Map<string, RunDefinitionRefV6 & { runId: string }> {
+  const wanted = new Map<string, RunDefinitionRefV6 & { runId: string }>();
+  for (const event of events) {
+    if (event.type !== "practice.run.saved" && event.type !== "practice.run.status.changed") continue;
+    const payload = event.payload as { runId?: unknown; definition?: unknown };
+    if (typeof payload?.runId !== "string" || !isRunDefinitionRefV6(payload.definition)) continue;
+    wanted.set(payload.definition.path, { ...payload.definition, runId: payload.runId });
+  }
+  return wanted;
+}
+
+/**
+ * Rebuild a run projection from a snapshot event payload.  New events carry a
+ * content-addressed definition ref plus the mutable snapshot; the definition
+ * must already be resolved (fetched by the orchestrator or derived from a
+ * checkpoint run before the transaction) and is looked up by object path.
+ * Legacy events that embed the full run payload pass through unchanged.
+ */
+async function materializeRunEventPayloadV6(payload: unknown, definitions: Record<string, RunDefinitionV6> | undefined): Promise<PracticeRunV6> {
+  const candidate = payload as PracticeRunSnapshotV6Payload;
+  if (!isRecord(payload) || !isRunDefinitionRefV6(candidate.definition)) return payload as PracticeRunV6;
+  const definition = definitions?.[candidate.definition.path];
+  if (!definition) throw new Error(`练习定义对象缺失：${candidate.definition.path}`);
+  return materializePracticeRunV6(definition, candidate);
+}
+
 /** Apply one remote event exactly once.  Existing event ids are no-ops. */
-export async function applyV6Event(input: V6Event): Promise<boolean> {
+export async function applyV6Event(input: V6Event, definitions?: Record<string, RunDefinitionV6>): Promise<boolean> {
   if (await dbV6.events.get(input.id)) return false;
   const event: V6Event = { ...input, synced: 1 };
   await dbV6.transaction("rw", [
@@ -1495,7 +1679,7 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         await applyAnswerPayloadInTx(event.payload as PracticeAnswerSubmittedV6Payload, event, false);
         break;
       case "practice.run.saved": {
-        const run = event.payload as PracticeRunV6;
+        const run = await materializeRunEventPayloadV6(event.payload, definitions);
         const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
         if (tombstone) await dbV6.tombstones.delete(tombstone.key);
@@ -1510,7 +1694,7 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         break;
       }
       case "practice.run.status.changed": {
-        const run = event.payload as PracticeRunV6;
+        const run = await materializeRunEventPayloadV6(event.payload, definitions);
         const tombstone = await dbV6.tombstones.get(tombstoneKey("practiceRun", run.id));
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
         if (tombstone) await dbV6.tombstones.delete(tombstone.key);
@@ -1650,9 +1834,28 @@ export async function restoreV6CheckpointAndEvents(
   state: V6RestoreState,
   remoteEvents: readonly V6Event[] = [],
   options: { preservePending?: boolean } = {},
+  definitions?: Record<string, RunDefinitionV6>,
 ): Promise<{ applied: number; preserved: number }> {
   const pending = options.preservePending ? await dbV6.events.where("synced").equals(0).toArray() : [];
   const remoteIds = new Set(remoteEvents.map((event) => event.id));
+  // Resolve run definitions before the transaction: hashing is not a Dexie
+  // operation, so awaiting it inside the restore transaction would commit it
+  // prematurely.  Orchestrators pass fetched definitions; anything still
+  // missing is derived from the checkpoint projections or from pre-restore
+  // local runs (the source of locally pending run events).
+  const resolvedDefinitions = { ...definitions };
+  const wantedDefinitions = runDefinitionRefsFromEvents([...remoteEvents, ...pending]);
+  if (wantedDefinitions.size) {
+    const candidates = [...state.practiceRuns, ...(await dbV6.practiceRuns.toArray())];
+    for (const [path, ref] of wantedDefinitions) {
+      if (resolvedDefinitions[path]) continue;
+      const run = candidates.find((item) => item.id === ref.runId);
+      if (run) {
+        const derived = await serializeRunDefinition(run);
+        if (derived.sha256 === ref.sha256) resolvedDefinitions[path] = derived.value;
+      }
+    }
+  }
   const cachedAssets = await dbV6.imageAssets.toArray();
   const cachedBlobs = new Map(cachedAssets.filter((asset) => asset.blob).map((asset) => [asset.id, asset]));
   const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];
@@ -1686,11 +1889,11 @@ export async function restoreV6CheckpointAndEvents(
     await dbV6.tombstones.bulkPut(state.tombstones);
 
     for (const event of remoteEvents) {
-      if (await applyV6Event(event)) applied += 1;
+      if (await applyV6Event(event, resolvedDefinitions)) applied += 1;
     }
     for (const event of pending) {
       if (remoteIds.has(event.id)) continue;
-      if (await applyV6Event(event)) {
+      if (await applyV6Event(event, resolvedDefinitions)) {
         await dbV6.events.put({ ...event, synced: 0 });
         preserved += 1;
       }

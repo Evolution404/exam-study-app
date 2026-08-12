@@ -488,6 +488,16 @@ export async function sha256Blob(blob: Blob): Promise<string> {
   }
 }
 
+/** Return a lower-case SHA-256 digest of raw bytes. */
+export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("当前环境不支持 SHA-256");
+  // Copy into a fresh Uint8Array so the digest call only ever sees its own
+  // backing ArrayBuffer (a borrowed SharedArrayBuffer view is not BufferSource).
+  const digest = await subtle.digest("SHA-256", new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 /** Strictly map an output MIME to its remote extension. */
 export function imageExtensionForMime(mimeType: string): "webp" | "jpg" | "png" {
   const normalized = normalizeMimeType(mimeType);

@@ -10,7 +10,10 @@ import {
   dbV6,
   getImageAssetBlobV6,
   getImageAssetDescriptorV6,
+  isRunDefinitionV6,
   putImageAssetBlobV6,
+  runDefinitionRefsFromEvents,
+  serializeRunDefinition,
 } from "./db-v6";
 import {
   createSyncCheckpointV6,
@@ -50,6 +53,7 @@ import {
 import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
 import { sha256Blob } from "./image-assets";
 import type { GitHubSettings } from "./types";
+import type { RunDefinitionV6 } from "./db-v6";
 import type { AttemptV6, PracticeRunV6, V6Event } from "./v6-types";
 
 export interface SyncV6Progress {
@@ -293,6 +297,57 @@ async function ensureAssetFiles(client: GitHubV6Remote, onProgress?: SyncV6Progr
   return files;
 }
 
+/**
+ * Publish the immutable run definitions referenced by pending run events.
+ * Each object is deterministic (content addressed), so the local
+ * `definitionSynced` marker skips every later sync.  A run deleted before its
+ * events publish needs no object: its tombstone is published in the same
+ * head, and replay applies the tombstone before materializing the run.
+ */
+async function ensureRunDefinitions(client: GitHubV6Remote, pending: readonly V6Event[]): Promise<SyncV6PublicationFile[]> {
+  const wanted = runDefinitionRefsFromEvents(pending);
+  const files: SyncV6PublicationFile[] = [];
+  for (const [path, ref] of wanted) {
+    const run = await dbV6.practiceRuns.get(ref.runId);
+    if (!run || run.definitionSynced) continue;
+    const { bytes, sha256 } = await serializeRunDefinition(run);
+    if (sha256 !== ref.sha256 || digestPath(SYNC_V6_IMMUTABLE_PREFIX, sha256) !== path) {
+      throw new Error(`练习 ${ref.runId} 的定义与事件引用不一致`);
+    }
+    await client.putImmutable({ path, bytes, kind: "immutable" });
+    files.push({ path, bytes, kind: "immutable" });
+    await dbV6.practiceRuns.put({ ...run, definitionSynced: true });
+  }
+  return files;
+}
+
+/**
+ * Resolve every run definition referenced by new-format run events before
+ * atomic restore.  Definitions derivable from the checkpoint's own run
+ * projections need no fetch (the restore derives them locally); the rest are
+ * pulled from the vault and integrity checked against the event's ref.
+ */
+async function collectRunDefinitions(client: GitHubV6Remote, checkpoint: SyncCheckpointV6, events: readonly V6Event[]): Promise<Record<string, RunDefinitionV6>> {
+  const wanted = runDefinitionRefsFromEvents(events);
+  const definitions: Record<string, RunDefinitionV6> = {};
+  for (const [path, ref] of wanted) {
+    const run = checkpoint.state.practiceRuns.find((item) => item.id === ref.runId);
+    if (run) {
+      const derived = await serializeRunDefinition(run);
+      if (derived.sha256 === ref.sha256) {
+        definitions[path] = derived.value;
+        continue;
+      }
+      throw new Error(`练习 ${ref.runId} 的定义与检查点投影不一致`);
+    }
+    const bytes = await client.readImmutableContents(path, { sha256: ref.sha256, size: ref.size });
+    const definition = parseJson<RunDefinitionV6>(bytes, `练习定义 ${path}`);
+    if (!isRunDefinitionV6(definition) || definition.runId !== ref.runId) throw new Error(`练习定义对象 ${path} 内容无效`);
+    definitions[path] = definition;
+  }
+  return definitions;
+}
+
 function pendingEventsForUpload(events: readonly V6Event[]): V6Event[] {
   const eventsToUpload: V6Event[] = [];
   for (const event of events) {
@@ -348,6 +403,9 @@ async function publicationFor(
 ): Promise<{ files: SyncV6PublicationFile[]; head: SyncHeadV6; pendingIds: string[]; compacted: boolean }> {
   const assets = assetFiles ?? await ensureAssetFiles(client, range(onProgress, 0, 24));
   const events = pendingEventsForUpload(pending);
+  // Run definitions are immutable objects referenced by run events; they are
+  // published alongside the pages, always before the head CAS.
+  const definitionFiles = await ensureRunDefinitions(client, pending);
   const hot = planSyncV6HotTail(events);
   const pageFiles: SyncV6PublicationFile[] = hot.pages.map((page) => ({ path: digestPath(SYNC_V6_EVENT_PREFIX, ""), bytes: page.bytes, kind: "eventPage" }));
   // Hash paths are filled after encoding; retaining page order is important
@@ -399,7 +457,7 @@ async function publicationFor(
     validateSyncHeadV6(nextHead);
     // Events omitted from the hot tail are still covered by this complete
     // checkpoint.  They are acknowledged only after the head CAS succeeds.
-    return { files: [...assets, ...immutable], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: true };
+    return { files: [...assets, ...immutable, ...definitionFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: true };
   }
 
   // Incremental publication: the remote checkpoint already covers everything
@@ -423,7 +481,7 @@ async function publicationFor(
     eventPages: mergeSyncV6EventPages(expectedHead.eventPages, pageDescriptors),
   };
   validateSyncHeadV6(nextHead);
-  return { files: [...assets, ...pageFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: false };
+  return { files: [...assets, ...pageFiles, ...definitionFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: false };
 }
 
 async function markUploadedEvents(ids: readonly string[], generatedAt: string): Promise<void> {
@@ -442,9 +500,10 @@ async function markersCurrent(head: SyncHeadV6): Promise<{ checkpoint: boolean; 
   return { checkpoint: checkpoint?.sha === head.checkpoint.blobSha, pages: pages.filter((page): page is SyncV6EventPageDescriptor => Boolean(page)) };
 }
 
-async function applyDownloadedState(state: DownloadedV6State, preservePending: boolean, onProgress?: SyncV6ProgressCallback): Promise<number> {
+async function applyDownloadedState(client: GitHubV6Remote, state: DownloadedV6State, preservePending: boolean, onProgress?: SyncV6ProgressCallback): Promise<number> {
   report(onProgress, "merge", "正在原子应用 v6 检查点和事件", 78);
-  const result = await applySyncCheckpointV6(state.checkpoint, state.events, { preservePending });
+  const definitions = await collectRunDefinitions(client, state.checkpoint, state.events);
+  const result = await applySyncCheckpointV6(state.checkpoint, state.events, { preservePending }, definitions);
   await dbV6.syncFiles.bulkPut(state.markers);
   report(onProgress, "merge", `已应用 ${result.applied} 条远程事件`, 90);
   return result.applied;
@@ -457,7 +516,8 @@ async function applyMissingPages(client: GitHubV6Remote, descriptors: readonly S
   // Rebuilding the local checkpoint here gives event application the same
   // atomic rollback semantics as a full restore without reading any legacy DB.
   const checkpoint = await createSyncCheckpointV6();
-  const result = await applySyncCheckpointV6(checkpoint, events, { preservePending: true });
+  const definitions = await collectRunDefinitions(client, checkpoint, events);
+  const result = await applySyncCheckpointV6(checkpoint, events, { preservePending: true }, definitions);
   await dbV6.syncFiles.bulkPut(descriptors.map((descriptor) => ({ path: descriptor.path, sha: descriptor.blobSha, appliedAt: new Date().toISOString() })));
   return result.applied;
 }
@@ -513,7 +573,7 @@ export async function syncWithGitHubV6(settings: GitHubSettings, token: string, 
     const current = await markersCurrent(read.head);
     if (!current.checkpoint) {
       const downloaded = await downloadState(client, read, range(onProgress, 8, 52));
-      pulled += await applyDownloadedState(downloaded, true, onProgress);
+      pulled += await applyDownloadedState(client, downloaded, true, onProgress);
     } else if (current.pages.length) {
       pulled += await applyMissingPages(client, current.pages);
     }
@@ -552,7 +612,7 @@ export async function pullFromGitHubV6(settings: GitHubSettings, token: string, 
   const read = await readHeadOrThrow(client, settings);
   const current = await markersCurrent(read.head);
   let pulled = 0;
-  if (!current.checkpoint) pulled = await applyDownloadedState(await downloadState(client, read, range(onProgress, 12, 86)), true, onProgress);
+  if (!current.checkpoint) pulled = await applyDownloadedState(client, await downloadState(client, read, range(onProgress, 12, 86)), true, onProgress);
   else if (current.pages.length) pulled = await applyMissingPages(client, current.pages);
   await saveHeadCache(settings, read.cache);
   report(onProgress, "complete", pulled ? `已合并 ${pulled} 条远程更改` : "云端没有新数据", 100);
@@ -563,7 +623,7 @@ async function restoreRemote(settings: GitHubSettings, token: string, onProgress
   const client = remote(settings, token);
   const read = await readHeadOrThrow(client, settings);
   const downloaded = await downloadState(client, read, range(onProgress, 8, 76));
-  const pulled = await applyDownloadedState(downloaded, preservePending, onProgress);
+  const pulled = await applyDownloadedState(client, downloaded, preservePending, onProgress);
   await saveHeadCache(settings, read.cache);
   const cache = { owner: settings.owner, repo: settings.repo, branch: branchFor(settings), cachedAt: new Date().toISOString(), checkpoint: downloaded.checkpoint, markers: downloaded.markers, head: read.cache } satisfies V6RemoteCacheValue;
   await saveRemoteCache(settings, cache);
@@ -583,7 +643,8 @@ export async function restoreFullHistoryFromGitHubV6(settings: GitHubSettings, t
   const archived = await downloadArchiveRows(client, read.head, onProgress);
   const merged = mergeArchivedRows(downloaded.checkpoint, archived);
   report(onProgress, "merge", "正在原子提交 v6 完整历史", 88);
-  const applied = await applySyncCheckpointV6(merged, downloaded.events, { preservePending: false });
+  const definitions = await collectRunDefinitions(client, merged, downloaded.events);
+  const applied = await applySyncCheckpointV6(merged, downloaded.events, { preservePending: false }, definitions);
   await dbV6.syncFiles.bulkPut(downloaded.markers);
   await saveHeadCache(settings, read.cache);
   const cachedAt = new Date().toISOString();
