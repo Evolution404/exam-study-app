@@ -16,7 +16,7 @@ const overlaySources = [
   ["app/confirm-dialog.tsx", "simple-dialog-backdrop"],
   ["app/question-editor.tsx", "editor-backdrop"],
   ["app/bank-library-view.tsx", "simple-dialog-backdrop"],
-  ["app/search-view.tsx", "search-detail-backdrop"],
+  ["app/question-detail.tsx", "search-detail-backdrop"],
   ["app/search-view.tsx", "search-practice-backdrop"],
   ["app/study-app.tsx", "overview-backdrop"],
 ] as const;

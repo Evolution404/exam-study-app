@@ -27,6 +27,8 @@ assert.match(editor, /membershipsReady/);
 assert.match(editor, /membershipRequestRef\.current/);
 assert.doesNotMatch(editor, /imageUrl/);
 assert.match(editor, /putImageAssetV6/);
+assert.match(editor, /个人解析/, "题目编辑器应提供个人解析编辑位置");
+assert.match(editor, /onSave: \(changes: QuestionChanges, note\?: string\)/, "编辑器保存应回传个人解析");
 
 const bank = source("bank-library-view.tsx");
 assert.match(bank, /仅从当前题库移除/);
@@ -36,6 +38,15 @@ assert.match(bank, /progressScopeLabel/);
 assert.match(bank, /范围表现（\$\{progressScopeLabel\}）/);
 assert.match(bank, /setActivityRange\("custom"\)/);
 assert.match(bank, /type="date"/);
+// 试题管理：点题目卡片看详情（setViewing），铅笔才编辑；行内统计按区间口径。
+assert.match(bank, /<button onClick=\{\(\) => setViewing\(question\)\}/, "题目卡片点击应打开详情而非直接编辑");
+assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");
+assert.match(bank, /<QuestionDetail/, "试题管理应复用共享 QuestionDetail");
+
+const detail = source("question-detail.tsx");
+assert.match(detail, /export function QuestionDetail/, "题目详情应抽出为共享组件");
+assert.match(detail, /作答（\{scopeLabel\}）/, "题目详情指标应按区间口径显示");
+assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口径");
 
 const renderer = source("content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
@@ -77,5 +88,12 @@ assert.equal((study.match(/recordPracticeAnswerV6\(/g) ?? []).length, 1, "答题
 assert.match(study, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
 assert.match(study, /label=\{`作答（\$\{scopeLabel\}）`\}/);
+
+const search = source("search-view.tsx");
+assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
+assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
+assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
+assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} 次（\{scopeLabel\}）/, "搜索结果应标注区间口径");
+assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
 
 console.log("v6 UI/data-flow assertions passed");

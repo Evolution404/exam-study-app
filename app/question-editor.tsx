@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { ContentBlock, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import type { GitHubSettings } from "@/lib/types";
 import type { QuestionDraftV6 } from "@/lib/db-v6";
+import { dbV6 } from "@/lib/db-v6";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question-content";
 import { optimizeImageFile } from "@/lib/image-assets";
-import { getImageAssetBlobV6, putImageAssetV6, splitQuestionV6, updateQuestionV6 } from "@/lib/db-v6";
+import { getImageAssetBlobV6, putImageAssetV6, saveNoteV6, splitQuestionV6, updateQuestionV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, type QuestionViewV6 } from "@/lib/app-data-v6";
 import { loadGitHubSettings, loadGitHubToken } from "@/lib/github-credentials";
 import { ModalPortal } from "@/app/modal-portal";
@@ -105,19 +107,23 @@ export function QuestionEditor({
   title = "编辑题目",
   eyebrow = "使用 v6 富内容模型",
   submitLabel = "保存修改",
+  initialNote = "",
 }: {
   question: QuestionV6;
-  onSave: (changes: QuestionChanges) => Promise<void>;
+  onSave: (changes: QuestionChanges, note?: string) => Promise<void>;
   onCancel: () => void;
   title?: string;
   eyebrow?: string;
   submitLabel?: string;
+  /** Current personal note; the editor saves it back only when it changes. */
+  initialNote?: string;
 }) {
   const [content, setContent] = useState<ContentBlock[]>(question.content.map((block) => ({ ...block })));
   const [options, setOptions] = useState<ContentBlock[][]>(question.options.map((blocks) => blocks.map((block) => ({ ...block }))));
   const [answer, setAnswer] = useState(question.answer);
   const [type, setType] = useState<QuestionTypeV6>(question.type);
   const [tags, setTags] = useState(question.tags.join("，"));
+  const [note, setNote] = useState(initialNote);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -169,13 +175,16 @@ export function QuestionEditor({
       if (!deriveContentText(content).trim() && !content.some((block) => block.type === "image")) throw new Error("题干不能为空。");
       if (type !== "计算" && normalizedOptions.length < 2) throw new Error("至少需要两个选项。");
       if (!normalizedAnswer) throw new Error("请填写正确答案。");
+      // Forward the personal note only when it changed; callers persist it to
+      // the resolved question id (which may differ in a shared-question split).
+      const notePayload = note !== initialNote ? note : undefined;
       await onSave({
         type,
         content,
         options: normalizedOptions,
         answer: normalizedAnswer,
         tags: tags.split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean),
-      });
+      }, notePayload);
       // Shared-question editing may open a decision dialog without unmounting
       // this editor; keep the form usable if that decision is cancelled.
       setSaving(false);
@@ -194,6 +203,7 @@ export function QuestionEditor({
         <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAssetV6} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
         {type !== "判断" && options.length < 8 && <button type="button" className="add-option" onClick={addOption}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>
+      <label>个人解析<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="写下错因、口诀或区分条件…" rows={4} /><small>纯文本；保存时与题目一起写入，可在做题页继续编辑。</small></label>
       <div className="editor-preview"><span>预览</span><ContentBlockRenderer blocks={content} loadAsset={loadImageAssetV6} /></div>
       {error && <p className="editor-error">{error}</p>}
     </div>
@@ -221,7 +231,8 @@ export function SharedQuestionEditor({
 }) {
   const [memberships, setMemberships] = useState<Array<{ bankId: string; name: string }>>([]);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
-  const [pendingChanges, setPendingChanges] = useState<QuestionChanges>();
+  const [pendingChanges, setPendingChanges] = useState<{ changes: QuestionChanges; note?: string }>();
+  const existingNote = useLiveQuery(() => dbV6.notes.get(question.id), [question.id]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const membershipKey = `${question.id}:${preferredBankId ?? ""}`;
@@ -263,10 +274,11 @@ export function SharedQuestionEditor({
     return () => { disposed = true; };
   }, [membershipKey, preferredBankId, question.id]);
 
-  async function applyChanges(changes: QuestionChanges, mode: "sync" | "split"): Promise<boolean> {
+  async function applyChanges(changes: QuestionChanges, note: string | undefined, mode: "sync" | "split"): Promise<boolean> {
     setError("");
     setBusy(true);
     try {
+      let targetId = question.id;
       if (mode === "sync") {
         await updateQuestionV6(question.id, changes);
       } else {
@@ -275,7 +287,11 @@ export function SharedQuestionEditor({
         const clone = result.clones[0];
         if (!clone) throw new Error("未找到可分裂的题库 membership。");
         await updateQuestionV6(clone.id, changes);
+        targetId = clone.id;
       }
+      // Persist the personal note to the resolved question (the clone on a
+      // split); an undefined note means the editor left it unchanged.
+      if (note !== undefined) await saveNoteV6(targetId, note);
       onSaved();
       return true;
     } catch (saveError) {
@@ -286,7 +302,7 @@ export function SharedQuestionEditor({
     }
   }
 
-  async function save(changes: QuestionChanges) {
+  async function save(changes: QuestionChanges, note?: string) {
     // Do not treat the initial empty state as an unfiled/single-membership
     // question. A fast save must wait for the authoritative membership join.
     if (membershipLoadFailed) throw new Error(membershipLoadError?.message || error || "无法读取题库归属，请稍后重试。");
@@ -300,14 +316,14 @@ export function SharedQuestionEditor({
       setSelectedBankIds(defaults);
     }
     if (rows.length <= 1) {
-      await applyChanges(changes, "sync");
+      await applyChanges(changes, note, "sync");
       return;
     }
     const defaults = preferredBankId && rows.some((row) => row.bankId === preferredBankId) ? [preferredBankId] : rows.slice(0, 1).map((row) => row.bankId);
     setSelectedBankIds((current) => current.length ? current : defaults);
-    setPendingChanges(changes);
+    setPendingChanges({ changes, note });
   }
 
-  const decisionDialog = pendingChanges ? <ModalPortal><div className="shared-edit-backdrop" role="presentation"><section className="shared-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="shared-edit-title"><header><div><span className="eyebrow">共享题目</span><h2 id="shared-edit-title">这道题属于多个题库</h2></div><button className="icon-button" onClick={() => setPendingChanges(undefined)} aria-label="取消共享题目决策"><X size={18} /></button></header><p>请选择本次修改的范围：同步修改会影响全部题库；分裂题目会将勾选的题库移到新的题目，原题的历史记录保留。</p><div className="shared-edit-memberships">{memberships.map((membership) => <label key={membership.bankId}><input type="checkbox" checked={selectedBankIds.includes(membership.bankId)} onChange={() => setSelectedBankIds((current) => current.includes(membership.bankId) ? current.filter((id) => id !== membership.bankId) : [...current, membership.bankId])} /><span>{membership.name}</span></label>)}</div>{error && <p className="editor-error">{error}</p>}<footer><button className="secondary-action" disabled={busy} onClick={() => setPendingChanges(undefined)}>取消</button><button className="secondary-action" disabled={busy} onClick={() => { if (!pendingChanges) return; void applyChanges(pendingChanges, "sync").then((success) => { if (success) setPendingChanges(undefined); }); }}>同步修改全部题库</button><button className="primary" disabled={busy || !selectedBankIds.length} onClick={() => { if (!pendingChanges) return; void applyChanges(pendingChanges, "split").then((success) => { if (success) setPendingChanges(undefined); }); }}>{busy ? "保存中…" : "分裂勾选题库"}</button></footer></section></div></ModalPortal> : null;
-  return <>{decisionDialog}<QuestionEditor question={question} title={title} onCancel={onCancel} onSave={save} /></>;
+  const decisionDialog = pendingChanges ? <ModalPortal><div className="shared-edit-backdrop" role="presentation"><section className="shared-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="shared-edit-title"><header><div><span className="eyebrow">共享题目</span><h2 id="shared-edit-title">这道题属于多个题库</h2></div><button className="icon-button" onClick={() => setPendingChanges(undefined)} aria-label="取消共享题目决策"><X size={18} /></button></header><p>请选择本次修改的范围：同步修改会影响全部题库；分裂题目会将勾选的题库移到新的题目，原题的历史记录保留。</p><div className="shared-edit-memberships">{memberships.map((membership) => <label key={membership.bankId}><input type="checkbox" checked={selectedBankIds.includes(membership.bankId)} onChange={() => setSelectedBankIds((current) => current.includes(membership.bankId) ? current.filter((id) => id !== membership.bankId) : [...current, membership.bankId])} /><span>{membership.name}</span></label>)}</div>{error && <p className="editor-error">{error}</p>}<footer><button className="secondary-action" disabled={busy} onClick={() => setPendingChanges(undefined)}>取消</button><button className="secondary-action" disabled={busy} onClick={() => { if (!pendingChanges) return; void applyChanges(pendingChanges.changes, pendingChanges.note, "sync").then((success) => { if (success) setPendingChanges(undefined); }); }}>同步修改全部题库</button><button className="primary" disabled={busy || !selectedBankIds.length} onClick={() => { if (!pendingChanges) return; void applyChanges(pendingChanges.changes, pendingChanges.note, "split").then((success) => { if (success) setPendingChanges(undefined); }); }}>{busy ? "保存中…" : "分裂勾选题库"}</button></footer></section></div></ModalPortal> : null;
+  return <>{decisionDialog}<QuestionEditor question={question} title={title} onCancel={onCancel} onSave={save} initialNote={existingNote?.content ?? ""} /></>;
 }

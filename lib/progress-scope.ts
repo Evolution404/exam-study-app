@@ -1,3 +1,4 @@
+import type { AttemptStats } from "./types";
 import type { AttemptV6, ReviewRoundProgress } from "./v6-types";
 
 /** Minimal global projection required to decide whether a question is done. */
@@ -273,5 +274,31 @@ export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQu
     firstCorrect,
     firstKnown,
     lastAttemptAt,
+  };
+}
+
+/**
+ * Bridge a scoped per-question stats row back into the legacy `AttemptStats`
+ * shape so existing helpers (`summarizeAttemptStats`, `calculateDifficulty`)
+ * work on date-range-filtered data.  Scoped stats cannot reconstruct the full
+ * `recentOutcomes` history, so it is left empty (same trade-off the bank
+ * overview already makes).
+ */
+export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bankId = ""): AttemptStats {
+  return {
+    questionId: stats.questionId,
+    bankId,
+    total: stats.total,
+    correct: stats.correct,
+    wrong: stats.wrong,
+    giveUps: stats.giveUps ?? 0,
+    totalElapsedMs: stats.totalElapsedMs ?? 0,
+    firstAttemptAt: stats.firstAttemptAt,
+    firstAttemptCorrect: stats.firstAttemptCorrect ?? false,
+    latestAttemptAt: stats.latestAttemptAt,
+    hasBeenWrong: stats.hasBeenWrong,
+    correctStreakAfterWrong: stats.correctStreakAfterWrong,
+    currentCorrectStreak: stats.currentCorrectStreak,
+    recentOutcomes: [],
   };
 }
