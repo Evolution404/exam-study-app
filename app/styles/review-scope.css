@@ -4,6 +4,8 @@
 .review-round-manager,
 .practice-round-picker {
   min-width: 0;
+  max-width: 780px;
+  margin-bottom: 16px;
   border: 1px solid var(--color-border);
   border-radius: 18px;
   padding: clamp(16px, 3vw, 24px);
