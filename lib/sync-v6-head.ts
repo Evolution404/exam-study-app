@@ -19,7 +19,9 @@ export const SYNC_V6_IMAGE_PREFIX = SYNC_V6_ASSET_PREFIX;
 
 export const SYNC_V6_MAX_EVENT_BYTES = 1024 * 1024;
 export const SYNC_V6_MAX_EVENT_PAGE_BYTES = 1024 * 1024;
-export const SYNC_V6_MAX_EVENT_PAGE_COUNT = 250;
+export const SYNC_V6_MAX_EVENT_PAGE_COUNT = 1000;
+/** Re-pack the hot tail into full pages once incremental pages exceed this count. */
+export const SYNC_V6_EVENT_PAGE_CONSOLIDATE_COUNT = 24;
 export const SYNC_V6_MAX_HOT_EVENT_BYTES = 4 * 1024 * 1024;
 /** A second name makes the aggregate budget unambiguous to callers. */
 export const SYNC_V6_MAX_HOT_BYTES = SYNC_V6_MAX_HOT_EVENT_BYTES;
@@ -32,6 +34,7 @@ export const SYNC_V6_LIMITS = Object.freeze({
   maxEventBytes: SYNC_V6_MAX_EVENT_BYTES,
   maxEventPageBytes: SYNC_V6_MAX_EVENT_PAGE_BYTES,
   maxEventPageCount: SYNC_V6_MAX_EVENT_PAGE_COUNT,
+  eventPageConsolidateCount: SYNC_V6_EVENT_PAGE_CONSOLIDATE_COUNT,
   maxHotEventBytes: SYNC_V6_MAX_HOT_EVENT_BYTES,
   maxEventPages: SYNC_V6_MAX_EVENT_PAGES,
   maxDescriptorBytes: SYNC_V6_MAX_DESCRIPTOR_BYTES,

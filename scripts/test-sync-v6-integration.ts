@@ -412,7 +412,74 @@ try {
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));
   assert.ok(!publicFacade.includes("github-sync-v5"));
-  console.log("sync v6 integration tests passed: asset ordering, CAS retry/failure, atomic rollback, lazy image cache, public v6 facade and one-answer event");
+
+  // ---- Event-page consolidation + A/B timeline ----
+  // A device accumulates sparse incremental pages until publication re-packs the
+  // whole checkpoint tail into one page.  A device that synced just before that
+  // consolidation (its markers point at the pre-consolidation head) must still
+  // reach the newer state by downloading the single consolidated page, replaying
+  // it with the events it already holds deduped by id.
+  files.clear();
+  blobs.clear();
+  head = undefined;
+  calls.length = 0;
+  shaCounter = 0;
+  await resetV6Database();
+  const consBank = await importQuestionBankV6("consolidate.json", [{ q: "基础题", type: "单选", a: ["甲", "乙"], ans: "A" }]);
+  await syncWithGitHubV6(settings, token);
+  const preConsolidationIds: string[] = [];
+  let preConsolidationHead: SyncHeadV6;
+  for (let index = 0; ; index += 1) {
+    const created = await createQuestionV6(consBank.id, { type: "单选", stem: `聚合前 ${index}`, options: ["A", "B"], answer: "A" });
+    preConsolidationIds.push(created.id);
+    await syncWithGitHubV6(settings, token);
+    const currentHead = JSON.parse(new TextDecoder().decode(head!.bytes)) as SyncHeadV6;
+    if (currentHead.eventPages.length >= 24) {
+      preConsolidationHead = currentHead;
+      break;
+    }
+  }
+  const preConsolidationCount = preConsolidationHead!.eventPages.reduce((sum, page) => sum + page.count, 0);
+
+  // The next publish crosses the threshold: publication re-packs the tail in
+  // place instead of appending yet another sparse page.
+  const consNew = await createQuestionV6(consBank.id, { type: "单选", stem: "聚合后 25", options: ["A", "B"], answer: "A" });
+  await syncWithGitHubV6(settings, token);
+  const consolidatedHead = JSON.parse(new TextDecoder().decode(head!.bytes)) as SyncHeadV6;
+  assert.equal(consolidatedHead.eventPages.length, 1, "consolidation collapses the sparse pages into one full page");
+  const consolidatedEvents = JSON.parse(storedText(files.get(consolidatedHead.eventPages[0].path)!.bytes)) as V6Event[];
+  // createQuestionV6 emits a membership.saved plus a question.upserted event.
+  assert.equal(consolidatedEvents.length, preConsolidationCount + 2, "consolidated page holds every previous tail event plus the two new ones");
+  assert.ok(consolidatedEvents.every((event) => event.type === "question.upserted" || event.type === "bank.upserted" || event.type === "membership.saved"), "consolidated page contains only hot-tail events");
+  const consolidatedUpsertIds = new Set(consolidatedEvents.filter((event) => event.type === "question.upserted").map((event) => (event.payload as { id: string }).id));
+  assert.ok([...preConsolidationIds, consNew.id].every((id) => consolidatedUpsertIds.has(id)), "consolidated page covers every published question");
+
+  // Device B synced at the 24-page state, then another device crossed the
+  // consolidation threshold.  B's markers point at the pre-consolidation head:
+  // it must download the consolidated page and reach the new question, with the
+  // already-held events deduped by id during replay.
+  await dbV6.questions.delete(consNew.id);
+  await dbV6.bankQuestionMemberships.where("questionId").equals(consNew.id).delete();
+  const consBankRow = (await dbV6.banks.get(consBank.id))!;
+  const remainingMemberships = await dbV6.bankQuestionMemberships.where("bankId").equals(consBank.id).count();
+  await dbV6.banks.put({ ...consBankRow, questionCount: remainingMemberships, updatedAt: new Date().toISOString() });
+  const consNewEvents = (await dbV6.events.toArray()).filter((event) => {
+    const payload = event.payload as { id?: string; questionId?: string };
+    return event.type === "question.upserted" ? payload.id === consNew.id : event.type === "membership.saved" ? payload.questionId === consNew.id : false;
+  });
+  assert.equal(consNewEvents.length, 2, "the new question produced a membership + question event pair");
+  await dbV6.events.bulkDelete(consNewEvents.map((event) => event.id));
+  await dbV6.syncFiles.clear();
+  await dbV6.syncFiles.bulkPut([
+    { path: consolidatedHead.checkpoint.path, sha: consolidatedHead.checkpoint.blobSha, appliedAt: new Date().toISOString() },
+    { path: consolidatedHead.archiveCatalog.path, sha: consolidatedHead.archiveCatalog.blobSha, appliedAt: new Date().toISOString() },
+    ...preConsolidationHead!.eventPages.map((page) => ({ path: page.path, sha: page.blobSha, appliedAt: new Date().toISOString() })),
+  ]);
+  const behindPulled = await syncWithGitHubV6(settings, token);
+  assert.ok(behindPulled.pulled >= 1, "device behind the consolidation pulls the consolidated page");
+  assert.ok(await dbV6.questions.get(consNew.id), "device behind the consolidation reaches the newly published question");
+
+  console.log("sync v6 integration tests passed: asset ordering, CAS retry/failure, atomic rollback, lazy image cache, public v6 facade, one-answer event and page consolidation A/B timeline");
 } finally {
   globalThis.fetch = originalFetch;
   await dbV6.delete();

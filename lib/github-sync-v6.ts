@@ -33,6 +33,7 @@ import {
   SYNC_V6_CHECKPOINT_PREFIX,
   SYNC_V6_EVENT_PREFIX,
   SYNC_V6_IMMUTABLE_PREFIX,
+  SYNC_V6_EVENT_PAGE_CONSOLIDATE_COUNT,
   SYNC_V6_MAX_EVENT_PAGES,
   SYNC_V6_MAX_HOT_EVENT_BYTES,
   encodeSyncV6Event,
@@ -42,6 +43,7 @@ import {
   type SyncHeadV6,
   type SyncV6Descriptor,
   type SyncV6EventPageDescriptor,
+  type SyncV6HotTailPlan,
   type SyncV6PublicationFile,
 } from "./sync-v6-head";
 import {
@@ -429,6 +431,47 @@ function mergedEventPagesFit(existing: readonly SyncV6EventPageDescriptor[], add
   return paths.size <= SYNC_V6_MAX_EVENT_PAGES && bytes <= SYNC_V6_MAX_HOT_EVENT_BYTES;
 }
 
+/** Encode hot-tail pages into content-addressed event page files (paths filled). */
+async function encodePageFiles(hot: SyncV6HotTailPlan<V6Event>): Promise<SyncV6PublicationFile[]> {
+  const pageFiles: SyncV6PublicationFile[] = hot.pages.map((page) => ({ path: digestPath(SYNC_V6_EVENT_PREFIX, ""), bytes: page.bytes, kind: "eventPage" }));
+  for (let index = 0; index < pageFiles.length; index += 1) {
+    const page = pageFiles[index];
+    const bytes = page.bytes instanceof Uint8Array ? page.bytes : new TextEncoder().encode(String(page.bytes));
+    pageFiles[index] = { ...page, path: digestPath(SYNC_V6_EVENT_PREFIX, await digest(bytes)) };
+  }
+  return pageFiles;
+}
+
+/**
+ * Re-pack the checkpoint tail once sparse incremental pages make a full
+ * download (new device / restore) fetch too many small files.  Downloads every
+ * existing hot page, appends the new batch, and returns a fresh few-page tail
+ * that replaces the sparse pages in the head.  Returns null when the head is
+ * already compact, or when the merged tail cannot stay inside the bounded hot
+ * window (the caller then falls back to a fresh checkpoint instead).
+ */
+async function tryConsolidateEventPages(
+  client: GitHubV6Remote,
+  head: SyncHeadV6,
+  newEvents: readonly V6Event[],
+  onProgress?: SyncV6ProgressCallback,
+): Promise<{ hot: SyncV6HotTailPlan<V6Event>; pageFiles: SyncV6PublicationFile[] } | null> {
+  if (head.eventPages.length < SYNC_V6_EVENT_PAGE_CONSOLIDATE_COUNT) return null;
+  report(onProgress, "upload", `正在合并 ${head.eventPages.length} 个近期更改分页`, 58);
+  const pages = await mapWithConcurrency(
+    head.eventPages,
+    (descriptor) => client.readBlob(descriptor).then((bytes) => parseEventPage(bytes, descriptor)),
+    (completed, total) => report(onProgress, "upload", `正在合并近期更改 ${completed}/${total}`, 58 + completed / Math.max(1, total) * 8),
+  );
+  // Existing pages are ordered as the head lists them; the new local batch is
+  // appended in its own sequence, preserving the same replay order a full
+  // download would use.  applyV6Event dedupes by event id, so an overlapping
+  // page is idempotent for devices that already hold part of the tail.
+  const hot = planSyncV6HotTail([...pages.flat(), ...newEvents]);
+  if (hot.requiresCheckpoint) return null;
+  return { hot, pageFiles: await encodePageFiles(hot) };
+}
+
 /**
  * Decide the archive catalog for the next head.  The catalog is content
  * addressed and immutable, so an existing real catalog is preserved simply by
@@ -456,24 +499,22 @@ async function publicationFor(
   // Run definitions are immutable objects referenced by run events; they are
   // published alongside the pages, always before the head CAS.
   const definitionFiles = await ensureRunDefinitions(client, pending);
-  const hot = planSyncV6HotTail(events);
-  const pageFiles: SyncV6PublicationFile[] = hot.pages.map((page) => ({ path: digestPath(SYNC_V6_EVENT_PREFIX, ""), bytes: page.bytes, kind: "eventPage" }));
-  // Hash paths are filled after encoding; retaining page order is important
-  // for cursor/page validation, while the head is sorted by path below.
-  for (let index = 0; index < pageFiles.length; index += 1) {
-    const page = pageFiles[index];
-    const bytes = page.bytes instanceof Uint8Array ? page.bytes : new TextEncoder().encode(String(page.bytes));
-    pageFiles[index] = { ...page, path: digestPath(SYNC_V6_EVENT_PREFIX, await digest(bytes)) };
-  }
+  // Once incremental pages accumulate past the threshold, re-pack the whole
+  // checkpoint tail into full pages so a new device or restore downloads one
+  // or two objects instead of many sparse ones.  A merged tail that would
+  // overflow the hot window falls back to a fresh checkpoint below.
+  const consolidated = await tryConsolidateEventPages(client, expectedHead, events, onProgress);
+  const hot = consolidated ? consolidated.hot : planSyncV6HotTail(events);
+  const pageFiles = consolidated ? consolidated.pageFiles : await encodePageFiles(hot);
   // A fresh checkpoint is required when the remote head is still a placeholder,
   // when the merged tail would overflow the hot window, or when any pending
   // event cannot fit an event page and must be covered by the checkpoint
-  // projection instead.  Small, fully-pageable syncs reuse the existing
-  // checkpoint and append event pages only.
+  // projection instead.  A consolidated tail replaces the pages wholesale, so
+  // the append-fit check only applies to the plain incremental path.
   const compacted = isPlaceholderDescriptor(expectedHead.checkpoint)
     || hot.requiresCheckpoint
     || events.length < pending.length
-    || !mergedEventPagesFit(expectedHead.eventPages, pageFiles);
+    || (!consolidated && !mergedEventPagesFit(expectedHead.eventPages, pageFiles));
   const catalog = await catalogForPublication(expectedHead, checkpoint);
 
   if (compacted) {
@@ -528,7 +569,7 @@ async function publicationFor(
     generatedAt: checkpoint.generatedAt,
     checkpoint: expectedHead.checkpoint,
     archiveCatalog: expectedHead.archiveCatalog,
-    eventPages: mergeSyncV6EventPages(expectedHead.eventPages, pageDescriptors),
+    eventPages: consolidated ? pageDescriptors : mergeSyncV6EventPages(expectedHead.eventPages, pageDescriptors),
   };
   validateSyncHeadV6(nextHead);
   return { files: [...assets, ...pageFiles, ...definitionFiles], head: nextHead, pendingIds: pending.map((event) => event.id), compacted: false };
