@@ -211,6 +211,36 @@ try {
   assert.equal(manyCheckpoint.state.events?.length ?? 0, 0, "question import is checkpoint-covered instead of a 6,000-event head tail");
   assert.ok(manyBytes.byteLength <= 32 * 1024 * 1024, "6,000-question checkpoint stays below immutable descriptor limit");
 
+  // Continue-practice must resume from the question after the last answered
+  // one even after a sync restore replays the answer events.  Event pages are
+  // path-sorted rather than chronological, so replaying them must never regress
+  // the run's progress hint below the furthest answered index.
+  await resetV6Database();
+  const resumeBank = await importQuestionBankV6("resume.json", [
+    { q: "r1", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "r2", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "r3", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "r4", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "r5", type: "单选", a: ["甲", "乙"], ans: "A" },
+  ]);
+  const resumeMems = await dbV6.bankQuestionMemberships.where("bankId").equals(resumeBank.id).sortBy("sortOrder");
+  const resumeIds = resumeMems.map((member) => member.questionId);
+  // The run snapshot and every answer share one millisecond on purpose: replay
+  // must not let the empty creation snapshot regress the answered run.
+  const resumeTime = "2026-08-12T00:00:00.000Z";
+  const resumeRun = await createPracticeRunV6({ bankId: resumeBank.id, questionIds: resumeIds, startedAt: resumeTime });
+  await recordPracticeAnswerV6({ runId: resumeRun.id, questionId: resumeIds[0], selected: ["A"], correct: true, createdAt: resumeTime });
+  await recordPracticeAnswerV6({ runId: resumeRun.id, questionId: resumeIds[1], selected: ["A"], correct: true, createdAt: resumeTime });
+  await recordPracticeAnswerV6({ runId: resumeRun.id, questionId: resumeIds[3], selected: ["A"], correct: true, createdAt: resumeTime });
+  const beforeRestoreRun = (await dbV6.practiceRuns.get(resumeRun.id))!;
+  assert.equal(beforeRestoreRun.lastAnsweredIndex, 3, "local answering advances the progress hint");
+  const resumeCheckpoint = await createSyncCheckpointV6();
+  await applySyncCheckpointV6(resumeCheckpoint, await dbV6.events.toArray(), { preservePending: true });
+  const afterRestoreRun = (await dbV6.practiceRuns.get(resumeRun.id))!;
+  const furthestAnswered = afterRestoreRun.questionIds.reduce((last, questionId, index) => afterRestoreRun.answers[questionId]?.submitted ? index : last, -1);
+  assert.equal(furthestAnswered, 3, "restore replay keeps every submitted answer");
+  assert.equal(afterRestoreRun.lastAnsweredIndex, furthestAnswered, "restore replay must not regress the progress hint");
+
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));
   assert.ok(!publicFacade.includes("github-sync-v5"));

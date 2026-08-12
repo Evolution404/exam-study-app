@@ -283,21 +283,18 @@ function quickFilter(bankIds: string[], mode: BankQuickMode = "random30", groupS
 function resumeIndexAfterLastAnswer(
   questionIds: string[],
   answers: Record<string, PracticeAnswerState>,
-  savedLastAnsweredIndex?: number,
 ) {
   if (!questionIds.length) return 0;
-  const savedIndexIsValid = savedLastAnsweredIndex !== undefined
-    && savedLastAnsweredIndex >= 0
-    && savedLastAnsweredIndex < questionIds.length
-    && answers[questionIds[savedLastAnsweredIndex]]?.submitted;
-  const lastAnsweredIndex = savedIndexIsValid
-    ? savedLastAnsweredIndex
-    : questionIds.reduce((last, questionId, index) => answers[questionId]?.submitted ? index : last, -1);
+  // Derive the resume position from the submitted answers themselves.  The
+  // run's `lastAnsweredIndex` is a derived hint that sync restores can leave
+  // stale (event replay order is not chronological), so trusting it here made
+  // continue-practice jump back to an already-answered question.
+  const lastAnsweredIndex = questionIds.reduce((last, questionId, index) => answers[questionId]?.submitted ? index : last, -1);
   return Math.min(lastAnsweredIndex + 1, questionIds.length - 1);
 }
 
 function activePracticeFromRun(run: PracticeRun, preferredIndex?: number): ActivePractice {
-  const currentIndex = preferredIndex ?? resumeIndexAfterLastAnswer(run.questionIds, run.answers, run.lastAnsweredIndex);
+  const currentIndex = preferredIndex ?? resumeIndexAfterLastAnswer(run.questionIds, run.answers);
   return {
     id: "active",
     runId: run.id,

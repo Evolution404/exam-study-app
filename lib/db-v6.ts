@@ -1238,12 +1238,20 @@ async function applyAnswerPayloadInTx(payload: PracticeAnswerSubmittedV6Payload,
   const run = await dbV6.practiceRuns.get(payload.runId);
   const baseRun = run;
   if (baseRun) {
+    const answers = { ...baseRun.answers, [payload.questionId]: answer };
+    const lastSubmittedIndex = baseRun.questionIds.reduce(
+      (last, questionId, index) => answers[questionId]?.submitted ? index : last,
+      -1,
+    );
     const updatedRun: PracticeRunV6 = {
       ...baseRun,
-      answers: { ...baseRun.answers, [payload.questionId]: answer },
+      answers,
       updatedAt: answer.updatedAt,
       revision: Math.max(baseRun.revision + 1, (run?.revision ?? 0) + 1),
-      lastAnsweredIndex: baseRun.questionIds.indexOf(payload.questionId),
+      // Derive the progress hint from the merged answers so that event replay
+      // order (pages are path-sorted, never chronological) cannot leave it
+      // pointing at an already-answered question.
+      lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : baseRun.lastAnsweredIndex,
     };
     await updatePracticeRunStatsInTx(run, updatedRun);
     await dbV6.practiceRuns.put(updatedRun);
@@ -1304,12 +1312,17 @@ export async function recordPracticeAnswerV6(input: PracticeAnswerInputV6): Prom
     deviceId,
     eventId,
   };
+  const answers = { ...run.answers, [input.questionId]: answer };
+  const lastSubmittedIndex = run.questionIds.reduce(
+    (last, questionId, index) => answers[questionId]?.submitted ? index : last,
+    -1,
+  );
   const nextRun: PracticeRunV6 = {
     ...run,
-    answers: { ...run.answers, [input.questionId]: answer },
+    answers,
     updatedAt: timestamp,
     revision: run.revision + 1,
-    lastAnsweredIndex: run.questionIds.indexOf(input.questionId),
+    lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : run.lastAnsweredIndex,
   };
   const event = eventWithId("practice.answer.submitted", {
     attempt,
@@ -1487,7 +1500,10 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
         if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.practiceRuns.get(run.id);
-        if (!current || compareClock(run, current) >= 0) {
+        // Strictly newer only: a run snapshot and its answers can share the same
+        // millisecond, and replaying the older snapshot on an equal clock must
+        // not regress the run to the empty-answers state captured at creation.
+        if (!current || compareClock(run, current) > 0) {
           await updatePracticeRunStatsInTx(current, run);
           await dbV6.practiceRuns.put(run);
         }
@@ -1499,7 +1515,7 @@ export async function applyV6Event(input: V6Event): Promise<boolean> {
         if (tombstone && compareClock(run, { updatedAt: tombstone.deletedAt, deviceId: tombstone.deviceId, id: tombstone.eventId }) <= 0) break;
         if (tombstone) await dbV6.tombstones.delete(tombstone.key);
         const current = await dbV6.practiceRuns.get(run.id);
-        if (!current || compareClock(run, current) >= 0) {
+        if (!current || compareClock(run, current) > 0) {
           await updatePracticeRunStatsInTx(current, run);
           await dbV6.practiceRuns.put(run);
         }
