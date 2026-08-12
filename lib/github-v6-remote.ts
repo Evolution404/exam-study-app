@@ -193,6 +193,56 @@ function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+/**
+ * zlib framing (RFC 1950) header check: deflate method (CMF low nibble),
+ * window <= 32K (CINFO), and FCHECK divisible by 31.  Raw bytes never pass
+ * it, so the inflate stream only ever receives well-formed input.
+ */
+function isZlibV6Header(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 2) return false;
+  const cmf = bytes[0];
+  const flg = bytes[1];
+  return (cmf & 0x0f) === 8 && (cmf >> 4) <= 7 && ((cmf << 8) + flg) % 31 === 0;
+}
+
+/**
+ * Stream-compress or decompress object bytes with zlib framing (RFC 1950).
+ * The Compression Streams API is available in browsers and Node, and "deflate"
+ * framing keeps the two interoperable.  This is a transport-layer detail: the
+ * protocol's digests, sizes and content-addressed paths always describe the
+ * raw bytes, so compressed bytes are never hashed or compared.
+ */
+async function transformV6Bytes(bytes: Uint8Array, compress: boolean): Promise<Uint8Array> {
+  const stream = compress ? new CompressionStream("deflate") : new DecompressionStream("deflate");
+  const writer = stream.writable.getWriter();
+  const chunks: Uint8Array[] = [];
+  const readPromise = (async () => {
+    const reader = stream.readable.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(new Uint8Array(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const output = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return output;
+  })();
+  // Copy into a fresh Uint8Array so the stream write only ever sees its own
+  // backing ArrayBuffer (a borrowed SharedArrayBuffer view is not BufferSource).
+  await writer.write(new Uint8Array(bytes));
+  await writer.close();
+  return readPromise;
+}
+
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
   for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return false;
@@ -497,9 +547,15 @@ export class GitHubV6Remote {
       assertSha256(input.sha256, "immutable v6 sha256");
       if (input.sha256 !== sha256) throw new SyncV6BlobIntegrityError("sha256", input.sha256, sha256);
     }
+    // JSON objects are stored deflated so large checkpoints and definitions
+    // stay small on upload and in the repo; binary assets are already
+    // compressed and stay raw.  Digests, sizes and the content-addressed path
+    // keep describing the raw bytes, and reads transparently inflate.
+    const compressible = kind !== "asset" && kind !== "image" && content.byteLength >= 512;
+    const uploadBytes = compressible ? await transformV6Bytes(content, true) : content;
     const response = await this.request(contentPath(this.owner, this.repo, input.path), {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: input.message ?? `sync(v6): add ${input.path}`, content: encodeBase64(content), branch: this.branch }),
+      body: JSON.stringify({ message: input.message ?? `sync(v6): add ${input.path}`, content: encodeBase64(uploadBytes), branch: this.branch }),
     });
     if (response.status !== 422) {
       this.requireOk(response, `put immutable ${input.path}`);
@@ -553,10 +609,28 @@ export class GitHubV6Remote {
     const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V6_RAW_MEDIA_TYPE);
     this.requireOk(response, `read blob ${blobSha}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength !== expectation.size) throw new SyncV6BlobIntegrityError("size", expectation.size, bytes.byteLength);
-    const actualSha256 = await digestHex("SHA-256", bytes);
-    if (actualSha256 !== expectation.sha256) throw new SyncV6BlobIntegrityError("sha256", expectation.sha256, actualSha256);
-    return bytes;
+    // Objects are stored deflated on write; existing raw objects and binary
+    // assets are not.  A digest match means raw (fast path); anything else
+    // must inflate to the expected content or it is corrupt.
+    const rawSha256 = await digestHex("SHA-256", bytes);
+    if (rawSha256 === expectation.sha256) {
+      if (bytes.byteLength !== expectation.size) throw new SyncV6BlobIntegrityError("size", expectation.size, bytes.byteLength);
+      return bytes;
+    }
+    // Not the raw content: it must be a deflated object.  The zlib header
+    // check keeps invalid input away from the inflate stream (Node's adapter
+    // surfaces stream errors as uncaught events, not read() rejections).
+    if (!isZlibV6Header(bytes)) throw new SyncV6BlobIntegrityError("sha256", expectation.sha256, rawSha256);
+    let content: Uint8Array;
+    try {
+      content = await transformV6Bytes(bytes, false);
+    } catch {
+      throw new SyncV6BlobIntegrityError("sha256", expectation.sha256, rawSha256);
+    }
+    if (content.byteLength !== expectation.size) throw new SyncV6BlobIntegrityError("size", expectation.size, content.byteLength);
+    const contentSha256 = await digestHex("SHA-256", content);
+    if (contentSha256 !== expectation.sha256) throw new SyncV6BlobIntegrityError("sha256", expectation.sha256, contentSha256);
+    return content;
   }
 
   readImmutableBlob(blobSha: string, expected: SyncV6BlobExpectation): Promise<Uint8Array>;

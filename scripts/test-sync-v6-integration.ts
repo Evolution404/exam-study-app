@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
+import { inflateSync } from "node:zlib";
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import {
@@ -19,6 +20,7 @@ import {
 import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
 import { downloadImageAssetV6, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
 import type { SyncHeadV6 } from "../lib/sync-v6-head";
+import { GitHubV6Remote } from "../lib/github-v6-remote";
 import { sha256Blob } from "../lib/image-assets";
 import type { ImageAsset, V6Event } from "../lib/v6-types";
 import type { GitHubSettings } from "../lib/types";
@@ -33,6 +35,14 @@ const token = "integration-token";
 const encode = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const decode = (value: string) => new Uint8Array(Buffer.from(value, "base64"));
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+/** Decode vault-stored object bytes: new objects are deflated, small/legacy ones raw. */
+const storedText = (bytes: Uint8Array) => {
+  try {
+    return new TextDecoder().decode(inflateSync(bytes));
+  } catch {
+    return new TextDecoder().decode(bytes);
+  }
+};
 
 interface Stored { bytes: Uint8Array; sha: string }
 const files = new Map<string, Stored>();
@@ -165,10 +175,12 @@ try {
   const definitionPutCount = calls.filter((call) => call.method === "PUT" && call.path.includes("/objects/")).length;
   assert.equal(definitionPutCount, 1, "a run definition is uploaded exactly once across syncs");
   const publishedHead = JSON.parse(new TextDecoder().decode(head!.bytes)) as SyncHeadV6;
-  const publishedPages = publishedHead.eventPages.map((page) => new TextDecoder().decode(files.get(page.path)?.bytes ?? new Uint8Array()));
+  const publishedPages = publishedHead.eventPages.map((page) => storedText(files.get(page.path)?.bytes ?? new Uint8Array()));
   assert.ok(publishedPages.every((page) => !page.includes(largeEvent.id)), "oversized event is omitted from event pages");
-  const publishedCheckpoint = JSON.parse(new TextDecoder().decode(files.get(publishedHead.checkpoint.path)!.bytes)) as { state: { questions: Array<{ id: string }> } };
+  const publishedCheckpoint = JSON.parse(storedText(files.get(publishedHead.checkpoint.path)!.bytes)) as { state: { questions: Array<{ id: string }> } };
   assert.ok(publishedCheckpoint.state.questions.some((question) => question.id === largeQuestion.id), "checkpoint contains oversized question projection");
+  const storedCheckpointBytes = files.get(publishedHead.checkpoint.path)!.bytes;
+  assert.ok(storedCheckpointBytes.byteLength < inflateSync(storedCheckpointBytes).byteLength, "checkpoint is stored deflated");
 
   const checkpoint = await createSyncCheckpointV6();
   const beforeBanks = await dbV6.banks.count();
@@ -329,6 +341,26 @@ try {
   const orderRestored = (await dbV6.practiceRuns.get(orderRun.id))!;
   assert.equal(Object.values(orderRestored.answers).filter((answer) => answer.submitted).length, 2, "answers replay after the run snapshot materializes");
   assert.equal(orderRestored.questionIds.join(","), orderIds.join(","), "run definition materializes from its ref");
+
+  // Compression is a network-layer detail: descriptors, digests and paths
+  // keep describing raw bytes, reads inflate transparently, and small objects
+  // plus binary assets stay raw.  Pre-existing raw objects read unchanged.
+  const probeClient = new GitHubV6Remote({ owner, repo, branch, token });
+  const probeBytes = new TextEncoder().encode(JSON.stringify({ value: "中".repeat(10_000) }));
+  const probePath = `sync/v6/objects/${sha256(probeBytes)}.json`;
+  const probeUploaded = await probeClient.putImmutable({ path: probePath, bytes: probeBytes, kind: "immutable" });
+  const storedProbe = files.get(probePath)!.bytes;
+  assert.ok(storedProbe.byteLength < probeBytes.byteLength, `JSON objects are stored deflated: ${storedProbe.byteLength} < ${probeBytes.byteLength}`);
+  assert.deepEqual([...await probeClient.readBlob(probeUploaded.blobSha, { size: probeBytes.byteLength, sha256: sha256(probeBytes) })], [...probeBytes], "reads transparently inflate");
+  const tinyBytes = new TextEncoder().encode(JSON.stringify({ small: true }));
+  const tinyPath = `sync/v6/objects/${sha256(tinyBytes)}.json`;
+  await probeClient.putImmutable({ path: tinyPath, bytes: tinyBytes, kind: "immutable" });
+  assert.deepEqual([...files.get(tinyPath)!.bytes], [...tinyBytes], "small objects stay raw");
+  const rawProbe = new TextEncoder().encode(JSON.stringify({ legacy: "raw object" }));
+  const rawSha = nextSha();
+  files.set(`sync/v6/objects/${sha256(rawProbe)}.json`, { bytes: rawProbe, sha: rawSha });
+  blobs.set(rawSha, rawProbe);
+  assert.deepEqual([...await probeClient.readBlob(rawSha, { size: rawProbe.byteLength, sha256: sha256(rawProbe) })], [...rawProbe], "pre-existing raw objects read unchanged");
 
   const publicFacade = readFileSync(new URL("../lib/github-sync.ts", import.meta.url), "utf8");
   assert.ok(publicFacade.includes("syncWithGitHubV6 as syncWithGitHub"));
