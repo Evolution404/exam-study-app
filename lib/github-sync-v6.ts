@@ -151,8 +151,8 @@ function branchFor(settings: GitHubSettings): string {
   return settings.branch?.trim() || "main";
 }
 
-function remote(settings: GitHubSettings, token: string, options?: Omit<GitHubV6RemoteOptions, "owner" | "repo" | "token" | "branch">): GitHubV6Remote {
-  return new GitHubV6Remote({ ...options, owner: settings.owner, repo: settings.repo, token, branch: branchFor(settings) });
+function remote(settings: GitHubSettings, token: string, options?: Omit<GitHubV6RemoteOptions, "owner" | "repo" | "token" | "branch" | "apiBaseUrl">): GitHubV6Remote {
+  return new GitHubV6Remote({ ...options, owner: settings.owner, repo: settings.repo, token, branch: branchFor(settings), apiBaseUrl: settings.apiBaseUrl || undefined });
 }
 
 function headCacheValue(value: unknown): SyncV6HeadCache | undefined {

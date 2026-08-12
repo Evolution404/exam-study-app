@@ -231,4 +231,6 @@ export interface GitHubSettings {
   owner: string;
   repo: string;
   branch: string;
+  /** Optional edge proxy that forwards api.github.com (e.g. a Cloudflare Worker). */
+  apiBaseUrl?: string;
 }
