@@ -27,4 +27,4 @@ export {
   getImageAssetBlobV6,
   getImageCacheStatsV6,
   getImageCacheStats,
-} from "./github-sync-v6";
+} from "./image-asset-cache";

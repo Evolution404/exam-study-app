@@ -23,7 +23,6 @@ import {
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
-import { getGitHubLoginV6 } from "./github-sync-v6";
 import type { GitHubSettings } from "./types";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number };
@@ -334,7 +333,14 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
 export const restoreFromGitHub = restoreFullHistoryFromGitHub;
 export const pullFromGitHub = async (settings: GitHubSettings, token: string, callback?: SyncProgressCallback) => syncWithGitHub(settings, token, callback);
 export const initializeGitHubVault = initialize;
-export const getGitHubLogin = getGitHubLoginV6;
+
+export async function getGitHubLogin(token: string): Promise<string> {
+  const response = await fetch("https://api.github.com/user", { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
+  if (!response.ok) throw new Error(`GitHub 请求失败（${response.status}）`);
+  const value = await response.json() as { login?: unknown };
+  if (typeof value.login !== "string" || !value.login) throw new Error("GitHub 未返回登录名。");
+  return value.login;
+}
 
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as { cachedAt: string; checkpoint: SyncCheckpointV6 } | undefined;

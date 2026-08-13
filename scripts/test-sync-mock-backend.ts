@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import "fake-indexeddb/auto";
-import { createBankV6, dbV6, resetV6Database } from "../lib/db-v6";
+import { createBankV6, dbV6, putImageAssetV6, resetV6Database } from "../lib/db-v6";
 import { syncWithGitHub } from "../lib/github-sync-v7";
+import { createGitHubV7Remote } from "../lib/github-v7-remote";
+import { SYNC_V7_ASSET_PREFIX } from "../lib/sync-v7-head";
+import { downloadImageAssetV6 } from "../lib/image-asset-cache";
 import { startMockGitHubServer } from "./mock-github-server.mjs";
 
 // The browser-driven sync test covers the UI; this fast, Chrome-free test pins
@@ -44,6 +48,17 @@ try {
   const again = await syncWithGitHub(settings, "qa-token");
   assert.equal(again.pushed, 0, "二次同步不应重复上传");
   assert.equal(again.remaining, 0);
+
+  // Image-blob download round-trip: downloadImageAssetV6 must fetch a v7 Git
+  // blob by blobSha and verify integrity, independent of the legacy transport.
+  const imageBytes = Buffer.from("fake-png-bytes-for-roundtrip");
+  const imageDigest = createHash("sha256").update(imageBytes).digest("hex");
+  const imagePath = `${SYNC_V7_ASSET_PREFIX}${imageDigest}.png`;
+  const uploadedImage = await createGitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: "main", token: "qa-token", apiBaseUrl: server.url }).putImmutable({ path: imagePath, bytes: imageBytes, kind: "asset" });
+  await putImageAssetV6({ id: imageDigest, mimeType: "image/png", size: imageBytes.length, width: 1, height: 1, remote: { path: imagePath, blobSha: uploadedImage.blobSha, sha256: imageDigest, size: imageBytes.length } });
+  const downloaded = await downloadImageAssetV6(settings, "qa-token", imageDigest);
+  assert.equal(downloaded.size, imageBytes.length, "下载的图片 blob 大小应一致");
+  assert.equal(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex"), imageDigest, "下载的图片 blob sha256 应一致");
 
   console.log("mock github backend sync contract passed");
 } finally {
