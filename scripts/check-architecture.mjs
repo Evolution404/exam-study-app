@@ -40,9 +40,7 @@ if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6
 }
 
 const sync = read("lib/github-sync.ts");
-const syncV6 = read("lib/github-sync-v6.ts");
 const syncV6Head = read("lib/sync-v6-head.ts");
-const syncV6Remote = read("lib/github-v6-remote.ts");
 const syncV7 = read("lib/github-sync-v7.ts");
 const syncV7Head = read("lib/sync-v7-head.ts");
 const syncV7Remote = read("lib/github-v7-remote.ts");
@@ -50,23 +48,12 @@ if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户�
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
 if (/github-sync-v5|github-v5-remote|sync-v5|from ["']\.\/db["']/.test(sync)) fail("公开同步门面不得导入 v5 或旧 DB");
-if (!/SYNC_V6_HEAD_PATH\s*=\s*["']sync\/v6\/head\.json["']/.test(syncV6Head)
-  || !/SYNC_V6_HEAD_PATH/.test(syncV6Remote)
-  || !/GitHubV6Remote/.test(syncV6)
-  || !/syncWithGitHubV6/.test(syncV6)
-  || !/restoreFromGitHubV6/.test(syncV6)) {
-  fail("公开同步入口必须通过 Sync v6 固定 head 路径读写远程索引");
-}
-if (!/formatVersion:\s*6\b/.test(syncV6) || !/SYNC_V6_MAX_EVENT_PAGE_BYTES\s*=\s*1024\s*\*\s*1024/.test(syncV6Head)
-  || !/SYNC_V6_MAX_EVENT_BYTES\s*=\s*1024\s*\*\s*1024/.test(syncV6Head)
-  || !/SYNC_V6_MAX_HOT_EVENT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV6Head)) {
-  fail("Sync v6 必须保持事件、分页和热窗口上限");
-}
+if (/github-sync-v6|github-v6-remote/.test(sync)) fail("公开同步门面不得依赖已移除的 v6 transport");
+if (/encodeSyncV6Event|paginateSyncV6Events|planSyncV6HotTail|mergeSyncV6EventPages|SyncV6HotWindowError|SyncHeadV6/.test(syncV6Head)) fail("v6 事件页/热窗口/发布计划代码必须随 v6 transport 一起移除");
 if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync)) fail("公开 syncWithGitHub 必须委托 v7");
 if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
   fail("公开恢复入口必须委托 v7");
 }
-if (/github-sync-v5|github-v5-remote|sync-v5/.test(syncV6)) fail("生产 v6 编排不得依赖 v5 transport");
 if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
   || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)) {
@@ -79,6 +66,6 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
   if (/\bimageUrl\b|题目图片地址/.test(source)) fail(`${file} 不得使用公开图片 URL 字段`);
 }
 
-if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
+if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
 console.log(`架构检查通过：独立数据库 v2 队列、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head。`);

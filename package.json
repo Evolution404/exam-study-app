@@ -17,8 +17,6 @@
     "test:sync": "npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v6-domain && npm run test:db-v6 && npm run test:image-assets && npm run test:sync-mock",
     "test:sync-v7": "npm run test:sync-v7-protocol && npm run test:change-set-v7 && npm run test:sync-v7-multidevice",
     "test:sync-v7-multidevice": "tsx scripts/test-sync-v7-multidevice.ts",
-    "test:sync-v6": "tsx scripts/test-sync-v6-head.ts && tsx scripts/test-github-v6-remote.ts && tsx scripts/test-sync-v6-integration.ts",
-    "test:sync-v6-protocol": "tsx scripts/test-sync-v6-head.ts && tsx scripts/test-github-v6-remote.ts",
     "test:sync-v7-protocol": "tsx scripts/test-sync-v7-head.ts && tsx scripts/test-github-v7-remote.ts",
     "test:pwa": "tsx scripts/test-pwa-cache.ts",
     "test:shortcuts": "tsx scripts/test-keyboard-shortcuts.ts",
@@ -40,7 +38,6 @@
     "test:v6-ui": "tsx scripts/test-v6-ui-data-flow.ts",
     "test:sync-event-ui": "tsx scripts/test-sync-event-ui.ts",
     "test:sync-mock": "tsx scripts/test-sync-mock-backend.ts",
-    "migrate:v6-v7": "tsx scripts/migrate-cloud-v6-to-v7.ts",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
