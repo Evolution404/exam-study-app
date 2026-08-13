@@ -411,6 +411,11 @@ export class GitHubV7Remote {
     const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
     const expectation = typeof blobShaOrDescriptor === "string" ? expected : blobShaOrDescriptor;
     if (!blobSha || !expectation) throw new TypeError("blob SHA, size and sha256 are required");
+    if (typeof blobShaOrDescriptor !== "string") {
+      const kind = inferKind(blobShaOrDescriptor.path);
+      assertSyncV7Path(blobShaOrDescriptor.path, kind);
+      if (/\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(blobShaOrDescriptor.path)?.[1] !== blobShaOrDescriptor.sha256) throw new SyncV7BlobIntegrityError("sha256", blobShaOrDescriptor.sha256, "path digest mismatch");
+    }
     assertSha1(blobSha, "blobSha");
     assertSize(expectation.size, "blob size");
     assertSha256(expectation.sha256, "blob sha256");

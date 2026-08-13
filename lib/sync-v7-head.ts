@@ -336,9 +336,12 @@ export function validateSyncHeadV7(value: unknown): asserts value is SyncHeadV7 
   if (!Array.isArray(value.segments)) fail("segments must be an array");
   if (value.segments.length > SYNC_V7_MAX_SEGMENT_COUNT) fail("segments exceed the bounded index limit");
   let hotBytes = 0;
+  const segmentPaths = new Set<string>();
   for (let index = 0; index < value.segments.length; index += 1) {
     const segment = value.segments[index];
     validateSegment(segment, index, value.vaultId);
+    if (segmentPaths.has(segment.path)) fail(`segments contains duplicate path: ${segment.path}`);
+    segmentPaths.add(segment.path);
     hotBytes += segment.size;
     if (hotBytes > SYNC_V7_MAX_HOT_BYTES) fail("segments exceed the aggregate hot-window byte limit");
     if (index > 0) {
@@ -378,6 +381,7 @@ function cloneSegment(value: SyncV7SegmentDescriptor): SyncV7SegmentDescriptor {
 /** Merge segments using only their explicit replay key. */
 export function mergeSyncV7Segments(existing: readonly SyncV7SegmentDescriptor[], additions: readonly SyncV7SegmentDescriptor[], vaultId?: string): SyncV7SegmentDescriptor[] {
   const byKey = new Map<string, SyncV7SegmentDescriptor>();
+  const byPath = new Map<string, SyncV7SegmentDescriptor>();
   const canonicalVaultId = vaultId ?? existing[0]?.metadata.vaultId ?? additions[0]?.metadata.vaultId;
   if (!canonicalVaultId) throw new Error("v7 segment merge requires an explicit vault identity");
   for (const segment of [...existing, ...additions]) {
@@ -385,7 +389,10 @@ export function mergeSyncV7Segments(existing: readonly SyncV7SegmentDescriptor[]
     const key = `${segment.generation}:${segment.ordinal}`;
     const prior = byKey.get(key);
     if (prior && !sameSyncV7Segment(prior, segment)) throw new Error(`v7 segment replay-key collision: ${key}`);
+    const pathPrior = byPath.get(segment.path);
+    if (pathPrior && !sameSyncV7Segment(pathPrior, segment)) throw new Error(`v7 segment path collision: ${segment.path}`);
     if (!prior) byKey.set(key, cloneSegment(segment));
+    if (!pathPrior) byPath.set(segment.path, cloneSegment(segment));
   }
   const result = [...byKey.values()].sort(compareSyncV7SegmentOrder);
   if (result.length > SYNC_V7_MAX_SEGMENT_COUNT) throw new Error("v7 segments exceed the bounded index limit");
