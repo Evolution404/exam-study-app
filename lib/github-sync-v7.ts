@@ -36,7 +36,7 @@ function report(callback: SyncProgressCallback | undefined, phase: SyncProgress[
 }
 
 function branch(settings: GitHubSettings): string { return settings.branch?.trim() || "main"; }
-function vaultId(settings: GitHubSettings): string { return `${settings.owner}/${settings.repo}@${branch(settings)}`; }
+function vaultId(settings: GitHubSettings): string { return `${settings.owner.toLocaleLowerCase("en-US")}/${settings.repo.toLocaleLowerCase("en-US")}@${branch(settings)}`; }
 function cacheKey(settings: GitHubSettings, suffix: string): string { return `${CACHE_PREFIX}${suffix}:${vaultId(settings)}`; }
 function remote(settings: GitHubSettings, token: string): GitHubV7Remote { return new GitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: branch(settings), token, apiBaseUrl: settings.apiBaseUrl, vaultId: vaultId(settings) }); }
 

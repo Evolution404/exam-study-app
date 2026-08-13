@@ -3,6 +3,7 @@ import { createHash, webcrypto } from "node:crypto";
 import {
   GITHUB_V7_RAW_MEDIA_TYPE,
   GitHubV7Remote,
+  githubVaultIdentitiesEqual,
   SyncV7BlobIntegrityError,
   SyncV7ImmutableConflictError,
 } from "../lib/github-v7-remote";
@@ -20,6 +21,10 @@ const decode = (value: string) => new Uint8Array(Buffer.from(value, "base64"));
 const digest = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex");
 const sha1 = (digit: string) => digit.repeat(40);
 const bytes = (value: string) => new TextEncoder().encode(value);
+
+assert.equal(githubVaultIdentitiesEqual("Evolution404/Exam-Study-Vault@main", "evolution404/exam-study-vault@main"), true);
+assert.equal(githubVaultIdentitiesEqual("Evolution404/exam-study-vault@Main", "evolution404/exam-study-vault@main"), false, "Git branch identity remains case-sensitive");
+assert.equal(githubVaultIdentitiesEqual("vault:one", "vault:ONE"), false, "opaque non-GitHub vault identities remain exact");
 
 const owner = "v7-owner";
 const repo = "v7-repo";

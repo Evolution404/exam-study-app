@@ -224,6 +224,22 @@ function normalizeCache(cache: SyncV7HeadCache | SyncHeadV7 | undefined): SyncV7
   return cacheFrom(cache.head, cache.etag, cache.blobSha);
 }
 
+function canonicalGitHubVaultIdentity(value: string): string {
+  const separator = value.lastIndexOf("@");
+  if (separator <= 0) return value;
+  const repository = value.slice(0, separator);
+  const slash = repository.indexOf("/");
+  if (slash <= 0 || slash === repository.length - 1) return value;
+  const owner = repository.slice(0, slash).toLocaleLowerCase("en-US");
+  const repo = repository.slice(slash + 1).toLocaleLowerCase("en-US");
+  return `${owner}/${repo}@${value.slice(separator + 1)}`;
+}
+
+/** GitHub owner/repository names are case-insensitive; Git ref names are not. */
+export function githubVaultIdentitiesEqual(left: string, right: string): boolean {
+  return canonicalGitHubVaultIdentity(left) === canonicalGitHubVaultIdentity(right);
+}
+
 export class GitHubV7Remote {
   readonly owner: string;
   readonly repo: string;
@@ -254,7 +270,7 @@ export class GitHubV7Remote {
   }
 
   private assertVault(head: SyncHeadV7): void {
-    if (this.vaultId !== undefined && head.vaultId !== this.vaultId) throw new GitHubV7RemoteError("vault identity", 409, "v7 head vault identity does not match this remote");
+    if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubV7RemoteError("vault identity", 409, "v7 head vault identity does not match this remote");
   }
 
   private async request(path: string, init: RequestInit = {}, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
