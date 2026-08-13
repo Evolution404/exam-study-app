@@ -10,11 +10,11 @@ import {
 } from "lucide-react";
 import { loadImageAssetV6, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/question-editor";
 import { QuestionDetail } from "@/app/question-detail";
-import { ExcelImportActions } from "@/app/excel-import";
+import { ExcelTemplateAction } from "@/app/excel-import";
 import { AppSelect } from "@/app/app-select";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { ModalPortal } from "@/app/modal-portal";
-import { createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteQuestionV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
+import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteQuestionV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
 import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
 import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
@@ -70,6 +70,7 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
   const [activeBankId, setActiveBankId] = useState<string>();
   const [tab, setTab] = useState<"overview" | "questions">("overview");
   const [editingBank, setEditingBank] = useState<Bank>();
+  const [creatingBank, setCreatingBank] = useState(false);
   const [folderDialog, setFolderDialog] = useState<BankFolder | "new">();
   const [draggedBankId, setDraggedBankId] = useState<string>();
   const [pendingBankDelete, setPendingBankDelete] = useState<Bank>();
@@ -108,12 +109,14 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
 
   if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} progressScopeLabel={progressScopeLabel} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="移除这个题库？" tone="danger" busy={deleting} confirmLabel="移除题库" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>题库“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其 memberships 将被移除</strong><span>题目本身、历史作答和解析会保留；失去全部题库归属的题目可在“未归档题目”中找回。</span></>} /></>;
   return <>
-    <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>拖动调整顺序，用文件夹聚合题库；做题请前往练习中心。</p></div><div className="heading-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><button onClick={() => setShowUnfiled((value) => !value)}>{showUnfiled ? "隐藏未归档" : "未归档题目"}</button><ExcelImportActions onNotice={onNotice} /><button className="primary" onClick={onImport}><FileUp size={17} />导入 JSON</button></div></div>
+    <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>直接创建空白题库并逐题维护，也可以导入已有文件快速开始。</p></div><div className="bank-primary-actions"><button className="primary" onClick={() => setCreatingBank(true)}><span><Plus size={19} /></span><span><strong>新建题库</strong><small>从空白题库开始</small></span></button><button onClick={onImport}><span><FileUp size={19} /></span><span><strong>导入题库</strong><small>自动识别 JSON / XLSX</small></span></button></div></div>
+    <div className="bank-management-tools"><div><strong>整理工具</strong><small>题库分组、模板与未归档内容</small></div><div className="bank-management-tools-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><ExcelTemplateAction onNotice={onNotice} /><button className={showUnfiled ? "active" : ""} onClick={() => setShowUnfiled((value) => !value)}><FileText size={17} />{showUnfiled ? "隐藏未归档" : "未归档题目"}</button></div></div>
     {showUnfiled && <UnfiledQuestionSection questions={unfiledQuestions} onNotice={onNotice} />}
     {banks.length ? <div className="bank-folder-list">
       {folders.map((folder) => <BankFolderSection key={folder.id} folder={folder} banks={ordered.filter((bank) => bank.folderId === folder.id)} draggedBankId={draggedBankId} onDrag={setDraggedBankId} onDrop={(beforeId) => draggedBankId && void placeBank(draggedBankId, folder.id, beforeId)} onOpen={(bank) => setActiveBankId(bank.id)} onMove={moveBank} onEditFolder={() => setFolderDialog(folder)} onDeleteFolder={() => setPendingFolderDelete(folder)} />)}
       <BankFolderSection banks={ordered.filter((bank) => !bank.folderId || !folders.some((folder) => folder.id === bank.folderId))} draggedBankId={draggedBankId} onDrag={setDraggedBankId} onDrop={(beforeId) => draggedBankId && void placeBank(draggedBankId, undefined, beforeId)} onOpen={(bank) => setActiveBankId(bank.id)} onMove={moveBank} />
-    </div> : <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>也可以使用页面上方的 Excel 模板导入</small></div><ChevronRight size={18} /></button>}
+    </div> : <section className="bank-empty-state"><span className="bank-empty-icon"><Library size={25} /></span><div><span className="section-kicker">从这里开始</span><h2>建立你的第一个题库</h2><p>新建空白题库后可手动添加题目；已有资料则可直接导入 JSON 或 XLSX 文件。</p></div><div className="bank-empty-actions"><button className="primary" onClick={() => setCreatingBank(true)}><Plus size={17} />新建空白题库</button><button onClick={onImport}><FileUp size={17} />导入现有题库</button></div></section>}
+    {creatingBank && <BankCreateDialog folders={folders} onClose={() => setCreatingBank(false)} onCreated={(bank) => { setCreatingBank(false); setActiveBankId(bank.id); setTab("questions"); onNotice(`题库“${bankTitle(bank)}”已创建，可以开始添加题目`); }} />}
     {editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}
     {folderDialog && <FolderDialog folder={folderDialog === "new" ? undefined : folderDialog} onClose={() => setFolderDialog(undefined)} onSaved={(name) => { setFolderDialog(undefined); onNotice(`文件夹“${name}”已保存`); }} />}
     <ConfirmDialog open={Boolean(pendingFolderDelete)} eyebrow="题库分组" title="删除这个文件夹？" tone="danger" busy={deleting} confirmLabel="删除文件夹" onCancel={() => setPendingFolderDelete(undefined)} onConfirm={async () => { if (!pendingFolderDelete) return; try { setDeleting(true); await deleteBankFolder(pendingFolderDelete.id); setPendingFolderDelete(undefined); onNotice("文件夹已删除，题库已移到未分组"); } finally { setDeleting(false); } }} description={<><strong>文件夹“{pendingFolderDelete?.name}”会被删除</strong><span>其中的题库会移到“未分组”，题库和学习记录不会被删除。</span></>} />
@@ -357,6 +360,36 @@ function BankQuestionDeleteDialog({ question, bank, busy, onClose, onBusy, onNot
     finally { onBusy(false); }
   }
   return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="simple-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-question-delete-title"><header><div><span className="section-kicker">试题管理</span><h2 id="bank-question-delete-title">如何处理这道题？</h2></div><button className="icon-button" disabled={busy} onClick={onClose} aria-label="取消删除题目"><X size={17} /></button></header><p><strong>{target.stem.slice(0, 64)}</strong></p><div className="delete-choice-list"><button disabled={busy} onClick={() => void removeFromBank()}><span>仅从当前题库移除</span><small>保留全局题目、历史作答和解析；题目会进入未归档题目。</small></button><button className="danger-button" disabled={busy} onClick={() => void deleteGlobally()}><span>全局删除题目及学习记录</span><small>从所有题库移除，并删除作答、解析、题组和练习引用。</small></button></div>{busy && <p>正在处理…</p>}<footer><button disabled={busy} onClick={onClose}>取消</button></footer></section></div></ModalPortal>;
+}
+
+function BankCreateDialog({ folders, onClose, onCreated }: { folders: BankFolder[]; onClose: () => void; onCreated: (bank: Bank) => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [folderId, setFolderId] = useState("unfiled");
+  const [color, setColor] = useState("#dfe9e2");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function createBank() {
+    if (!name.trim() || busy) return;
+    try {
+      setBusy(true);
+      setError("");
+      const bank = await createBankV6({
+        name: name.trim(),
+        description,
+        folderId: folderId === "unfiled" ? undefined : folderId,
+        color,
+      });
+      onCreated(bank);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "题库创建失败，请稍后重试。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="simple-dialog bank-create-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-create-title"><header><div><span className="section-kicker">手动维护题目</span><h2 id="bank-create-title">新建空白题库</h2></div><button className="icon-button" disabled={busy} aria-label="关闭新建题库" onClick={onClose}><X size={17} /></button></header><div><p className="bank-create-intro">先建立题库资料，创建后会直接进入试题管理，可以逐题添加和编辑。</p><label>题库名称<input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createBank(); }} placeholder="例如：变电运行基础" /></label><label>题库说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="用途、知识范围或备注（可选）" /></label><label htmlFor="new-bank-folder-select">所属文件夹<AppSelect id="new-bank-folder-select" ariaLabel="新题库所属文件夹" value={folderId} onValueChange={setFolderId} options={[{ value: "unfiled", label: "未分组" }, ...folders.map((folder) => ({ value: folder.id, label: folder.name }))]} /></label><label>识别颜色<span className="color-field"><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><em>{color}</em></span></label>{error && <p className="form-error" role="alert">{error}</p>}</div><footer><button disabled={busy} onClick={onClose}>取消</button><button className="primary" disabled={!name.trim() || busy} onClick={() => void createBank()}>{busy ? "创建中…" : "创建并添加题目"}</button></footer></section></div></ModalPortal>;
 }
 
 function BankEditDialog({ bank, folders, onClose, onSaved }: { bank: Bank; folders: BankFolder[]; onClose: () => void; onSaved: (name: string) => void }) {

@@ -297,10 +297,8 @@ export async function parseQuestionBankWorkbook(buffer: ArrayBuffer) {
 }
 
 export function importFileName(fileName: string) {
-  const name = fileName.replace(/\.xlsx$/i, "");
-  if (!/^送电线路工-(初级工|中级工|高级工|技师)$/.test(name)) {
-    fail("请将 Excel 文件重命名为：送电线路工-初级工、中级工、高级工或技师.xlsx。");
-  }
+  const name = fileName.replace(/\.xlsx$/i, "").trim();
+  if (!name) fail("Excel 文件名不能为空，请先为题库文件命名。");
   return `${name}.json`;
 }
 import type { QuestionType } from "./types";

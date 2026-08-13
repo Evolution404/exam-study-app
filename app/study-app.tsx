@@ -8,7 +8,7 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, importQuestionBankV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
+import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice-resume";
 import type { SyncProgress } from "@/lib/github-sync";
@@ -38,6 +38,7 @@ import type { ProgressScope } from "@/lib/progress-scope";
 import { buildScopedQuestionStats, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
 import { classifyNoticeTone } from "@/lib/notice-tone";
 import { questionOverviewFocusIndex, questionOverviewProgress } from "@/lib/question-overview";
+import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question-bank-file-import";
 
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV6;
@@ -54,7 +55,6 @@ function summarizeV6AttemptStats(stats?: AttemptStatsV6) {
   return summarizeAttemptStats(toLegacyAttemptStats(stats));
 }
 
-async function importQuestionBank(fileName: string, raw: unknown) { return importQuestionBankV6(fileName, raw); }
 async function saveNote(questionId: string, content: string) { return saveNoteV6(questionId, content); }
 async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV6(questionId); }
 async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string }) { return recordPracticeAnswerV6({ ...input, sourceBankId: input.bankId }); }
@@ -463,10 +463,9 @@ export function StudyApp() {
   async function onImport(file?: File) {
     if (!file) return;
     try {
-      setNotice("正在整理题库…");
-      const raw = JSON.parse(await file.text());
-      const bank = await importQuestionBank(file.name, raw);
-      setNotice(`已导入「${bank.name}」的 ${bank.questionCount} 道题`);
+      setNotice("正在识别并校验题库…");
+      const { bank, type } = await importQuestionBankFile(file);
+      setNotice(`已从 ${type === "xlsx" ? "Excel" : "JSON"} 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
       setView("banks");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "题库导入失败");
@@ -965,7 +964,7 @@ export function StudyApp() {
         {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
 
         {notice && <div className={`toast ${classifyNoticeTone(notice)}`}><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
-        <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(event) => onImport(event.target.files?.[0])} />
+        <input ref={fileRef} type="file" accept={QUESTION_BANK_FILE_ACCEPT} hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}><Suspense fallback={<div className="route-loading"><LoaderCircle className="spin" size={24} /><span>正在载入页面…</span></div>}>
           {view === "home" && <Dashboard groupSize={preferences.groupSize} dailyGoalCount={preferences.dailyGoalCount} dailyGoalAccuracy={preferences.dailyGoalAccuracy} scopeProgress={scopeProgress} scopeLabel={selectedScopeLabel} scopeStats={scopeStats} stats={stats} banks={banks} latestPracticeRun={latestPracticeRun} selectedBankIds={activeBankIds} onBankToggle={toggleBank} onImport={() => fileRef.current?.click()} onStart={() => activeBankIds.length && void startPractice(quickFilter(activeBankIds, "random30", preferences.groupSize, preferences.progressScope))} onResume={(runId) => void resumePractice(runId)} onDiscardResume={(runId) => void discardSavedPractice(runId)} onMoreModes={() => setView("practiceSetup")} />}
@@ -1141,7 +1140,7 @@ function Stat({ icon, label, value, foot }: { icon: React.ReactNode; label: stri
 }
 
 function EmptyImport({ onImport }: { onImport: () => void }) {
-  return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入 JSON 题库</strong><small>数据直接写入本机，不经过第三方服务器</small></div><ChevronRight size={18} /></button>;
+  return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入题库</strong><small>支持 JSON / XLSX，数据只写入本机</small></div><ChevronRight size={18} /></button>;
 }
 
 function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {

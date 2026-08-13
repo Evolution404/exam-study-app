@@ -50,6 +50,7 @@ assert.throws(() => parseQuestionBankTable([
 ]), (error: unknown) => error instanceof XlsxImportError && error.issues.some((issue) => /题目重复/.test(issue.message)));
 
 assert.equal(importFileName("送电线路工-技师.xlsx"), "送电线路工-技师.json");
-assert.throws(() => importFileName("随便命名.xlsx"), /请将 Excel 文件重命名/);
+assert.equal(importFileName("自建专业题库.xlsx"), "自建专业题库.json");
+assert.throws(() => importFileName(".xlsx"), /文件名不能为空/);
 
 console.log("Excel 导入专项测试通过");

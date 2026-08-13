@@ -1,14 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Download, FileSpreadsheet, LoaderCircle } from "lucide-react";
-import { importQuestionBankV6 } from "@/lib/db-v6";
-import { importFileName, parseQuestionBankWorkbook } from "@/lib/xlsx-import";
+import { useState } from "react";
+import { Download, LoaderCircle } from "lucide-react";
 
-export function ExcelImportActions({ onNotice }: { onNotice: (message: string) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [importing, setImporting] = useState(false);
-
+export function ExcelTemplateAction({ onNotice }: { onNotice: (message: string) => void }) {
   const [downloading, setDownloading] = useState(false);
 
   async function downloadTemplate() {
@@ -48,35 +43,5 @@ export function ExcelImportActions({ onNotice }: { onNotice: (message: string) =
     }
   }
 
-  async function importWorkbook(file?: File) {
-    if (!file) return;
-    try {
-      setImporting(true);
-      onNotice("正在校验 Excel 题库…");
-      const bankFileName = importFileName(file.name);
-      const questions = await parseQuestionBankWorkbook(await file.arrayBuffer());
-      const bank = await importQuestionBankV6(bankFileName, questions);
-      onNotice(`已从 Excel 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : "Excel 题库导入失败");
-    } finally {
-      setImporting(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  }
-
-  return <>
-    <button type="button" disabled={downloading} onClick={() => void downloadTemplate()}>{downloading ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}{downloading ? "正在准备模板…" : "下载 Excel 模板"}</button>
-    <button type="button" disabled={importing} onClick={() => inputRef.current?.click()}>
-      {importing ? <LoaderCircle className="spin" size={17} /> : <FileSpreadsheet size={17} />}
-      {importing ? "校验中…" : "导入 Excel"}
-    </button>
-    <input
-      ref={inputRef}
-      type="file"
-      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      hidden
-      onChange={(event) => void importWorkbook(event.target.files?.[0])}
-    />
-  </>;
+  return <button type="button" disabled={downloading} onClick={() => void downloadTemplate()}>{downloading ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}{downloading ? "正在准备…" : "Excel 模板"}</button>;
 }
