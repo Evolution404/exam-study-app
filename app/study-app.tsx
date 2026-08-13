@@ -549,7 +549,12 @@ export function StudyApp() {
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
       saveGitHubSettings(resolved);
       const result = await syncWithGitHub(resolved, token, silent ? undefined : setQuickSyncProgress);
-      if (!silent) setNotice(`同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 条` : ""}`);
+      if (!silent) {
+        const received = result.receivedSnapshot
+          ? `接收 ${result.receivedSnapshot.questions.toLocaleString("zh-CN")} 道题、${result.receivedSnapshot.totalAttempts.toLocaleString("zh-CN")} 条作答`
+          : `接收 ${result.pulled} 组操作`;
+        setNotice(`同步完成：上传 ${result.pushed} 组操作，${received}${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 组操作` : ""}`);
+      }
     } catch (error) {
       if (!silent) setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {

@@ -61,7 +61,10 @@ export function SyncView({ pending, onNotice, onRestored, onCreateAction }: { pe
       const resolved = await resolveSettings();
       const result = await syncWithGitHub(resolved, token, setOperationProgress);
       setLastCache(await getLastRemoteCache(resolved));
-      onNotice(`v${result.formatVersion} 同步完成：上传 ${result.pushed} 条，接收 ${result.pulled} 条${result.migrated ? "，云端已升级到最新格式" : ""}${result.compacted ? "，已生成新检查点" : ""}${result.remaining ? `，本地待上传 ${result.remaining} 条` : ""}${result.deferred ? `，还有 ${result.deferred} 个远程增量页待下次同步` : ""}`);
+      const received = result.receivedSnapshot
+        ? `接收 ${result.receivedSnapshot.questions.toLocaleString("zh-CN")} 道题、${result.receivedSnapshot.totalAttempts.toLocaleString("zh-CN")} 条作答`
+        : `接收 ${result.pulled} 组操作`;
+      onNotice(`v${result.formatVersion} 同步完成：上传 ${result.pushed} 组操作，${received}${result.migrated ? "，云端已升级到最新格式" : ""}${result.compacted ? "，已生成新检查点" : ""}${result.remaining ? `，本地待上传 ${result.remaining} 组操作` : ""}${result.deferred ? `，还有 ${result.deferred} 个远程增量页待下次同步` : ""}`);
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "同步失败");
     } finally { setSyncing(false); setOperationProgress(undefined); }

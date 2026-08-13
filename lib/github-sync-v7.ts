@@ -59,6 +59,25 @@ async function saveRemoteCache(settings: GitHubSettings, checkpoint: SyncCheckpo
   await dbV6.syncMeta.put({ key: cacheKey(settings, "checkpoint"), value: { cachedAt: new Date().toISOString(), checkpoint, head }, updatedAt: new Date().toISOString() });
 }
 
+type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache };
+
+async function loadRemoteCache(settings: GitHubSettings): Promise<RemoteCacheV7 | undefined> {
+  return (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as RemoteCacheV7 | undefined;
+}
+
+function headVersion(cache: SyncV7HeadCache): string {
+  const head = cache.head;
+  return cache.blobSha ?? `${head.generatedAt}:${head.checkpoint?.sha256 ?? "none"}:${head.segments.map((item) => item.sha256).join(":")}`;
+}
+
+async function loadInstalledHead(settings: GitHubSettings): Promise<string | undefined> {
+  return (await dbV6.syncMeta.get(cacheKey(settings, "installed-head")))?.value as string | undefined;
+}
+
+async function saveInstalledHead(settings: GitHubSettings, cache: SyncV7HeadCache): Promise<void> {
+  await dbV6.syncMeta.put({ key: cacheKey(settings, "installed-head"), value: headVersion(cache), updatedAt: new Date().toISOString() });
+}
+
 async function saveQueueBase(projection: ChangeSetProjectionV7): Promise<void> {
   await dbV6.syncMeta.put({ key: "v7:queue-base", value: projection, updatedAt: new Date().toISOString() });
 }
@@ -121,18 +140,27 @@ async function installProjection(projection: ChangeSetProjectionV7): Promise<voi
   await restoreV6CheckpointAndEvents(checkpoint.state, [], { preservePending: false });
 }
 
-async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[] }> {
+function descriptorEqual(a: SyncV7Descriptor, b: SyncV7Descriptor): boolean {
+  return a.path === b.path && a.sha256 === b.sha256 && a.size === b.size;
+}
+
+async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[]; reusedCache: boolean }> {
   if (!head.checkpoint) throw new Error("v7 远端缺少初始化检查点。");
-  const checkpoint = parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
+  const cachedHead = cached?.head.head;
+  const canReuse = Boolean(cached && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint)
+    && cachedHead.segments.every((oldItem) => head.segments.some((item) => descriptorEqual(oldItem, item))));
+  const checkpoint = canReuse ? cached!.checkpoint : parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
+  const cachedPaths = new Set(canReuse ? cachedHead!.segments.map((item) => item.path) : []);
   const changes: ChangeSetV7[] = [];
   for (const descriptor of [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal)) {
+    if (cachedPaths.has(descriptor.path)) continue;
     const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
     for (const change of segment.events) {
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
       changes.push(change);
     }
   }
-  return { checkpoint, changes };
+  return { checkpoint, changes, reusedCache: canReuse };
 }
 
 async function uploadedDescriptor(client: GitHubV7Remote, path: string, bytes: Uint8Array, kind: "checkpoint" | "segment"): Promise<SyncV7Descriptor> {
@@ -169,6 +197,7 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const covered = await listChangeSetsV7(["pending", "blocked"]);
   if (covered.length) await dbV6.changeSets.bulkPut(covered.map((record) => ({ ...record, state: "committed" as const, committedAt: now })));
   await saveQueueBase(await projectionFromCheckpoint(checkpoint));
+  await saveInstalledHead(settings, committed.cache);
   return committed.cache;
 }
 
@@ -177,12 +206,15 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initialize(settings, token, callback); read = await client.readHead(); }
   if (!read.initialized) throw new Error("无法初始化 v7 远端。");
-  let hasQueueBase = Boolean(await dbV6.syncMeta.get("v7:queue-base"));
+  let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
+  let receivedSnapshot: SyncCheckpointV6["counts"] | undefined;
   for (let retry = 0; retry < 4; retry += 1) {
-    report(callback, "download", "正在读取 v7 热窗口", 18);
-    const downloaded = await downloadRemote(client, read.head);
+    const cached = await loadRemoteCache(settings);
+    report(callback, "download", cached ? "正在检查 v7 热窗口增量" : "正在下载远端完整数据", 18);
+    const downloaded = await downloadRemote(client, read.head, cached);
     const remoteProjection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
+    report(callback, "merge", `正在合并 ${remoteProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${remoteProjection.attempts.length.toLocaleString("zh-CN")} 条作答`, 42);
     const remoteById = new Map(downloaded.changes.map((change) => [change.id, change]));
     const remoteCursors = read.head.cursors;
     const interruptedClaims = (await listChangeSetsV7(["claimed"])).map((record) => {
@@ -210,9 +242,13 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
         });
       }
     }
-    if (!hasQueueBase || unseen.length || blocked.length) {
+    const firstProjectionInstall = !installedHead;
+    const needsInstall = installedHead !== headVersion(read.cache) || unseen.length > 0 || blocked.length > 0;
+    if (needsInstall) {
       await installProjection(rebasedProjection);
-      hasQueueBase = true;
+      installedHead = headVersion(read.cache);
+      await saveInstalledHead(settings, read.cache);
+      if (firstProjectionInstall || !downloaded.reusedCache) receivedSnapshot = downloaded.checkpoint.counts;
       if (blocked.length) await dbV6.changeSets.bulkPut(blocked);
       await dbV6.changeSets.bulkPut(unseen.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
       pulled += unseen.length;
@@ -224,7 +260,8 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       await saveQueueBase(remoteProjection);
       const remaining = (await listChangeSetsV7(["blocked"])).length;
       report(callback, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, migrated: false };
+      await saveInstalledHead(settings, read.cache);
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, migrated: false, receivedSnapshot };
     }
     try {
       report(callback, "upload", `正在上传 ${claim.records.length} 组变更`, 62);
@@ -266,9 +303,10 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       await saveQueueBase(committedProjection);
       await saveHeadCache(settings, committed.cache);
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
+      await saveInstalledHead(settings, committed.cache);
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(callback, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, migrated: false };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, migrated: false, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaimV7(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
@@ -288,6 +326,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   const checkpoint = await createSyncCheckpointV6();
   await saveRemoteCache(settings, checkpoint, read.cache);
   await saveQueueBase(projection);
+  await saveInstalledHead(settings, read.cache);
   report(callback, "complete", "v7 远端恢复完成", 100);
   return { pulled: downloaded.changes.length, formatVersion: 7 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: 0, archivedPracticeRuns: 0 };
 }
@@ -311,6 +350,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   await dbV6.changeSets.clear();
   await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
   await saveHeadCache(settings, value.head);
+  await saveInstalledHead(settings, value.head);
   report(callback, "complete", "本地数据恢复完成", 100);
   return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const, pulled: 0, deferred: 0 };
 }

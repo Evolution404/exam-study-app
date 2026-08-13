@@ -13,6 +13,7 @@ for (const state of ["pending", "claimed", "blocked", "committed"]) {
 }
 assert.match(manager, /搜索类型、对象或编号/, "manager exposes search");
 assert.match(manager, /按状态筛选/, "manager exposes an accessible status filter");
+assert.match(manager, /sync-event-filter[\s\S]*<ChevronDown/, "status filter uses the standard select chevron treatment");
 assert.match(manager, /sync-event-detail-/, "change-set details are expandable and linked with aria-controls");
 
 for (const editableKind of ["note.upserted", "bank.update", "question.upsert"]) {
@@ -22,6 +23,9 @@ assert.doesNotMatch(manager, /JSON\.stringify|contentEditable|原始 JSON|raw JS
 assert.match(manager, /删除整个 change-set/, "deletion is whole-change-set only");
 assert.match(manager, /cascadeDependents/, "dependency cascade decision is returned to the controller");
 assert.match(manager, /dependentChangeSetIds/, "dependent operations are shown before cascade deletion");
+assert.match(styles, /\.sync-event-toolbar\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 168px;[\s\S]*gap:\s*12px;/, "desktop toolbar keeps consistent spacing and a compact status selector");
+assert.match(styles, /\.sync-event-search,[\s\S]*\.sync-event-filter\s*\{[\s\S]*height:\s*44px;/, "search and status controls share the standard control height");
+assert.match(styles, /\.settings-card \.sync-event-search input,[\s\S]*border:\s*0;[\s\S]*padding:\s*0;/, "sync controls resist generic settings-card input styles");
 
 assert.match(manager, /onCreateAction/, "business action creation is callback-controlled");
 assert.match(manager, /onRefresh/, "refresh is callback-controlled");
