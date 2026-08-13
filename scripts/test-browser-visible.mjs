@@ -336,7 +336,7 @@ async function assertSearchFilterInteractions(page, contextName) {
   assert.match(activeCountText, /已设置 [1-9]\d* 项/, "choosing a filter must immediately update the active count");
   await page.locator(".search-filter-backdrop").click({ position: { x: 20, y: 180 } });
   await page.locator(".search-filter-drawer").waitFor({ state: "hidden" });
-  assert.match(await page.locator(".search-filter-toggle").innerText(), /筛选 · [1-9]\d*/, "immediate filter changes must remain after dismissing the drawer");
+  assert.match(await page.locator(".search-filter-toggle").innerText(), /筛选\s*[1-9]\d*/, "immediate filter changes must remain after dismissing the drawer");
   await capture(page, contextName, "search-controls-aligned");
 }
 
