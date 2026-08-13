@@ -5,7 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, Copy,
   BadgeInfo, CircleHelp, FileUp, Grid3X3, Home, Library, Link2, ListFilter,
-  LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Search,
+  LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
 import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, importQuestionBankV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
@@ -17,7 +17,7 @@ import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, su
 import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
 import type { SearchPracticeOptions } from "@/app/search-view";
 import type { BankQuickMode } from "@/app/bank-library-view";
-import { MathText } from "@/app/math-text";
+import { QuickSearch } from "@/app/quick-search";
 import { ContentBlockRenderer } from "@/app/content-block-renderer";
 import { ProgressScopeSetting } from "@/app/progress-scope-setting";
 import { ReviewRoundManager } from "@/app/review-round-manager";
@@ -309,7 +309,6 @@ export function StudyApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
-  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
   const [searchQuestionId, setSearchQuestionId] = useState<string>();
   const [searchRevision, setSearchRevision] = useState(0);
   const [groupQuestionIds, setGroupQuestionIds] = useState<string[]>([]);
@@ -328,7 +327,6 @@ export function StudyApp() {
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
   const [finishPrompt, setFinishPrompt] = useState<number>();
   const fileRef = useRef<HTMLInputElement>(null);
-  const searchBoxRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
@@ -340,16 +338,6 @@ export function StudyApp() {
 
   useAppViewport();
   useAppTheme(preferences.themeMode);
-
-  useEffect(() => {
-    if (!quickSearchOpen) return;
-    const closeQuickSearch = (event: PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && !searchBoxRef.current?.contains(target)) setQuickSearchOpen(false);
-    };
-    document.addEventListener("pointerdown", closeQuickSearch);
-    return () => document.removeEventListener("pointerdown", closeQuickSearch);
-  }, [quickSearchOpen]);
 
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
@@ -382,7 +370,6 @@ export function StudyApp() {
     setSidebarOpen(false);
     setNotice("");
     setQuery("");
-    setQuickSearchOpen(false);
     setSearchQuestionId(undefined);
     setSearchRevision((revision) => revision + 1);
     setGroupQuestionIds([]);
@@ -808,18 +795,17 @@ export function StudyApp() {
     setView("practice");
   }
 
-  function openSearch(questionId?: string) {
-    const keyword = query.trim();
-    if (keyword) {
+  function openSearch(questionId?: string, keyword?: string) {
+    const kw = (keyword ?? query).trim();
+    if (kw) {
       try {
         const previous = JSON.parse(localStorage.getItem("study-search-history") ?? "[]") as unknown;
         const history = Array.isArray(previous) ? previous.filter((item): item is string => typeof item === "string") : [];
-        localStorage.setItem("study-search-history", JSON.stringify([keyword, ...history.filter((item) => item !== keyword)].slice(0, 10)));
-      } catch { localStorage.setItem("study-search-history", JSON.stringify([keyword])); }
+        localStorage.setItem("study-search-history", JSON.stringify([kw, ...history.filter((item) => item !== kw)].slice(0, 10)));
+      } catch { localStorage.setItem("study-search-history", JSON.stringify([kw])); }
     }
     setSearchQuestionId(questionId);
     setSearchRevision((revision) => revision + 1);
-    setQuickSearchOpen(false);
     setView("search");
   }
 
@@ -971,7 +957,7 @@ export function StudyApp() {
       <section ref={workspaceRef} className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <div ref={searchBoxRef} className={`searchbox ${quickSearchOpen && query.trim() ? "results-open" : ""}`}><button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button><input aria-label="快速正则搜索题目、选项、标签或解析" value={query} onFocus={() => setQuickSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setQuickSearchOpen(true); }} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); setQuickSearchOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />{query && <button className="search-clear" aria-label="清除搜索" onClick={() => { setQuery(""); setQuickSearchOpen(false); }}><X size={15} /></button>}<SearchResults query={query} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} /></div>
+          <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId) => { setQuery(keyword); openSearch(questionId, keyword); }} />
           <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : `同步${stats.pending ? ` ${Math.min(stats.pending, 99)}` : ""}`}</span></button>
         </header>
 
@@ -1007,41 +993,6 @@ export function StudyApp() {
       </nav>
     </main>
   );
-}
-
-function SearchResults({ query, bankIds, onChoose, onViewAll }: { query: string; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
-  const normalizedQuery = query.trim();
-  const bankKey = bankIds.join("|");
-  const results = useLiveQuery(async () => {
-    if (!normalizedQuery || !bankIds.length) return { items: [] as Question[], total: 0, error: "" };
-    let pattern: RegExp;
-    try { pattern = new RegExp(normalizedQuery, "i"); } catch { return { items: [] as Question[], total: 0, error: "正则表达式格式不完整" }; }
-    const [views, notes] = await Promise.all([
-      listQuestionViewsForBanksV6(bankIds),
-      dbV6.notes.toArray(),
-    ]);
-    const questions = views.map((view) => {
-      const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
-      const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
-      return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
-    });
-    const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
-    const matched = questions.filter((question) => [
-      question.stem,
-      ...question.options,
-      ...question.tags,
-      notesByQuestion.get(question.id) ?? "",
-    ].join("\n").match(pattern));
-    const grouped = TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type));
-    return { items: grouped.slice(0, 8), total: grouped.length, error: "" };
-  }, [normalizedQuery, bankKey]);
-
-  if (!normalizedQuery) return null;
-  if (results === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
-  return <section className="search-results" aria-label="搜索结果">
-    <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>
-    {results.items.length ? <><div>{results.items.map((question) => <button key={question.id} onClick={() => onChoose(question.id)}><span className="search-type">{question.type}</span><span><strong><MathText text={question.stem} /></strong><small>{question.bankName}{question.tags.length ? ` · ${question.tags.join("、")}` : ""}</small></span><ChevronRight size={16} /></button>)}</div><button className="search-view-all" onClick={onViewAll}>查看全部 {results.total} 道结果<ChevronRight size={16} /></button></> : <div className="search-state">{results.error || "试试“弧垂|导线”这类表达式，搜索范围为首页已选题库。"}</div>}
-  </section>;
 }
 
 function settleWithTimeout<T>(promise: Promise<T>, timeoutMs: number) {

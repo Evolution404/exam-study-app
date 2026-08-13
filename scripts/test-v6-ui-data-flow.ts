@@ -96,4 +96,12 @@ assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作
 assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} 次（\{scopeLabel\}）/, "搜索结果应标注区间口径");
 assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
 
+const quick = source("quick-search.tsx");
+assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独立组件");
+assert.match(quick, /useState\(""\)/, "QuickSearch 应在内部管理草稿状态而非 StudyApp 顶层 query");
+assert.match(quick, /onOpenSearch\(draft\.trim\(\), questionId\)/, "QuickSearch 应在打开时提交草稿关键词");
+assert.doesNotMatch(quick, /window\.scrollTo\(0, 0\)/, "QuickSearch 聚焦时不应再用定时 scrollTo 干扰光标");
+assert.match(study, /<QuickSearch /, "StudyApp 应使用 QuickSearch 组件");
+assert.doesNotMatch(study, /value=\{query\}/, "StudyApp 不应再直接受控渲染顶部搜索输入框");
+
 console.log("v6 UI/data-flow assertions passed");
