@@ -1,0 +1,174 @@
+import assert from "node:assert/strict";
+import "fake-indexeddb/auto";
+import {
+  createBankV6,
+  createQuestionV6,
+  dbV6,
+  deleteBankWithExclusiveQuestionsV6,
+  importQuestionBankV6,
+  resetV6Database,
+  saveBankFolderV6,
+  saveNoteV6,
+} from "../lib/db-v6";
+import { syncWithGitHub } from "../lib/github-sync-v7";
+import { startMockGitHubServer } from "./mock-github-server.mjs";
+
+// End-to-end sync integration against the in-memory mock GitHub backend.
+// Each scenario simulates a fresh device (reset DB + switch deviceId) pulling
+// from a mock that persists state across clients, so push/pull/delete/merge
+// correctness is exercised without a real repository or a browser.
+
+let currentDeviceId = "device-a";
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    setItem: (key: string, value: string) => {
+      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+    },
+  },
+});
+
+const server = await startMockGitHubServer();
+const settings = { owner: "qa", repo: "mock-vault", branch: "main", apiBaseUrl: server.url };
+const sync = () => syncWithGitHub(settings, "qa-token");
+
+async function freshClient(deviceId: string): Promise<void> {
+  currentDeviceId = deviceId;
+  await resetV6Database();
+}
+
+function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV6>[1] {
+  return {
+    type: "单选",
+    content: [{ id: "stem-0", type: "text", text: stem }],
+    options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
+    answer,
+    tags: ["集成测试"],
+  };
+}
+
+try {
+  // --- Scenario 1: large import round-trip across devices -----------------
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync(); // initialise an empty vault on the mock
+
+    const rows = Array.from({ length: 2000 }, (_, index) => ({
+      q: `大规模同步测试第 ${index + 1} 题：关于考点 ${index} 的描述，下列哪项正确？`,
+      a: ["选项甲", "选项乙", "选项丙", "选项丁"],
+      ans: "A",
+    }));
+    const bank = await importQuestionBankV6("大规模导入测试题库.json", rows);
+    const localQuestionCount = await dbV6.questions.count();
+    assert.equal(localQuestionCount, 2000, "导入后本地应有 2000 道题");
+
+    const sample = (await dbV6.questions.limit(5).toArray()).map((question) => ({ id: question.id, fingerprint: question.contentFingerprint }));
+    const pushResult = await sync();
+    assert.ok(pushResult.pushed > 0, "应把分块后的导入变更推送到 mock");
+
+    // Brand-new device pulls the whole vault.
+    await freshClient("device-b");
+    const pullResult = await sync();
+    assert.ok(pullResult.pulled >= 1, "新设备应拉取到远端数据");
+
+    const pulledBank = await dbV6.banks.get(bank.id);
+    assert.ok(pulledBank, "新设备应看到题库");
+    assert.equal(await dbV6.questions.count(), 2000, "新设备应拉取到全部 2000 道题");
+    assert.equal(await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).count(), 2000, "题库关系应完整");
+    for (const expected of sample) {
+      const got = await dbV6.questions.get(expected.id);
+      assert.equal(got?.contentFingerprint, expected.fingerprint, `题目 ${expected.id} 内容指纹应一致`);
+    }
+    console.log("scenario 1 passed: 2000 题导入 → 同步 → 新客户端拉取，数据一致");
+  }
+
+  // --- Scenario 2: multi-device edit propagation --------------------------
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync();
+
+    const bank = await createBankV6("多端编辑题库");
+    const question = await createQuestionV6(bank.id, singleChoice("2 + 2 等于多少？", "B", ["3", "4", "5", "6"]));
+    await saveNoteV6(question.id, "这是一条个人解析，应随同步迁移到其他设备。");
+    const folder = await saveBankFolderV6({ name: "多端文件夹", description: "同步验证" });
+    await sync();
+
+    await freshClient("device-b");
+    await sync();
+
+    assert.ok(await dbV6.banks.get(bank.id), "device-b 应看到题库");
+    const pulledQuestion = await dbV6.questions.get(question.id);
+    assert.ok(pulledQuestion, "device-b 应看到题目");
+    const note = await dbV6.notes.get(question.id);
+    assert.equal(note?.content, "这是一条个人解析，应随同步迁移到其他设备。", "个人解析应同步");
+    assert.ok(await dbV6.bankFolders.get(folder.id), "device-b 应看到题库文件夹");
+    console.log("scenario 2 passed: 题库/题目/解析/文件夹跨设备传播");
+  }
+
+  // --- Scenario 3: delete propagation (cascade) ---------------------------
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync();
+
+    const bank = await createBankV6("删除级联题库");
+    const q1 = await createQuestionV6(bank.id, singleChoice("删除级联题 1", "A", ["对", "错", "x", "y"]));
+    const q2 = await createQuestionV6(bank.id, singleChoice("删除级联题 2", "B", ["对", "错", "x", "y"]));
+    await sync();
+    await deleteBankWithExclusiveQuestionsV6(bank.id);
+    await sync();
+
+    await freshClient("device-b");
+    await sync();
+
+    assert.ok(!(await dbV6.banks.get(bank.id)), "device-b 不应再看到已删除题库");
+    assert.ok(!(await dbV6.questions.get(q1.id)), "级联删除的题目 1 不应残留");
+    assert.ok(!(await dbV6.questions.get(q2.id)), "级联删除的题目 2 不应残留");
+    console.log("scenario 3 passed: 题库级联删除跨设备传播");
+  }
+
+  // --- Scenario 4: incremental multi-device merge -------------------------
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync();
+
+    const bank = await createBankV6("增量合并题库");
+    const q1 = await createQuestionV6(bank.id, singleChoice("增量题 A", "A", ["甲", "乙", "丙", "丁"]));
+    await sync();
+
+    await freshClient("device-b");
+    await sync(); // pull q1
+    const q2 = await createQuestionV6(bank.id, singleChoice("增量题 B", "B", ["甲", "乙", "丙", "丁"]));
+    await sync(); // push q2
+
+    await freshClient("device-a");
+    await sync(); // pull q2
+
+    assert.ok(await dbV6.questions.get(q1.id), "device-a 应保留 q1");
+    assert.ok(await dbV6.questions.get(q2.id), "device-a 应拉取到 device-b 新增的 q2");
+    console.log("scenario 4 passed: 两台设备各自新增题目后双向合并");
+  }
+
+  // --- Scenario 5: idempotent re-sync -------------------------------------
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync();
+
+    await createBankV6("幂等题库");
+    const first = await sync();
+    assert.ok(first.pushed >= 1, "首次同步应上传变更");
+    const second = await sync();
+    assert.equal(second.pushed, 0, "二次同步不应重复上传");
+    console.log("scenario 5 passed: 重复同步幂等");
+  }
+
+  console.log("mock sync integration tests passed");
+} finally {
+  await server.close();
+  dbV6.close();
+}

@@ -14,7 +14,7 @@
     "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:question-types && npm run test:overview && npm run test:search-filters && npm run test:content-block-ui && npm run test:review-scope-ui && npm run test:v6-ui && npm run test:modal",
     "typecheck": "tsc --noEmit",
     "test:architecture": "node scripts/check-architecture.mjs",
-    "test:sync": "npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v6-domain && npm run test:db-v6 && npm run test:image-assets && npm run test:sync-mock",
+    "test:sync": "npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v6-domain && npm run test:db-v6 && npm run test:image-assets && npm run test:sync-mock && npm run test:sync-integration",
     "test:sync-v7": "npm run test:sync-v7-protocol && npm run test:change-set-v7 && npm run test:sync-v7-multidevice",
     "test:sync-v7-multidevice": "tsx scripts/test-sync-v7-multidevice.ts",
     "test:sync-v7-protocol": "tsx scripts/test-sync-v7-head.ts && tsx scripts/test-github-v7-remote.ts",
@@ -38,6 +38,7 @@
     "test:v6-ui": "tsx scripts/test-v6-ui-data-flow.ts",
     "test:sync-event-ui": "tsx scripts/test-sync-event-ui.ts",
     "test:sync-mock": "tsx scripts/test-sync-mock-backend.ts",
+    "test:sync-integration": "tsx scripts/test-sync-mock-integration.ts",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {

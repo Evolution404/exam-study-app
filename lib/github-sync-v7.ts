@@ -17,9 +17,11 @@ import {
   decodeSyncV7Segment,
   encodeSyncV7Segment,
   mergeSyncV7Segments,
+  paginateSyncV7Events,
   planSyncV7Compaction,
   type SyncHeadV7,
   type SyncV7Descriptor,
+  type SyncV7PublicationFile,
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
@@ -265,15 +267,28 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
     try {
       report(callback, "upload", `正在上传 ${claim.records.length} 组变更`, 62);
       const generation = read.head.generation + 1;
-      const ordinal = read.head.segments.filter((item) => item.generation === generation).length;
+      const baseOrdinal = read.head.segments.filter((item) => item.generation === generation).length;
       const now = new Date().toISOString();
-      const segmentValue = { formatVersion: 7 as const, vaultId: read.head.vaultId, generation, ordinal, metadata: { vaultId: read.head.vaultId, createdAt: now, producer: "exam-study-app" }, cursors: cursorsFor(claim.records), events: claim.records.map((record) => ({ formatVersion: record.formatVersion, id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, kind: record.kind, mutations: record.mutations, entityRefs: record.entityRefs, payloadRefs: record.payloadRefs, digest: record.digest })) };
-      const segmentBytes = encodeSyncV7Segment(segmentValue);
-      const segmentDigest = await sha256(segmentBytes);
-      const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
-      const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
-      const segment: SyncV7SegmentDescriptor = { ...segmentBase, generation, ordinal, count: claim.records.length, cursors: segmentValue.cursors, metadata: segmentValue.metadata };
-      const segments = mergeSyncV7Segments(read.head.segments, [segment], read.head.vaultId);
+      const events = claim.records.map((record) => ({ formatVersion: record.formatVersion, id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, kind: record.kind, mutations: record.mutations, entityRefs: record.entityRefs, payloadRefs: record.payloadRefs, digest: record.digest }));
+      const aggregateCursors = cursorsFor(claim.records);
+      // One claim can carry more events than fit in a single 1 MiB segment (a
+      // large import is split into many change-sets). Paginate them into several
+      // segments that share one generation and publish together.
+      const pages = paginateSyncV7Events(events);
+      const newSegments: SyncV7SegmentDescriptor[] = [];
+      const segmentFiles: SyncV7PublicationFile[] = [];
+      for (let index = 0; index < pages.length; index += 1) {
+        const page = pages[index];
+        const ordinal = baseOrdinal + index;
+        const metadata = { vaultId: read.head.vaultId, createdAt: now, producer: "exam-study-app" };
+        const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: read.head.vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
+        const segmentDigest = await sha256(segmentBytes);
+        const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
+        const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
+        newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
+        segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment" });
+      }
+      const segments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
       const hotBytes = segments.reduce((sum, item) => sum + item.size, 0);
       const compaction = planSyncV7Compaction({ head: read.head, hotBytes });
       let checkpointFile: { path: string; bytes: Uint8Array; kind: "checkpoint" } | undefined;
@@ -283,7 +298,7 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
         report(callback, "compact", "热窗口超过 4 MiB，正在生成检查点", 78);
         const checkpoint = await checkpointFromProjection(
           replayInWireOrder(remoteProjection, claim.records),
-          { ...read.head.cursors, ...segmentValue.cursors },
+          { ...read.head.cursors, ...aggregateCursors },
         );
         const bytes = encodeSyncCheckpointV6(checkpoint);
         const digest = await sha256(bytes);
@@ -293,8 +308,8 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
         checkpointDescriptor = uploaded;
         nextSegments = [];
       }
-      const nextHead: SyncHeadV7 = { ...read.head, generatedAt: now, generation, checkpoint: checkpointDescriptor, segments: nextSegments, cursors: { ...read.head.cursors, ...segmentValue.cursors } };
-      const plan = createSyncV7PublicationPlan({ expectedHead: read.head, expectedHeadSha: read.cache.blobSha, head: nextHead, segments: [{ path: segmentPath, bytes: segmentBytes, kind: "segment" }], ...(checkpointFile ? { checkpoint: checkpointFile, compaction } : {}) });
+      const nextHead: SyncHeadV7 = { ...read.head, generatedAt: now, generation, checkpoint: checkpointDescriptor, segments: nextSegments, cursors: { ...read.head.cursors, ...aggregateCursors } };
+      const plan = createSyncV7PublicationPlan({ expectedHead: read.head, expectedHeadSha: read.cache.blobSha, head: nextHead, segments: segmentFiles, ...(checkpointFile ? { checkpoint: checkpointFile, compaction } : {}) });
       const committed = await client.publish(plan);
       if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v7 远端索引丢失。"); continue; }
       await commitChangeSetClaimV7(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));

@@ -1005,8 +1005,8 @@ function importDraft(row: ImportedQuestionRowV6): QuestionDraftV6 | undefined {
 /**
  * Import a plain JSON question list.  The bank id is deterministic for a
  * filename/name, while question identity is content-addressed globally.  A
- * large import still emits bounded per-question events rather than one huge
- * `bank.imported` payload.
+ * large import is split into byte-bounded change-sets so no single event
+ * exceeds the v7 inline limit.
  */
 export async function importQuestionBankV6(fileName: string, raw: unknown): Promise<BankV6> {
   const parsed = rawQuestionRows(raw);
@@ -1063,7 +1063,35 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
     }
     const refreshed = await refreshBankQuestionCountInTx(bank.id);
     if (refreshed) await dbV6.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
-    await enqueueChangeSetV7([{ kind: "question.import", bank: (await dbV6.banks.get(bank.id))!, questions: materialised.map((item) => item.question), memberships: materialised.map((item) => item.membership) }], timestamp);
+    const bankSnapshot = (await dbV6.banks.get(bank.id))!;
+    // A large import is split into bounded change-sets: each change-set encodes
+    // as one inline segment event, which must stay under SYNC_V7_MAX_EVENT_BYTES
+    // (256 KiB). The question.import reducer is idempotent on the bank, so
+    // multiple chunks for the same bank accumulate questions/memberships on
+    // every device without conflict.
+    const encoder = new TextEncoder();
+    const bytesOf = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
+    const IMPORT_CHUNK_BUDGET = 128 * 1024;
+    const chunks: Array<{ questions: QuestionV6[]; memberships: BankQuestionMembership[] }> = [];
+    let bucketQuestions: QuestionV6[] = [];
+    let bucketMemberships: BankQuestionMembership[] = [];
+    let bucketBytes = bytesOf(bankSnapshot);
+    for (const item of materialised) {
+      const size = bytesOf(item.question) + bytesOf(item.membership);
+      if (bucketBytes + size > IMPORT_CHUNK_BUDGET && bucketQuestions.length) {
+        chunks.push({ questions: bucketQuestions, memberships: bucketMemberships });
+        bucketQuestions = [];
+        bucketMemberships = [];
+        bucketBytes = bytesOf(bankSnapshot);
+      }
+      bucketQuestions.push(item.question);
+      bucketMemberships.push(item.membership);
+      bucketBytes += size;
+    }
+    if (bucketQuestions.length) chunks.push({ questions: bucketQuestions, memberships: bucketMemberships });
+    for (const chunk of chunks) {
+      await enqueueChangeSetV7([{ kind: "question.import", bank: bankSnapshot, questions: chunk.questions, memberships: chunk.memberships }], timestamp);
+    }
   });
   return (await dbV6.banks.get(bank.id))!;
 }
