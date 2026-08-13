@@ -609,6 +609,7 @@ export function StudyApp() {
       setQuickSyncProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
       const { restoreLastRemoteCache } = await import("@/lib/github-sync");
       const result = await restoreLastRemoteCache(quickRestorePrompt.settings, setQuickSyncProgress);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       setQuickRestorePrompt(undefined);
       setQuickRestoring(false);
       setQuickSyncProgress(undefined);

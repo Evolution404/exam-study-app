@@ -64,6 +64,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
       setRestoringCache(true);
       setOperationProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
       const result = await restoreLastRemoteCache(settings, setOperationProgress);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       setRestorePrompt(undefined);
       setRestoringCache(false);
       setOperationProgress(undefined);
