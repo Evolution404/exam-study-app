@@ -37,6 +37,7 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   }, [open]);
 
   function openSearch(questionId?: string) {
+    setOpen(false);
     onOpenSearch(draft.trim(), questionId);
   }
 
