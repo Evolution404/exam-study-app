@@ -576,7 +576,22 @@ export function createSyncV7PublicationPlan(input: {
 }): SyncV7PublicationPlan {
   validateSyncHeadV7(input.head);
   if (input.expectedHead) {
-    return createSyncV7AppendPublicationPlan({ expectedHead: input.expectedHead, head: input.head, objects: input.objects, segments: input.segments, expectedHeadSha: input.expectedHeadSha });
+    validateSyncHeadV7(input.expectedHead);
+    if (input.head.vaultId !== input.expectedHead.vaultId) throw new Error("v7 publication vault identity mismatch");
+    const changedCheckpoint = !descriptorEqualNullable(input.head.checkpoint, input.expectedHead.checkpoint);
+    if (!changedCheckpoint) {
+      if (input.checkpoint) throw new Error("ordinary v7 append cannot upload a checkpoint");
+      return createSyncV7AppendPublicationPlan({ expectedHead: input.expectedHead, head: input.head, objects: input.objects, segments: input.segments, expectedHeadSha: input.expectedHeadSha });
+    }
+    if (!input.checkpoint) throw new Error("changing the v7 checkpoint requires an explicit checkpoint publication");
+    if (!input.compaction) throw new Error("v7 checkpoint upload requires explicit initialization or hot-window-overflow compaction");
+    assertCompactionPlan(input.compaction);
+    const checkpoint = validatePublicationFiles([input.checkpoint], "checkpoint")[0];
+    if (input.head.checkpoint === null || input.head.checkpoint.path !== checkpoint.path) throw new Error("head checkpoint descriptor does not match checkpoint publication");
+    const objects = validatePublicationFiles(input.objects ?? [], "object");
+    const segments = validatePublicationFiles(input.segments ?? [], "segment");
+    assertExpectedHeadSha(input.expectedHeadSha);
+    return { objects, segments, checkpoint, head: input.head, ...(input.expectedHeadSha ? { expectedHeadSha: input.expectedHeadSha } : {}), order: ["checkpoint", "objects", "segments", "head-cas"], mode: "compaction" };
   }
   const objects = validatePublicationFiles(input.objects ?? [], "object");
   const segments = validatePublicationFiles(input.segments ?? [], "segment");

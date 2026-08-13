@@ -85,6 +85,11 @@ assert.equal(overflow.required, true);
 assert.equal(overflow.reason, "hot-window-overflow");
 assert.equal(overflow.segmentCount, 0);
 assert.throws(() => createSyncV7PublicationPlan({ head: appended, checkpoint: { path: checkpoint.path, bytes: "checkpoint", kind: "checkpoint" } }), /explicit initialization/);
+const compactedCheckpoint = descriptor(SYNC_V7_CHECKPOINT_PREFIX, "overflow checkpoint");
+const compactedHead: SyncHeadV7 = { ...appended, checkpoint: compactedCheckpoint, segments: [], generation: appended.generation + 1 };
+const compactedPublication = createSyncV7PublicationPlan({ expectedHead: appended, head: compactedHead, checkpoint: { path: compactedCheckpoint.path, bytes: "overflow checkpoint", kind: "checkpoint" }, compaction: overflow });
+assert.equal(compactedPublication.mode, "compaction");
+assert.deepEqual(compactedPublication.order, ["checkpoint", "objects", "segments", "head-cas"]);
 
 // Replay order follows generation/ordinal even when paths/hashes are reverse
 // ordered. No lexical path tie-breaker is consulted.
