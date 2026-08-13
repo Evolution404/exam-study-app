@@ -95,6 +95,13 @@ assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
 assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
 assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} 次（\{scopeLabel\}）/, "搜索结果应标注区间口径");
 assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
+assert.match(search, /<SearchFilterDrawer/, "搜索页应使用桌面/手机共用的筛选抽屉");
+
+const searchFilters = source("search-filter-drawer.tsx");
+assert.match(searchFilters, /"current" \| "all" \| "custom"/, "搜索范围应包含已选、全部和指定题库三个并列模式");
+assert.match(searchFilters, /role="checkbox"/, "指定题库应支持多选");
+assert.match(searchFilters, /progressScopeOverride/, "学习状态应支持临时覆盖设置页统计范围");
+assert.match(searchFilters, /previewCount/, "筛选应用按钮应显示真实结果数量");
 
 const quick = source("quick-search.tsx");
 assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独立组件");

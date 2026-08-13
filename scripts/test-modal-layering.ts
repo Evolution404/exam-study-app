@@ -18,6 +18,7 @@ const overlaySources = [
   ["app/bank-library-view.tsx", "simple-dialog-backdrop"],
   ["app/question-detail.tsx", "search-detail-backdrop"],
   ["app/search-view.tsx", "search-practice-backdrop"],
+  ["app/search-filter-drawer.tsx", "search-filter-backdrop"],
   ["app/study-app.tsx", "overview-backdrop"],
 ] as const;
 

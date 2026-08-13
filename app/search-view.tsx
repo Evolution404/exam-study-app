@@ -10,11 +10,20 @@ import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } fro
 import { MathText } from "@/app/math-text";
 import { QuestionDetail } from "@/app/question-detail";
 import { dbV6, updateQuestionV6 } from "@/lib/db-v6";
-import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
+import { getQuestionViewV6, listQuestionViewsForBanksV6, type QuestionViewV6 } from "@/lib/app-data-v6";
 import { ModalPortal } from "@/app/modal-portal";
 import { AppSelect } from "@/app/app-select";
+import {
+  SearchFilterDrawer,
+  cloneSearchFilters,
+  countActiveSearchFilters,
+  createDefaultSearchFilters,
+  effectiveSearchProgressScope,
+  resolveSearchBankIds,
+  type SearchFilters,
+} from "@/app/search-filter-drawer";
 import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from "@/lib/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import type { BankV6, QuestionTypeV6 } from "@/lib/v6-types";
 type Bank = BankV6;
@@ -23,8 +32,6 @@ type QuestionType = QuestionTypeV6;
 
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
 type TypeTab = "全部" | QuestionType;
-type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
-type NoteFilter = "all" | "with" | "without";
 
 export interface SearchPracticeOptions {
   questions: Question[];
@@ -36,6 +43,19 @@ function numberOrNull(value: string) {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+}
+
+function searchFilterValidationError(filters: SearchFilters) {
+  const ranges = [
+    [filters.difficultyMin, filters.difficultyMax, "难度"],
+    [filters.attemptsMin, filters.attemptsMax, "总作答次数"],
+    [filters.wrongMin, filters.wrongMax, "错误次数"],
+  ] as const;
+  for (const [minimum, maximum, label] of ranges) {
+    if (minimum && maximum && Number(minimum) > Number(maximum)) return `${label}范围不正确`;
+  }
+  if (filters.lastFrom && filters.lastTo && filters.lastFrom > filters.lastTo) return "作答日期范围不正确";
+  return "";
 }
 
 function shuffle<T>(values: T[]) {
@@ -61,6 +81,17 @@ function scopeLabelFor(scope: ProgressScope): string {
   if (scope.type === "rolling") return `近 ${scope.days} 天`;
   if (scope.type === "lifetime") return "全部时间";
   return "当前复习轮次";
+}
+
+function questionsForFilters(views: readonly QuestionViewV6[], banks: readonly Bank[], bankIds: readonly string[]): Question[] {
+  const selected = new Set(bankIds);
+  const bankMap = new Map(banks.map((bank) => [bank.id, bank]));
+  return views.flatMap((view) => {
+    const membership = view.memberships.find((item) => selected.has(item.bankId));
+    if (!membership) return [];
+    const bank = bankMap.get(membership.bankId);
+    return [toQuestionViewModel(view.question, membership.bankId, bank?.displayName || bank?.name || "未归档题目", membership.sortOrder)];
+  });
 }
 
 export function SearchView({
@@ -90,21 +121,9 @@ export function SearchView({
   onGroup: (questionIds: string[]) => void;
   onNotice: (message: string) => void;
 }) {
-  const [scope, setScope] = useState<"current" | "all">(currentBankIds.length ? "current" : "all");
-  const [bankId, setBankId] = useState("all");
+  const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
+  const [draftFilters, setDraftFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
   const [typeTab, setTypeTab] = useState<TypeTab>("全部");
-  const [keywordMode, setKeywordMode] = useState<"plain" | "regex">("regex");
-  const [status, setStatus] = useState<SearchStatus>("all");
-  const [tag, setTag] = useState("all");
-  const [noteFilter, setNoteFilter] = useState<NoteFilter>("all");
-  const [difficultyMin, setDifficultyMin] = useState("");
-  const [difficultyMax, setDifficultyMax] = useState("");
-  const [attemptsMin, setAttemptsMin] = useState("");
-  const [attemptsMax, setAttemptsMax] = useState("");
-  const [wrongMin, setWrongMin] = useState("");
-  const [wrongMax, setWrongMax] = useState("");
-  const [lastFrom, setLastFrom] = useState("");
-  const [lastTo, setLastTo] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
@@ -114,52 +133,46 @@ export function SearchView({
   const [batchTag, setBatchTag] = useState("");
   const [history, setHistory] = useState(loadSearchHistory);
 
-  const scopedBankIds = bankId !== "all"
-    ? [bankId]
-    : scope === "all"
-      ? banks.map((bank) => bank.id)
-      : currentBankIds;
-  const bankKey = scopedBankIds.join("|");
+  const allBankIds = banks.map((bank) => bank.id);
+  const bankKey = allBankIds.join("|");
   const data = useLiveQuery(async () => {
-    const views = await listQuestionViewsForBanksV6(scopedBankIds);
-    const bankMap = new Map(banks.map((bank) => [bank.id, bank]));
-    const questions = views.map((view) => toQuestionViewModel(view.question, view.sourceBankId, bankMap.get(view.sourceBankId ?? "")?.displayName || bankMap.get(view.sourceBankId ?? "")?.name || "未归档题目", view.memberships[0]?.sortOrder ?? 0));
-    const ids = new Set(questions.map((question) => question.id));
+    const views = await listQuestionViewsForBanksV6(allBankIds);
+    const ids = new Set(views.map((view) => view.question.id));
+    const sourceBankByQuestion = new Map(views.map((view) => [view.question.id, view.memberships[0]?.bankId ?? ""]));
     const [rawStats, rawAttempts, notes, roundProgress] = await Promise.all([dbV6.attemptStats.toArray(), dbV6.attempts.toArray(), dbV6.notes.toArray(), dbV6.reviewRoundProgress.toArray()]);
-    const attemptStats = rawStats.filter((stats) => ids.has(stats.questionId)).map((stats) => ({ ...stats, bankId: questions.find((question) => question.id === stats.questionId)?.bankId ?? "" }));
+    const attemptStats = rawStats.filter((stats) => ids.has(stats.questionId)).map((stats) => ({ ...stats, bankId: sourceBankByQuestion.get(stats.questionId) ?? "" }));
     const attempts = rawAttempts.filter((attempt) => ids.has(attempt.questionId));
-    return { questions, attemptStats, attempts, notes: notes.filter((note) => ids.has(note.questionId)), roundProgress: roundProgress.filter((row) => ids.has(row.questionId)) };
+    return { views, attemptStats, attempts, notes: notes.filter((note) => ids.has(note.questionId)), roundProgress: roundProgress.filter((row) => ids.has(row.questionId)) };
   }, [bankKey]);
 
-  const tags = useMemo(() => [...new Set((data?.questions ?? []).flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [data?.questions]);
-  const normalizedScope = normalizeProgressScope(progressScope);
-  const scopeLabel = scopeLabelFor(normalizedScope);
+  const appliedBankIds = resolveSearchBankIds(filters, banks, currentBankIds);
+  const draftBankIds = resolveSearchBankIds(draftFilters, banks, currentBankIds);
+  const appliedQuestions = questionsForFilters(data?.views ?? [], banks, appliedBankIds);
+  const draftQuestions = questionsForFilters(data?.views ?? [], banks, draftBankIds);
+  const tags = useMemo(() => [...new Set(draftQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [draftQuestions]);
   const [referenceTime] = useState(Date.now);
-  // Scoped per-question stats drive the displayed totals/difficulty so the
-  // search surface matches the user's progress window; lifetime aggregates
-  // remain available for the wrong-review status and the "last attempt" date.
-  const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats((data?.questions ?? []).map((question) => question.id), normalizedScope, data?.attempts ?? [], data?.roundProgress ?? [], referenceTime), [data, normalizedScope, referenceTime]);
-  const scopedMetricByQuestion = useMemo(() => new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, summarizeAttemptStats(scopedStatsToLegacyAttemptStats(stats))])), [scopedStatsByQuestion]);
-  const result = useMemo(() => {
-    const questions = data?.questions ?? [];
+  function calculateResult(activeFilters: SearchFilters, questions: Question[]) {
+    const normalizedScope = effectiveSearchProgressScope(activeFilters, progressScope);
+    const scopedStatsByQuestion = buildScopedQuestionStats(questions.map((question) => question.id), normalizedScope, data?.attempts ?? [], data?.roundProgress ?? [], referenceTime);
+    const scopedMetricByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, summarizeAttemptStats(scopedStatsToLegacyAttemptStats(stats))]));
     const attemptStats = data?.attemptStats ?? [];
     const notes = data?.notes ?? [];
     const roundProgress = data?.roundProgress ?? [];
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     let pattern: RegExp | null = null;
-    if (normalized && keywordMode === "regex") {
-      try { pattern = new RegExp(query.trim(), "i"); } catch { return { entries: [], counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: "正则表达式格式不正确" }; }
+    if (normalized && activeFilters.keywordMode === "regex") {
+      try { pattern = new RegExp(query.trim(), "i"); } catch { return { entries: [], counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: "正则表达式格式不正确", scopedMetricByQuestion, normalizedScope }; }
     }
     const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
     const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, stats]));
-    const minDifficulty = numberOrNull(difficultyMin);
-    const maxDifficulty = numberOrNull(difficultyMax);
-    const minAttempts = numberOrNull(attemptsMin);
-    const maxAttempts = numberOrNull(attemptsMax);
-    const minWrong = numberOrNull(wrongMin);
-    const maxWrong = numberOrNull(wrongMax);
-    const fromTime = lastFrom ? new Date(`${lastFrom}T00:00:00`).getTime() : null;
-    const toTime = lastTo ? new Date(`${lastTo}T23:59:59.999`).getTime() : null;
+    const minDifficulty = numberOrNull(activeFilters.difficultyMin);
+    const maxDifficulty = numberOrNull(activeFilters.difficultyMax);
+    const minAttempts = numberOrNull(activeFilters.attemptsMin);
+    const maxAttempts = numberOrNull(activeFilters.attemptsMax);
+    const minWrong = numberOrNull(activeFilters.wrongMin);
+    const maxWrong = numberOrNull(activeFilters.wrongMax);
+    const fromTime = activeFilters.lastFrom ? new Date(`${activeFilters.lastFrom}T00:00:00`).getTime() : null;
+    const toTime = activeFilters.lastTo ? new Date(`${activeFilters.lastTo}T23:59:59.999`).getTime() : null;
     const base = questions.flatMap((question) => {
       const stats = statsByQuestion.get(question.id);
       const metric = scopedMetricByQuestion.get(question.id) ?? summarizeAttemptStats(stats);
@@ -169,12 +182,12 @@ export function SearchView({
       // An empty keyword is allowed: search by conditions only.
       const keywordMatches = !normalized || (pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(normalized));
       if (!keywordMatches) return [];
-      if (tag !== "all" && !question.tags.includes(tag)) return [];
-      if (status === "unanswered" && isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)) return [];
-      if (status === "wrong" && !statsNeedWrongReview(stats, wrongRemovalStreak)) return [];
-      if (status === "favorite" && !question.favorite) return [];
-      if (noteFilter === "with" && !note.trim()) return [];
-      if (noteFilter === "without" && note.trim()) return [];
+      if (activeFilters.tag !== "all" && !question.tags.includes(activeFilters.tag)) return [];
+      if (activeFilters.status === "unanswered" && isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)) return [];
+      if (activeFilters.status === "wrong" && !statsNeedWrongReview(stats, wrongRemovalStreak)) return [];
+      if (activeFilters.status === "favorite" && !question.favorite) return [];
+      if (activeFilters.noteFilter === "with" && !note.trim()) return [];
+      if (activeFilters.noteFilter === "without" && note.trim()) return [];
       if (minDifficulty !== null && metric.difficulty < minDifficulty) return [];
       if (maxDifficulty !== null && metric.difficulty > maxDifficulty) return [];
       if (minAttempts !== null && metric.total < minAttempts) return [];
@@ -193,8 +206,12 @@ export function SearchView({
       计算: base.filter((entry) => entry.question.type === "计算").length,
     };
     const filtered = typeTab === "全部" ? base : base.filter((entry) => entry.question.type === typeTab);
-    return { entries: TYPE_ORDER.flatMap((type) => filtered.filter((entry) => entry.question.type === type)), counts, error: "" };
-  }, [data, query, keywordMode, tag, status, noteFilter, difficultyMin, difficultyMax, attemptsMin, attemptsMax, wrongMin, wrongMax, lastFrom, lastTo, typeTab, wrongRemovalStreak, normalizedScope, referenceTime, scopedMetricByQuestion]);
+    return { entries: TYPE_ORDER.flatMap((type) => filtered.filter((entry) => entry.question.type === type)), counts, error: "", scopedMetricByQuestion, normalizedScope };
+  }
+  const result = calculateResult(filters, appliedQuestions);
+  const draftResult = calculateResult(draftFilters, draftQuestions);
+  const scopedMetricByQuestion = result.scopedMetricByQuestion;
+  const scopeLabel = scopeLabelFor(result.normalizedScope);
 
   const visibleEntries = result.entries.slice(0, visibleCount);
   const selectedQuestions = result.entries.filter((entry) => selectedIds.includes(entry.question.id)).map((entry) => entry.question);
@@ -219,15 +236,62 @@ export function SearchView({
     localStorage.removeItem("study-search-history");
   }
 
+  function triggerSearch() {
+    setSearchTriggered(true);
+    setVisibleCount(50);
+    setSelectedIds([]);
+    const term = query.trim();
+    if (!term) return;
+    const nextHistory = [term, ...history.filter((item) => item !== term)].slice(0, 10);
+    setHistory(nextHistory);
+    localStorage.setItem("study-search-history", JSON.stringify(nextHistory));
+  }
+
+  function openFilters() {
+    setDraftFilters(cloneSearchFilters(filters));
+    setAdvancedOpen(true);
+  }
+
+  function resetDraftFilters() {
+    setDraftFilters(createDefaultSearchFilters(currentBankIds));
+  }
+
+  function applyDraftFilters() {
+    const validationError = searchFilterValidationError(draftFilters) || draftResult.error;
+    if (validationError) {
+      onNotice(validationError);
+      return;
+    }
+    if (draftFilters.bankScope === "custom" && !draftFilters.customBankIds.length) {
+      onNotice("请至少选择一个指定题库");
+      return;
+    }
+    setFilters(cloneSearchFilters(draftFilters));
+    setAdvancedOpen(false);
+    setSearchTriggered(true);
+    setVisibleCount(50);
+    setSelectedIds([]);
+  }
+
   const showResults = query.trim() !== "" || searchTriggered;
   const totalCount = result.counts.单选 + result.counts.多选 + result.counts.判断 + result.counts.计算;
+  const draftTotalCount = draftResult.counts.单选 + draftResult.counts.多选 + draftResult.counts.判断 + draftResult.counts.计算;
+  const draftError = searchFilterValidationError(draftFilters) || draftResult.error;
+  const activeFilterCount = countActiveSearchFilters(filters);
+  const filterChips = [
+    filters.bankScope === "current" ? "已选题库" : filters.bankScope === "all" ? "全部题库" : `指定题库 · ${filters.customBankIds.length} 个`,
+    filters.status === "unanswered" ? "未做" : filters.status === "wrong" ? "错题" : filters.status === "favorite" ? "收藏" : "",
+    filters.keywordMode === "regex" ? "正则表达式" : "",
+    filters.tag !== "all" ? `标签：${filters.tag}` : "",
+    filters.noteFilter === "with" ? "已有解析" : filters.noteFilter === "without" ? "没有解析" : "",
+    filters.progressScopeOverride ? `统计：${scopeLabelFor(filters.progressScopeOverride)}` : "",
+  ].filter(Boolean);
 
   return <div className="search-page">
-    <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认使用正则表达式，可组合题库、作答情况、标签、难度和日期筛选；不输入关键词也可按条件搜索。"}</p></div><div className="search-heading-actions"><label htmlFor="search-scope-select">搜索范围<AppSelect id="search-scope-select" ariaLabel="搜索范围" value={scope} onValueChange={(value) => { setScope(value as "current" | "all"); setBankId("all"); }} options={[{ value: "current", label: "首页已选题库" }, { value: "all", label: "全部题库" }]} /></label><label htmlFor="search-bank-select">指定题库<AppSelect id="search-bank-select" ariaLabel="指定题库" value={bankId} onValueChange={setBankId} options={[{ value: "all", label: "不指定" }, ...banks.filter((bank) => scope === "all" || currentBankIds.includes(bank.id)).map((bank) => ({ value: bank.id, label: bank.displayName || bank.name }))]} /></label></div></div>
-    <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") { setSearchTriggered(true); setVisibleCount(50); } }} placeholder="正则示例：弧垂|导线，普通文字也可直接输入" /><button className="search-trigger-button" onClick={() => { setSearchTriggered(true); setVisibleCount(50); }}><Search size={16} />搜索</button><button className={`search-filter-toggle ${advancedOpen ? "active" : ""}`} onClick={() => setAdvancedOpen(!advancedOpen)}><Filter size={16} />高级条件</button></section>
+    <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认包含关键词，也可以组合题库、学习状态、标签、难度和日期进行筛选。"}</p></div></div>
+    <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") triggerSearch(); }} placeholder={filters.keywordMode === "regex" ? "正则示例：弧垂|导线" : "输入题干、选项、标签或个人解析"} /><button className="search-trigger-button" onClick={triggerSearch}><Search size={16} />搜索</button><button className={`search-filter-toggle ${activeFilterCount ? "active" : ""}`} onClick={openFilters}><Filter size={16} />筛选{activeFilterCount ? ` · ${activeFilterCount}` : ""}</button></section>
+    <div className="search-filter-chips" aria-label="当前筛选条件">{filterChips.map((chip) => <span key={chip}>{chip}</span>)}</div>
     {showResults && <section className="search-toolbar"><div className="search-type-tabs">{(["全部", ...TYPE_ORDER] as TypeTab[]).map((type) => <button key={type} className={typeTab === type ? "active" : ""} onClick={() => { setTypeTab(type); setVisibleCount(50); }}>{type}<span>{type === "全部" ? totalCount : result.counts[type]}</span></button>)}</div></section>}
-    {advancedOpen && <section className="search-filter-panel"><label htmlFor="search-keyword-mode-select">关键词方式<AppSelect id="search-keyword-mode-select" ariaLabel="关键词方式" value={keywordMode} onValueChange={(value) => setKeywordMode(value as "plain" | "regex")} options={[{ value: "plain", label: "包含关键词" }, { value: "regex", label: "正则表达式" }]} /></label><label htmlFor="search-status-select">作答状态<AppSelect id="search-status-select" ariaLabel="作答状态" value={status} onValueChange={(value) => setStatus(value as SearchStatus)} options={[{ value: "all", label: "全部" }, { value: "unanswered", label: `进度口径未做（${normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前轮次"}）` }, { value: "wrong", label: "当前错题（终身统计）" }, { value: "favorite", label: "已收藏" }]} /></label><label htmlFor="search-tag-select">用户标签<AppSelect id="search-tag-select" ariaLabel="用户标签" value={tag} onValueChange={setTag} options={[{ value: "all", label: "全部标签" }, ...tags.map((item) => ({ value: item, label: item }))]} /></label><label htmlFor="search-note-select">个人解析<AppSelect id="search-note-select" ariaLabel="个人解析" value={noteFilter} onValueChange={(value) => setNoteFilter(value as NoteFilter)} options={[{ value: "all", label: "不限" }, { value: "with", label: "已有解析" }, { value: "without", label: "没有解析" }]} /></label><label>最低难度<input type="number" min="0" max="100" value={difficultyMin} onChange={(event) => setDifficultyMin(event.target.value)} placeholder="不限" /></label><label>最高难度<input type="number" min="0" max="100" value={difficultyMax} onChange={(event) => setDifficultyMax(event.target.value)} placeholder="不限" /></label><label>总作答最少<input type="number" min="0" value={attemptsMin} onChange={(event) => setAttemptsMin(event.target.value)} placeholder="不限" /></label><label>总作答最多<input type="number" min="0" value={attemptsMax} onChange={(event) => setAttemptsMax(event.target.value)} placeholder="不限" /></label><label>错误次数最少<input type="number" min="0" value={wrongMin} onChange={(event) => setWrongMin(event.target.value)} placeholder="不限" /></label><label>错误次数最多<input type="number" min="0" value={wrongMax} onChange={(event) => setWrongMax(event.target.value)} placeholder="不限" /></label><label>最后作答开始<input type="date" value={lastFrom} onInput={(event) => setLastFrom(event.currentTarget.value)} /></label><label>最后作答结束<input type="date" value={lastTo} onInput={(event) => setLastTo(event.currentTarget.value)} /></label></section>}
-    {advancedOpen && (lastFrom || lastTo) && <button className="clear-search-dates" onClick={() => { setLastFrom(""); setLastTo(""); }}><X size={14} />清除作答日期</button>}
     {!showResults ? <section className="search-empty-page"><Search size={28} /><h2>输入关键词或按条件搜索</h2><p>支持普通关键词和正则表达式；也可以不输入关键词，设置条件后点击“搜索”。搜索只读取本地题库。</p>{history.length > 0 && <div className="search-history"><header><span><History size={15} />最近搜索</span><button onClick={clearHistory}>清除</button></header><div>{history.map((item) => <button key={item} onClick={() => onQueryChange(item)}>{item}</button>)}</div></div>}</section> : data === undefined ? <div className="search-loading"><LoaderCircle className="spin" />正在读取本地题库…</div> : result.error ? <div className="search-no-result"><CircleAlert /><h2>{result.error}</h2></div> : result.entries.length ? <>
       <section className="search-batch-bar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : result.entries.map((entry) => entry.question.id))} />选择当前 {result.entries.length} 道结果</label><span>已选择 {selectedQuestions.length} 道</span><div><button disabled={!selectedQuestions.length} onClick={() => void favoriteSelected()}><Star size={15} />收藏所选</button><span className="batch-tag"><input value={batchTag} onChange={(event) => setBatchTag(event.target.value)} placeholder="输入标签" /><button disabled={!selectedQuestions.length || !batchTag.trim()} onClick={() => void addTagToSelected()}><Tags size={15} />添加</button></span><button disabled={!selectedQuestions.length} onClick={() => onGroup(selectedQuestions.map((question) => question.id))}><GitBranch size={15} />加入题组</button><button disabled={!selectedQuestions.length} onClick={() => setPracticeSource({ questions: selectedQuestions, label: `搜索已选 ${selectedQuestions.length} 题` })}><ListChecks size={15} />练习已选</button><button className="primary" onClick={() => setPracticeSource({ questions: result.entries.map((entry) => entry.question), label: `搜索“${query.trim() || "条件"}”` })}><Play size={15} />练习全部结果</button></div></section>
       <div className="search-result-list">{visibleEntries.map(({ question, metric, hasNote }, index) => <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="result-checkbox"><input type="checkbox" checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /><span>{index + 1}</span></label><button className="search-result-main" onClick={() => setDetailQuestionId(question.id)}><div><span className="result-type">{question.type}</span><span>{question.bankName}</span>{question.tags.map((item) => <em key={item}>{item}</em>)}</div><h2><MathText text={question.stem} /></h2><p>难度 {metric.difficulty} · 作答 {metric.total} 次 · 错误 {metric.wrong} 次（{scopeLabel}）{hasNote ? " · 已有个人解析" : ""}</p></button><ChevronRight size={18} /></article>)}</div>
@@ -235,6 +299,7 @@ export function SearchView({
     </> : <div className="search-no-result"><Search /><h2>没有符合条件的题目</h2><p>可以缩短关键词或减少筛选条件。</p></div>}
     {detailQuestionId && <SearchQuestionDetail questionId={detailQuestionId} entries={result.entries} metric={scopedMetricByQuestion.get(detailQuestionId) ?? summarizeAttemptStats()} scopeLabel={scopeLabel} onClose={() => { setDetailQuestionId(undefined); onFocusHandled(); }} onStart={(question) => setPracticeSource({ questions: [question], label: "单题练习" })} onGroup={(questionId) => onGroup([questionId])} onNavigate={setDetailQuestionId} onNotice={onNotice} />}
     {practiceSource && <SearchPracticeDialog source={practiceSource} defaultShuffleOptions={defaultShuffleOptions} onClose={() => setPracticeSource(undefined)} onStart={async (options) => { await onStart(options); setPracticeSource(undefined); }} />}
+    {advancedOpen && <SearchFilterDrawer open filters={draftFilters} settingsProgressScope={progressScope} banks={banks} currentBankIds={currentBankIds} tags={tags} previewCount={draftTotalCount} previewError={draftError} onChange={setDraftFilters} onReset={resetDraftFilters} onApply={applyDraftFilters} onClose={() => setAdvancedOpen(false)} />}
   </div>;
 }
 
