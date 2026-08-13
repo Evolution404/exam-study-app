@@ -113,8 +113,7 @@
   padding: 0 11px;
 }
 
-.settings-card .sync-event-search input,
-.sync-event-filter select {
+.settings-card .sync-event-search input {
   min-width: 0;
   width: 100%;
   height: 42px;
@@ -129,18 +128,7 @@
 
 .settings-card .sync-event-filter {
   margin: 0;
-  display: flex;
   padding: 0 11px;
-}
-
-.sync-event-filter select {
-  appearance: none;
-  cursor: pointer;
-}
-
-.sync-event-filter > svg {
-  flex: none;
-  pointer-events: none;
 }
 
 .sync-event-manager-actions {

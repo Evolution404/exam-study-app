@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ConfirmDialog } from "@/app/confirm-dialog";
+import { AppSelect } from "@/app/app-select";
 import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/change-set-v7";
 import "@/app/styles/sync-events.css";
 
@@ -324,7 +325,7 @@ export function SyncEventManager({
   return <section className={`sync-event-manager ${className}`.trim()} aria-label="同步操作管理">
     <div className="sync-event-toolbar">
       <label className="sync-event-search"><Search size={17} /><span className="sr-only">搜索同步操作</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索类型、对象或编号" /></label>
-      <label className="sync-event-filter"><span className="sr-only">按状态筛选</span><select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">全部状态</option>{Object.entries(stateLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown aria-hidden="true" size={16} /></label>
+      <AppSelect className="sync-event-filter" ariaLabel="按状态筛选" value={status} onValueChange={(value) => setStatus(value as typeof status)} options={[{ value: "all", label: "全部状态" }, ...Object.entries(stateLabels).map(([value, label]) => ({ value, label }))]} />
     </div>
 
     <div className="sync-event-manager-actions">

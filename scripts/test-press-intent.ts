@@ -11,6 +11,8 @@ assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS, false, false), "complete
 assert.equal(classifyPressIntent(400, false, true), "complete");
 
 const styles = await readFile(new URL("../app/styles/components.css", import.meta.url), "utf8");
+const controls = await readFile(new URL("../app/styles/controls.css", import.meta.url), "utf8");
 assert.match(styles, /\.quick-sync-split \.quick-sync\.holding\{color:#fff;background:var\(--color-danger\)\}/, "holding the quick-sync button uses an unmistakable red danger surface");
+assert.match(controls, /\.app-shell :where\(button, a, input, textarea, select, \[tabindex\]\):focus-visible/, "interactive controls share the theme focus treatment instead of browser-blue outlines");
 
 console.log("press intent tests passed: tap, interrupted hold, cancelled pointer, completed hold");
