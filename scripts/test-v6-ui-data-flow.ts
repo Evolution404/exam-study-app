@@ -38,6 +38,13 @@ assert.match(bank, /progressScopeLabel/);
 assert.match(bank, /范围表现（\$\{progressScopeLabel\}）/);
 assert.match(bank, /setActivityRange\("custom"\)/);
 assert.match(bank, /type="date"/);
+assert.match(bank, /deleteBankWithExclusiveQuestionsV6/, "删除题库应允许同步清理只属于该题库的题目");
+assert.match(bank, /只删除题库，保留题目/, "删除题库应保留只删题库选项");
+assert.match(bank, /删除题库和独占题目/, "删除题库应提供清理独占题目选项");
+assert.match(bank, /removeMembershipsV6/, "试题管理应支持批量移出当前题库");
+assert.match(bank, /deleteQuestionsV6/, "试题管理与未归档区应支持批量永久删除");
+assert.match(bank, /选择当前筛选/, "试题管理应支持按当前筛选结果全选");
+assert.match(bank, /批量删除/, "未归档题目应支持批量删除");
 // 试题管理：点题目卡片看详情（setViewing），铅笔才编辑；行内统计按区间口径。
 assert.match(bank, /<button onClick=\{\(\) => setViewing\(question\)\}/, "题目卡片点击应打开详情而非直接编辑");
 assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");

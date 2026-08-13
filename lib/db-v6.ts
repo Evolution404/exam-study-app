@@ -839,34 +839,56 @@ export async function removeMembershipV6(
   return true;
 }
 
-export async function deleteQuestionV6(questionId: string): Promise<boolean> {
-  const current = await dbV6.questions.get(questionId);
-  if (!current) return false;
+export async function removeMembershipsV6(bankId: string, questionIds: readonly string[]): Promise<number> {
+  const uniqueIds = [...new Set(questionIds.filter(Boolean))];
+  if (!bankId || !uniqueIds.length) return 0;
+  const keys = uniqueIds.map((questionId) => membershipKey(bankId, questionId));
+  const memberships = (await dbV6.bankQuestionMemberships.bulkGet(keys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
+  if (!memberships.length) return 0;
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
-  const eventId = makeV6Id("question-delete");
-  const memberships = await dbV6.bankQuestionMemberships.where("questionId").equals(questionId).toArray();
+  await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+    await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
+    await dbV6.tombstones.bulkPut(memberships.map((membership) => ({
+      key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
+      deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"),
+    })));
+    await dbV6.events.bulkPut(memberships.map((membership) => eventInTx("membership.removed", membership, timestamp)));
+    await refreshBankQuestionCountInTx(bankId);
+  });
+  return memberships.length;
+}
+
+export async function deleteQuestionsV6(questionIds: readonly string[]): Promise<number> {
+  const uniqueIds = [...new Set(questionIds.filter(Boolean))];
+  if (!uniqueIds.length) return 0;
+  const questions = (await dbV6.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV6 => Boolean(question));
+  if (!questions.length) return 0;
+  const existingIds = questions.map((question) => question.id);
+  const deletingIds = new Set(existingIds);
+  const timestamp = nowIso();
+  const deviceId = getV6DeviceId();
+  const memberships = await dbV6.bankQuestionMemberships.where("questionId").anyOf(existingIds).toArray();
+  const affectedBankIds = [...new Set(memberships.map((membership) => membership.bankId))];
   await dbV6.transaction("rw", [
     dbV6.questions, dbV6.bankQuestionMemberships, dbV6.attempts, dbV6.attemptStats,
     dbV6.attemptDailyStats, dbV6.notes, dbV6.questionGroups, dbV6.reviewRoundProgress,
     dbV6.practiceRuns, dbV6.banks, dbV6.events, dbV6.tombstones,
   ], async () => {
-    await dbV6.questions.delete(questionId);
+    await dbV6.questions.bulkDelete(existingIds);
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
-    for (const membership of memberships) {
-      await dbV6.tombstones.put({
+    await dbV6.tombstones.bulkPut(memberships.map((membership) => ({
         key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
-        deletedAt: timestamp, deviceId, eventId,
-      });
-    }
-    await dbV6.attempts.where("questionId").equals(questionId).delete();
-    await dbV6.attemptStats.delete(questionId);
-    await dbV6.attemptDailyStats.where("questionId").equals(questionId).delete();
-    await dbV6.reviewRoundProgress.where("questionId").equals(questionId).delete();
-    await dbV6.notes.delete(questionId);
+        deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete"),
+      })));
+    await dbV6.attempts.where("questionId").anyOf(existingIds).delete();
+    await dbV6.attemptStats.bulkDelete(existingIds);
+    await dbV6.attemptDailyStats.where("questionId").anyOf(existingIds).delete();
+    await dbV6.reviewRoundProgress.where("questionId").anyOf(existingIds).delete();
+    await dbV6.notes.bulkDelete(existingIds);
     const groups = await dbV6.questionGroups.toArray();
     for (const group of groups) {
-      const items = group.items.filter((item) => item.questionId !== questionId);
+      const items = group.items.filter((item) => !deletingIds.has(item.questionId));
       if (items.length !== group.items.length) {
         if (items.length) await dbV6.questionGroups.put({ ...group, items, updatedAt: timestamp });
         else await dbV6.questionGroups.delete(group.id);
@@ -874,26 +896,28 @@ export async function deleteQuestionV6(questionId: string): Promise<boolean> {
     }
     const runs = await dbV6.practiceRuns.toArray();
     for (const run of runs) {
-      if (!run.questionIds.includes(questionId)) continue;
-      const answers = { ...run.answers };
-      delete answers[questionId];
-      const questionTypes = { ...run.questionTypes };
-      delete questionTypes[questionId];
-      await dbV6.practiceRuns.put({ ...run, questionIds: run.questionIds.filter((id) => id !== questionId), answers, questionTypes, updatedAt: timestamp });
+      if (!run.questionIds.some((questionId) => deletingIds.has(questionId))) continue;
+      const answers = Object.fromEntries(Object.entries(run.answers).filter(([questionId]) => !deletingIds.has(questionId)));
+      const questionTypes = Object.fromEntries(Object.entries(run.questionTypes).filter(([questionId]) => !deletingIds.has(questionId)));
+      await dbV6.practiceRuns.put({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
     }
-    for (const membership of memberships) await refreshBankQuestionCountInTx(membership.bankId);
-    const tombstone: TombstoneV6 = {
+    for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
+    const tombstones: TombstoneV6[] = existingIds.map((questionId) => ({
       key: tombstoneKey("question", questionId),
       entityType: "question",
       entityId: questionId,
       deletedAt: timestamp,
       deviceId,
-      eventId,
-    };
-    await dbV6.tombstones.put(tombstone);
-    await dbV6.events.put(eventInTx("question.deleted", { id: questionId, deletedAt: timestamp }, timestamp));
+      eventId: makeV6Id("question-delete"),
+    }));
+    await dbV6.tombstones.bulkPut(tombstones);
+    await dbV6.events.bulkPut(existingIds.map((questionId) => eventInTx("question.deleted", { id: questionId, deletedAt: timestamp }, timestamp)));
   });
-  return true;
+  return existingIds.length;
+}
+
+export async function deleteQuestionV6(questionId: string): Promise<boolean> {
+  return (await deleteQuestionsV6([questionId])) > 0;
 }
 
 export const deleteQuestionGlobalV6 = deleteQuestionV6;
@@ -915,6 +939,18 @@ export async function deleteBankV6(bankId: string): Promise<boolean> {
 }
 
 export const deleteBankOnlyV6 = deleteBankV6;
+
+export async function deleteBankWithExclusiveQuestionsV6(bankId: string): Promise<{ bankDeleted: boolean; deletedQuestions: number }> {
+  const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
+  const questionIds = memberships.map((membership) => membership.questionId);
+  const allMemberships = questionIds.length ? await dbV6.bankQuestionMemberships.where("questionId").anyOf(questionIds).toArray() : [];
+  const membershipCounts = new Map<string, number>();
+  for (const membership of allMemberships) membershipCounts.set(membership.questionId, (membershipCounts.get(membership.questionId) ?? 0) + 1);
+  const exclusiveQuestionIds = questionIds.filter((questionId) => membershipCounts.get(questionId) === 1);
+  const bankDeleted = await deleteBankV6(bankId);
+  if (!bankDeleted) return { bankDeleted: false, deletedQuestions: 0 };
+  return { bankDeleted: true, deletedQuestions: await deleteQuestionsV6(exclusiveQuestionIds) };
+}
 
 interface ImportedQuestionRowV6 {
   stem: string;

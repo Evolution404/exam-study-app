@@ -279,9 +279,11 @@ async function assertBankManagementActions(page) {
   const tools = page.locator(".bank-management-tools-actions > button");
   assert.equal(await buttons.count(), 2, "bank management must expose create and unified import as primary actions");
   assert.equal(await tools.count(), 3, "bank management must expose folder, template, and unfiled tools");
-  await expectText(page, "自动识别 JSON / XLSX");
+  await expectText(page, "新建题库");
+  await expectText(page, "导入题库");
   const layout = await primaryActions.evaluate((element) => ({
-    columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+    display: getComputedStyle(element).display,
+    viewportWidth: window.innerWidth,
     buttons: [...element.querySelectorAll(":scope > button")].map((button) => {
       const box = button.getBoundingClientRect();
       return {
@@ -291,9 +293,10 @@ async function assertBankManagementActions(page) {
       };
     }),
   }));
-  assert.equal(layout.columns, 2, "bank management primary actions must use two columns");
+  assert.equal(layout.display, layout.viewportWidth <= 520 ? "grid" : "flex", "bank management actions must use the responsive compact layout");
   const heights = layout.buttons.map(({ height }) => height);
   assert.ok(Math.max(...heights) - Math.min(...heights) < 1, "bank management actions must have equal heights");
+  assert.ok(heights.every((height) => height >= 42 && height <= 46), "bank management actions must keep the compact 44px height");
   for (const button of layout.buttons) {
     assert.ok(button.scrollWidth <= button.width + 1, "bank management action text must fit its button");
   }

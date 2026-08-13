@@ -14,7 +14,7 @@ import { ExcelTemplateAction } from "@/app/excel-import";
 import { AppSelect } from "@/app/app-select";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { ModalPortal } from "@/app/modal-portal";
-import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteQuestionV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
+import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteBankWithExclusiveQuestionsV6, deleteQuestionsV6, deleteQuestionV6, removeMembershipsV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
 import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
 import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
@@ -98,16 +98,7 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
     void reorderBanks(members.map((item) => item.id), bank.folderId);
   }
 
-  async function removeBank(bank: Bank) {
-    try {
-      setDeleting(true);
-      await deleteBankV6(bank.id);
-      setActiveBankId(undefined); setTab("overview"); setPendingBankDelete(undefined);
-      onNotice(`题库“${bankTitle(bank)}”已删除`);
-    } finally { setDeleting(false); }
-  }
-
-  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} progressScopeLabel={progressScopeLabel} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}<ConfirmDialog open={Boolean(pendingBankDelete)} eyebrow="题库管理" title="移除这个题库？" tone="danger" busy={deleting} confirmLabel="移除题库" onCancel={() => setPendingBankDelete(undefined)} onConfirm={() => { if (pendingBankDelete) void removeBank(pendingBankDelete); }} description={<><strong>题库“{pendingBankDelete ? bankTitle(pendingBankDelete) : ""}”及其 memberships 将被移除</strong><span>题目本身、历史作答和解析会保留；失去全部题库归属的题目可在“未归档题目”中找回。</span></>} /></>;
+  if (activeBank) return <><BankDetail bank={activeBank} folders={folders} progressScope={progressScope} progressScopeLabel={progressScopeLabel} tab={tab} wrongRemovalStreak={wrongRemovalStreak} onTab={setTab} onBack={() => { setActiveBankId(undefined); setTab("overview"); }} onEdit={() => setEditingBank(activeBank)} onDelete={() => setPendingBankDelete(activeBank)} onOpenRun={onOpenRun} onNotice={onNotice} />{editingBank && <BankEditDialog bank={editingBank} folders={folders} onClose={() => setEditingBank(undefined)} onSaved={(name) => { setEditingBank(undefined); onNotice(`题库“${name}”已保存`); }} />}{pendingBankDelete && <BankDeleteDialog bank={pendingBankDelete} busy={deleting} onBusy={setDeleting} onClose={() => setPendingBankDelete(undefined)} onDeleted={(message) => { setActiveBankId(undefined); setTab("overview"); setPendingBankDelete(undefined); onNotice(message); }} onNotice={onNotice} />}</>;
   return <>
     <div className="page-heading compact bank-management-heading"><div><p className="eyebrow">资料资产管理</p><h1>题库管理</h1><p>直接创建空白题库并逐题维护，也可以导入已有文件快速开始。</p></div><div className="bank-primary-actions"><button className="primary" onClick={() => setCreatingBank(true)}><Plus size={17} />新建题库</button><button onClick={onImport}><FileUp size={17} />导入题库</button></div></div>
     <div className="bank-management-tools"><div><strong>整理工具</strong><small>题库分组、模板与未归档内容</small></div><div className="bank-management-tools-actions"><button onClick={() => setFolderDialog("new")}><FolderPlus size={17} />新建文件夹</button><ExcelTemplateAction onNotice={onNotice} /><button className={showUnfiled ? "active" : ""} onClick={() => setShowUnfiled((value) => !value)}><FileText size={17} />{showUnfiled ? "隐藏未归档" : "未归档题目"}</button></div></div>
@@ -123,10 +114,59 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
   </>;
 }
 
+function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNotice }: { bank: Bank; busy: boolean; onBusy: (value: boolean) => void; onClose: () => void; onDeleted: (message: string) => void; onNotice: (message: string) => void }) {
+  const exclusiveCount = useLiveQuery(async () => {
+    const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).toArray();
+    if (!memberships.length) return 0;
+    const all = await dbV6.bankQuestionMemberships.where("questionId").anyOf(memberships.map((membership) => membership.questionId)).toArray();
+    const counts = new Map<string, number>();
+    for (const membership of all) counts.set(membership.questionId, (counts.get(membership.questionId) ?? 0) + 1);
+    return memberships.filter((membership) => counts.get(membership.questionId) === 1).length;
+  }, [bank.id]);
+
+  async function removeBank(alsoDeleteQuestions: boolean) {
+    try {
+      onBusy(true);
+      if (alsoDeleteQuestions) {
+        const result = await deleteBankWithExclusiveQuestionsV6(bank.id);
+        onDeleted(`题库“${bankTitle(bank)}”已删除，同时清理 ${result.deletedQuestions} 道独占题目`);
+      } else {
+        await deleteBankV6(bank.id);
+        onDeleted(`题库“${bankTitle(bank)}”已删除，题目已保留`);
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "删除题库失败");
+    } finally {
+      onBusy(false);
+    }
+  }
+
+  return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="simple-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-delete-title"><header><div><span className="section-kicker">题库管理</span><h2 id="bank-delete-title">删除题库时如何处理题目？</h2></div><button className="icon-button" disabled={busy} onClick={onClose} aria-label="取消删除题库"><X size={17} /></button></header><p className="delete-dialog-summary"><strong>{bankTitle(bank)}</strong><span>该题库共 {bank.questionCount.toLocaleString()} 道题，其中 {exclusiveCount === undefined ? "正在统计" : `${exclusiveCount.toLocaleString()} 道`}只属于这个题库。</span></p><div className="delete-choice-list"><button disabled={busy} onClick={() => void removeBank(false)}><span>只删除题库，保留题目</span><small>题目与学习记录继续保留；没有其他归属的题会进入“未归档题目”。</small></button><button className="danger-button" disabled={busy || exclusiveCount === undefined} onClick={() => void removeBank(true)}><span>删除题库和独占题目</span><small>永久删除只属于这个题库的 {exclusiveCount ?? 0} 道题及其学习记录；其他题库共用的题不会删除。</small></button></div>{busy && <p className="delete-dialog-progress">正在处理，请勿关闭…</p>}<footer><button disabled={busy} onClick={onClose}>取消</button></footer></section></div></ModalPortal>;
+}
+
 function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV6[]; onNotice: (message: string) => void }) {
   const [editing, setEditing] = useState<QuestionV6>();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const models = questions.map((question) => toQuestionViewModel(question));
-  return <section className="unfiled-question-section"><header><div><span className="section-kicker">全局题目仍保留</span><h2>未归档题目</h2><p>这些题目暂时没有任何题库 membership；历史作答和解析不会被自动删除。</p></div><strong>{questions.length} 道题</strong></header>{models.length ? <div className="managed-question-list">{models.map((question) => <article key={question.id}><span>·</span><button onClick={() => setEditing(question.canonical)}><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>{question.type} · {question.tags.join("、") || "无标签"}</small></button></article>)}</div> : <p className="question-manager-empty">暂无未归档题目。</p>}{editing && <SharedQuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("未归档题目已保存"); }} />}</section>;
+  const allSelected = models.length > 0 && models.every((question) => selectedIds.includes(question.id));
+
+  async function deleteSelected() {
+    try {
+      setDeleting(true);
+      const count = await deleteQuestionsV6(selectedIds);
+      setSelectedIds([]);
+      setConfirmingDelete(false);
+      onNotice(`已永久删除 ${count} 道未归档题目及其学习记录`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "批量删除未归档题目失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return <section className="unfiled-question-section"><header><div><span className="section-kicker">全局题目仍保留</span><h2>未归档题目</h2><p>这些题目暂时没有任何题库归属，可批量清理或重新编辑。</p></div><strong>{questions.length} 道题</strong></header>{models.length ? <><div className="question-bulk-bar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : models.map((question) => question.id))} />全选 {models.length} 道</label><span>已选 {selectedIds.length} 道</span><button className="danger-button" disabled={!selectedIds.length} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} />批量删除</button></div><div className="managed-question-list selectable">{models.map((question) => <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择未归档题目 ${question.stem}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setEditing(question.canonical)}><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>{question.type} · {question.tags.join("、") || "无标签"}</small></button></article>)}</div></> : <p className="question-manager-empty">暂无未归档题目。</p>}{editing && <SharedQuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("未归档题目已保存"); }} />}<ConfirmDialog open={confirmingDelete} eyebrow="未归档题目" title={`永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel="永久删除" onCancel={() => setConfirmingDelete(false)} onConfirm={() => void deleteSelected()} description={<><strong>所选题目没有任何题库归属</strong><span>题目、作答记录、统计、解析、题组和练习引用都会永久删除，此操作不可撤销。</span></>} /></section>;
 }
 
 function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
@@ -321,7 +361,7 @@ function Distribution({ label, count, total, color }: { label: string; count: nu
 function PriorityButton({ label, count, onClick, wide }: { label: string; count: number; onClick: () => void; wide?: boolean }) { return <button className={wide ? "wide" : ""} onClick={onClick}><span>{label}</span><strong>{count}</strong><ChevronRight size={15} /></button>; }
 
 function QuestionManager({ bank, questions, attemptStats, notes, roundProgress = [], progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", preset, wrongRemovalStreak, referenceTime, onPresetChange, onNotice }: { bank: Bank; questions: Question[]; attemptStats: AttemptStats[]; notes: Note[]; roundProgress?: Array<{ key: string; roundId: string; questionId: string; attempts: number; correct: number; wrong: number; firstAttemptAt: string; latestAttemptAt: string }>; progressScope?: ProgressScope; progressScopeLabel?: string; preset: QuestionPreset; wrongRemovalStreak: number; referenceTime: number; onPresetChange: (preset: QuestionPreset) => void; onNotice: (message: string) => void }) {
-  const [query, setQuery] = useState(""); const [type, setType] = useState<"全部" | QuestionType>("全部"); const [visible, setVisible] = useState(80); const [editing, setEditing] = useState<Question>(); const [viewing, setViewing] = useState<Question>(); const [adding, setAdding] = useState(false); const [pendingDelete, setPendingDelete] = useState<Question>(); const [deleting, setDeleting] = useState(false);
+  const [query, setQuery] = useState(""); const [type, setType] = useState<"全部" | QuestionType>("全部"); const [visible, setVisible] = useState(80); const [editing, setEditing] = useState<Question>(); const [viewing, setViewing] = useState<Question>(); const [adding, setAdding] = useState(false); const [pendingDelete, setPendingDelete] = useState<Question>(); const [deleting, setDeleting] = useState(false); const [selectedIds, setSelectedIds] = useState<string[]>([]); const [bulkAction, setBulkAction] = useState<"remove" | "delete">();
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
   const noteIds = useMemo(() => new Set(notes.filter((note) => note.content.trim()).map((note) => note.questionId)), [notes]);
   const filtered = useMemo(() => questions.filter((question) => {
@@ -342,8 +382,28 @@ function QuestionManager({ bank, questions, attemptStats, notes, roundProgress =
     };
     return matches[preset];
   }), [questions, query, type, preset, statsByQuestion, noteIds, wrongRemovalStreak, referenceTime, attemptStats, roundProgress, progressScope]);
+  const visibleQuestions = filtered.slice(0, visible);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((question) => selectedIds.includes(question.id));
+
+  async function performBulkAction() {
+    if (!bulkAction || !selectedIds.length) return;
+    try {
+      setDeleting(true);
+      const count = bulkAction === "remove"
+        ? await removeMembershipsV6(bank.id, selectedIds)
+        : await deleteQuestionsV6(selectedIds);
+      setSelectedIds([]);
+      setBulkAction(undefined);
+      onNotice(bulkAction === "remove" ? `已从「${bankTitle(bank)}」移除 ${count} 道题` : `已永久删除 ${count} 道题及其学习记录`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "批量处理题目失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const blankCanonical: QuestionV6 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), answer: "A", tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };
-  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p><div className="managed-question-list">{filtered.slice(0, visible).map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id}><span>{index + 1}</span><button onClick={() => setViewing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>答案 {question.answer} · 作答 {summary.total} 次（{progressScopeLabel}） · 正确 {summary.correct} 次 · 错误 {summary.wrong} 次</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <SharedQuestionEditor question={editing.canonical} preferredBankId={bank.id} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("题目已保存"); }} />}{viewing && <QuestionDetail question={viewing} metric={summarizeAttemptStats(statsByQuestion.get(viewing.id))} scopeLabel={progressScopeLabel} note={notes.find((item) => item.questionId === viewing.id)?.content} onClose={() => setViewing(undefined)} footer={<><button onClick={() => { setEditing(viewing); setViewing(undefined); }}><Pencil size={16} />编辑题目</button><button onClick={() => { setPendingDelete(viewing); setViewing(undefined); }}><Trash2 size={16} />删除题目</button></>} />}{adding && <QuestionEditor question={blankCanonical} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges, note?: string) => { const created = await createQuestionV6(bank.id, changes); if (note) await saveNoteV6(created.id, note); setAdding(false); onNotice("新题目已添加"); }} />}<BankQuestionDeleteDialog question={pendingDelete} bank={bank} busy={deleting} onClose={() => setPendingDelete(undefined)} onBusy={setDeleting} onNotice={onNotice} /></section>;
+  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p>{filtered.length > 0 && <div className="question-bulk-bar"><label><input type="checkbox" checked={allFilteredSelected} onChange={() => setSelectedIds(allFilteredSelected ? [] : filtered.map((question) => question.id))} />选择当前筛选 {filtered.length} 道</label><span>已选 {selectedIds.length} 道</span><div><button disabled={!selectedIds.length} onClick={() => setBulkAction("remove")}>从题库移除</button><button className="danger-button" disabled={!selectedIds.length} onClick={() => setBulkAction("delete")}><Trash2 size={15} />永久删除</button></div></div>}<div className="managed-question-list selectable">{visibleQuestions.map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择题目 ${index + 1}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setViewing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>答案 {question.answer} · 作答 {summary.total} 次（{progressScopeLabel}） · 正确 {summary.correct} 次 · 错误 {summary.wrong} 次</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <SharedQuestionEditor question={editing.canonical} preferredBankId={bank.id} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("题目已保存"); }} />}{viewing && <QuestionDetail question={viewing} metric={summarizeAttemptStats(statsByQuestion.get(viewing.id))} scopeLabel={progressScopeLabel} note={notes.find((item) => item.questionId === viewing.id)?.content} onClose={() => setViewing(undefined)} footer={<><button onClick={() => { setEditing(viewing); setViewing(undefined); }}><Pencil size={16} />编辑题目</button><button onClick={() => { setPendingDelete(viewing); setViewing(undefined); }}><Trash2 size={16} />删除题目</button></>} />}{adding && <QuestionEditor question={blankCanonical} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges, note?: string) => { const created = await createQuestionV6(bank.id, changes); if (note) await saveNoteV6(created.id, note); setAdding(false); onNotice("新题目已添加"); }} />}<BankQuestionDeleteDialog question={pendingDelete} bank={bank} busy={deleting} onClose={() => setPendingDelete(undefined)} onBusy={setDeleting} onNotice={onNotice} /><ConfirmDialog open={Boolean(bulkAction)} eyebrow="批量处理题目" title={bulkAction === "remove" ? `从题库移除 ${selectedIds.length} 道题？` : `永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel={bulkAction === "remove" ? "批量移除" : "永久删除"} onCancel={() => setBulkAction(undefined)} onConfirm={() => void performBulkAction()} description={bulkAction === "remove" ? <><strong>题目会从“{bankTitle(bank)}”移除</strong><span>题目与学习记录仍保留；没有其他归属的题会进入“未归档题目”。</span></> : <><strong>所选题目将从所有题库永久删除</strong><span>相关作答、统计、解析、题组和练习引用也会删除，此操作不可撤销。</span></>} /></section>;
 }
 
 function BankQuestionDeleteDialog({ question, bank, busy, onClose, onBusy, onNotice }: { question?: Question; bank: Bank; busy: boolean; onClose: () => void; onBusy: (value: boolean) => void; onNotice: (message: string) => void }) {

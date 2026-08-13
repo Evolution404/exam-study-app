@@ -9,9 +9,11 @@ import {
   dbV6,
   deleteBankFolderV6,
   deleteBankV6,
+  deleteBankWithExclusiveQuestionsV6,
   deletePracticeRunV6,
   deleteQuestionGroupV6,
   deleteQuestionV6,
+  deleteQuestionsV6,
   getBankQuestionsV6,
   getImageAssetBlobV6,
   getImageAssetDescriptorV6,
@@ -24,6 +26,7 @@ import {
   putImageAssetV6,
   recordPracticeAnswerV6,
   removeMembershipV6,
+  removeMembershipsV6,
   resetV6Database,
   reorderBanksV6,
   saveBankFolderV6,
@@ -201,6 +204,36 @@ assert.equal(await dbV6.attempts.count(), 5);
 await deleteQuestionV6(shared.id);
 assert.equal(await dbV6.attempts.where("questionId").equals(shared.id).count(), 0);
 assert.equal(await dbV6.attemptStats.get(shared.id), undefined);
+
+// Batch cleanup removes selected joins/content, and deleting a bank can clean
+// only its exclusive questions without damaging shared content.
+const cleanupSource = [
+  { q: "批量独占一", type: "单选", a: ["甲", "乙"], ans: "A" },
+  { q: "批量独占二", type: "单选", a: ["甲", "乙"], ans: "A" },
+  { q: "批量共享", type: "单选", a: ["甲", "乙"], ans: "A" },
+];
+const cleanupA = await importQuestionBankV6("cleanup-a.json", cleanupSource);
+const cleanupB = await importQuestionBankV6("cleanup-b.json", [cleanupSource[2]]);
+const cleanupQuestions = await getBankQuestionsV6(cleanupA.id);
+const sharedCleanup = cleanupQuestions.find((question) => question.content[0]?.type === "text" && question.content[0].text === "批量共享")!;
+const exclusiveCleanupIds = cleanupQuestions.filter((question) => question.id !== sharedCleanup.id).map((question) => question.id);
+const bankCleanup = await deleteBankWithExclusiveQuestionsV6(cleanupA.id);
+assert.deepEqual(bankCleanup, { bankDeleted: true, deletedQuestions: 2 });
+assert.equal(await dbV6.banks.get(cleanupA.id), undefined);
+assert.equal((await dbV6.questions.bulkGet(exclusiveCleanupIds)).filter(Boolean).length, 0);
+assert.ok(await dbV6.questions.get(sharedCleanup.id), "shared question must survive bank cleanup");
+assert.equal((await getBankQuestionsV6(cleanupB.id)).length, 1);
+
+const detachBank = await importQuestionBankV6("batch-detach.json", [
+  { q: "批量移除一", type: "判断", a: ["正确", "错误"], ans: "A" },
+  { q: "批量移除二", type: "判断", a: ["正确", "错误"], ans: "B" },
+]);
+const detachIds = (await getBankQuestionsV6(detachBank.id)).map((question) => question.id);
+assert.equal(await removeMembershipsV6(detachBank.id, detachIds), 2);
+assert.equal((await getBankQuestionsV6(detachBank.id)).length, 0);
+assert.equal((await dbV6.questions.bulkGet(detachIds)).filter(Boolean).length, 2, "batch detach must keep global content");
+assert.equal(await deleteQuestionsV6(detachIds), 2);
+assert.equal((await dbV6.questions.bulkGet(detachIds)).filter(Boolean).length, 0);
 
 // Image descriptor/blob validation and cache-only clearing.
 const bytes = new Uint8Array([1, 2, 3]);
