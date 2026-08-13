@@ -7,14 +7,18 @@ const studyApp = read("app/study-app.tsx");
 const syncView = read("app/sync-view.tsx");
 const siteDataReset = read("lib/site-data-reset.ts");
 const main = read("src/main.tsx");
+const headers = read("public/_headers");
 
-assert.match(serviceWorker, /const CACHE = "shijuan-v7"/);
+assert.match(serviceWorker, /const CACHE = "shijuan-v8"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
 assert.match(serviceWorker, /function navigationNetworkFirst/);
 assert.match(serviceWorker, /function assetCacheFirst/);
+assert.match(serviceWorker, /fetch\(request, \{ signal: controller\.signal, cache: "no-cache" \}\)/, "navigation revalidates the HTML shell instead of accepting a stale HTTP-cache entry");
 assert.match(serviceWorker, /return url\.pathname\.startsWith\(`\$\{BASE\}assets\//);
 assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
 assert.doesNotMatch(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE/);
+assert.match(headers, /\/index\.html[\s\S]*Cache-Control: no-cache, must-revalidate/, "entry HTML must revalidate on every deployment");
+assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=31536000, immutable/, "content-hashed assets remain safely immutable");
 
 assert.match(main, /updateViaCache: "none"/);
 assert.match(studyApp, /function updateServiceWorkerWithinTimeout/);

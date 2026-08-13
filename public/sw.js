@@ -1,4 +1,4 @@
-const CACHE = "shijuan-v7";
+const CACHE = "shijuan-v8";
 const CACHE_PREFIX = "shijuan-";
 const NAVIGATION_TIMEOUT_MS = 1200;
 const BASE = new URL("./", self.registration.scope).pathname;
@@ -40,7 +40,7 @@ async function putInCache(request, response) {
 function fetchWithTimeout(request, timeoutMs = NAVIGATION_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(request, { signal: controller.signal }).finally(() => clearTimeout(timer));
+  return fetch(request, { signal: controller.signal, cache: "no-cache" }).finally(() => clearTimeout(timer));
 }
 
 async function navigationNetworkFirst(request) {
