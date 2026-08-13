@@ -101,7 +101,8 @@ const searchFilters = source("search-filter-drawer.tsx");
 assert.match(searchFilters, /"current" \| "all" \| "custom"/, "搜索范围应包含已选、全部和指定题库三个并列模式");
 assert.match(searchFilters, /role="checkbox"/, "指定题库应支持多选");
 assert.match(searchFilters, /progressScopeOverride/, "学习状态应支持临时覆盖设置页统计范围");
-assert.match(searchFilters, /previewCount/, "筛选应用按钮应显示真实结果数量");
+assert.doesNotMatch(searchFilters, /previewCount|查看 \{previewCount|search-filter-apply/, "筛选抽屉不应保留重复的底部应用操作");
+assert.match(searchFilters, /event\.target === event\.currentTarget/, "点击筛选抽屉外的遮罩应关闭抽屉");
 
 const quick = source("quick-search.tsx");
 assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独立组件");

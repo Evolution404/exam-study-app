@@ -49,14 +49,6 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[]): S
   };
 }
 
-export function cloneSearchFilters(filters: SearchFilters): SearchFilters {
-  return {
-    ...filters,
-    customBankIds: [...filters.customBankIds],
-    progressScopeOverride: filters.progressScopeOverride ? { ...filters.progressScopeOverride } : null,
-  };
-}
-
 export function resolveSearchBankIds(filters: SearchFilters, banks: readonly BankV6[], currentBankIds: readonly string[]): string[] {
   const available = new Set(banks.map((bank) => bank.id));
   const source = filters.bankScope === "all"
@@ -108,11 +100,8 @@ export function SearchFilterDrawer({
   banks,
   currentBankIds,
   tags,
-  previewCount,
-  previewError,
   onChange,
   onReset,
-  onApply,
   onClose,
 }: {
   open: boolean;
@@ -121,11 +110,8 @@ export function SearchFilterDrawer({
   banks: BankV6[];
   currentBankIds: string[];
   tags: string[];
-  previewCount: number;
-  previewError: string;
   onChange: (filters: SearchFilters) => void;
   onReset: () => void;
-  onApply: () => void;
   onClose: () => void;
 }) {
   const hasMoreValues = Boolean(filters.difficultyMin || filters.difficultyMax || filters.attemptsMin || filters.attemptsMax || filters.wrongMin || filters.wrongMax || filters.lastFrom || filters.lastTo);
@@ -161,7 +147,7 @@ export function SearchFilterDrawer({
   }
 
   function toggleBank(bankId: string) {
-    patch({ customBankIds: selectedBankIds.has(bankId) ? filters.customBankIds.filter((id) => id !== bankId) : [...filters.customBankIds, bankId] });
+    patch({ bankScope: "custom", customBankIds: selectedBankIds.has(bankId) ? filters.customBankIds.filter((id) => id !== bankId) : [...filters.customBankIds, bankId] });
   }
 
   function selectProgressScope(scope: ProgressScope | null) {
@@ -170,10 +156,8 @@ export function SearchFilterDrawer({
   }
 
   const heading = panel === "main" ? "筛选条件" : panel === "banks" ? "指定题库" : "统计范围";
-  const canApply = filters.bankScope !== "custom" || filters.customBankIds.length > 0;
-
   return <ModalPortal>
-    <div className="search-filter-backdrop" role="presentation">
+    <div className="search-filter-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <aside className="search-filter-drawer" role="dialog" aria-modal="true" aria-labelledby="search-filter-title">
         <header className="search-filter-drawer-header">
           {panel !== "main" && <button className="search-filter-icon" aria-label="返回筛选条件" onClick={() => setPanel("main")}><ArrowLeft size={18} /></button>}
@@ -189,7 +173,7 @@ export function SearchFilterDrawer({
               <div className="search-scope-modes" role="radiogroup" aria-label="搜索范围">
                 <button role="radio" aria-checked={filters.bankScope === "current"} className={filters.bankScope === "current" ? "active" : ""} disabled={!currentBankIds.length} onClick={() => patch({ bankScope: "current" })}>已选题库</button>
                 <button role="radio" aria-checked={filters.bankScope === "all"} className={filters.bankScope === "all" ? "active" : ""} onClick={() => patch({ bankScope: "all" })}>全部题库</button>
-                <button role="radio" aria-checked={filters.bankScope === "custom"} className={filters.bankScope === "custom" ? "active" : ""} onClick={() => setPanel("banks")}>指定题库</button>
+                <button role="radio" aria-checked={filters.bankScope === "custom"} className={filters.bankScope === "custom" ? "active" : ""} onClick={() => { if (filters.customBankIds.length) patch({ bankScope: "custom" }); setPanel("banks"); }}>指定题库</button>
               </div>
               {filters.bankScope === "custom" && <button className="search-filter-setting-row" onClick={() => setPanel("banks")}><span>已指定题库</span><em>{filters.customBankIds.length} 个</em><ChevronRight size={16} /></button>}
             </section>
@@ -221,10 +205,6 @@ export function SearchFilterDrawer({
               </div>}
             </section>
           </div>
-          <footer className="search-filter-drawer-footer">
-            <button className="search-filter-clear" onClick={onReset}>清空</button>
-            <button className="search-filter-apply" disabled={!canApply || Boolean(previewError)} onClick={onApply}>{previewError || (!canApply ? "请先选择题库" : `查看 ${previewCount.toLocaleString()} 道题`)}</button>
-          </footer>
         </>}
 
         {panel === "banks" && <>
@@ -238,10 +218,6 @@ export function SearchFilterDrawer({
               {!visibleBanks.length && <p>没有匹配的题库</p>}
             </div>
           </div>
-          <footer className="search-filter-drawer-footer">
-            <button className="search-filter-clear" disabled={!filters.customBankIds.length} onClick={() => patch({ customBankIds: [] })}>清空</button>
-            <button className="search-filter-apply" disabled={!filters.customBankIds.length} onClick={() => { patch({ bankScope: "custom" }); setPanel("main"); }}>确定 · 已选 {filters.customBankIds.length} 个</button>
-          </footer>
         </>}
 
         {panel === "progress" && <div className="search-filter-drawer-body search-progress-picker-body">

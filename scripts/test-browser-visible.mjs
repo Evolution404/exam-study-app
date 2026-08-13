@@ -312,6 +312,31 @@ async function createBlankBank(page, name) {
   assert.ok(await page.locator(".bank-detail-tabs button.active").filter({ hasText: "试题管理" }).isVisible(), "new bank must open directly in question management");
 }
 
+async function assertSearchFilterInteractions(page, contextName) {
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  const geometry = await page.evaluate(() => {
+    const search = document.querySelector(".search-trigger-button")?.getBoundingClientRect();
+    const filter = document.querySelector(".search-filter-toggle")?.getBoundingClientRect();
+    return { search: search && { width: search.width, height: search.height, y: search.y }, filter: filter && { width: filter.width, height: filter.height, y: filter.y } };
+  });
+  assert.deepEqual(geometry.search, geometry.filter, "search and filter actions must have identical geometry and alignment");
+  await clickTextButton(page, "筛选");
+  assert.equal(await page.locator(".search-filter-drawer-footer").count(), 0, "filter drawer must not render a duplicate clear/apply footer");
+  const segmentColors = await page.evaluate(() => ({
+    scope: getComputedStyle(document.querySelector(".search-scope-modes")).backgroundColor,
+    keyword: getComputedStyle(document.querySelector(".search-filter-segments")).backgroundColor,
+  }));
+  assert.equal(segmentColors.scope, segmentColors.keyword, "scope and keyword segmented controls must share one background style");
+  await page.getByRole("radio", { name: "错题" }).click();
+  const activeCountText = await page.locator(".search-filter-drawer-header span").innerText();
+  assert.match(activeCountText, /已设置 [1-9]\d* 项/, "choosing a filter must immediately update the active count");
+  await page.locator(".search-filter-backdrop").click({ position: { x: 20, y: 180 } });
+  await page.locator(".search-filter-drawer").waitFor({ state: "hidden" });
+  assert.match(await page.locator(".search-filter-toggle").innerText(), /筛选 · [1-9]\d*/, "immediate filter changes must remain after dismissing the drawer");
+  await capture(page, contextName, "search-controls-aligned");
+}
+
 async function runDesktop(page) {
   const contextName = "desktop";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -325,6 +350,8 @@ async function runDesktop(page) {
   const scopedAttemptLabel = page.locator(".stat-card > span:not(.stat-icon)").filter({ hasText: "作答" }).first();
   assert.equal(await scopedAttemptLabel.innerText(), "作答（近 90 天）", "home statistics must show the selected progress scope");
   await capture(page, contextName, "home-imported");
+
+  await assertSearchFilterInteractions(page, contextName);
 
   await clickButton(page, "题库");
   await expectText(page, "题库管理");

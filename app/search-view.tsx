@@ -15,7 +15,6 @@ import { ModalPortal } from "@/app/modal-portal";
 import { AppSelect } from "@/app/app-select";
 import {
   SearchFilterDrawer,
-  cloneSearchFilters,
   countActiveSearchFilters,
   createDefaultSearchFilters,
   effectiveSearchProgressScope,
@@ -122,7 +121,6 @@ export function SearchView({
   onNotice: (message: string) => void;
 }) {
   const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
-  const [draftFilters, setDraftFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
   const [typeTab, setTypeTab] = useState<TypeTab>("全部");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
@@ -146,10 +144,8 @@ export function SearchView({
   }, [bankKey]);
 
   const appliedBankIds = resolveSearchBankIds(filters, banks, currentBankIds);
-  const draftBankIds = resolveSearchBankIds(draftFilters, banks, currentBankIds);
   const appliedQuestions = questionsForFilters(data?.views ?? [], banks, appliedBankIds);
-  const draftQuestions = questionsForFilters(data?.views ?? [], banks, draftBankIds);
-  const tags = useMemo(() => [...new Set(draftQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [draftQuestions]);
+  const tags = useMemo(() => [...new Set(appliedQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [appliedQuestions]);
   const [referenceTime] = useState(Date.now);
   function calculateResult(activeFilters: SearchFilters, questions: Question[]) {
     const normalizedScope = effectiveSearchProgressScope(activeFilters, progressScope);
@@ -209,7 +205,6 @@ export function SearchView({
     return { entries: TYPE_ORDER.flatMap((type) => filtered.filter((entry) => entry.question.type === type)), counts, error: "", scopedMetricByQuestion, normalizedScope };
   }
   const result = calculateResult(filters, appliedQuestions);
-  const draftResult = calculateResult(draftFilters, draftQuestions);
   const scopedMetricByQuestion = result.scopedMetricByQuestion;
   const scopeLabel = scopeLabelFor(result.normalizedScope);
 
@@ -237,6 +232,15 @@ export function SearchView({
   }
 
   function triggerSearch() {
+    const validationError = searchFilterValidationError(filters) || result.error;
+    if (validationError) {
+      onNotice(validationError);
+      return;
+    }
+    if (filters.bankScope === "custom" && !filters.customBankIds.length) {
+      onNotice("请至少选择一个指定题库");
+      return;
+    }
     setSearchTriggered(true);
     setVisibleCount(50);
     setSelectedIds([]);
@@ -248,35 +252,17 @@ export function SearchView({
   }
 
   function openFilters() {
-    setDraftFilters(cloneSearchFilters(filters));
     setAdvancedOpen(true);
   }
 
-  function resetDraftFilters() {
-    setDraftFilters(createDefaultSearchFilters(currentBankIds));
-  }
-
-  function applyDraftFilters() {
-    const validationError = searchFilterValidationError(draftFilters) || draftResult.error;
-    if (validationError) {
-      onNotice(validationError);
-      return;
-    }
-    if (draftFilters.bankScope === "custom" && !draftFilters.customBankIds.length) {
-      onNotice("请至少选择一个指定题库");
-      return;
-    }
-    setFilters(cloneSearchFilters(draftFilters));
-    setAdvancedOpen(false);
-    setSearchTriggered(true);
+  function updateFilters(nextFilters: SearchFilters) {
+    setFilters(nextFilters);
     setVisibleCount(50);
     setSelectedIds([]);
   }
 
   const showResults = query.trim() !== "" || searchTriggered;
   const totalCount = result.counts.单选 + result.counts.多选 + result.counts.判断 + result.counts.计算;
-  const draftTotalCount = draftResult.counts.单选 + draftResult.counts.多选 + draftResult.counts.判断 + draftResult.counts.计算;
-  const draftError = searchFilterValidationError(draftFilters) || draftResult.error;
   const activeFilterCount = countActiveSearchFilters(filters);
   const filterChips = [
     filters.bankScope === "current" ? "已选题库" : filters.bankScope === "all" ? "全部题库" : `指定题库 · ${filters.customBankIds.length} 个`,
@@ -299,7 +285,7 @@ export function SearchView({
     </> : <div className="search-no-result"><Search /><h2>没有符合条件的题目</h2><p>可以缩短关键词或减少筛选条件。</p></div>}
     {detailQuestionId && <SearchQuestionDetail questionId={detailQuestionId} entries={result.entries} metric={scopedMetricByQuestion.get(detailQuestionId) ?? summarizeAttemptStats()} scopeLabel={scopeLabel} onClose={() => { setDetailQuestionId(undefined); onFocusHandled(); }} onStart={(question) => setPracticeSource({ questions: [question], label: "单题练习" })} onGroup={(questionId) => onGroup([questionId])} onNavigate={setDetailQuestionId} onNotice={onNotice} />}
     {practiceSource && <SearchPracticeDialog source={practiceSource} defaultShuffleOptions={defaultShuffleOptions} onClose={() => setPracticeSource(undefined)} onStart={async (options) => { await onStart(options); setPracticeSource(undefined); }} />}
-    {advancedOpen && <SearchFilterDrawer open filters={draftFilters} settingsProgressScope={progressScope} banks={banks} currentBankIds={currentBankIds} tags={tags} previewCount={draftTotalCount} previewError={draftError} onChange={setDraftFilters} onReset={resetDraftFilters} onApply={applyDraftFilters} onClose={() => setAdvancedOpen(false)} />}
+    {advancedOpen && <SearchFilterDrawer open filters={filters} settingsProgressScope={progressScope} banks={banks} currentBankIds={currentBankIds} tags={tags} onChange={updateFilters} onReset={() => updateFilters(createDefaultSearchFilters(currentBankIds))} onClose={() => setAdvancedOpen(false)} />}
   </div>;
 }
 

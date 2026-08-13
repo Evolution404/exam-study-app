@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  cloneSearchFilters,
   countActiveSearchFilters,
   createDefaultSearchFilters,
   effectiveSearchProgressScope,
@@ -26,14 +25,10 @@ assert.deepEqual(resolveSearchBankIds(all, banks, ["a"]), ["a", "b", "c"]);
 const custom = { ...defaults, bankScope: "custom" as const, customBankIds: ["c", "a", "c", "missing"] };
 assert.deepEqual(resolveSearchBankIds(custom, banks, ["b"]), ["c", "a"], "指定题库必须支持任意多选、去重并排除失效题库");
 
-const clone = cloneSearchFilters(custom);
-clone.customBankIds.push("b");
-assert.deepEqual(custom.customBankIds, ["c", "a", "c", "missing"], "筛选草稿不得修改已应用的题库选择");
-
 assert.deepEqual(effectiveSearchProgressScope(defaults, { type: "rolling", days: 180 }), { type: "rolling", days: 180 }, "默认统计范围应跟随设置页");
 const manualScope = { ...defaults, progressScopeOverride: { type: "lifetime" as const } };
 assert.deepEqual(effectiveSearchProgressScope(manualScope, { type: "rolling", days: 90 }), { type: "lifetime" }, "手动统计范围应只覆盖本次搜索");
 assert.equal(countActiveSearchFilters(defaults), 0);
 assert.equal(countActiveSearchFilters({ ...manualScope, bankScope: "custom", customBankIds: ["a", "b"], status: "unanswered" }), 3);
 
-console.log("search filter assertions passed: parallel bank scopes, multi-select drafts and progress overrides");
+console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and progress overrides");
