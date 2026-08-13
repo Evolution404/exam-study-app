@@ -39,3 +39,6 @@ yarn-error.log*
 /outputs/
 /work/
 /artifacts/browser-qa/
+
+# 构建时自动生成的标题字体子集
+/src/generated/

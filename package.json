@@ -7,7 +7,9 @@
   },
   "scripts": {
     "dev": "vite",
+    "predev": "node scripts/subset-title-font.mjs",
     "build": "vite build",
+    "prebuild": "node scripts/subset-title-font.mjs",
     "preview": "vite preview",
     "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:question-types && npm run test:content-block-ui && npm run test:review-scope-ui && npm run test:v6-ui && npm run test:modal",
     "typecheck": "tsc --noEmit",
@@ -33,7 +35,6 @@
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
-    "@fontsource/noto-serif-sc": "^5.2.8",
     "@radix-ui/react-select": "^2.3.7",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
+    "@fontsource/noto-serif-sc": "^5.2.8",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -56,6 +58,7 @@
     "fake-indexeddb": "^6.2.5",
     "globals": "16.4.0",
     "playwright-core": "^1.62.1",
+    "subset-font": "^2.5.0",
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.11",
     "typescript": "5.9.3",
