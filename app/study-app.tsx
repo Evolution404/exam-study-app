@@ -1293,7 +1293,7 @@ function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }
     finally { setBusy(false); }
   }
 
-  return <section className="preference-card image-cache-setting"><div className="settings-title"><span><Cloud /></span><div><h2>图片缓存</h2><p>图片只保存在本机缓存，不会在题目中写入 URL。离线时仍可查看已缓存图片。</p></div></div><div className="image-cache-actions"><span>已缓存 {assetCount === undefined ? "—" : assetCount.toLocaleString()} 个文件 · {(cachedBytes / 1024 / 1024).toFixed(1)} MB</span><button type="button" className="secondary-action" disabled={busy} onClick={() => void cacheAll()}>{busy ? "处理中…" : "缓存全部图片"}</button><button type="button" className="secondary-action" disabled={busy} onClick={() => void clearCache()}>清空缓存</button></div></section>;
+  return <section className="preference-card image-cache-setting"><div className="settings-title"><span><Cloud /></span><div><h2>图片缓存</h2><p>图片只保存在本机缓存，不会在题目中写入 URL。离线时仍可查看已缓存图片。</p></div></div><div className="image-cache-actions"><span>已缓存 {assetCount === undefined ? "—" : assetCount.toLocaleString()} 个文件 · {(cachedBytes / 1024 / 1024).toFixed(1)} MB</span><div className="image-cache-buttons"><button type="button" className="primary" disabled={busy} onClick={() => void cacheAll()}>{busy ? "处理中…" : "缓存全部图片"}</button><button type="button" className="danger-button" disabled={busy} onClick={() => void clearCache()}>清空缓存</button></div></div></section>;
 }
 
 function SyncAutomationSetting({ preferences, onChange }: { preferences: PracticePreferences; onChange: (value: PracticePreferences) => void }) {
