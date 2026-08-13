@@ -81,10 +81,13 @@ function requireById<T extends { id: string }>(values: T[], id: string, entity: 
   return value;
 }
 
-function compareClock(a: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }, b: { updatedAt?: string; createdAt?: string; deviceId?: string; id?: string }): number {
-  return (a.updatedAt ?? a.createdAt ?? "").localeCompare(b.updatedAt ?? b.createdAt ?? "")
-    || (a.deviceId ?? "").localeCompare(b.deviceId ?? b.deviceId ?? "")
-    || (a.id ?? "").localeCompare(b.id ?? b.id ?? "");
+function compareClock(
+  a: { updatedAt?: string; createdAt?: string; deletedAt?: string; deviceId?: string; id?: string; eventId?: string },
+  b: { updatedAt?: string; createdAt?: string; deletedAt?: string; deviceId?: string; id?: string; eventId?: string },
+): number {
+  return (a.updatedAt ?? a.createdAt ?? a.deletedAt ?? "").localeCompare(b.updatedAt ?? b.createdAt ?? b.deletedAt ?? "")
+    || (a.deviceId ?? "").localeCompare(b.deviceId ?? "")
+    || (a.id ?? a.eventId ?? "").localeCompare(b.id ?? b.eventId ?? "");
 }
 
 function datePart(value: string): string {
@@ -176,11 +179,16 @@ function putTombstone(projection: ChangeSetProjectionV7, entityType: TombstoneV6
   const key = `${entityType}:${entityId}`;
   const old = projection.tombstones.find((item) => item.key === key);
   const next: TombstoneV6 = { key, entityType, entityId, deletedAt, deviceId, eventId };
-  if (!old || compareClock(next, old) > 0) setById(projection.tombstones as Array<TombstoneV6 & { id: string }>, { ...next, id: key });
+  if (!old) projection.tombstones.push(next);
+  else if (compareClock(next, old) > 0) projection.tombstones[projection.tombstones.indexOf(old)] = next;
 }
 
 function removeTombstone(projection: ChangeSetProjectionV7, type: string, id: string): void {
   projection.tombstones = projection.tombstones.filter((item) => item.key !== `${type}:${id}`);
+}
+
+function rejectTombstoned(projection: ChangeSetProjectionV7, type: string, id: string): void {
+  if (projection.tombstones.some((item) => item.key === `${type}:${id}`)) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
 }
 
 function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, questionId: string, deletedAt: string, deviceId: string, eventId: string): void {
@@ -209,6 +217,7 @@ function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, question
 function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMutationV7, context: { createdAt: string; deviceId: string; eventId: string }): void {
   switch (mutation.kind) {
     case "bank.create":
+      rejectTombstoned(projection, "bank", mutation.bank.id);
       if (byId(projection.banks, mutation.bank.id)) fail(`题库 ${mutation.bank.id} 已存在`);
       if (mutation.bank.folderId) ensureFolder(projection, mutation.bank.folderId);
       projection.banks.push(clone(mutation.bank));
@@ -238,6 +247,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     }
     case "bankFolder.save":
+      rejectTombstoned(projection, "bankFolder", mutation.folder.id);
       setById(projection.bankFolders, mutation.folder);
       removeTombstone(projection, "bankFolder", mutation.folder.id);
       return;
@@ -249,6 +259,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     }
     case "question.upsert":
+      rejectTombstoned(projection, "question", mutation.question.id);
       for (const block of [...mutation.question.content, ...mutation.question.options.flat()]) if (block.type === "image") ensureAsset(projection, block.assetId);
       setById(projection.questions, mutation.question);
       removeTombstone(projection, "question", mutation.question.id);
@@ -258,6 +269,8 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       const hasDependencies = projection.memberships.some((item) => item.questionId === question.id)
         || projection.attempts.some((item) => item.questionId === question.id)
         || projection.notes.some((item) => item.questionId === question.id)
+        || projection.practiceRuns.some((run) => run.questionIds.includes(question.id))
+        || projection.reviewRoundProgress.some((item) => item.questionId === question.id)
         || projection.questionGroups.some((item) => item.items.some((entry) => entry.questionId === question.id));
       if (mutation.kind === "question.delete" && hasDependencies && !mutation.cascade) fail(`题目 ${question.id} 仍有学习记录或关联，必须 cascade 删除`);
       updateQuestionDeleteCascade(projection, question.id, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
@@ -265,6 +278,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
     }
     case "question.split": {
       ensureQuestion(projection, mutation.originalQuestionId);
+      rejectTombstoned(projection, "question", mutation.clone.id);
       if (byId(projection.questions, mutation.clone.id)) fail(`分裂目标题目 ${mutation.clone.id} 已存在`);
       for (const membership of mutation.memberships) {
         ensureBank(projection, membership.bankId);
@@ -276,25 +290,31 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
         if (projection.memberships.some((item) => item.key === membership.key)) fail(`题库关系 ${membership.key} 已存在`);
         projection.memberships.push(clone(membership));
       }
-      if (mutation.note) setById(projection.notes as Array<NoteV6 & { id: string }>, { ...mutation.note, id: mutation.note.questionId });
+      if (mutation.note) setByQuestionId(projection.notes, mutation.note);
       return;
     }
     case "question.import": {
-      if (byId(projection.banks, mutation.bank.id)) fail(`导入题库 ${mutation.bank.id} 已存在`);
-      projection.banks.push(clone(mutation.bank));
+      rejectTombstoned(projection, "bank", mutation.bank.id);
+      const existingBank = byId(projection.banks, mutation.bank.id);
+      if (existingBank) setById(projection.banks, mutation.bank, false);
+      else projection.banks.push(clone(mutation.bank));
+      for (const asset of mutation.images ?? []) applyMutation(projection, { kind: "image.asset.save", asset }, context);
       const seen = new Set<string>();
       for (const question of mutation.questions) {
-        if (seen.has(question.id) || byId(projection.questions, question.id)) fail(`导入题目 ${question.id} 重复`);
+        if (seen.has(question.id)) fail(`导入题目 ${question.id} 重复`);
         seen.add(question.id);
-        projection.questions.push(clone(question));
+        rejectTombstoned(projection, "question", question.id);
+        const existing = byId(projection.questions, question.id);
+        if (existing && existing.contentFingerprint !== question.contentFingerprint) fail(`导入题目 ${question.id} 与现有内容冲突`);
+        if (!existing) projection.questions.push(clone(question));
       }
       for (const membership of mutation.memberships) {
         ensureQuestion(projection, membership.questionId);
         ensureBank(projection, membership.bankId);
-        if (projection.memberships.some((item) => item.key === membership.key)) fail(`导入关系 ${membership.key} 已存在`);
-        projection.memberships.push(clone(membership));
+        if (membership.key !== membershipKey(membership.bankId, membership.questionId)) fail(`导入关系 ${membership.key} 不是 canonical key`);
+        setByKey(projection.memberships, membership);
+        removeTombstone(projection, "membership", membership.key);
       }
-      for (const asset of mutation.images ?? []) applyMutation(projection, { kind: "image.asset.save", asset }, context);
       return;
     }
     case "question.bulk.upsert":
@@ -326,6 +346,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       applyMutation(projection, { kind: "membership.remove", bankId: current.bankId, questionId: current.questionId, key, removedAt: mutation.removedAt }, context);
     } return;
     case "image.asset.save": {
+      rejectTombstoned(projection, "imageAsset", mutation.asset.id);
       const old = projection.imageAssets.find((asset) => asset.id === mutation.asset.id);
       if (old && JSON.stringify({ ...old, blob: undefined }) !== JSON.stringify(mutation.asset)) fail(`图片资产 ${mutation.asset.id} 不可变内容冲突`);
       if (!old) projection.imageAssets.push(clone(mutation.asset));
@@ -377,6 +398,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     }
     case "practice.run.saved":
+      rejectTombstoned(projection, "practiceRun", mutation.run.id);
       for (const bankId of runBankIds(mutation.run)) ensureBank(projection, bankId);
       for (const questionId of mutation.run.questionIds) ensureQuestion(projection, questionId);
       if (mutation.run.reviewRoundId) ensureRound(projection, mutation.run.reviewRoundId);
@@ -392,7 +414,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     case "note.upserted":
       ensureQuestion(projection, mutation.note.questionId);
-      setById(projection.notes as Array<NoteV6 & { id: string }>, { ...mutation.note, id: mutation.note.questionId });
+      setByQuestionId(projection.notes, mutation.note);
       return;
     case "note.deleted":
       ensureQuestion(projection, mutation.questionId);
@@ -400,6 +422,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       projection.notes = projection.notes.filter((note) => note.questionId !== mutation.questionId);
       return;
     case "questionGroup.saved":
+      rejectTombstoned(projection, "questionGroup", mutation.group.id);
       mutation.group.items.forEach((item) => ensureQuestion(projection, item.questionId));
       setById(projection.questionGroups, mutation.group);
       return;
@@ -425,6 +448,12 @@ function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert 
     if (!allowInsert) fail(`实体 ${value.key} 不存在`);
     values.push(clone(value));
   } else values[index] = clone(value);
+}
+
+function setByQuestionId(values: NoteV6[], value: NoteV6): void {
+  const index = values.findIndex((item) => item.questionId === value.questionId);
+  if (index < 0) values.push(clone(value));
+  else values[index] = clone(value);
 }
 
 function ensureFolder(projection: ChangeSetProjectionV7, folderId: string): BankFolderV6 {
@@ -548,6 +577,15 @@ export function recomputeChangeSetProjectionV7(input: ChangeSetProjectionInputV7
   projection.attemptDailyStats = deriveDailyStats(projection.attempts);
   projection.practiceRunStats = deriveRunStats(projection.practiceRuns);
   projection.reviewRoundProgress = deriveRoundProgress(projection);
+  projection.banks.sort((a, b) => a.id.localeCompare(b.id));
+  projection.bankFolders.sort((a, b) => a.id.localeCompare(b.id));
+  projection.questions.sort((a, b) => a.id.localeCompare(b.id));
+  projection.imageAssets.sort((a, b) => a.id.localeCompare(b.id));
+  projection.notes.sort((a, b) => a.questionId.localeCompare(b.questionId));
+  projection.practiceRuns.sort((a, b) => a.id.localeCompare(b.id));
+  projection.questionGroups.sort((a, b) => a.id.localeCompare(b.id));
+  projection.reviewRounds.sort((a, b) => a.id.localeCompare(b.id));
+  projection.tombstones.sort((a, b) => a.key.localeCompare(b.key));
   projection.memberships.sort((a, b) => a.key.localeCompare(b.key));
   projection.bankQuestionMemberships = projection.memberships;
   return projection;

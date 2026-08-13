@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 
 const manager = await readFile(new URL("../app/sync-event-manager.tsx", import.meta.url), "utf8");
 const drawer = await readFile(new URL("../app/sync-event-drawer.tsx", import.meta.url), "utf8");
+const syncView = await readFile(new URL("../app/sync-view.tsx", import.meta.url), "utf8");
+const studyApp = await readFile(new URL("../app/study-app.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/sync-events.css", import.meta.url), "utf8");
 
 assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
@@ -33,6 +35,8 @@ assert.match(drawer, /aria-labelledby="sync-event-drawer-title"/, "drawer has an
 assert.match(drawer, /event\.key === "Escape"/, "drawer closes with Escape");
 assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus when closed");
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
+assert.match(syncView, /onCreateAction=\{onCreateAction\}/, "sync page wires business-action creation into the manager");
+assert.match(studyApp, /onCreateAction=\{\(\) => \{ setSyncDrawerOpen\(false\); setView\("banks"\); \}\}/, "top drawer routes creation through the normal business UI");
 
 assert.match(styles, /@media \(max-width: 760px\)/, "drawer has a mobile layout");
 assert.match(styles, /@media \(max-width: 430px\)/, "drawer adapts to narrow phones");

@@ -45,6 +45,16 @@ assert.match(summarizeChangeSetV7(base), /批量操作/);
 projection = reduceChangeSetV7(projection, base);
 assert.equal(projection.banks[0].questionCount, 1);
 
+// Re-importing the same deterministic bank and sharing an existing global
+// question must remain atomic and idempotent across devices.
+let imported = emptyProjection();
+imported = reduceChangeSetV7(imported, await cs([{ kind: "question.import", bank: bank("import-bank", "导入题库"), questions: [question("shared-question")], memberships: [membership("import-bank", "shared-question")] }]));
+imported = reduceChangeSetV7(imported, await cs([{ kind: "question.import", bank: { ...bank("import-bank", "导入题库（更新）"), questionCount: 2 }, questions: [question("shared-question"), question("new-question")], memberships: [membership("import-bank", "shared-question"), membership("import-bank", "new-question")] }]));
+assert.equal(imported.banks.length, 1);
+assert.equal(imported.questions.length, 2);
+assert.equal(imported.memberships.length, 2);
+assert.equal(imported.banks[0].questionCount, 2);
+
 // Folder/image/group/note/review/run families all have strict references.
 projection = reduceChangeSetV7(projection, await cs([
   { kind: "bankFolder.save", folder },

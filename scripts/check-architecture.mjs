@@ -35,14 +35,17 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 const dbV6 = read("lib/db-v6.ts");
 const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
-  || v6DatabaseVersions.length !== 1 || v6DatabaseVersions[0] !== 1) {
-  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间");
+  || v6DatabaseVersions.join(",") !== "1,2") {
+  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间及 v7 队列升级");
 }
 
 const sync = read("lib/github-sync.ts");
 const syncV6 = read("lib/github-sync-v6.ts");
 const syncV6Head = read("lib/sync-v6-head.ts");
 const syncV6Remote = read("lib/github-v6-remote.ts");
+const syncV7 = read("lib/github-sync-v7.ts");
+const syncV7Head = read("lib/sync-v7-head.ts");
+const syncV7Remote = read("lib/github-v7-remote.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
@@ -59,11 +62,16 @@ if (!/formatVersion:\s*6\b/.test(syncV6) || !/SYNC_V6_MAX_EVENT_PAGE_BYTES\s*=\s
   || !/SYNC_V6_MAX_HOT_EVENT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV6Head)) {
   fail("Sync v6 必须保持事件、分页和热窗口上限");
 }
-if (!/syncWithGitHubV6 as syncWithGitHub/.test(sync)) fail("公开 syncWithGitHub 必须委托 v6");
-if (!/restoreFromGitHubV6 as restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHubV6 as restoreFullHistoryFromGitHub/.test(sync)) {
-  fail("公开恢复入口必须委托 v6");
+if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync)) fail("公开 syncWithGitHub 必须委托 v7");
+if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
+  fail("公开恢复入口必须委托 v7");
 }
 if (/github-sync-v5|github-v5-remote|sync-v5/.test(syncV6)) fail("生产 v6 编排不得依赖 v5 transport");
+if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
+  || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
+  || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)) {
+  fail("公开同步入口必须使用 v7 固定 head、严格热窗口和 GitHub v7 transport");
+}
 
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
@@ -73,4 +81,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(`${sync}\n${syncV6}`)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：v6 独立数据库、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v6 namespace/head。`);
+console.log(`架构检查通过：独立数据库 v2 队列、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head。`);

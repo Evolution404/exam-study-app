@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import Dexie from "dexie";
 import {
   clearImageCacheV6,
+  createBankV6,
   createQuestionV6,
   createPracticeRunV6,
   createReviewRoundV6,
@@ -36,6 +37,7 @@ import {
   saveNoteV6,
   savePracticeProgressV6,
 } from "../lib/db-v6";
+import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../lib/change-set-v7-queue";
 import type { BankFolderV6, BankQuestionMembership, BankV6, ImageAsset, NoteV6, QuestionGroupV6, QuestionV6, V6Event } from "../lib/v6-types";
 import { sha256Blob } from "../lib/image-assets";
 
@@ -47,6 +49,16 @@ await oldSentinel.table("sentinel").put({ id: "keep", value: "untouched" });
 await oldSentinel.close();
 
 await resetV6Database();
+await ensureChangeSetQueueBaseV7();
+const queueTestBank = await createBankV6("队列级联测试");
+await createQuestionV6(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });
+const queueTestCreate = await dbV6.changeSets.filter((record) => record.mutations.some((mutation) => mutation.kind === "bank.create" && mutation.bank.id === queueTestBank.id)).first();
+assert.ok(queueTestCreate);
+await assert.rejects(() => discardManagedChangeSetV7(queueTestCreate.id), /依赖|同时删除/);
+await discardManagedChangeSetV7(queueTestCreate.id, { cascadeDependents: true });
+assert.equal(await dbV6.banks.get(queueTestBank.id), undefined, "discarding a creation rebuilds the local projection");
+assert.equal(await dbV6.questions.count(), 0, "cascade discard removes dependent question creation");
+assert.equal(await dbV6.changeSets.count(), 0, "cascade discard removes the complete dependent queue chain");
 const source = [
   { q: "  Shared   stem\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },
   { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },

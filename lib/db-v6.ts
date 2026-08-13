@@ -8,6 +8,7 @@
  * continues to use its own database.
  */
 import Dexie, { type EntityTable } from "dexie";
+import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7";
 import { sha256Blob, sha256Bytes } from "./image-assets";
 import {
   normalizeContentText,
@@ -327,6 +328,56 @@ function nextV6Sequence(deviceId = getV6DeviceId()): number {
   return sequenceCounter;
 }
 
+export async function enqueueChangeSetV7(mutations: readonly ChangeSetMutationV7[], createdAt = nowIso()): Promise<ChangeSetQueueRecordV7> {
+  const deviceId = getV6DeviceId();
+  const changeSet = await Dexie.waitFor(createChangeSetV7({ deviceId, localSequence: nextV6Sequence(deviceId), createdAt, mutations }));
+  const record: ChangeSetQueueRecordV7 = { ...changeSet, state: "pending" };
+  await dbV6.changeSets.put(record);
+  return record;
+}
+
+export async function listChangeSetsV7(states?: readonly ChangeSetQueueStateV7[]): Promise<ChangeSetQueueRecordV7[]> {
+  const rows = states?.length ? await dbV6.changeSets.where("state").anyOf([...states]).toArray() : await dbV6.changeSets.toArray();
+  return rows.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.deviceId.localeCompare(right.deviceId) || left.localSequence - right.localSequence || left.id.localeCompare(right.id));
+}
+
+export async function claimPendingChangeSetsV7(): Promise<{ claimId: string; records: ChangeSetQueueRecordV7[] }> {
+  const claimId = makeV6Id("claim");
+  const claimedAt = nowIso();
+  return dbV6.transaction("rw", dbV6.changeSets, async () => {
+    const pending = await dbV6.changeSets.where("state").equals("pending").toArray();
+    const records = pending.map((record) => ({ ...record, state: "claimed" as const, claimId, claimedAt }));
+    if (records.length) await dbV6.changeSets.bulkPut(records);
+    return { claimId, records };
+  });
+}
+
+export async function releaseChangeSetClaimV7(claimId: string): Promise<number> {
+  return dbV6.transaction("rw", dbV6.changeSets, async () => {
+    const claimed = await dbV6.changeSets.where("claimId").equals(claimId).toArray();
+    if (claimed.length) await dbV6.changeSets.bulkPut(claimed.map((record) => ({ ...record, state: "pending" as const, claimId: undefined, claimedAt: undefined })));
+    return claimed.length;
+  });
+}
+
+export async function commitChangeSetClaimV7(claimId: string, digests: ReadonlyMap<string, string>, committedAt = nowIso()): Promise<number> {
+  return dbV6.transaction("rw", dbV6.changeSets, async () => {
+    const claimed = await dbV6.changeSets.where("claimId").equals(claimId).toArray();
+    const exact = claimed.filter((record) => digests.get(record.id) === record.digest);
+    if (exact.length) await dbV6.changeSets.bulkPut(exact.map((record) => ({ ...record, state: "committed" as const, committedAt })));
+    return exact.length;
+  });
+}
+
+export async function discardPendingChangeSetV7(id: string): Promise<boolean> {
+  return dbV6.transaction("rw", dbV6.changeSets, async () => {
+    const record = await dbV6.changeSets.get(id);
+    if (!record || record.state !== "pending") return false;
+    await dbV6.changeSets.delete(id);
+    return true;
+  });
+}
+
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
@@ -436,6 +487,16 @@ function dailyStatsKey(createdAt: string, questionId: string): string {
   return `${datePart(createdAt)}:${questionId}`;
 }
 
+export type ChangeSetQueueStateV7 = "pending" | "claimed" | "blocked" | "committed";
+
+export interface ChangeSetQueueRecordV7 extends ChangeSetV7 {
+  state: ChangeSetQueueStateV7;
+  claimId?: string;
+  claimedAt?: string;
+  committedAt?: string;
+  blockedReason?: string;
+}
+
 async function latestImageAssetSavedEventInTx(assetId: string): Promise<V6Event | undefined> {
   const events = await dbV6.events.where("type").equals("image.asset.saved").filter((event) => (
     (event.payload as { id?: string }).id === assetId
@@ -461,6 +522,7 @@ class V6StudyDatabase extends Dexie {
   reviewRounds!: EntityTable<ReviewRound, "id">;
   reviewRoundProgress!: EntityTable<ReviewRoundProgress, "key">;
   events!: EntityTable<V6Event, "id">;
+  changeSets!: EntityTable<ChangeSetQueueRecordV7, "id">;
   syncFiles!: EntityTable<SyncFileV6, "path">;
   tombstones!: EntityTable<TombstoneV6, "key">;
   syncMeta!: EntityTable<SyncMetaV6, "key">;
@@ -483,6 +545,27 @@ class V6StudyDatabase extends Dexie {
       reviewRounds: "id, status, updatedAt, startedAt",
       reviewRoundProgress: "key, roundId, questionId, latestAttemptAt",
       events: "id, type, createdAt, deviceId, synced",
+      syncFiles: "path, sha, appliedAt",
+      tombstones: "key, entityType, entityId, deletedAt",
+      syncMeta: "key, updatedAt",
+    });
+    this.version(2).stores({
+      banks: "id, sortOrder, folderId, importedAt, updatedAt",
+      bankFolders: "id, sortOrder, updatedAt",
+      questions: "id, contentFingerprint, type, updatedAt, *tags",
+      bankQuestionMemberships: "key, bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder], [bankId+questionId]",
+      imageAssets: "id, mimeType, size",
+      attempts: "id, runId, questionId, sourceBankId, createdAt, deviceId",
+      attemptStats: "questionId, latestAttemptAt",
+      attemptDailyStats: "key, date, questionId",
+      notes: "questionId, updatedAt",
+      practiceRuns: "id, status, updatedAt, startedAt",
+      practiceRunStats: "key, bankId, latestUpdatedAt",
+      questionGroups: "id, type, updatedAt",
+      reviewRounds: "id, status, updatedAt, startedAt",
+      reviewRoundProgress: "key, roundId, questionId, latestAttemptAt",
+      events: "id, type, createdAt, deviceId, synced",
+      changeSets: "id, state, createdAt, deviceId, localSequence, claimId, committedAt, [state+createdAt]",
       syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
       syncMeta: "key, updatedAt",
@@ -563,9 +646,10 @@ export async function createBankV6(input: string | (Partial<BankV6> & Pick<BankV
     updatedAt: values.updatedAt ?? timestamp,
     deviceId: values.deviceId ?? getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.banks.put(bank);
     await dbV6.events.put(eventInTx("bank.created", bank, timestamp));
+    await enqueueChangeSetV7([{ kind: "bank.create", bank }], timestamp);
   });
   return bank;
 }
@@ -582,9 +666,10 @@ export async function updateBankV6(bankId: string, changes: Partial<Pick<BankV6,
     updatedAt: nowIso(),
     deviceId: getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.banks.put(updated);
     await dbV6.events.put(eventInTx("bank.updated", updated, updated.updatedAt));
+    await enqueueChangeSetV7([{ kind: "bank.update", bank: updated, previous: current }], updated.updatedAt);
   });
   return updated;
 }
@@ -595,9 +680,10 @@ export async function reorderBanksV6(bankIds: readonly string[], folderId?: stri
   const updatedAt = nowIso();
   const deviceId = getV6DeviceId();
   const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.banks.bulkPut(rows);
     await dbV6.events.bulkPut(rows.map((bank) => eventInTx("bank.updated", bank, updatedAt)));
+    await enqueueChangeSetV7(rows.map((bank) => ({ kind: "bank.update", bank })), updatedAt);
   });
   return rows;
 }
@@ -616,10 +702,11 @@ export async function saveBankFolderV6(input: Pick<BankFolderV6, "name" | "descr
     updatedAt,
     deviceId: getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.bankFolders.put(folder);
     await dbV6.tombstones.delete(tombstoneKey("bankFolder", folder.id));
     await dbV6.events.put(eventInTx("bankFolder.saved", folder, updatedAt));
+    await enqueueChangeSetV7([{ kind: "bankFolder.save", folder }], updatedAt);
   });
   return folder;
 }
@@ -631,13 +718,17 @@ export async function deleteBankFolderV6(folderId: string): Promise<boolean> {
   const deviceId = getV6DeviceId();
   const event = eventWithId("bankFolder.deleted", { id: folderId, deletedAt: updatedAt }, makeV6Id("folder-delete"), updatedAt, deviceId, 0);
   const banks = await dbV6.banks.where("folderId").equals(folderId).toArray();
-  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.banks, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.bankFolders.delete(folderId);
     const detached = banks.map((bank) => ({ ...bank, folderId: undefined, updatedAt, deviceId }));
     await dbV6.banks.bulkPut(detached);
     await dbV6.events.bulkPut(detached.map((bank) => eventInTx("bank.updated", bank, updatedAt)));
     await dbV6.tombstones.put({ key: tombstoneKey("bankFolder", folderId), entityType: "bankFolder", entityId: folderId, deletedAt: updatedAt, deviceId, eventId: event.id });
     await dbV6.events.put(event);
+    await enqueueChangeSetV7([
+      ...detached.map((bank) => ({ kind: "bank.update" as const, bank })),
+      { kind: "bankFolder.delete", folderId, deletedAt: updatedAt },
+    ], updatedAt);
   });
   return true;
 }
@@ -707,12 +798,16 @@ export async function createQuestionV6(bankId: string, draft: QuestionDraftV6): 
     updatedAt: timestamp,
     deviceId,
   };
-  await dbV6.transaction("rw", [dbV6.questions, dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.questions, dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     if (!existing) await dbV6.questions.put(question);
     const currentMembership = await dbV6.bankQuestionMemberships.get(membership.key);
     await saveMembershipInTx(currentMembership ? { ...currentMembership, updatedAt: timestamp, deviceId } : membership, true);
     await refreshBankQuestionCountInTx(bankId);
     if (!existing) await dbV6.events.put(eventInTx("question.upserted", question, timestamp));
+    await enqueueChangeSetV7([
+      ...(!existing ? [{ kind: "question.upsert" as const, question }] : []),
+      { kind: "membership.save", membership },
+    ], timestamp);
   });
   return question;
 }
@@ -730,9 +825,10 @@ export async function updateQuestionV6(questionId: string, changes: Partial<Ques
     favorite: changes.favorite ?? current.favorite,
   };
   const updated = questionFromDraft(current.id, draft, timestamp, getV6DeviceId());
-  await dbV6.transaction("rw", [dbV6.questions, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.questions, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.questions.put(updated);
     await dbV6.events.put(eventInTx("question.upserted", updated, timestamp));
+    await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
   });
   return updated;
 }
@@ -787,7 +883,7 @@ export async function splitQuestionV6(
   } : undefined;
   await dbV6.transaction("rw", [
     dbV6.questions, dbV6.bankQuestionMemberships, dbV6.notes, dbV6.banks,
-    dbV6.tombstones, dbV6.events,
+    dbV6.tombstones, dbV6.events, dbV6.changeSets,
   ], async () => {
     await dbV6.questions.put(clone);
     for (const membership of selected) {
@@ -806,6 +902,7 @@ export async function splitQuestionV6(
       deletedMembershipKeys: selected.map((membership) => membership.key),
       note: clonedNote,
     }, timestamp));
+    await enqueueChangeSetV7([{ kind: "question.split", originalQuestionId: original.id, clone, memberships: movedMemberships, deletedMembershipKeys: selected.map((membership) => membership.key), note: clonedNote }], timestamp);
     for (const membership of selected) await refreshBankQuestionCountInTx(membership.bankId);
   });
   return { original, clones: [clone] };
@@ -827,13 +924,14 @@ export async function removeMembershipV6(
   if (!current) return false;
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
-  await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.delete(key);
     await dbV6.tombstones.put({
       key: tombstoneKey("membership", key), entityType: "membership", entityId: key,
       deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"),
     });
     await dbV6.events.put(eventInTx("membership.removed", current, timestamp));
+    await enqueueChangeSetV7([{ kind: "membership.remove", bankId, questionId, key, removedAt: timestamp }], timestamp);
     await refreshBankQuestionCountInTx(bankId);
   });
   return true;
@@ -847,13 +945,14 @@ export async function removeMembershipsV6(bankId: string, questionIds: readonly 
   if (!memberships.length) return 0;
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
-  await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV6.tombstones.bulkPut(memberships.map((membership) => ({
       key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
       deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"),
     })));
     await dbV6.events.bulkPut(memberships.map((membership) => eventInTx("membership.removed", membership, timestamp)));
+    await enqueueChangeSetV7([{ kind: "membership.bulk.remove", keys: memberships.map((membership) => membership.key), bankId, removedAt: timestamp }], timestamp);
     await refreshBankQuestionCountInTx(bankId);
   });
   return memberships.length;
@@ -874,6 +973,7 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
     dbV6.questions, dbV6.bankQuestionMemberships, dbV6.attempts, dbV6.attemptStats,
     dbV6.attemptDailyStats, dbV6.notes, dbV6.questionGroups, dbV6.reviewRoundProgress,
     dbV6.practiceRuns, dbV6.banks, dbV6.events, dbV6.tombstones,
+    dbV6.changeSets,
   ], async () => {
     await dbV6.questions.bulkDelete(existingIds);
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
@@ -912,6 +1012,7 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
     }));
     await dbV6.tombstones.bulkPut(tombstones);
     await dbV6.events.bulkPut(existingIds.map((questionId) => eventInTx("question.deleted", { id: questionId, deletedAt: timestamp }, timestamp)));
+    await enqueueChangeSetV7([{ kind: "question.bulk.delete", questionIds: existingIds, deletedAt: timestamp, cascade: true }], timestamp);
   });
   return existingIds.length;
 }
@@ -929,11 +1030,12 @@ export async function deleteBankV6(bankId: string): Promise<boolean> {
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
   const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.bankQuestionMemberships, dbV6.events, dbV6.tombstones], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.bankQuestionMemberships, dbV6.events, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV6.banks.delete(bankId);
     await dbV6.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete") });
     await dbV6.events.put(eventInTx("bank.deleted", { id: bankId, deletedAt: timestamp }, timestamp));
+    await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp);
   });
   return true;
 }
@@ -1061,7 +1163,7 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
     };
     materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId } });
   }
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.questions, dbV6.bankQuestionMemberships, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.questions, dbV6.bankQuestionMemberships, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.banks.put(bank);
     for (const item of materialised) {
       // Existing content is user-owned and already semantically identical;
@@ -1073,6 +1175,7 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
     }
     const refreshed = await refreshBankQuestionCountInTx(bank.id);
     if (refreshed) await dbV6.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
+    await enqueueChangeSetV7([{ kind: "question.import", bank: (await dbV6.banks.get(bank.id))!, questions: materialised.map((item) => item.question), memberships: materialised.map((item) => item.membership) }], timestamp);
   });
   return (await dbV6.banks.get(bank.id))!;
 }
@@ -1091,7 +1194,7 @@ export async function saveNoteV6(questionId: string, content: string): Promise<N
     deviceId: getV6DeviceId(),
   };
   if (old?.content === content) return old;
-  await dbV6.transaction("rw", [dbV6.notes, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.notes, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.notes.put(note);
     // Autosave may fire many times before a sync.  Merge repeated edits of
     // the same question into the existing pending event (keeping its id and
@@ -1099,6 +1202,9 @@ export async function saveNoteV6(questionId: string, content: string): Promise<N
     const pending = await dbV6.events.where("type").equals("note.upserted").filter((event) => event.synced === 0 && (event.payload as NoteV6).questionId === questionId).first();
     if (pending) await dbV6.events.put({ ...pending, payload: note });
     else await dbV6.events.put(eventInTx("note.upserted", note, timestamp));
+    const pendingChange = await dbV6.changeSets.where("state").equals("pending").filter((record) => record.mutations.some((mutation) => mutation.kind === "note.upserted" && mutation.note.questionId === questionId)).first();
+    if (pendingChange) await dbV6.changeSets.delete(pendingChange.id);
+    await enqueueChangeSetV7([{ kind: "note.upserted", note }], timestamp);
   });
   return note;
 }
@@ -1167,10 +1273,11 @@ export async function createPracticeRunV6(input: CreatePracticeRunInputV6 = {}):
   // The immutable definition is externalized: the event carries only a
   // content-addressed ref plus the mutable snapshot, independent of bank size.
   const snapshot = practiceRunSnapshotPayload(run, await runDefinitionRef(run));
-  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.practiceRuns.put(run);
     await updatePracticeRunStatsInTx(undefined, run);
     await dbV6.events.put(eventInTx("practice.run.saved", snapshot, timestamp));
+    await enqueueChangeSetV7([{ kind: "practice.run.saved", run, definition: { path: snapshot.definition.path, sha256: snapshot.definition.sha256, size: snapshot.definition.size, kind: "run-definition" } }], timestamp);
   });
   return run;
 }
@@ -1179,10 +1286,11 @@ export async function savePracticeRunV6(run: PracticeRunV6): Promise<PracticeRun
   const current = await dbV6.practiceRuns.get(run.id);
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
   const snapshot = practiceRunSnapshotPayload(updated, await runDefinitionRef(updated));
-  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.changeSets], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV6.practiceRuns.put(updated);
     await dbV6.events.put(eventInTx("practice.run.saved", snapshot, updated.updatedAt));
+    await enqueueChangeSetV7([{ kind: "practice.run.saved", run: updated, definition: { path: snapshot.definition.path, sha256: snapshot.definition.sha256, size: snapshot.definition.size, kind: "run-definition" } }], updated.updatedAt);
   });
   return updated;
 }
@@ -1224,9 +1332,10 @@ export async function createReviewRoundV6(input: Pick<ReviewRound, "name" | "ban
     updatedAt: timestamp,
     deviceId: getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.reviewRounds.put(round);
     await dbV6.events.put(eventInTx("review.round.saved", round, timestamp));
+    await enqueueChangeSetV7([{ kind: "review.round.saved", round }], timestamp);
   });
   return round;
 }
@@ -1242,9 +1351,10 @@ export async function updateReviewRoundV6(roundId: string, changes: Partial<Pick
     updatedAt: nowIso(),
     deviceId: getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.reviewRounds.put(updated);
     await dbV6.events.put(eventInTx("review.round.saved", updated, updated.updatedAt));
+    await enqueueChangeSetV7([{ kind: "review.round.saved", round: updated }], updated.updatedAt);
   });
   return updated;
 }
@@ -1262,7 +1372,11 @@ export async function completeReviewRoundV6(roundId: string, finalQuestionIds?: 
   if (!current) throw new Error("复习轮次不存在或已被删除。");
   if (current.status === "completed" || current.status === "archived") return current;
   const targets = finalQuestionIds ? uniqueStrings(finalQuestionIds) : await getReviewRoundQuestionIdsV6(roundId);
-  return dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events], () => completeRoundInTx(current, targets, true));
+  return dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events, dbV6.changeSets], async () => {
+    const completed = await completeRoundInTx(current, targets, true);
+    await enqueueChangeSetV7([{ kind: "review.round.completed", round: completed }], completed.updatedAt);
+    return completed;
+  });
 }
 
 export async function archiveReviewRoundV6(roundId: string): Promise<ReviewRound> {
@@ -1270,9 +1384,10 @@ export async function archiveReviewRoundV6(roundId: string): Promise<ReviewRound
   if (!current) throw new Error("复习轮次不存在或已被删除。");
   if (current.status === "archived") return current;
   const updated: ReviewRound = { ...current, status: "archived", updatedAt: nowIso(), deviceId: getV6DeviceId() };
-  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.reviewRounds, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.reviewRounds.put(updated);
     await dbV6.events.put(eventInTx("review.round.archived", updated, updated.updatedAt));
+    await enqueueChangeSetV7([{ kind: "review.round.archived", round: updated }], updated.updatedAt);
   });
   return updated;
 }
@@ -1300,10 +1415,11 @@ export async function saveQuestionGroupV6(input: Pick<QuestionGroupV6, "name" | 
     updatedAt,
     deviceId: getV6DeviceId(),
   };
-  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.questionGroups.put(group);
     await dbV6.tombstones.delete(tombstoneKey("questionGroup", group.id));
     await dbV6.events.put(eventInTx("questionGroup.saved", group, updatedAt));
+    await enqueueChangeSetV7([{ kind: "questionGroup.saved", group }], updatedAt);
   });
   return group;
 }
@@ -1314,10 +1430,11 @@ export async function deleteQuestionGroupV6(groupId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV6DeviceId();
   const event = eventWithId("questionGroup.deleted", { id: groupId, deletedAt }, makeV6Id("group-delete"), deletedAt, deviceId, 0);
-  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.events, dbV6.changeSets], async () => {
     await dbV6.questionGroups.delete(groupId);
     await dbV6.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId: event.id });
     await dbV6.events.put(event);
+    await enqueueChangeSetV7([{ kind: "questionGroup.deleted", groupId, deletedAt }], deletedAt);
   });
   return true;
 }
@@ -1336,10 +1453,11 @@ export async function setPracticeRunStatusV6(runId: string, status: PracticeRunV
     revision: current.revision + 1,
   };
   const snapshot = practiceRunSnapshotPayload(updated, await runDefinitionRef(updated));
-  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events], async () => {
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.changeSets], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV6.practiceRuns.put(updated);
     await dbV6.events.put(eventInTx("practice.run.status.changed", snapshot, updatedAt));
+    await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated, definition: { path: snapshot.definition.path, sha256: snapshot.definition.sha256, size: snapshot.definition.size, kind: "run-definition" } }], updatedAt);
   });
   return updated;
 }
@@ -1352,7 +1470,7 @@ export async function deletePracticeRunV6(runId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV6DeviceId();
   const eventId = makeV6Id("run-delete");
-  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.tombstones], async () => {
+  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.events, dbV6.tombstones, dbV6.changeSets], async () => {
     await updatePracticeRunStatsInTx(current, undefined);
     await dbV6.practiceRuns.delete(runId);
     const pending = await dbV6.events.where("synced").equals(0).filter((event) => practiceEventRunId(event) === runId).toArray();
@@ -1363,6 +1481,7 @@ export async function deletePracticeRunV6(runId: string): Promise<boolean> {
       deletedAt, deviceId, eventId,
     });
     await dbV6.events.put(eventWithId("practice.run.deleted", { id: runId, deletedAt }, eventId, deletedAt, deviceId, 0));
+    await enqueueChangeSetV7([{ kind: "practice.run.deleted", runId, deletedAt }], deletedAt);
   });
   return true;
 }
@@ -1561,7 +1680,7 @@ export async function recordPracticeAnswerV6(input: PracticeAnswerInputV6): Prom
   await dbV6.transaction("rw", [
     dbV6.attempts, dbV6.attemptStats, dbV6.attemptDailyStats, dbV6.practiceRuns,
     dbV6.practiceRunStats, dbV6.reviewRounds, dbV6.reviewRoundProgress,
-    dbV6.questions, dbV6.bankQuestionMemberships, dbV6.events,
+    dbV6.questions, dbV6.bankQuestionMemberships, dbV6.events, dbV6.changeSets,
   ], async () => {
     await dbV6.attempts.put(attempt);
     await dbV6.attemptStats.put(addAttemptToStatsV6(await dbV6.attemptStats.get(input.questionId), attempt));
@@ -1574,6 +1693,11 @@ export async function recordPracticeAnswerV6(input: PracticeAnswerInputV6): Prom
       await autoCompleteRoundIfReadyInTx(reviewRoundId, true);
     }
     await dbV6.events.put(event);
+    const completedRound = reviewRoundId ? await dbV6.reviewRounds.get(reviewRoundId) : undefined;
+    await enqueueChangeSetV7([
+      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId, ...(reviewRoundId ? { reviewRoundId } : {}) },
+      ...(completedRound?.status === "completed" ? [{ kind: "review.round.completed" as const, round: completedRound }] : []),
+    ], timestamp);
   });
   return { attempt, answer, event };
 }
@@ -2040,8 +2164,17 @@ export async function putImageAssetV6(asset: ImageAsset): Promise<ImageAsset> {
     const digest = await sha256Blob(asset.blob);
     if (digest !== asset.id) throw new TypeError("图片 blob 内容与 id 不一致");
   }
-  await dbV6.imageAssets.put(asset);
-  if (asset.remote) await dbV6.events.put(eventInTx("image.asset.saved", { ...asset, blob: undefined }, nowIso()));
+  const previous = await dbV6.imageAssets.get(asset.id);
+  const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...asset, blob: undefined });
+  await dbV6.transaction("rw", [dbV6.imageAssets, dbV6.events, dbV6.changeSets], async () => {
+    await dbV6.imageAssets.put(asset);
+    if (asset.remote && descriptorChanged) {
+      const createdAt = nowIso();
+      const descriptor = { ...asset, blob: undefined };
+      await dbV6.events.put(eventInTx("image.asset.saved", descriptor, createdAt));
+      await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
+    }
+  });
   return asset;
 }
 
@@ -2052,7 +2185,10 @@ export async function putImageAssetDescriptorV6(asset: Omit<ImageAsset, "blob">)
 export async function putImageAssetBlobV6(id: string, blob: Blob): Promise<ImageAsset> {
   const descriptor = await dbV6.imageAssets.get(id);
   if (!descriptor) throw new Error("图片 descriptor 不存在。");
-  return putImageAssetV6({ ...descriptor, blob });
+  if (await sha256Blob(blob) !== id || blob.size !== descriptor.size) throw new TypeError("图片 blob 内容与 descriptor 不一致");
+  const stored = { ...descriptor, blob };
+  await dbV6.imageAssets.put(stored);
+  return stored;
 }
 
 export async function getImageAssetV6(id: string): Promise<ImageAsset | undefined> {

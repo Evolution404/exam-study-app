@@ -39,6 +39,10 @@ import { buildScopedQuestionStats, normalizeProgressScope, isQuestionDoneInScope
 import { classifyNoticeTone } from "@/lib/notice-tone";
 import { questionOverviewFocusIndex, questionOverviewProgress } from "@/lib/question-overview";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question-bank-file-import";
+import { SyncEventDrawer } from "@/app/sync-event-drawer";
+import type { SyncChangeSetItemV7 } from "@/app/sync-event-manager";
+import { dependentChangeSetIdsV7 } from "@/lib/change-set-v7";
+import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/change-set-v7-queue";
 
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV6;
@@ -324,6 +328,8 @@ export function StudyApp() {
   const [quickRestoring, setQuickRestoring] = useState(false);
   const [quickSyncProgress, setQuickSyncProgress] = useState<SyncProgress>();
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
+  const [syncDrawerOpen, setSyncDrawerOpen] = useState(false);
+  const [syncBatchIds, setSyncBatchIds] = useState<Set<string>>(new Set());
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
   const [finishPrompt, setFinishPrompt] = useState<number>();
@@ -339,6 +345,8 @@ export function StudyApp() {
 
   useAppViewport();
   useAppTheme(preferences.themeMode);
+
+  useEffect(() => { void ensureChangeSetQueueBaseV7(); }, []);
 
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
@@ -412,7 +420,7 @@ export function StudyApp() {
     const today = calendarDate(new Date());
     const [questions, attemptStats, todayRows, pending, notes] = await Promise.all([
       dbV6.questions.count(), dbV6.attemptStats.toArray(), dbV6.attemptDailyStats.where("date").equals(today).toArray(),
-      dbV6.events.where("synced").equals(0).count(), dbV6.notes.count(),
+      dbV6.changeSets.where("state").anyOf(["pending", "blocked"]).count(), dbV6.notes.count(),
     ]);
     const totals = attemptStats.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
     const todayTotals = todayRows.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
@@ -428,6 +436,17 @@ export function StudyApp() {
       last: last?.latestAttemptAt,
     };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
+  const syncChangeSets = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []) ?? [];
+  const manageableChangeSets = syncChangeSets.filter((record) => record.state === "pending" || record.state === "blocked");
+  const syncItems: SyncChangeSetItemV7[] = syncChangeSets.map((record) => ({
+    changeSet: record,
+    state: record.state,
+    batch: syncBatchIds.has(record.id) ? "current" : "next",
+    blockers: record.blockedReason ? [record.blockedReason] : undefined,
+    dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets),
+    editable: record.state === "pending" || record.state === "blocked",
+    cancellable: record.state === "pending" || record.state === "blocked",
+  }));
   const reviewRounds = useLiveQuery(() => dbV6.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
@@ -520,6 +539,9 @@ export function StudyApp() {
     syncOperationRunning.current = true;
     try {
       if (!silent) {
+        const pendingIds = new Set((await dbV6.changeSets.where("state").equals("pending").primaryKeys()).map(String));
+        setSyncBatchIds(pendingIds);
+        setSyncDrawerOpen(true);
         setQuickSyncing(true);
         setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       }
@@ -959,7 +981,7 @@ export function StudyApp() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId) => { setQuery(keyword); openSearch(questionId, keyword); }} />
-          <button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : `同步${stats.pending ? ` ${stats.pending.toLocaleString("zh-CN")}` : ""}`}</span></button>
+          <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
         </header>
 
         {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
@@ -972,8 +994,8 @@ export function StudyApp() {
           {view === "banks" && <BankLibraryView banks={banks} progressScope={preferences.progressScope} progressScopeLabel={selectedScopeLabel} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} progressScope={preferences.progressScope} rounds={reviewRounds} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize, preferences.progressScope), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
-          {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
-          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
+          {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} onCreateSyncAction={() => setView("banks")} />}
+          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} onCreateAction={() => setView("banks")} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} progressScope={preferences.progressScope} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label, previousOptionOrders) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions }, undefined, previousOptionOrders)} />}
           {view === "practice" && practiceSession && activeQuestion && (
@@ -981,6 +1003,7 @@ export function StudyApp() {
           )}
         </Suspense></div>
       </section>
+      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={quickSyncProgress} onCreateAction={() => { setSyncDrawerOpen(false); setView("banks"); }} onRefresh={() => undefined} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
@@ -1144,7 +1167,7 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入题库</strong><small>支持 JSON / XLSX，数据只写入本机</small></div><ChevronRight size={18} /></button>;
 }
 
-function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
+function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored, onCreateSyncAction }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void; onCreateSyncAction: () => void }) {
   const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
@@ -1196,7 +1219,7 @@ function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, on
     </div></section>
     <SyncAutomationSetting preferences={preferences} onChange={onChange} />
     <BuildVersionCard />
-    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} /></div>
+    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} onCreateAction={onCreateSyncAction} /></div>
   </div></>;
 }
 

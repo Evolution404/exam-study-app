@@ -133,6 +133,7 @@ export interface CreateChangeSetV7Input {
   deviceId: string;
   localSequence: number;
   createdAt: string;
+  kind?: ChangeSetKindV7;
   mutations?: readonly ChangeSetMutationV7[];
   /** Convenience for callers creating a one-mutation set. */
   mutation?: ChangeSetMutationV7;
@@ -223,7 +224,8 @@ export function canonicalSerializeV7(value: unknown): string {
 
 /** Canonical immutable bytes exclude the digest and any queue publication state. */
 export function canonicalChangeSetV7(changeSet: Omit<ChangeSetV7, "digest"> | ChangeSetV7): string {
-  const { digest: _digest, ...content } = changeSet as ChangeSetV7;
+  const content = { ...changeSet } as Partial<ChangeSetV7>;
+  delete content.digest;
   return canonicalSerializeV7(content);
 }
 
@@ -314,6 +316,37 @@ function validateMutationShapeV7(value: Record<string, unknown>): value is Chang
   for (const field of ["bankIds", "questionIds", "keys", "questions", "memberships", "images"]) {
     if (field in value && !Array.isArray(value[field])) return false;
   }
+  const hasString = (field: string): boolean => typeof value[field] === "string" && Boolean((value[field] as string).trim());
+  const hasObject = (field: string): boolean => isRecord(value[field]);
+  const arrayOfStrings = (field: string): boolean => !Array.isArray(value[field]) || (value[field] as unknown[]).every((item) => typeof item === "string" && Boolean(item.trim()));
+  if (value.kind === "bank.create" || value.kind === "bank.update") return hasObject("bank");
+  if (value.kind === "bank.reorder") return arrayOfStrings("bankIds");
+  if (value.kind === "bank.delete" || value.kind === "bank.delete.cascade") return hasString("bankId");
+  if (value.kind === "bankFolder.save") return hasObject("folder");
+  if (value.kind === "bankFolder.delete") return hasString("folderId");
+  if (value.kind === "question.upsert") return hasObject("question");
+  if (value.kind === "question.delete" || value.kind === "question.delete.cascade") return hasString("questionId");
+  if (value.kind === "question.split") return hasString("originalQuestionId") && hasObject("clone") && Array.isArray(value.memberships);
+  if (value.kind === "question.import") return hasObject("bank") && Array.isArray(value.questions) && Array.isArray(value.memberships);
+  if (value.kind === "question.bulk.upsert") return Array.isArray(value.questions);
+  if (value.kind === "question.bulk.delete") return arrayOfStrings("questionIds");
+  if (value.kind === "membership.save") return hasObject("membership");
+  if (value.kind === "membership.remove") return hasString("bankId") && hasString("questionId");
+  if (value.kind === "membership.bulk.save") return Array.isArray(value.memberships);
+  if (value.kind === "membership.bulk.remove") return arrayOfStrings("keys");
+  if (value.kind === "image.asset.save") return hasObject("asset");
+  if (value.kind === "image.asset.delete") return hasString("assetId");
+  if (value.kind === "attempt.create" || value.kind === "attempt.update") return hasObject("attempt");
+  if (value.kind === "attempt.delete") return hasString("attemptId");
+  if (value.kind === "practice.answer.submitted" || value.kind === "practice.answer.updated") return hasObject("attempt") && hasObject("answer") && hasString("runId") && hasString("questionId");
+  if (value.kind === "practice.answer.deleted") return hasString("attemptId") && hasString("runId") && hasString("questionId");
+  if (value.kind === "practice.run.saved" || value.kind === "practice.run.status.changed") return hasObject("run");
+  if (value.kind === "practice.run.deleted") return hasString("runId");
+  if (value.kind === "note.upserted") return hasObject("note");
+  if (value.kind === "note.deleted") return hasString("questionId");
+  if (value.kind === "questionGroup.saved") return hasObject("group");
+  if (value.kind === "questionGroup.deleted") return hasString("groupId");
+  if (value.kind === "review.round.saved" || value.kind === "review.round.completed" || value.kind === "review.round.archived") return hasObject("round");
   return true;
 }
 
@@ -342,13 +375,15 @@ export async function createChangeSetV7(input: CreateChangeSetV7Input): Promise<
     assertSafeInteger(ref.size, `payloadRefs[${index}].size`, 0);
     return { path: ref.path, sha256: ref.sha256, size: ref.size, ...(ref.kind ? { kind: ref.kind } : {}) };
   }).sort((a, b) => a.path.localeCompare(b.path));
+  const computedKind: ChangeSetKindV7 = mutations.length === 1 ? mutations[0].kind : "batch";
+  if (input.kind !== undefined && input.kind !== computedKind) fail(`kind ${input.kind} 与 mutations 不一致`);
   const base = {
     formatVersion: CHANGE_SET_V7_FORMAT,
     id: input.id?.trim() || generatedId(input.deviceId, input.localSequence),
     deviceId: input.deviceId.trim(),
     localSequence: input.localSequence,
     createdAt: new Date(input.createdAt).toISOString(),
-    kind: mutations.length === 1 ? mutations[0].kind : "batch",
+    kind: computedKind,
     mutations,
     entityRefs,
     ...(payloadRefs?.length ? { payloadRefs } : {}),
@@ -410,6 +445,8 @@ export async function verifyChangeSetDigestV7(value: unknown): Promise<boolean> 
 
 export const isChangeSetV7 = validateChangeSetV7;
 export const serializeChangeSetV7 = canonicalChangeSetV7;
+export const validateChangeSetDigestV7 = verifyChangeSetDigestV7;
+export const isChangeSetDigestValidV7 = verifyChangeSetDigestV7;
 
 export function summarizeChangeSetV7(changeSet: ChangeSetV7): string {
   const mutation = changeSet.mutations[0];
@@ -548,6 +585,25 @@ function mutationCreatedRefs(mutation: ChangeSetMutationV7): ChangeSetEntityRefV
     case "review.round.saved": return [{ type: "reviewRound", id: mutation.round.id }];
     default: return [];
   }
+}
+
+export function dependentChangeSetIdsV7(target: ChangeSetV7, queued: readonly ChangeSetV7[]): string[] {
+  const dependentIds = new Set<string>();
+  const provided = new Set(target.mutations.flatMap(mutationCreatedRefs).map((ref) => `${ref.type}:${ref.id}`));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of queued) {
+      if (candidate.id === target.id || dependentIds.has(candidate.id)) continue;
+      if (!dependenciesForChangeSetV7(candidate, queued).requires.some((required) => provided.has(required))) continue;
+      dependentIds.add(candidate.id);
+      for (const mutation of candidate.mutations) {
+        for (const ref of mutationCreatedRefs(mutation)) provided.add(`${ref.type}:${ref.id}`);
+      }
+      changed = true;
+    }
+  }
+  return [...dependentIds].sort();
 }
 
 export async function planChangeSetQueueV7(changeSets: readonly ChangeSetV7[], existingEntityRefs: readonly ChangeSetEntityRefV7[] = []): Promise<ChangeSetQueuePlanV7> {

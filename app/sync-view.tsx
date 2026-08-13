@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { Cloud, CloudDownload, DatabaseBackup, GitBranch, LoaderCircle, Trash2 } from "lucide-react";
 import { getGitHubLogin, getLastRemoteCache, restoreFullHistoryFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings, saveGitHubToken } from "@/lib/github-credentials";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { clearAllSiteData, reloadAsFreshSite } from "@/lib/site-data-reset";
+import { dbV6 } from "@/lib/db-v6";
+import { discardManagedChangeSetV7, reviseManagedChangeSetV7 } from "@/lib/change-set-v7-queue";
+import { dependentChangeSetIdsV7 } from "@/lib/change-set-v7";
+import { questionContentFingerprint } from "@/lib/question-content";
+import { SyncEventManager, type SyncChangeSetItemV7, type SyncChangeSetTypedEditV7 } from "@/app/sync-event-manager";
 
-export function SyncView({ pending, onNotice, onRestored }: { pending: number; onNotice: (message: string) => void; onRestored: (message: string) => void }) {
+export function SyncView({ pending, onNotice, onRestored, onCreateAction }: { pending: number; onNotice: (message: string) => void; onRestored: (message: string) => void; onCreateAction?: () => void }) {
   const [settings, setSettings] = useState(loadGitHubSettings);
   const [token, setToken] = useState(loadGitHubToken);
   const [syncing, setSyncing] = useState(false);
@@ -18,6 +24,9 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const [clearPrompt, setClearPrompt] = useState(false);
   const [clearing, setClearing] = useState(false);
   const ready = Boolean(settings.repo && token);
+  const changeSets = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(500).toArray(), []) ?? [];
+  const manageableChangeSets = changeSets.filter((record) => record.state === "pending" || record.state === "blocked");
+  const changeSetItems: SyncChangeSetItemV7[] = changeSets.map((record) => ({ changeSet: record, state: record.state, blockers: record.blockedReason ? [record.blockedReason] : undefined, dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets), editable: record.state === "pending" || record.state === "blocked", cancellable: record.state === "pending" || record.state === "blocked" }));
 
   useEffect(() => {
     let active = true;
@@ -56,6 +65,32 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "同步失败");
     } finally { setSyncing(false); setOperationProgress(undefined); }
+  }
+
+  async function editChangeSet(id: string, edit: SyncChangeSetTypedEditV7) {
+    const current = await dbV6.changeSets.get(id);
+    if (!current || (current.state !== "pending" && current.state !== "blocked")) throw new Error("该变更已进入同步流程，不能继续修改。");
+    const mutations = current.mutations.map((mutation, index) => {
+      if (index !== edit.mutationIndex || mutation.kind !== edit.kind) return mutation;
+      if (edit.kind === "note.upserted" && mutation.kind === "note.upserted") return { ...mutation, note: { ...mutation.note, content: edit.content, revision: mutation.note.revision + 1, updatedAt: new Date().toISOString() } };
+      if (edit.kind === "bank.update" && mutation.kind === "bank.update") return { ...mutation, bank: { ...mutation.bank, name: edit.name.trim() || mutation.bank.name, displayName: edit.displayName.trim() || undefined, description: edit.description.trim() || undefined, updatedAt: new Date().toISOString() } };
+      if (edit.kind === "question.upsert" && mutation.kind === "question.upsert") {
+        let insertedText = false;
+        const content: typeof mutation.question.content = [];
+        for (const block of mutation.question.content) {
+          if (block.type !== "text") content.push(block);
+          else if (!insertedText) {
+            content.push({ ...block, text: edit.stem });
+            insertedText = true;
+          }
+        }
+        if (!insertedText) content.unshift({ id: "stem-0", type: "text", text: edit.stem });
+        const question = { ...mutation.question, answer: edit.answer, tags: edit.tags, content, updatedAt: new Date().toISOString() };
+        return { ...mutation, question: { ...question, contentFingerprint: questionContentFingerprint(question) } };
+      }
+      return mutation;
+    });
+    await reviseManagedChangeSetV7(id, mutations);
   }
 
   async function restoreFromCache() {
@@ -111,6 +146,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
     <div className="page-heading compact"><div><p className="eyebrow">无需自建服务器</p><h1>GitHub 同步</h1><p>使用私有仓库保存资料库快照与增量记录。</p></div></div>
     <div className="settings-grid"><section className="settings-card sync-connection-card"><div className="settings-title"><span><GitBranch /></span><div><h2>连接私有仓库</h2><p>令牌仅保存在此设备浏览器，不会写入题库或上传到云端。</p></div></div><label>仓库所有者<input value={settings.owner} onChange={(event) => updateSettings({ ...settings, owner: event.target.value.trim() })} placeholder="github-username" /></label><label>仓库名称<input value={settings.repo} onChange={(event) => updateSettings({ ...settings, repo: event.target.value.trim() })} placeholder="exam-study-vault" /></label><div className="field-row"><label>分支<input value={settings.branch} onChange={(event) => updateSettings({ ...settings, branch: event.target.value.trim() || "main" })} /></label><label>细粒度令牌<input type="password" value={token} onChange={(event) => updateToken(event.target.value)} placeholder="github_pat_…" /></label></div><label>同步中转地址（可选）<input value={settings.apiBaseUrl ?? ""} onChange={(event) => updateSettings({ ...settings, apiBaseUrl: event.target.value.trim() || undefined })} placeholder="https://sync.980923.xyz" /></label><div className={`sync-readiness ${ready ? "ready" : ""}`} role="status"><span aria-hidden="true" />{ready ? "连接信息已填写，可以开始同步" : "填写仓库所有者与令牌后即可同步"}</div><button className="primary full" disabled={!ready || syncing} onClick={sync}>{syncing ? <LoaderCircle className="spin" size={18} /> : <Cloud size={18} />}{syncing ? "正在合并…" : `立即同步${pending ? `（${pending}）` : ""}`}</button></section>
       <section className="guide-card"><span className="section-kicker">首次设置</span><h2>三步建立同步资料库</h2><ol><li><span>1</span><div><strong>新建私有仓库</strong><p>建议命名 exam-study-vault，并创建 README。</p></div></li><li><span>2</span><div><strong>创建细粒度令牌</strong><p>只授权该仓库的 Contents 读写权限。</p></div></li><li><span>3</span><div><strong>在每台设备连接</strong><p>首次拉取后，题库和学习记录会自动合并。</p></div></li></ol></section></div>
+    <section className="settings-card sync-events-page"><SyncEventManager items={changeSetItems} syncing={syncing} progress={operationProgress} onCreateAction={onCreateAction} onRefresh={() => undefined} onSyncNow={sync} onEdit={editChangeSet} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} /></section>
     <section className="restore-card data-restore-card"><div className="restore-icon"><DatabaseBackup /></div><div><span className="section-kicker">数据恢复</span><h2>选择恢复来源</h2><p>{lastCache ? `本地快照保存于 ${new Date(lastCache.cachedAt).toLocaleString("zh-CN")}；也可以从 GitHub 重新获取完整数据。` : "成功同步后会保存本地快照；也可以随时从 GitHub 重新获取完整数据。"}</p></div><div className="restore-card-actions"><button className="secondary-action" disabled={!lastCache || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("cache")}>{restoringCache ? <LoaderCircle className="spin" size={18} /> : <DatabaseBackup size={18} />}{restoringCache ? "恢复中…" : "本地恢复"}</button><button className="secondary-action" disabled={!ready || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("remote")}>{restoring ? <LoaderCircle className="spin" size={18} /> : <CloudDownload size={18} />}{restoring ? "恢复中…" : "远端恢复"}</button></div></section>
     <section className="restore-card clear-data-card"><div className="restore-icon"><Trash2 /></div><div><span className="section-kicker">恢复出厂状态</span><h2>清除本机所有数据</h2><p>删除题库、作答、练习、GitHub 令牌、配置、Cookie、Storage、IndexedDB、离线缓存和 Service Worker。远端私有仓库不会被删除。</p></div><button className="danger-button" disabled={syncing || restoring || restoringCache || clearing} onClick={() => setClearPrompt(true)}><Trash2 size={18} />清除数据</button></section>
     <ConfirmDialog open={syncing} eyebrow="GitHub 同步" title="正在同步云端数据" busy hideCancel progress={operationProgress} confirmLabel="同步中" onCancel={() => undefined} onConfirm={() => undefined} description={<><strong>正在安全合并本地与远程更改</strong><span>同步期间可以继续使用应用；新产生的记录会加入同步队列。</span></>} />

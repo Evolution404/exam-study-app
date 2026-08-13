@@ -283,7 +283,7 @@ export function SyncEventManager({
     const { changeSet } = item;
     const open = selectedId === changeSet.id;
     const busy = busyChangeSetId === changeSet.id;
-    const canEdit = item.state === "pending" && item.editable !== false && changeSet.mutations.some(editableMutation) && Boolean(onEdit);
+    const canEdit = (item.state === "pending" || item.state === "blocked") && item.editable !== false && changeSet.mutations.some(editableMutation) && Boolean(onEdit);
     const canDelete = (item.state === "pending" || item.state === "blocked") && item.cancellable !== false && Boolean(onDelete);
     return <article className={`sync-event-item state-${item.state}`} key={changeSet.id}>
       <div className="sync-event-item-main">

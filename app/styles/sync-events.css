@@ -167,6 +167,33 @@
   box-shadow: none;
 }
 
+.sync-event-manager-actions button:not(:disabled),
+.sync-event-row-actions button:not(:disabled),
+.sync-event-mutations > section > button:not(:disabled),
+.sync-event-editor-actions button:not(:disabled),
+.sync-event-summary {
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.sync-event-manager-actions button:not(:disabled):hover,
+.sync-event-row-actions button:not(:disabled):hover,
+.sync-event-mutations > section > button:not(:disabled):hover,
+.sync-event-editor-actions button:not(:disabled):hover,
+.sync-event-summary:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.sync-event-manager-actions button:focus-visible,
+.sync-event-row-actions button:focus-visible,
+.sync-event-mutations > section > button:focus-visible,
+.sync-event-editor-actions button:focus-visible,
+.sync-event-summary:focus-visible,
+.sync-event-drawer-header .icon-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .sync-event-progress {
   flex: none;
   padding: 10px 18px 12px;
