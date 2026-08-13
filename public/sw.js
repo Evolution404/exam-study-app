@@ -1,4 +1,4 @@
-const CACHE = "shijuan-v8";
+const CACHE = "shijuan-v9";
 const CACHE_PREFIX = "shijuan-";
 const NAVIGATION_TIMEOUT_MS = 1200;
 const BASE = new URL("./", self.registration.scope).pathname;
@@ -37,6 +37,22 @@ async function putInCache(request, response) {
   }
 }
 
+function isExpectedAssetResponse(request, response) {
+  if (!response || !response.ok) return false;
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  // Some SPA hosts answer a temporarily missing hashed asset with index.html and
+  // status 200. Caching that fallback forever makes the next app shell load with
+  // no styles or scripts, so reject it before it reaches the immutable cache.
+  if (contentType.includes("text/html")) return false;
+  if (request.destination === "style") return contentType.includes("text/css");
+  if (request.destination === "script") return contentType.includes("javascript");
+  if (request.destination === "image") return contentType.startsWith("image/");
+  if (request.destination === "font") {
+    return contentType.startsWith("font/") || contentType.includes("application/octet-stream");
+  }
+  return true;
+}
+
 function fetchWithTimeout(request, timeoutMs = NAVIGATION_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -60,8 +76,12 @@ async function navigationNetworkFirst(request) {
 async function assetCacheFirst(request) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(request);
-  if (cached) return cached;
-  const response = await fetch(request);
+  if (cached && isExpectedAssetResponse(request, cached)) return cached;
+  if (cached) await cache.delete(request);
+  const response = await fetch(request, { cache: "no-cache" });
+  if (!isExpectedAssetResponse(request, response)) {
+    throw new Error(`unexpected asset response for ${request.url}`);
+  }
   await putInCache(request, response);
   return response;
 }

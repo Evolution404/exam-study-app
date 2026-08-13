@@ -9,10 +9,15 @@ const siteDataReset = read("lib/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");
 
-assert.match(serviceWorker, /const CACHE = "shijuan-v8"/);
+assert.match(serviceWorker, /const CACHE = "shijuan-v9"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
 assert.match(serviceWorker, /function navigationNetworkFirst/);
 assert.match(serviceWorker, /function assetCacheFirst/);
+assert.match(serviceWorker, /function isExpectedAssetResponse/);
+assert.match(serviceWorker, /contentType\.includes\("text\/html"\)/, "SPA HTML fallbacks must never enter the immutable asset cache");
+assert.match(serviceWorker, /request\.destination === "style"[\s\S]*contentType\.includes\("text\/css"\)/, "stylesheet assets must have a CSS MIME type");
+assert.match(serviceWorker, /if \(cached\) await cache\.delete\(request\)/, "invalid cached assets must be evicted and fetched again");
+assert.match(serviceWorker, /fetch\(request, \{ cache: "no-cache" \}\)/, "immutable asset recovery must bypass a poisoned HTTP cache entry");
 assert.match(serviceWorker, /fetch\(request, \{ signal: controller\.signal, cache: "no-cache" \}\)/, "navigation revalidates the HTML shell instead of accepting a stale HTTP-cache entry");
 assert.match(serviceWorker, /return url\.pathname\.startsWith\(`\$\{BASE\}assets\//);
 assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
