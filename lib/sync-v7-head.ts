@@ -378,8 +378,10 @@ function cloneSegment(value: SyncV7SegmentDescriptor): SyncV7SegmentDescriptor {
 /** Merge segments using only their explicit replay key. */
 export function mergeSyncV7Segments(existing: readonly SyncV7SegmentDescriptor[], additions: readonly SyncV7SegmentDescriptor[], vaultId?: string): SyncV7SegmentDescriptor[] {
   const byKey = new Map<string, SyncV7SegmentDescriptor>();
+  const canonicalVaultId = vaultId ?? existing[0]?.metadata.vaultId ?? additions[0]?.metadata.vaultId;
+  if (!canonicalVaultId) throw new Error("v7 segment merge requires an explicit vault identity");
   for (const segment of [...existing, ...additions]) {
-    validateSegment(segment, 0, vaultId ?? segment.metadata.vaultId);
+    validateSegment(segment, 0, canonicalVaultId);
     const key = `${segment.generation}:${segment.ordinal}`;
     const prior = byKey.get(key);
     if (prior && !sameSyncV7Segment(prior, segment)) throw new Error(`v7 segment replay-key collision: ${key}`);
@@ -573,6 +575,7 @@ export function createSyncV7PublicationPlan(input: {
   const segments = validatePublicationFiles(input.segments ?? [], "segment");
   assertExpectedHeadSha(input.expectedHeadSha);
   if (!input.checkpoint) {
+    if (input.head.checkpoint === null) throw new Error("uninitialized v7 vault requires an explicit initialization checkpoint");
     if (input.compaction?.required) throw new Error("required v7 compaction plan must include a checkpoint publication");
     return { objects, segments, head: input.head, ...(input.expectedHeadSha ? { expectedHeadSha: input.expectedHeadSha } : {}), order: ["objects", "segments", "head-cas"], mode: "append" };
   }
