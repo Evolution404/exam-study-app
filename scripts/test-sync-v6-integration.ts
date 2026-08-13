@@ -18,7 +18,7 @@ import {
   serializeRunDefinition,
 } from "../lib/db-v6";
 import { createSyncCheckpointV6, applySyncCheckpointV6, encodeSyncCheckpointV6 } from "../lib/sync-v6-checkpoint";
-import { downloadImageAssetV6, mapWithConcurrency, restoreFullHistoryFromGitHubV6, syncWithGitHubV6 } from "../lib/github-sync-v6";
+import { downloadImageAssetV6, mapWithConcurrency, restoreFullHistoryFromGitHubV6, restoreLastRemoteCache, syncWithGitHubV6 } from "../lib/github-sync-v6";
 import type { SyncHeadV6 } from "../lib/sync-v6-head";
 import { GitHubV6Remote } from "../lib/github-v6-remote";
 import { sha256Blob } from "../lib/image-assets";
@@ -129,6 +129,18 @@ try {
   const firstAssetPut = calls.findIndex((call) => call.method === "PUT" && call.path.includes("/assets/"));
   const firstImmutablePut = calls.findIndex((call) => call.method === "PUT" && (call.path.includes("/checkpoints/") || call.path.includes("/archive/")));
   assert.ok(firstAssetPut >= 0 && firstImmutablePut > firstAssetPut && firstHeadPut > firstImmutablePut, "publish order must be assets -> immutable -> head");
+  const localRestoreProgress: Array<{ label: string; percent: number }> = [];
+  await restoreLastRemoteCache(settings, ({ label, percent }) => localRestoreProgress.push({ label, percent }));
+  assert.deepEqual(localRestoreProgress.map(({ percent }) => percent), [10, 25, 35, 88, 92, 97, 100], "local restore reports each real processing stage in order");
+  assert.deepEqual(localRestoreProgress.map(({ label }) => label), [
+    "正在读取本地 v6 恢复记录",
+    "本地 v6 恢复记录校验完成",
+    "正在恢复 1 道题及学习记录",
+    "题库与学习记录已恢复",
+    "正在恢复同步文件索引",
+    "正在恢复同步检查点",
+    "本地 v6 记录恢复完成",
+  ]);
 
   const question = (await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).first())!;
   const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [question.questionId] });

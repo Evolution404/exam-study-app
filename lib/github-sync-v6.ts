@@ -757,11 +757,16 @@ export async function getLastRemoteCache(settings: GitHubSettings) {
 }
 
 export async function restoreLastRemoteCache(settings: GitHubSettings, onProgress?: SyncV6ProgressCallback) {
+  report(onProgress, "prepare", "正在读取本地 v6 恢复记录", 10);
   const cached = await loadRemoteCache(settings);
   if (!cached) throw new Error("本机还没有可恢复的 v6 远程缓存，请先成功同步一次。");
-  report(onProgress, "prepare", "正在检查本地 v6 恢复记录", 5);
+  report(onProgress, "prepare", "本地 v6 恢复记录校验完成", 25);
+  report(onProgress, "merge", `正在恢复 ${cached.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题及学习记录`, 35);
   const result = await applySyncCheckpointV6(cached.checkpoint, [], { preservePending: false });
+  report(onProgress, "merge", "题库与学习记录已恢复", 88);
+  report(onProgress, "cache", "正在恢复同步文件索引", 92);
   await dbV6.syncFiles.bulkPut(cached.markers);
+  report(onProgress, "cache", "正在恢复同步检查点", 97);
   await saveHeadCache(settings, cached.head);
   report(onProgress, "complete", "本地 v6 记录恢复完成", 100);
   return { cachedAt: cached.cachedAt, counts: cached.checkpoint.counts, formatVersion: 6 as const, pulled: result.applied, deferred: 0 };

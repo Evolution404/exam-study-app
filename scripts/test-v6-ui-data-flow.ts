@@ -95,6 +95,15 @@ assert.equal((study.match(/recordPracticeAnswerV6\(/g) ?? []).length, 1, "答题
 assert.match(study, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
 assert.match(study, /label=\{`作答（\$\{scopeLabel\}）`\}/);
+assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
+assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
+
+const syncV6 = readFileSync(new URL("../lib/github-sync-v6.ts", import.meta.url), "utf8");
+assert.match(syncV6, /正在读取本地 v6 恢复记录[\s\S]*本地 v6 恢复记录校验完成[\s\S]*正在恢复 .* 道题及学习记录[\s\S]*题库与学习记录已恢复[\s\S]*正在恢复同步文件索引[\s\S]*正在恢复同步检查点[\s\S]*本地 v6 记录恢复完成/, "本地缓存恢复应报告真实处理阶段");
+assert.doesNotMatch(syncV6, /正在检查本地 v6 恢复记录[\s\S]*,\s*5\)/, "本地恢复不应长期停留在没有依据的低百分比");
+
+assert.match(componentStyles, /\.delete-choice-list>button span\{[^}]*font-size:14px/, "删除题库选项标题应保持可读字号");
+assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hover/, "删除题库选项应提供悬浮反馈");
 
 const search = source("search-view.tsx");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
