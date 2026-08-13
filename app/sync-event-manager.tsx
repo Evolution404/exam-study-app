@@ -21,12 +21,10 @@ import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/change-set-v7";
 import "@/app/styles/sync-events.css";
 
 export type SyncChangeSetStateV7 = "pending" | "claimed" | "blocked" | "committed";
-export type SyncChangeSetBatchV7 = "current" | "next";
 
 export interface SyncChangeSetItemV7 {
   changeSet: ChangeSetV7;
   state: SyncChangeSetStateV7;
-  batch?: SyncChangeSetBatchV7;
   blockers?: readonly string[];
   dependentChangeSetIds?: readonly string[];
   editable?: boolean;
@@ -64,9 +62,9 @@ export interface SyncEventManagerProps {
 
 const stateLabels: Record<SyncChangeSetStateV7, string> = {
   pending: "待同步",
-  claimed: "本批已锁定",
-  blocked: "需要处理",
-  committed: "已提交",
+  claimed: "正在写入",
+  blocked: "需处理",
+  committed: "已同步",
 };
 
 const kindLabels: Partial<Record<ChangeSetMutationV7["kind"], string>> = {
@@ -179,11 +177,6 @@ function changeSetMatches(item: SyncChangeSetItemV7, query: string): boolean {
   return haystack.includes(query.toLocaleLowerCase("zh-CN"));
 }
 
-function batchFor(item: SyncChangeSetItemV7): SyncChangeSetBatchV7 {
-  if (item.batch) return item.batch;
-  return item.state === "claimed" || item.state === "committed" ? "current" : "next";
-}
-
 function TypedMutationEditor({
   item,
   mutation,
@@ -261,11 +254,16 @@ export function SyncEventManager({
   const [editing, setEditing] = useState<{ changeSetId: string; mutationIndex: number }>();
   const [deleteTarget, setDeleteTarget] = useState<SyncChangeSetItemV7>();
   const [cascadeDependents, setCascadeDependents] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const selectionIsControlled = Boolean(onSelectedIdChange);
   const requestedSelectedId = selectionIsControlled ? controlledSelectedId : internalSelectedId;
   const selectedId = requestedSelectedId && items.some((item) => item.changeSet.id === requestedSelectedId) ? requestedSelectedId : undefined;
 
   const filtered = useMemo(() => items.filter((item) => (status === "all" || item.state === status) && changeSetMatches(item, query.trim())), [items, query, status]);
+  const syncingItems = filtered.filter((item) => item.state === "claimed");
+  const pendingItems = filtered.filter((item) => item.state === "pending" || item.state === "blocked");
+  const committedItems = filtered.filter((item) => item.state === "committed");
+  const showHistory = historyExpanded || status !== "all" || query.trim() !== "";
   function select(id: string) {
     const next = selectedId === id ? undefined : id;
     if (!selectionIsControlled) setInternalSelectedId(next);
@@ -319,9 +317,6 @@ export function SyncEventManager({
     </article>;
   }
 
-  const current = filtered.filter((item) => batchFor(item) === "current");
-  const next = filtered.filter((item) => batchFor(item) === "next");
-
   return <section className={`sync-event-manager ${className}`.trim()} aria-label="同步操作管理">
     <div className="sync-event-toolbar">
       <label className="sync-event-search"><Search size={17} /><span className="sr-only">搜索同步操作</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索类型、对象或编号" /></label>
@@ -338,8 +333,28 @@ export function SyncEventManager({
 
     <div className="sync-event-list" aria-live="polite">
       {showBatchSections ? <>
-        <section className="sync-event-batch" aria-labelledby="sync-current-batch-title"><header><div><span>本批同步</span><h3 id="sync-current-batch-title">已锁定的操作</h3></div><b>{current.length}</b></header>{current.length ? current.map(renderItem) : <p className="sync-event-empty">本批还没有操作。</p>}</section>
-        <section className="sync-event-batch" aria-labelledby="sync-next-batch-title"><header><div><span>下次同步</span><h3 id="sync-next-batch-title">等待处理的操作</h3></div><b>{next.length}</b></header>{next.length ? next.map(renderItem) : <p className="sync-event-empty">没有留到下次同步的操作。</p>}</section>
+        {syncingItems.length > 0 && (
+          <section className="sync-event-batch" aria-labelledby="sync-syncing-title">
+            <header><div><span>上传中</span><h3 id="sync-syncing-title">正在同步</h3></div><b>{syncingItems.length}</b></header>
+            <div className="sync-event-batch-items">{syncingItems.map(renderItem)}</div>
+          </section>
+        )}
+        <section className="sync-event-batch" aria-labelledby="sync-pending-title">
+          <header><div><span>待办</span><h3 id="sync-pending-title">等待同步</h3></div><b>{pendingItems.length}</b></header>
+          <div className="sync-event-batch-items">{pendingItems.length ? pendingItems.map(renderItem) : <p className="sync-event-empty">没有待同步的操作。</p>}</div>
+        </section>
+        {committedItems.length > 0 && (
+          <section className={`sync-event-batch is-history${showHistory ? "" : " collapsed"}`} aria-labelledby="sync-history-title">
+            <header>
+              <div><span>历史</span><h3 id="sync-history-title">已同步</h3></div>
+              <button type="button" className="sync-event-history-toggle" aria-expanded={showHistory} onClick={() => setHistoryExpanded((value) => !value)}>
+                <b>{committedItems.length}</b>
+                <ChevronDown className={showHistory ? "expanded" : ""} size={15} aria-hidden="true" />
+              </button>
+            </header>
+            {showHistory && <div className="sync-event-batch-items">{committedItems.map(renderItem)}</div>}
+          </section>
+        )}
       </> : filtered.length ? filtered.map(renderItem) : <p className="sync-event-empty">{emptyMessage}</p>}
     </div>
 

@@ -329,7 +329,6 @@ export function StudyApp() {
   const [quickSyncProgress, setQuickSyncProgress] = useState<SyncProgress>();
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
   const [syncDrawerOpen, setSyncDrawerOpen] = useState(false);
-  const [syncBatchIds, setSyncBatchIds] = useState<Set<string>>(new Set());
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
   const [finishPrompt, setFinishPrompt] = useState<number>();
@@ -441,7 +440,6 @@ export function StudyApp() {
   const syncItems: SyncChangeSetItemV7[] = syncChangeSets.map((record) => ({
     changeSet: record,
     state: record.state,
-    batch: syncBatchIds.has(record.id) ? "current" : "next",
     blockers: record.blockedReason ? [record.blockedReason] : undefined,
     dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets),
     editable: record.state === "pending" || record.state === "blocked",
@@ -539,9 +537,6 @@ export function StudyApp() {
     syncOperationRunning.current = true;
     try {
       if (!silent) {
-        const pendingIds = new Set((await dbV6.changeSets.where("state").equals("pending").primaryKeys()).map(String));
-        setSyncBatchIds(pendingIds);
-        setSyncDrawerOpen(true);
         setQuickSyncing(true);
         setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       }

@@ -78,6 +78,15 @@
   overflow: hidden;
 }
 
+.sync-event-drawer .sync-event-manager {
+  padding-inline: 22px;
+}
+
+.sync-event-drawer .sync-event-list,
+.sync-event-drawer .sync-event-progress {
+  padding-inline: 0;
+}
+
 .sync-event-manager {
   display: flex;
   flex-direction: column;
@@ -275,6 +284,46 @@
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
   font-size: 10px;
+}
+
+.sync-event-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.sync-event-history-toggle > b {
+  min-width: 27px;
+  height: 27px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  font-size: 10px;
+}
+
+.sync-event-history-toggle > svg {
+  transition: transform .2s ease;
+}
+
+.sync-event-history-toggle > svg.expanded {
+  transform: rotate(180deg);
+}
+
+.sync-event-history-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.sync-event-batch.is-history.collapsed .sync-event-batch-items {
+  display: none;
 }
 
 .sync-event-item {

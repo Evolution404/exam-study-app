@@ -32,8 +32,12 @@ assert.match(manager, /onCreateAction/, "business action creation is callback-co
 assert.match(manager, /onRefresh/, "refresh is callback-controlled");
 assert.match(manager, /onSyncNow/, "sync is callback-controlled");
 assert.match(manager, /role="progressbar"/, "sync progress is accessible");
-assert.match(manager, /本批同步/, "current batch has a named section");
-assert.match(manager, /下次同步/, "next batch has a named section");
+assert.match(manager, /正在同步/, "syncing (claimed) batch has a named section");
+assert.match(manager, /等待同步/, "pending batch has a named section");
+assert.match(manager, /已同步/, "committed history has a named section");
+assert.doesNotMatch(manager, /batchFor/, "sections derive from record state, not a stale batch snapshot");
+assert.match(manager, /is-history|historyExpanded/, "committed history collapses into a summary by default");
+assert.doesNotMatch(studyApp, /syncBatchIds/, "study-app no longer keeps a stale sync-batch snapshot");
 
 assert.match(drawer, /role="dialog" aria-modal="true"/, "drawer exposes modal dialog semantics");
 assert.match(drawer, /aria-labelledby="sync-event-drawer-title"/, "drawer has an accessible title");

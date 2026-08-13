@@ -32,14 +32,15 @@ export function SyncEventDrawer({ open, onClose, title = "本次同步", items, 
   }, [onClose, open]);
 
   if (!open) return null;
-  const currentCount = items.filter((item) => item.batch === "current" || (!item.batch && (item.state === "claimed" || item.state === "committed"))).length;
-  const nextCount = items.length - currentCount;
+  const syncingCount = items.filter((item) => item.state === "claimed").length;
+  const pendingCount = items.filter((item) => item.state === "pending" || item.state === "blocked").length;
+  const committedCount = items.filter((item) => item.state === "committed").length;
 
   return <ModalPortal>
     <div className="sync-event-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <aside className="sync-event-drawer" role="dialog" aria-modal="true" aria-labelledby="sync-event-drawer-title">
         <header className="sync-event-drawer-header">
-          <div className="sync-event-drawer-heading"><span><ArrowRightLeft size={19} /></span><div><p>同步队列</p><h2 id="sync-event-drawer-title">{title}</h2><small>本批 {currentCount} 组 · 下次 {nextCount} 组</small></div></div>
+          <div className="sync-event-drawer-heading"><span><ArrowRightLeft size={19} /></span><div><p>同步队列</p><h2 id="sync-event-drawer-title">{title}</h2><small>{syncingCount ? `正在同步 ${syncingCount} · ` : ""}等待 {pendingCount} · 已同步 {committedCount}</small></div></div>
           <button ref={closeButtonRef} className="icon-button" type="button" aria-label="关闭同步抽屉" onClick={onClose}><X size={19} /></button>
         </header>
         <SyncEventManager {...managerProps} items={items} showBatchSections className="sync-event-drawer-manager" />
