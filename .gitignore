@@ -38,7 +38,7 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
-/artifacts/browser-qa/
+/artifacts/
 
 # 构建时自动生成的标题字体子集
 /src/generated/
