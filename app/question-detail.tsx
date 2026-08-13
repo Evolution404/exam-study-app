@@ -66,36 +66,52 @@ export function QuestionDetail({ question, metric, scopeLabel, note, onClose, fo
     const n = nav;
     const panel = panelRef.current;
     if (!panel) return;
+    const body = panel.querySelector<HTMLElement>(".search-detail-body");
     const interactiveSelector = "input, textarea, select, a, [contenteditable='true'], button";
-    let gesture: { startX: number; startY: number; axis: "pending" | "horizontal" | "vertical" } | null = null;
+    let gesture: { startX: number; startY: number; lastX: number; lastY: number; startScrollTop: number; axis: "pending" | "horizontal" | "vertical" } | null = null;
+    const resetGesture = () => { gesture = null; };
     const onTouchStart = (event: TouchEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (event.touches.length !== 1 || target?.closest(interactiveSelector)) { gesture = null; return; }
-      gesture = { startX: event.touches[0].clientX, startY: event.touches[0].clientY, axis: "pending" };
+      if (event.touches.length !== 1 || target?.closest(interactiveSelector)) { resetGesture(); return; }
+      const touch = event.touches[0];
+      gesture = { startX: touch.clientX, startY: touch.clientY, lastX: touch.clientX, lastY: touch.clientY, startScrollTop: body?.scrollTop ?? 0, axis: "pending" };
     };
     const onTouchMove = (event: TouchEvent) => {
       if (!gesture || event.touches.length !== 1) return;
-      const dx = event.touches[0].clientX - gesture.startX;
-      const dy = event.touches[0].clientY - gesture.startY;
-      if (gesture.axis === "pending" && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-        gesture.axis = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+      const touch = event.touches[0];
+      gesture.lastX = touch.clientX;
+      gesture.lastY = touch.clientY;
+      const dx = touch.clientX - gesture.startX;
+      const dy = touch.clientY - gesture.startY;
+      if (gesture.axis === "pending") {
+        if (Math.hypot(dx, dy) < 12) return;
+        gesture.axis = Math.abs(dx) >= Math.abs(dy) * 0.8 ? "horizontal" : "vertical";
       }
+      if (gesture.axis !== "horizontal") return;
+      if (event.cancelable) event.preventDefault();
+      if (body && body.scrollTop !== gesture.startScrollTop) body.scrollTop = gesture.startScrollTop;
     };
     const onTouchEnd = (event: TouchEvent) => {
-      if (!gesture || gesture.axis !== "horizontal") { gesture = null; return; }
-      const dx = event.changedTouches[0].clientX - gesture.startX;
-      gesture = null;
-      if (Math.abs(dx) < 50) return;
+      const finished = gesture;
+      resetGesture();
+      if (!finished || finished.axis !== "horizontal") return;
+      const touch = event.changedTouches[0];
+      const dx = (touch?.clientX ?? finished.lastX) - finished.startX;
+      const dy = (touch?.clientY ?? finished.lastY) - finished.startY;
+      if (body) body.scrollTop = finished.startScrollTop;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 0.8) return;
       if (dx < 0 && n.index < n.total - 1) n.onNext();
       else if (dx > 0 && n.index > 0) n.onPrevious();
     };
     panel.addEventListener("touchstart", onTouchStart, { passive: true });
-    panel.addEventListener("touchmove", onTouchMove, { passive: true });
+    panel.addEventListener("touchmove", onTouchMove, { passive: false });
     panel.addEventListener("touchend", onTouchEnd, { passive: true });
+    panel.addEventListener("touchcancel", resetGesture, { passive: true });
     return () => {
       panel.removeEventListener("touchstart", onTouchStart);
       panel.removeEventListener("touchmove", onTouchMove);
       panel.removeEventListener("touchend", onTouchEnd);
+      panel.removeEventListener("touchcancel", resetGesture);
     };
   }, [nav]);
 
