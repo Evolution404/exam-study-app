@@ -34,9 +34,10 @@ if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只�
 
 const dbV6 = read("lib/db-v6.ts");
 const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
+const versionsAscending = v6DatabaseVersions.every((version, index) => index === 0 || version > v6DatabaseVersions[index - 1]);
 if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
-  || v6DatabaseVersions.join(",") !== "1,2") {
-  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间及 v7 队列升级");
+  || !v6DatabaseVersions.includes(1) || !v6DatabaseVersions.includes(2) || !versionsAscending) {
+  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
 }
 
 const sync = read("lib/github-sync.ts");

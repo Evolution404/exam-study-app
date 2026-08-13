@@ -234,18 +234,24 @@ async function answerCurrentQuestion(page, optionIndexes, confirm = false) {
 }
 
 async function pendingEventCount(page) {
+  // Pending change-sets (state pending|blocked) are the new sync queue; the v6
+  // event log no longer exists.
   return page.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open("shijuan-study-v6");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;
-      const transaction = database.transaction("events", "readonly");
-      const count = transaction.objectStore("events").index("synced").count(IDBKeyRange.only(0));
-      count.onerror = () => reject(count.error);
-      count.onsuccess = () => {
-        database.close();
-        resolve(count.result);
-      };
+      const transaction = database.transaction("changeSets", "readonly");
+      const index = transaction.objectStore("changeSets").index("state");
+      const pending = index.count(IDBKeyRange.only("pending"));
+      const blocked = index.count(IDBKeyRange.only("blocked"));
+      let pendingDone = false;
+      let blockedDone = false;
+      const finish = () => { if (pendingDone && blockedDone) { database.close(); resolve(pending.result + blocked.result); } };
+      pending.onsuccess = () => { pendingDone = true; finish(); };
+      blocked.onsuccess = () => { blockedDone = true; finish(); };
+      pending.onerror = () => reject(pending.error);
+      blocked.onerror = () => reject(blocked.error);
     };
   }));
 }

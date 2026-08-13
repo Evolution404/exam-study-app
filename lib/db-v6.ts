@@ -37,7 +37,6 @@ import type {
   SyncFileV6,
   SyncMetaV6,
   TombstoneV6,
-  V6Event,
 } from "./v6-types";
 import { SYNC_V6_IMMUTABLE_PREFIX } from "./sync-v6-head";
 
@@ -431,7 +430,6 @@ class V6StudyDatabase extends Dexie {
   questionGroups!: EntityTable<QuestionGroupV6, "id">;
   reviewRounds!: EntityTable<ReviewRound, "id">;
   reviewRoundProgress!: EntityTable<ReviewRoundProgress, "key">;
-  events!: EntityTable<V6Event, "id">;
   changeSets!: EntityTable<ChangeSetQueueRecordV7, "id">;
   syncFiles!: EntityTable<SyncFileV6, "path">;
   tombstones!: EntityTable<TombstoneV6, "key">;
@@ -480,6 +478,8 @@ class V6StudyDatabase extends Dexie {
       tombstones: "key, entityType, entityId, deletedAt",
       syncMeta: "key, updatedAt",
     });
+    // v3: the v6 event log is superseded by v7 change-sets; drop the store.
+    this.version(3).stores({ events: null });
   }
 }
 

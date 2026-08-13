@@ -151,42 +151,6 @@ export interface ReviewRoundProgress {
   latestAttemptAt: string;
 }
 
-export interface V6Event {
-  id: string;
-  type: V6EventType;
-  payload: unknown;
-  deviceId: string;
-  sequence: number;
-  createdAt: string;
-  /** 0 is a local pending event; 1 marks an event applied from sync. */
-  synced: 0 | 1;
-}
-
-export type V6EventType =
-  | "bank.created"
-  | "bank.updated"
-  | "bank.deleted"
-  | "bankFolder.saved"
-  | "bankFolder.deleted"
-  | "question.upserted"
-  | "question.deleted"
-  | "membership.saved"
-  | "membership.removed"
-  | "question.split"
-  | "attempt.created"
-  | "practice.answer.submitted"
-  | "practice.run.saved"
-  | "practice.run.status.changed"
-  | "practice.run.deleted"
-  | "note.upserted"
-  | "questionGroup.saved"
-  | "questionGroup.deleted"
-  | "review.round.saved"
-  | "review.round.completed"
-  | "review.round.archived"
-  | "image.asset.saved"
-  | "image.asset.deleted";
-
 /** v6 only adds an optional review-round association to the existing run. */
 export type PracticeRunV6 = PracticeRun & { reviewRoundId?: string };
 
