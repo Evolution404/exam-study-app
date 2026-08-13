@@ -8,7 +8,7 @@
  * represented by one bounded restore object instead of an unbounded event
  * tail.
  */
-import { dbV6, restoreV6CheckpointAndEvents, type RunDefinitionV6, type V6RestoreState } from "./db-v6";
+import { dbV6, restoreV6Checkpoint, type V6RestoreState } from "./db-v6";
 import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
 import { SYNC_V6_ARCHIVE_PREFIX, validateSyncV6Descriptor, type SyncV6Descriptor } from "./sync-v6-head";
 import type {
@@ -19,7 +19,6 @@ import type {
   ImageAsset,
   PracticeRunV6,
   QuestionV6,
-  V6Event,
 } from "./v6-types";
 
 export const SYNC_V6_CHECKPOINT_FORMAT = 6 as const;
@@ -465,16 +464,16 @@ function cloneState(state: V6RestoreState & { memberships?: BankQuestionMembersh
 
 /** Create a full checkpoint from the v6 namespace only. */
 export async function createSyncCheckpointV6(generatedAt = new Date().toISOString()): Promise<SyncCheckpointV6> {
-  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, events] = await Promise.all([
+  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, changeSets] = await Promise.all([
     dbV6.banks.toArray(), dbV6.bankFolders.toArray(), dbV6.questions.toArray(), dbV6.bankQuestionMemberships.toArray(), dbV6.imageAssets.toArray(),
     dbV6.attempts.toArray(), dbV6.attemptStats.toArray(), dbV6.attemptDailyStats.toArray(), dbV6.notes.toArray(), dbV6.practiceRuns.toArray(), dbV6.practiceRunStats.toArray(),
-    dbV6.questionGroups.toArray(), dbV6.reviewRounds.toArray(), dbV6.reviewRoundProgress.toArray(), dbV6.tombstones.toArray(), dbV6.events.toArray(),
+    dbV6.questionGroups.toArray(), dbV6.reviewRounds.toArray(), dbV6.reviewRoundProgress.toArray(), dbV6.tombstones.toArray(), dbV6.changeSets.toArray(),
   ]);
-  // The local checkpoint is a projection, not an event log.  Event rows are
-  // paged separately into the head's hot event window.
+  // The local checkpoint is a projection, not an event log.  Cursors track the
+  // pending change-set tail so concurrent devices can detect coverage.
   const state = cloneState({ banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones });
   const cursors: Record<string, number> = {};
-  for (const event of events) cursors[event.deviceId] = Math.max(cursors[event.deviceId] ?? 0, event.sequence);
+  for (const change of changeSets) cursors[change.deviceId] = Math.max(cursors[change.deviceId] ?? 0, change.localSequence);
   const checkpoint: SyncCheckpointV6 = { formatVersion: SYNC_V6_CHECKPOINT_FORMAT, generatedAt, state, cursors, counts: countsFor(state) };
   validateSyncCheckpointV6(checkpoint);
   return checkpoint;
@@ -534,10 +533,10 @@ export function validateSyncV6ArchiveCatalog(value: unknown): asserts value is S
   if (value.counts.practiceRuns !== value.practiceRunSegments.reduce((sum, segment) => sum + segment.count, 0)) fail("archiveCatalog practice-run count does not match segments");
 }
 
-/** Restore the complete checkpoint and replay event pages in one DB transaction. */
-export async function applySyncCheckpointV6(checkpoint: SyncCheckpointV6, events: readonly V6Event[] = [], options: { preservePending?: boolean } = {}, definitions?: Record<string, RunDefinitionV6>): Promise<{ applied: number; preserved: number }> {
+/** Restore the complete checkpoint projection in one DB transaction. */
+export async function applySyncCheckpointV6(checkpoint: SyncCheckpointV6): Promise<void> {
   validateSyncCheckpointV6(checkpoint);
-  return restoreV6CheckpointAndEvents(checkpoint.state, events, options, definitions);
+  await restoreV6Checkpoint(checkpoint.state);
 }
 
 export const restoreSyncCheckpointV6 = applySyncCheckpointV6;

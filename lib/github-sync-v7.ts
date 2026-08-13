@@ -4,7 +4,7 @@ import {
   listChangeSetsV7,
   releaseChangeSetClaimV7,
   claimPendingChangeSetsV7,
-  restoreV6CheckpointAndEvents,
+  restoreV6Checkpoint,
   type ChangeSetQueueRecordV7,
 } from "./db-v6";
 import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
@@ -136,7 +136,7 @@ function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly 
 
 async function installProjection(projection: ChangeSetProjectionV7): Promise<void> {
   const checkpoint = await checkpointFromProjection(projection, {});
-  await restoreV6CheckpointAndEvents(checkpoint.state, [], { preservePending: false });
+  await restoreV6Checkpoint(checkpoint.state);
 }
 
 function descriptorEqual(a: SyncV7Descriptor, b: SyncV7Descriptor): boolean {
@@ -352,7 +352,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   const value = (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache } | undefined;
   if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
   report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 45);
-  await restoreV6CheckpointAndEvents(value.checkpoint.state, [], { preservePending: false });
+  await restoreV6Checkpoint(value.checkpoint.state);
   await dbV6.changeSets.clear();
   await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
   await saveHeadCache(settings, value.head);

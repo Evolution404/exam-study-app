@@ -21,8 +21,8 @@ assert.doesNotMatch(studyApp, /\(correct \|\| preferences\.showAnswerOnWrong\) \
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
 assert.match(studyApp, /await recordPracticeAnswer\(/, "answer submission must use the single domain-event writer");
 assert.doesNotMatch(studyApp, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
-assert.match(database, /eventWithId\("practice\.answer\.submitted"/, "one answer event must feed both attempt and practice projections");
-assert.doesNotMatch(database, /eventWithId\("practice\.answer\.saved"/, "new local writes must not emit the legacy answer projection event");
+assert.match(database, /export async function recordPracticeAnswerV6/, "answer submission must remain the single domain writer");
+assert.doesNotMatch(database, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
 assert.match(studyApp, /dbV6\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v6 practiceRun");
 assert.match(studyApp, /const run = runId \? await dbV6\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v6 practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");

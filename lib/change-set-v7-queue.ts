@@ -1,6 +1,6 @@
 import { createChangeSetV7, dependentChangeSetIdsV7, type ChangeSetMutationV7 } from "./change-set-v7";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
-import { dbV6, restoreV6CheckpointAndEvents, type ChangeSetQueueRecordV7 } from "./db-v6";
+import { dbV6, restoreV6Checkpoint, type ChangeSetQueueRecordV7 } from "./db-v6";
 
 async function queueBase(): Promise<ChangeSetProjectionV7> {
   const base = (await dbV6.syncMeta.get("v7:queue-base"))?.value as ChangeSetProjectionV7 | undefined;
@@ -41,7 +41,7 @@ async function rebuild(records: readonly ChangeSetQueueRecordV7[]): Promise<Chan
 }
 
 async function install(projection: ChangeSetProjectionV7): Promise<void> {
-  await restoreV6CheckpointAndEvents({ ...projection, memberships: projection.memberships }, [], { preservePending: false });
+  await restoreV6Checkpoint({ ...projection, memberships: projection.memberships });
 }
 
 export async function discardManagedChangeSetV7(id: string, options: { cascadeDependents?: boolean } = {}): Promise<void> {
