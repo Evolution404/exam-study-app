@@ -255,6 +255,9 @@ button { color:inherit; }
 
 .quick-sync-split{margin-left:auto;display:flex;align-items:stretch;height:44px;border:1px solid var(--color-border);border-radius:999px;background:var(--color-primary-soft);overflow:hidden}
 .quick-sync-split .quick-sync{min-width:82px;height:42px;margin:0;border:0;border-radius:0;background:transparent}
+.quick-sync-split .quick-sync.holding{color:#fff;background:var(--color-danger)}
+.quick-sync-split .quick-sync.holding .quick-sync-progress .track{stroke:color-mix(in srgb,#fff 42%,transparent)}
+.quick-sync-split .quick-sync.holding .quick-sync-progress .value{stroke:#fff}
 .sync-queue-trigger{min-width:48px;padding:0 10px;border:0;border-left:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;gap:2px;color:var(--color-primary);background:transparent;font-size:12px;font-weight:750;cursor:pointer;transition:background .16s,color .16s}
 .sync-queue-trigger:hover,.sync-queue-trigger:focus-visible{outline:0;color:var(--color-primary);background:var(--color-primary-soft)}
 @media(max-width:460px){.quick-sync-split .quick-sync{min-width:52px;padding-right:6px}.quick-sync-split .quick-sync-label{display:none}.sync-queue-trigger{min-width:45px;padding:0 7px}}
