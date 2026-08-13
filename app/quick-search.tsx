@@ -83,7 +83,7 @@ function QuickSearchResults({ query, bankIds, onChoose, onViewAll }: { query: st
     ].join("\n").match(pattern));
     const grouped = TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type));
     return { items: grouped.slice(0, 8), total: grouped.length, error: "" };
-  }, [normalizedQuery, data]);
+  }, [normalizedQuery, data, bankIds.length]);
 
   if (!normalizedQuery) return null;
   if (data === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;

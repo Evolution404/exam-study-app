@@ -19,8 +19,17 @@ export function ExcelImportActions({ onNotice }: { onNotice: (message: string) =
       const file = new File([await response.blob()], "拾卷题库模板.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const mobile = window.matchMedia("(max-width: 760px)").matches;
       if (mobile && navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
-        await navigator.share({ title: "拾卷题库模板", text: "保存或分享拾卷 Excel 题库模板", files: [file] });
-        return;
+        try {
+          await navigator.share({ title: "拾卷题库模板", text: "保存或分享拾卷 Excel 题库模板", files: [file] });
+          return;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          if (!(error instanceof DOMException) || !["NotAllowedError", "SecurityError"].includes(error.name)) throw error;
+          // Browser mobile emulation and restricted PWA contexts may expose
+          // Web Share without permission to open the system share sheet.
+          // Fall through to a normal download instead of surfacing the raw
+          // "Permission denied" browser error.
+        }
       }
       const url = URL.createObjectURL(file);
       const anchor = document.createElement("a");

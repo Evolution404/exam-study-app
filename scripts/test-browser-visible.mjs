@@ -117,6 +117,32 @@ async function waitForQuestion(page, number, total = 5) {
   await progress.filter({ hasText: new RegExp(`^${number} / ${total} ·`) }).waitFor({ state: "visible" });
 }
 
+async function assertOverviewFocus(page, questionNumber, expectedProgress) {
+  const progress = page.locator(".overview-score span").filter({ hasText: "进度" }).locator("strong");
+  assert.equal(await progress.innerText(), expectedProgress, "overview progress should use one decimal place");
+  const target = page.locator('.overview-number-grid button[data-overview-focus="true"]');
+  assert.equal(await target.count(), 1, "overview should expose exactly one centered row target");
+  assert.match(await target.getAttribute("aria-label"), new RegExp(`^第 ${questionNumber} 题，`));
+  const position = await target.evaluate((button) => {
+    const groups = button.closest(".overview-groups");
+    const buttonBox = button.getBoundingClientRect();
+    const groupsBox = groups.getBoundingClientRect();
+    const centerDelta = buttonBox.top + buttonBox.height / 2 - (groupsBox.top + groupsBox.height / 2);
+    const naturalCenteredScroll = groups.scrollTop + centerDelta;
+    return {
+      actualScroll: groups.scrollTop,
+      expectedScroll: Math.min(Math.max(naturalCenteredScroll, 0), groups.scrollHeight - groups.clientHeight),
+      visible: buttonBox.bottom > groupsBox.top && buttonBox.top < groupsBox.bottom,
+      paddingBlockStart: groups.style.paddingBlockStart,
+      paddingBlockEnd: groups.style.paddingBlockEnd,
+    };
+  });
+  assert.equal(position.visible, true, "overview focus row should be visible");
+  assert.ok(Math.abs(position.actualScroll - position.expectedScroll) <= 2, "overview focus row should center only within natural scroll bounds");
+  assert.equal(position.paddingBlockStart, "", "overview must not add leading space to force edge rows into the center");
+  assert.equal(position.paddingBlockEnd, "", "overview must not add trailing space to force edge rows into the center");
+}
+
 async function expectNotice(page, pattern, description = "notice") {
   const notice = page.locator(".toast").filter({ hasText: pattern }).first();
   await notice.waitFor({ state: "visible", timeout: 10_000 });
@@ -363,7 +389,7 @@ async function runDesktop(page) {
   await capture(page, contextName, "practice-custom-random");
   await clickTextButton(page, "全量顺序练习");
   await capture(page, contextName, "practice-setup");
-  await (await visibleLocator(page, page.locator(".setup-footer button"), "practice start button")).click();
+  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   const pendingBeforeFirstAnswer = await pendingEventCount(page);
   await answerCurrentQuestion(page, [0]);
@@ -376,10 +402,20 @@ async function runDesktop(page) {
 
   await clickButton(page, "打开题目总览");
   await expectText(page, "题目总览");
+  await assertOverviewFocus(page, 5, "20.0%");
   await capture(page, contextName, "practice-overview");
-  await clickButton(page, "关闭题目总览");
-  await clickTextButton(page, "下一题");
-  await page.waitForFunction(() => getComputedStyle(document.querySelector(".practice-layout")).animationName === "question-page-forward");
+  await page.getByRole("button", { name: "第 5 题，计算" }).click();
+  await waitForQuestion(page, 5);
+  await page.locator(".asset-image img").waitFor({ state: "visible" });
+  const earlyCalculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
+  await earlyCalculationAnswer.fill("10.05");
+  await clickTextButton(page, "确认答案");
+  await expectText(page, "回答正确");
+  await clickButton(page, "打开题目总览");
+  await assertOverviewFocus(page, 2, "40.0%");
+  await capture(page, contextName, "practice-overview-first-unanswered");
+  await page.getByRole("button", { name: "第 2 题，单选" }).click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".practice-layout")).animationName === "question-page-back");
   await waitForQuestion(page, 2);
   // The app keeps the stable type grouping order (single choice, multi
   // choice, judgment), so the fourth fixture row is the second visible item.
@@ -397,10 +433,6 @@ async function runDesktop(page) {
   await answerCurrentQuestion(page, [0]);
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 5);
-  await page.locator(".asset-image img").waitFor({ state: "visible" });
-  const calculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
-  await calculationAnswer.fill("10.05");
-  await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickTextButton(page, "查看本次结果");
   await expectText(page, "本次正确率");
@@ -467,16 +499,21 @@ async function runMobile(page) {
   const beforeTemplateDownload = page.url();
   const download = page.waitForEvent("download", { timeout: 3_000 }).catch(() => undefined);
   await clickTextButton(page, "下载 Excel 模板");
-  await download;
+  assert.ok(await download, "mobile template action should fall back to a browser download when Web Share is unavailable or denied");
   assert.equal(page.url(), beforeTemplateDownload, "mobile template download must keep the app on its current page");
+  assert.equal(await page.locator(".toast").filter({ hasText: /permission denied/i }).count(), 0, "mobile template download must not surface a raw Web Share permission error");
   await capture(page, contextName, "banks");
   await clickButton(page, "打开导航");
   await clickButton(page, "练习");
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await (await visibleLocator(page, page.locator(".setup-footer button"), "mobile practice start button")).click();
+  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
+  await clickButton(page, "打开题目总览");
+  await assertOverviewFocus(page, 5, "0.0%");
+  await capture(page, contextName, "practice-overview");
+  await clickButton(page, "关闭题目总览");
   await capture(page, contextName, "practice");
   await clickButton(page, "暂停并返回首页");
   await expectText(page, "继续上次练习");
