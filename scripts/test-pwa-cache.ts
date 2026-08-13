@@ -23,6 +23,11 @@ assert.doesNotMatch(studyApp, /onConfirm=\{\(\) => window\.location\.reload\(\)\
 assert.doesNotMatch(syncView, /window\.location\.reload/);
 assert.match(studyApp, /onRestored=\{handleRestoreSuccess\}/);
 assert.match(syncView, /onRestored\(`已从本机缓存恢复/);
+assert.match(syncView, /<section className="restore-card data-restore-card">/, "local and remote recovery must share one restore card");
+assert.match(syncView, /setRestorePrompt\("cache"\)[\s\S]*?"本地恢复"/, "local recovery must use the four-character label");
+assert.match(syncView, /setRestorePrompt\("remote"\)[\s\S]*?"远端恢复"/, "remote recovery must use the four-character label");
+assert.match(syncView, /restoreFullHistoryFromGitHub\(resolved, token, setOperationProgress\)/, "remote recovery must include available history archives");
+assert.doesNotMatch(syncView, /快速恢复|完整恢复|remoteFull/, "sync view must not expose obsolete fast/full recovery choices");
 assert.match(studyApp, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
 assert.match(syncView, /<h2>清除本机所有数据<\/h2>/, "sync view must expose the site-data reset action");
 assert.match(syncView, /confirmLabel="清除并重新载入"/, "site-data reset must require explicit confirmation");
