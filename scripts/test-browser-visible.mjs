@@ -592,7 +592,7 @@ async function runDesktop(page, mockServer) {
   const hotWindow = page.locator(".sync-hot-window");
   await hotWindow.waitFor({ state: "visible" });
   const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
-  assert.ok(hotLabels.includes("检查点") && hotLabels.includes("分段") && hotLabels.includes("热窗口"), "hot window must expose checkpoint, segment count and hot bytes");
+  assert.ok(hotLabels.includes("检查点") && hotLabels.includes("当前头") && hotLabels.includes("分段") && hotLabels.includes("热窗口"), "hot window must expose checkpoint, head, segment count and hot bytes");
   const hotValues = (await hotWindow.locator("dd").allInnerTexts()).map((text) => text.trim());
   assert.ok(hotValues.some((text) => /^第 \d+ 代$/.test(text)), "checkpoint generation must be shown after a real sync");
   await capture(page, contextName, "sync-hot-window");

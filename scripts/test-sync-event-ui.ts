@@ -49,6 +49,7 @@ assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus wh
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
 assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
 assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks)");
+assert.match(syncView, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segment count and hot bytes in order");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 
 assert.match(styles, /@media \(max-width: 760px\)/, "drawer has a mobile layout");

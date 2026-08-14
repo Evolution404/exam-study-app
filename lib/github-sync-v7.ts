@@ -320,7 +320,7 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const bytes = encodeSyncCheckpointV6(checkpoint);
   const digest = await sha256(bytes);
   const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
-  const descriptor = await uploadedDescriptor(client, path, bytes, "checkpoint");
+  const descriptor: SyncV7Descriptor = { ...(await uploadedDescriptor(client, path, bytes, "checkpoint")), generation: 0 };
   const now = new Date().toISOString();
   const head: SyncHeadV7 = { formatVersion: 7, vaultId: vaultId(settings), generatedAt: now, generation: 0, metadata: { vaultId: vaultId(settings), producer: "exam-study-app" }, checkpoint: descriptor, segments: [], cursors: {} };
   const committed = await client.putHead(head);
@@ -489,7 +489,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
           const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
           checkpointFile = { path, bytes, kind: "checkpoint", uploaded: true };
-          checkpointDescriptor = uploaded;
+          checkpointDescriptor = { ...uploaded, generation };
           nextSegments = [];
         }
       } else {
@@ -599,6 +599,8 @@ export interface SyncHotWindowState {
   hotBytesMax: number;
   /** Monotonic publication generation of the head. */
   generation: number;
+  /** Generation at which the current checkpoint snapshot was written (0 = initial). */
+  checkpointGeneration: number;
   /** False only before the vault has been initialised. */
   hasCheckpoint: boolean;
   /** Per-segment byte sizes, in replay order. Empty when there are no segments. */
@@ -620,6 +622,10 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
     hotBytes: head.segments.reduce((sum, segment) => sum + segment.size, 0),
     hotBytesMax: SYNC_V7_MAX_HOT_BYTES,
     generation: head.generation,
+    // The checkpoint descriptor records the generation it was written at.  Legacy
+    // heads predate that field; fall back to deriving it from the oldest segment
+    // (one below its generation) or the head generation for an empty window.
+    checkpointGeneration: head.checkpoint?.generation ?? (head.segments.length ? head.segments[0].generation - 1 : head.generation),
     hasCheckpoint: Boolean(head.checkpoint),
     segmentSizes: head.segments.map((segment) => segment.size),
   };

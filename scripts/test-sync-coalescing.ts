@@ -114,6 +114,10 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   assert.ok(finalState, "同步后应能读取热窗口状态");
   assert.equal(finalState.hasCheckpoint, true, "应始终保留检查点（合并不生成新检查点）");
   assert.ok(finalState.hotBytes < finalState.hotBytesMax, `热窗口字节应远低于 ${finalState.hotBytesMax}（实际 ${finalState.hotBytes}）`);
+  // 合并只重排分段、不生成检查点：检查点代数必须仍是初始化时的第 0 代，
+  // 而头代随每次同步持续增长。二者只有在检查点代数被误从分段推导时才会相等。
+  assert.equal(finalState.checkpointGeneration, 0, "合并分段不得改变检查点代数（应仍为第 0 代）");
+  assert.ok(finalState.generation >= count, `头代应随同步增长到至少 ${count}（实际 ${finalState.generation}）`);
 
   await freshClient("device-b");
   await sync();
@@ -262,6 +266,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   const afterCompact = await getSyncHotWindowState(settings);
   assert.equal(afterCompact?.segmentCount, 0, "压缩应清空全部热窗口分段");
   assert.equal(afterCompact?.hasCheckpoint, true, "压缩后应存在检查点");
+  assert.equal(afterCompact?.checkpointGeneration, afterCompact?.generation, "压缩后检查点代数应等于当前头代（窗口已空）");
 
   // A fresh device restores entirely from the new checkpoint + any segments.
   await freshClient("device-b");

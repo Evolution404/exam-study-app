@@ -59,6 +59,8 @@ export interface SyncV7Descriptor {
   sha256: string;
   /** Size of the exact bytes represented by this object. */
   size: number;
+  /** Publication generation at which this checkpoint snapshot was written. */
+  generation?: number;
 }
 
 export interface SyncV7HeadMetadata {
@@ -293,6 +295,7 @@ function validateDescriptor(value: unknown, kind: SyncV7DescriptorKind): asserts
   assertSha(value.blobSha, `${kind}.blobSha`, SHA1);
   assertSha(value.sha256, `${kind}.sha256`, SHA256);
   assertSize(value.size, `${kind}.size`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
+  if (value.generation !== undefined) assertSafeInteger(value.generation, `${kind}.generation`, 0);
   const digest = digestFromPath(value.path);
   if (digest && digest !== value.sha256) fail(`${kind} path digest must equal descriptor.sha256`);
 }
@@ -373,7 +376,7 @@ export function validateSyncV7Descriptor(value: unknown, kind: SyncV7DescriptorK
 }
 
 function cloneDescriptor(value: SyncV7Descriptor): SyncV7Descriptor {
-  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size };
+  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size, ...(value.generation !== undefined ? { generation: value.generation } : {}) };
 }
 
 function cloneMetadata(value: SyncV7SegmentMetadata): SyncV7SegmentMetadata {
