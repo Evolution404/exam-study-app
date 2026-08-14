@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test:architecture": "node scripts/check-architecture.mjs",
     "test:notice-tone": "tsx scripts/test-notice-tone.ts",
-    "test:sync": "npm run test:sync-payload && npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v6-domain && npm run test:db-v6 && npm run test:image-assets && npm run test:sync-mock && npm run test:sync-integration && npm run test:sync-progress",
+    "test:sync": "npm run test:sync-payload && npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v6-domain && npm run test:db-v6 && npm run test:image-assets && npm run test:sync-mock && npm run test:sync-integration && npm run test:sync-progress && npm run test:sync-compression && npm run test:sync-download-concurrency && npm run test:sync-replay-perf && npm run test:sync-install-fingerprint && npm run test:sync-tombstone-gc",
     "test:sync-v7": "npm run test:sync-v7-protocol && npm run test:change-set-v7 && npm run test:sync-v7-multidevice",
     "test:sync-payload": "tsx scripts/test-sync-v7-payload.ts",
     "test:sync-v7-multidevice": "tsx scripts/test-sync-v7-multidevice.ts",

@@ -81,7 +81,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
   const blobs = new Map(); // blobSha -> Buffer
   // Concurrency observability for the segment downloader: blob GET counters and
   // an injectable per-request latency so tests can prove requests overlap.
-  const stats = { blobReads: 0, maxConcurrentBlobReads: 0 };
+  const stats = { blobReads: 0, maxConcurrentBlobReads: 0, totalRequests: 0 };
   let blobLatencyMs = 0;
   let inFlightBlobReads = 0;
   // One-shot fault state: tracks whether failPutOnce/failGetOnce have fired yet.
@@ -104,6 +104,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
     failNextBlobGet = false;
     stats.blobReads = 0;
     stats.maxConcurrentBlobReads = 0;
+    stats.totalRequests = 0;
     blobLatencyMs = 0;
   }
 
@@ -139,11 +140,14 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
 
   const server = createServer(async (req, res) => {
     try {
+      stats.totalRequests += 1;
+      // Preflight 必须先放行（CORS 失败会让 fetch 变成网络错误而非 401）。
       if (req.method === "OPTIONS") {
         res.writeHead(204, CORS_HEADERS);
         res.end();
         return;
       }
+      if (faults?.unauthorized) return sendJson(res, 401, { message: "unauthorized mock vault" });
 
       const parsed = new URL(req.url, `http://${hostname}`);
       const pathname = parsed.pathname;

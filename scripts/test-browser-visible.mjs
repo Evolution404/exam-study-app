@@ -544,17 +544,16 @@ async function runDesktop(page, mockServer) {
   });
   assert.equal(await branchField.inputValue(), "", "branch field must stay cleared after deleting its text");
   await branchField.fill("main");
-  let githubRequestCount = 0;
-  await page.route("https://api.github.com/**", (route) => {
-    githubRequestCount += 1;
-    return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "visible QA stub" }) });
-  });
+  // 401 失败与自动同步触发都走真实本地 HTTP：把 unauthorized mock 的地址填进
+  // 「同步中转地址」字段，而不是 page.route 拦截 —— 计数来自 mock 的请求统计。
+  const failingServer = await startMockGitHubServer({ faults: { unauthorized: true } });
+  await fields.nth(4).fill(failingServer.url);
   await capture(page, contextName, "sync-settings");
   await clickTextButton(page, "立即同步");
   await expectSyncFailureNotice(page);
   await capture(page, contextName, "sync-error");
 
-  githubRequestCount = 0;
+  const requestsBeforeAutoSync = failingServer.stats.totalRequests;
   await clickButton(page, "配置");
   await expectText(page, "答题配置");
   const autoSyncAfterCredentials = page.getByRole("checkbox", { name: "累计事件后自动同步" });
@@ -568,9 +567,10 @@ async function runDesktop(page, mockServer) {
     try { return Number(JSON.parse(raw).autoSyncEventThreshold) === 1; } catch { return false; }
   });
   const requestDeadline = Date.now() + 5_000;
-  while (!githubRequestCount && Date.now() < requestDeadline) await page.waitForTimeout(100);
-  assert.ok(githubRequestCount > 0, "enabling automatic sync should issue a GitHub request when pending events exceed the threshold");
+  while (failingServer.stats.totalRequests <= requestsBeforeAutoSync && Date.now() < requestDeadline) await page.waitForTimeout(100);
+  assert.ok(failingServer.stats.totalRequests > requestsBeforeAutoSync, "enabling automatic sync should issue a GitHub request when pending events exceed the threshold");
   await capture(page, contextName, "auto-sync-enabled");
+  await failingServer.close();
   // Disable auto-sync before the real-sync scenario so it cannot race the
   // manual "立即同步" click below.
   const autoSyncReset = page.getByRole("checkbox", { name: "累计事件后自动同步" });
@@ -671,10 +671,13 @@ async function runMobile(page, mockServer) {
   await fields.nth(2).fill("main");
   await fields.nth(3).fill("qa-token-mobile");
   await capture(page, contextName, "sync-card");
-  await page.route("https://api.github.com/**", (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "visible QA mobile stub" }) }));
+  // 与桌面组一致：401 场景走真实本地 unauthorized mock（填进中转地址），不拦截。
+  const mobileFailingServer = await startMockGitHubServer({ faults: { unauthorized: true } });
+  await fields.nth(4).fill(mobileFailingServer.url);
   await clickTextButton(page, "立即同步");
   await expectSyncFailureNotice(page);
   await capture(page, contextName, "sync-error");
+  await mobileFailingServer.close();
 
   // ===== 真实同步：第二设备从 mock 拉取第一设备（desktop）的数据 =====
   // Point at the same vault the desktop pushed to; this fresh IndexedDB has no
@@ -1343,7 +1346,102 @@ const GROUPS = [
   { key: "search", run: runSearchBatch, viewport: { width: 1440, height: 960 }, minScreenshots: 4 },
   { key: "history", run: runHistoryResult, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "inflight", run: runInFlightDeletionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
+  { key: "dark", run: runDarkModeAudit, viewport: { width: 1440, height: 960 }, minScreenshots: 1 },
 ];
+
+// ===== 夜间模式按钮适配审计 =====
+// 在深色主题下遍历全部主视图与关键弹窗，任何「近白背景 / 浅灰边框」的可见按钮
+// 都视为未适配夜间模式（曾因 :where 零特异性被基础规则的 #fff 压回而回退过）。
+// 刻意保持浅色的按钮（彩色卡片上的奶油色强调按钮等）登记在 ALLOWLIST，
+// 新增按钮若被标记请先改 token 再放行。
+const DARK_BUTTON_ALLOWLIST = [
+  /^开始这一组$/, // 焦点卡片（绿色底）上的奶油色强调按钮，双主题刻意恒定
+];
+
+function parseRgbChannels(value) {
+  const match = /rgba?\(([^)]+)\)/.exec(value ?? "");
+  if (!match) return null;
+  const parts = match[1].split(",").map((part) => Number(part.trim()));
+  if (parts.length < 3 || parts.slice(0, 3).some((n) => !Number.isFinite(n))) return null;
+  return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+}
+
+function looksLightInDark(channels, minChannel, minAlpha = 0.5) {
+  if (!channels || channels.a < minAlpha) return false;
+  return channels.r >= minChannel && channels.g >= minChannel && channels.b >= minChannel;
+}
+
+async function auditVisibleButtons(page, viewName, offenders) {
+  const buttons = await page.evaluate(() => {
+    const rows = [];
+    for (const button of document.querySelectorAll("button")) {
+      if (!(button instanceof HTMLElement) || button.offsetParent === null) continue;
+      const style = getComputedStyle(button);
+      rows.push({
+        label: (button.getAttribute("aria-label") || button.textContent || "").replace(/\s+/g, " ").trim().slice(0, 36),
+        bg: style.backgroundColor,
+        border: style.borderColor,
+        // border:0 的按钮 computed border-color 只是 currentColor 默认值，无视觉意义。
+        borderWidth: Number.parseFloat(style.borderTopWidth) || 0,
+      });
+    }
+    return rows;
+  });
+  for (const button of buttons) {
+    const bg = parseRgbChannels(button.bg);
+    const border = parseRgbChannels(button.border);
+    const lightBg = looksLightInDark(bg, 225);
+    const lightBorder = button.borderWidth > 0 && looksLightInDark(border, 195, 0.25);
+    if (!lightBg && !lightBorder) continue;
+    if (DARK_BUTTON_ALLOWLIST.some((pattern) => pattern.test(button.label))) continue;
+    offenders.push(`${viewName} · ${button.label || "(图标按钮)"} bg=${button.bg} border=${button.border}`);
+  }
+}
+
+async function runDarkModeAudit(page) {
+  const contextName = "dark";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await page.evaluate(() => {
+    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
+    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, themeMode: "dark" }));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+
+  const offenders = [];
+  for (const nav of ["今日", "题库", "练习", "知识整理", "配置", "同步"]) {
+    await clickButton(page, nav);
+    await page.waitForTimeout(450);
+    await auditVisibleButtons(page, nav, offenders);
+  }
+  // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
+  await clickButton(page, "同步");
+  await expectText(page, "GitHub 同步");
+  const clearButton = page.getByRole("button", { name: "清除数据" }).first();
+  await clearButton.scrollIntoViewIfNeeded();
+  await clearButton.click();
+  await page.locator(".confirm-dialog").waitFor({ state: "visible" });
+  await auditVisibleButtons(page, "清除数据弹窗", offenders);
+  await capture(page, contextName, "clear-data-dialog-dark");
+  await page.getByRole("button", { name: "取消" }).click();
+  await page.locator(".confirm-dialog").waitFor({ state: "hidden" });
+
+  // 练习答题页（提交后还有结果操作按钮）。
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0]);
+  await auditVisibleButtons(page, "练习作答", offenders);
+
+  assert.deepEqual(offenders, [], `夜间模式下存在未适配按钮（${offenders.length} 个，请改用主题 token 或登记 ALLOWLIST）：\n${offenders.join("\n")}`);
+  console.log(`dark mode button audit passed: 6 视图 + 清除数据弹窗 + 练习作答，无未适配按钮`);
+}
 
 async function main() {
   await mkdir(runRoot, { recursive: true });
