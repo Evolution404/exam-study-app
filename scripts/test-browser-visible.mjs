@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import * as XLSX from "xlsx";
+import { startMockGitHubServer } from "./mock-github-server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -346,7 +347,7 @@ async function assertSearchFilterInteractions(page, contextName) {
   await capture(page, contextName, "search-controls-aligned");
 }
 
-async function runDesktop(page) {
+async function runDesktop(page, mockServer) {
   const contextName = "desktop";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -455,9 +456,13 @@ async function runDesktop(page) {
 
   await clickButton(page, "打开题目总览");
   await expectText(page, "题目总览");
-  await assertOverviewFocus(page, 5, "20.0%");
+  // The overview focuses the CURRENT question (第 1 题, 单选 — the first
+  // fixture row), not the next-unanswered one: the grid scrolls it into view.
+  await assertOverviewFocus(page, 1, "20.0%");
   await capture(page, contextName, "practice-overview");
-  await page.getByRole("button", { name: "第 5 题，计算" }).click();
+  const calculation = page.getByRole("button", { name: "第 5 题，计算" });
+  await calculation.scrollIntoViewIfNeeded();
+  await calculation.click();
   await waitForQuestion(page, 5);
   await page.locator(".asset-image img").waitFor({ state: "visible" });
   const earlyCalculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
@@ -465,7 +470,9 @@ async function runDesktop(page) {
   await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickButton(page, "打开题目总览");
-  await assertOverviewFocus(page, 2, "40.0%");
+  // After answering the calculation (第 5 题), the overview focuses the current
+  // question — the calculation row (auto-advance may not have fired yet).
+  await assertOverviewFocus(page, 5, "40.0%");
   await capture(page, contextName, "practice-overview-first-unanswered");
   await page.getByRole("button", { name: "第 2 题，单选" }).click();
   await page.waitForFunction(() => getComputedStyle(document.querySelector(".practice-layout")).animationName === "question-page-back");
@@ -509,6 +516,21 @@ async function runDesktop(page) {
   await fields.nth(1).fill("visible-qa-repo");
   await fields.nth(2).fill("main");
   await fields.nth(3).fill("qa-token");
+  // The branch field must stay cleared while editing — Backspace used to snap
+  // the value straight back to "main". The default is applied at sync time via
+  // branch(), never while typing.
+  const branchField = fields.nth(2);
+  // Refocusing an input drops the caret to the start; move it to the end so
+  // Backspace actually deletes characters (the field is not being cleared).
+  await branchField.focus();
+  await page.keyboard.press("End");
+  for (let index = 0; index < "main".length; index += 1) await page.keyboard.press("Backspace");
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.sync-connection-card input[placeholder="main"]');
+    return input instanceof HTMLInputElement && input.value === "";
+  });
+  assert.equal(await branchField.inputValue(), "", "branch field must stay cleared after deleting its text");
+  await branchField.fill("main");
   let githubRequestCount = 0;
   await page.route("https://api.github.com/**", (route) => {
     githubRequestCount += 1;
@@ -536,9 +558,39 @@ async function runDesktop(page) {
   while (!githubRequestCount && Date.now() < requestDeadline) await page.waitForTimeout(100);
   assert.ok(githubRequestCount > 0, "enabling automatic sync should issue a GitHub request when pending events exceed the threshold");
   await capture(page, contextName, "auto-sync-enabled");
+  // Disable auto-sync before the real-sync scenario so it cannot race the
+  // manual "立即同步" click below.
+  const autoSyncReset = page.getByRole("checkbox", { name: "累计事件后自动同步" });
+  if (await autoSyncReset.isChecked()) await autoSyncReset.uncheck({ force: true });
+
+  // ===== 真实同步：内存 mock GitHub 后端 =====
+  // Re-point the connection at the in-process mock and use a fresh vault id so
+  // all pending change-sets (imports, edits, answers accumulated above) push for
+  // real, then verify the hot-window visualisation and an idempotent re-sync.
+  await clickButton(page, "同步");
+  await expectText(page, "GitHub 同步");
+  const realFields = page.locator(".settings-card").first().locator("input");
+  await realFields.nth(0).fill("qa");
+  await realFields.nth(1).fill("browser-vault");
+  await realFields.nth(4).fill(mockServer.url);
+  await capture(page, contextName, "sync-mock-configured");
+  await clickTextButton(page, "立即同步");
+  await expectNotice(page, /v7 同步完成/, "real sync success notice");
+  const hotWindow = page.locator(".sync-hot-window");
+  await hotWindow.waitFor({ state: "visible" });
+  const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
+  assert.ok(hotLabels.includes("检查点") && hotLabels.includes("分段") && hotLabels.includes("热窗口"), "hot window must expose checkpoint, segment count and hot bytes");
+  const hotValues = (await hotWindow.locator("dd").allInnerTexts()).map((text) => text.trim());
+  assert.ok(hotValues.some((text) => /^第 \d+ 代$/.test(text)), "checkpoint generation must be shown after a real sync");
+  await capture(page, contextName, "sync-hot-window");
+  assert.ok(mockServer.contentPaths().includes("sync/v7/head.json"), "mock backend must hold the v7 head after a real sync");
+  assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v7/checkpoints/")), "mock backend must hold the initial checkpoint");
+  // Idempotent: a second sync with no new events pushes nothing but still succeeds.
+  await clickTextButton(page, "立即同步");
+  await expectNotice(page, /v7 同步完成/, "idempotent second sync");
 }
 
-async function runMobile(page) {
+async function runMobile(page, mockServer) {
   const contextName = "mobile";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -567,7 +619,9 @@ async function runMobile(page) {
   await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await clickButton(page, "打开题目总览");
-  await assertOverviewFocus(page, 5, "0.0%");
+  // Fresh practice starts at the first question — the overview focuses the
+  // current row (第 1 题) with 0/5 answered.
+  await assertOverviewFocus(page, 1, "0.0%");
   await capture(page, contextName, "practice-overview");
   await clickButton(page, "关闭题目总览");
   await capture(page, contextName, "practice");
@@ -608,11 +662,35 @@ async function runMobile(page) {
   await clickTextButton(page, "立即同步");
   await expectSyncFailureNotice(page);
   await capture(page, contextName, "sync-error");
+
+  // ===== 真实同步：第二设备从 mock 拉取第一设备（desktop）的数据 =====
+  // Point at the same vault the desktop pushed to; this fresh IndexedDB has no
+  // prior head cache, so the sync downloads everything the desktop uploaded and
+  // merges it with the mobile's own local edits (bi-directional merge).
+  const realFields = page.locator(".mobile-sync-settings .settings-card").first().locator("input");
+  await realFields.nth(0).fill("qa");
+  await realFields.nth(1).fill("browser-vault");
+  await realFields.nth(4).fill(mockServer.url);
+  await clickTextButton(page, "立即同步");
+  await expectNotice(page, /v7 同步完成/, "second-device real sync success");
+  await capture(page, contextName, "sync-mobile-pulled");
+  // Cross-device: the desktop-created bank must have propagated to this device.
+  await clickButton(page, "打开导航");
+  await clickButton(page, "题库");
+  await expectText(page, "题库管理");
+  const crossDeviceBank = page.locator("button.bank-management-main").filter({ hasText: "手动创建测试题库" }).first();
+  await crossDeviceBank.waitFor({ state: "visible" });
+  assert.ok(await crossDeviceBank.isVisible(), "desktop-created bank must appear on the second device after syncing");
+  await capture(page, contextName, "cross-device-bank-pulled");
 }
 
 async function main() {
   await mkdir(runRoot, { recursive: true });
   await startDevServerIfNeeded();
+  // In-process mock GitHub backend: both browser contexts share it, so the
+  // desktop sync pushes real data and the mobile sync pulls it back — a true
+  // cross-device round-trip without any external network.
+  const mockServer = await startMockGitHubServer();
   const browser = await chromium.launch({
     executablePath: chromeExecutable,
     headless: false,
@@ -623,16 +701,17 @@ async function main() {
     const desktop = await desktopContext.newPage();
     desktop.setDefaultTimeout(10_000);
     desktop.setDefaultNavigationTimeout(25_000);
-    await runDesktop(desktop);
+    await runDesktop(desktop, mockServer);
     await desktopContext.close();
 
     const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
     const mobile = await mobileContext.newPage();
     mobile.setDefaultTimeout(10_000);
     mobile.setDefaultNavigationTimeout(25_000);
-    await runMobile(mobile);
+    await runMobile(mobile, mockServer);
     await mobileContext.close();
   } finally {
+    await mockServer.close();
     await browser.close();
   }
   assert.ok(screenshots.length >= 12, `expected at least 12 QA screenshots, got ${screenshots.length}`);
