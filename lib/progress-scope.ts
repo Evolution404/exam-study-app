@@ -147,10 +147,29 @@ export function calculateProgressCompletion(
   referenceTime: ReferenceTime,
 ): ProgressCompletion {
   const uniqueQuestionIds = [...new Set(questionIds)];
-  const completed = uniqueQuestionIds.reduce(
-    (count, questionId) => count + (isQuestionDoneInScope(questionId, scope, attemptStats, roundProgress, referenceTime) ? 1 : 0),
-    0,
-  );
+  const normalized = normalizeProgressScope(scope);
+  let completed = 0;
+  if (normalized.type === "round") {
+    // Index round progress by its canonical key for O(1) lookups instead of a
+    // linear scan per question (the scan made this quadratic for large banks).
+    const progressByKey = new Map(roundProgress.filter((row) => row.roundId === normalized.roundId).map((row) => [row.key, row]));
+    for (const questionId of uniqueQuestionIds) {
+      const row = progressByKey.get(`${normalized.roundId}:${questionId}`);
+      if (row && hasRoundProgress(row)) completed += 1;
+    }
+    return { total: uniqueQuestionIds.length, completed, percent: uniqueQuestionIds.length ? Math.round(completed / uniqueQuestionIds.length * 100) : 0 };
+  }
+
+  const statsByQuestion = new Map(attemptStats.map((row) => [row.questionId, row]));
+  const referenceMs = epochMs(referenceTime);
+  const cutoff = normalized.type === "rolling" ? referenceMs - normalized.days * DAY_MS : null;
+  for (const questionId of uniqueQuestionIds) {
+    const stats = statsByQuestion.get(questionId);
+    if (!stats || stats.total <= 0) continue;
+    if (normalized.type === "lifetime") { completed += 1; continue; }
+    const latest = new Date(stats.latestAttemptAt).getTime();
+    if (Number.isFinite(latest) && latest >= cutoff! && latest <= referenceMs) completed += 1;
+  }
   return {
     total: uniqueQuestionIds.length,
     completed,

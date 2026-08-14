@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen, Brain, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, Copy,
@@ -35,9 +35,9 @@ import type { ActivePractice, GitHubSettings } from "@/lib/types";
 import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/v6-types";
 import type { V6PracticeFilter } from "@/app/practice-setup";
 import type { ProgressScope } from "@/lib/progress-scope";
-import { buildScopedQuestionStats, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
 import { classifyNoticeTone } from "@/lib/notice-tone";
-import { questionOverviewFocusIndex, questionOverviewProgress } from "@/lib/question-overview";
+import { questionOverviewProgress } from "@/lib/question-overview";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync-event-drawer";
 import type { SyncChangeSetItemV7 } from "@/app/sync-event-manager";
@@ -436,15 +436,20 @@ export function StudyApp() {
     };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
   const syncChangeSets = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []) ?? [];
-  const manageableChangeSets = syncChangeSets.filter((record) => record.state === "pending" || record.state === "blocked");
-  const syncItems: SyncChangeSetItemV7[] = syncChangeSets.map((record) => ({
-    changeSet: record,
-    state: record.state,
-    blockers: record.blockedReason ? [record.blockedReason] : undefined,
-    dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets),
-    editable: record.state === "pending" || record.state === "blocked",
-    cancellable: record.state === "pending" || record.state === "blocked",
-  }));
+  // Dependency resolution is only needed when the change-set list actually
+  // changes; memoising it keeps every answer submission (which re-renders the
+  // app) from re-running the O(n) scan over the event queue.
+  const syncItems: SyncChangeSetItemV7[] = useMemo(() => {
+    const manageableChangeSets = syncChangeSets.filter((record) => record.state === "pending" || record.state === "blocked");
+    return syncChangeSets.map((record) => ({
+      changeSet: record,
+      state: record.state,
+      blockers: record.blockedReason ? [record.blockedReason] : undefined,
+      dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets),
+      editable: record.state === "pending" || record.state === "blocked",
+      cancellable: record.state === "pending" || record.state === "blocked",
+    }));
+  }, [syncChangeSets]);
   const reviewRounds = useLiveQuery(() => dbV6.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
@@ -455,8 +460,8 @@ export function StudyApp() {
     if (!activeBankIds.length) return { completed: 0, total: 0 };
     const [questions, stats, roundProgress] = await Promise.all([listQuestionViewsForBanksV6(activeBankIds), dbV6.attemptStats.toArray(), dbV6.reviewRoundProgress.toArray()]);
     const ids = [...new Set(questions.map((view) => view.question.id))];
-    const completed = ids.filter((id) => isQuestionDoneInScope(id, normalizeProgressScope(preferences.progressScope), stats, roundProgress, Date.now())).length;
-    return { completed, total: ids.length };
+    const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), stats, roundProgress, Date.now());
+    return { completed: completion.completed, total: completion.total };
   }, [activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
   const scopeStats = useLiveQuery(async () => {
     const questionIds = activeBankIds.length
@@ -994,8 +999,8 @@ export function StudyApp() {
           {view === "banks" && <BankLibraryView banks={banks} progressScope={preferences.progressScope} progressScopeLabel={selectedScopeLabel} wrongRemovalStreak={preferences.wrongRemovalStreak} onImport={() => fileRef.current?.click()} onOpenRun={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onNotice={setNotice} />}
           {view === "practiceSetup" && <><div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>练习中心</h1><p>开始新的练习，或回看每一次练习的题目和成绩。</p></div></div><div className="practice-hub-tabs"><button className={practiceHubTab === "start" ? "active" : ""} onClick={() => setPracticeHubTab("start")}><Play size={16} />开始练习</button><button className={practiceHubTab === "history" ? "active" : ""} onClick={() => setPracticeHubTab("history")}><ClipboardCheck size={16} />练习记录</button></div>{practiceHubTab === "start" ? <><LatestPracticeBanner onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onViewAll={() => setPracticeHubTab("history")} /><PracticeSetupView hideHeading groupSize={preferences.groupSize} defaultOrder={preferences.defaultOrder} progressScope={preferences.progressScope} rounds={reviewRounds} banks={banks} currentBankIds={activeBankIds} onBankChange={selectBanks} onStart={(filter) => void startPractice(filter)} /></> : <PracticeHistory onOpen={(runId) => { setResultRunId(runId); setView("practiceResult"); }} onContinue={(runId) => void resumePractice(runId)} onAbandon={(runId) => void abandonHistoryRun(runId)} onDelete={(runId) => void removeHistoryRun(runId)} />}</>}
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize, preferences.progressScope), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
-          {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} onCreateSyncAction={() => setView("banks")} />}
-          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} onCreateAction={() => setView("banks")} />}
+          {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
+          {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} progressScope={preferences.progressScope} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label, previousOptionOrders) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions }, undefined, previousOptionOrders)} />}
           {view === "practice" && practiceSession && activeQuestion && (
@@ -1167,7 +1172,7 @@ function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入题库</strong><small>支持 JSON / XLSX，数据只写入本机</small></div><ChevronRight size={18} /></button>;
 }
 
-function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored, onCreateSyncAction }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void; onCreateSyncAction: () => void }) {
+function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
   const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
@@ -1219,7 +1224,7 @@ function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, on
     </div></section>
     <SyncAutomationSetting preferences={preferences} onChange={onChange} />
     <BuildVersionCard />
-    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} onCreateAction={onCreateSyncAction} /></div>
+    <div className="mobile-sync-settings"><SyncView pending={pendingSync} onNotice={onNotice} onRestored={onRestored} /></div>
   </div></>;
 }
 
@@ -1620,9 +1625,12 @@ function QuestionOverview({ questionIds, questionTypes, answers, currentIndex, o
   const correct = questionIds.filter((id) => answers[id]?.submitted && answers[id]?.correct).length;
   const wrong = answered - correct;
   const accuracy = answered ? Math.round(correct / answered * 100) : 0;
-  const focusIndex = questionOverviewFocusIndex(questionIds, answers);
   const progress = questionOverviewProgress(answered, questionIds.length);
 
+  // Bring the current question into the middle of the grid. The scroll formula
+  // centres the focused button; when the current question is near either end it
+  // cannot be centred, so the browser clamps scrollTop to the top/bottom limit
+  // and the row rests against that edge instead.
   useLayoutEffect(() => {
     const groups = groupsRef.current;
     const button = focusButtonRef.current;
@@ -1630,7 +1638,7 @@ function QuestionOverview({ questionIds, questionTypes, answers, currentIndex, o
     const groupsBox = groups.getBoundingClientRect();
     const buttonBox = button.getBoundingClientRect();
     groups.scrollTop += buttonBox.top + buttonBox.height / 2 - groupsBox.top - groupsBox.height / 2;
-  }, [focusIndex]);
+  }, [currentIndex]);
 
-  return <ModalPortal><div className="overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="question-overview" role="dialog" aria-modal="true" aria-label="题目总览"><header><div><span className="section-kicker">练习导航</span><h2>题目总览</h2><p>已作答 {answered} / {questionIds.length}，点击题号快速切换。</p></div><button className="icon-button" aria-label="关闭题目总览" onClick={onClose}><X size={19} /></button></header><div className="overview-score"><span><strong>{correct}</strong>正确</span><span><strong>{wrong}</strong>错误</span><span><strong>{accuracy}%</strong>正确率</span><span><strong>{progress}</strong>进度</span></div><div className="overview-legend"><span><i className="correct" />正确</span><span><i className="wrong" />错误</span><span><i className="pending" />已选择</span><span><i />未作答</span></div><div className="overview-groups" ref={groupsRef}>{TYPE_ORDER.map((type) => { const group = questionIds.map((id, questionIndex) => ({ id, questionIndex })).filter(({ id }) => questionTypes[id] === type); return <section className="overview-group" key={type}><div><h3>{type}</h3><span>{group.length} 题</span></div>{group.length ? <div className="overview-number-grid">{group.map(({ id, questionIndex }) => { const answer = answers[id]; const state = answer?.submitted ? answer.correct ? "correct" : "wrong" : answer?.selected.length ? "pending" : "blank"; return <button ref={questionIndex === focusIndex ? focusButtonRef : undefined} data-overview-focus={questionIndex === focusIndex ? "true" : undefined} key={`${id}-${questionIndex}`} className={`${state} ${questionIndex === currentIndex ? "current" : ""}`} aria-label={`第 ${questionIndex + 1} 题，${type}`} aria-current={questionIndex === currentIndex ? "true" : undefined} onClick={() => onJump(questionIndex)}>{questionIndex + 1}</button>; })}</div> : <p className="overview-empty">本次练习没有{type}题</p>}</section>; })}</div></section></div></ModalPortal>;
+  return <ModalPortal><div className="overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="question-overview" role="dialog" aria-modal="true" aria-label="题目总览"><header><div><span className="section-kicker">练习导航</span><h2>题目总览</h2><p>已作答 {answered} / {questionIds.length}，点击题号快速切换。</p></div><button className="icon-button" aria-label="关闭题目总览" onClick={onClose}><X size={19} /></button></header><div className="overview-score"><span><strong>{correct}</strong>正确</span><span><strong>{wrong}</strong>错误</span><span><strong>{accuracy}%</strong>正确率</span><span><strong>{progress}</strong>进度</span></div><div className="overview-legend"><span><i className="correct" />正确</span><span><i className="wrong" />错误</span><span><i className="pending" />已选择</span><span><i />未作答</span></div><div className="overview-groups" ref={groupsRef}>{TYPE_ORDER.map((type) => { const group = questionIds.map((id, questionIndex) => ({ id, questionIndex })).filter(({ id }) => questionTypes[id] === type); return <section className="overview-group" key={type}><div><h3>{type}</h3><span>{group.length} 题</span></div>{group.length ? <div className="overview-number-grid">{group.map(({ id, questionIndex }) => { const answer = answers[id]; const state = answer?.submitted ? answer.correct ? "correct" : "wrong" : answer?.selected.length ? "pending" : "blank"; return <button ref={questionIndex === currentIndex ? focusButtonRef : undefined} data-overview-focus={questionIndex === currentIndex ? "true" : undefined} key={`${id}-${questionIndex}`} className={`${state} ${questionIndex === currentIndex ? "current" : ""}`} aria-label={`第 ${questionIndex + 1} 题，${type}`} aria-current={questionIndex === currentIndex ? "true" : undefined} onClick={() => onJump(questionIndex)}>{questionIndex + 1}</button>; })}</div> : <p className="overview-empty">本次练习没有{type}题</p>}</section>; })}</div></section></div></ModalPortal>;
 }
