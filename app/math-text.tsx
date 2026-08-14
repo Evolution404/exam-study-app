@@ -13,6 +13,8 @@ function loadKatex() {
   return katexPromise;
 }
 
+export { loadKatex };
+
 function formulaSource(value: string) {
   if (value.startsWith("$$")) return { source: value.slice(2, -2), displayMode: true };
   if (value.startsWith("\\[")) return { source: value.slice(2, -2), displayMode: true };
