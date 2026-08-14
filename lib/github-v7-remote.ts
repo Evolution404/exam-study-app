@@ -458,9 +458,9 @@ export class GitHubV7Remote {
   /** Publish in immutable-first order; append plans never contain checkpoints. */
   async publish(plan: SyncV7PublicationPlan): Promise<SyncV7HeadPutResult> {
     if (plan.mode === "append" && plan.checkpoint) throw new Error("ordinary v7 append cannot upload a checkpoint");
-    if (plan.checkpoint) await this.putPublicationFile(plan.checkpoint, "checkpoint");
-    for (const object of plan.objects) await this.putPublicationFile(object, "object");
-    for (const segment of plan.segments) await this.putPublicationFile(segment, "segment");
+    if (plan.checkpoint && !plan.checkpoint.uploaded) await this.putPublicationFile(plan.checkpoint, "checkpoint");
+    for (const object of plan.objects) if (!object.uploaded) await this.putPublicationFile(object, "object");
+    for (const segment of plan.segments) if (!segment.uploaded) await this.putPublicationFile(segment, "segment");
     return this.putHead(plan.head, plan.expectedHeadSha);
   }
 

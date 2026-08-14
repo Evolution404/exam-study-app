@@ -2,6 +2,7 @@
 export {
   getGitHubLogin,
   getLastRemoteCache,
+  getSyncHotWindowState,
   getSyncStats,
   initializeGitHubVault,
   loadAttemptHistory,
@@ -12,7 +13,7 @@ export {
   syncWithGitHub,
   verifyGitHubVault,
 } from "./github-sync-v7";
-export type { SyncProgress, SyncProgressCallback } from "./github-sync-v7";
+export type { SyncHotWindowState, SyncProgress, SyncProgressCallback } from "./github-sync-v7";
 
 // Image blobs are transport-independent local cache helpers. Their existing
 // implementation remains valid because v7 keeps the same content-addressed

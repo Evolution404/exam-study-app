@@ -81,6 +81,11 @@ assert.deepEqual(
   { total: 3, completed: 1, percent: 33 },
   "completion deduplicates question IDs",
 );
+assert.deepEqual(
+  calculateProgressCompletion(["round-question", "round-empty"], { type: "round", roundId: "round-1" }, [], [roundProgress("round-1", "round-question"), roundProgress("round-1", "round-empty", 0)], reference),
+  { total: 2, completed: 1, percent: 50 },
+  "completion honours round progress with zero attempts",
+);
 
 const scopedAttempt = (id: string, questionId: string, createdAt: string, correct: boolean, selected = "A"): AttemptV6 => ({
   id, runId: "run-1", questionId, createdAt, correct, selected, elapsedMs: 100, deviceId: "device-a",

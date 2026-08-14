@@ -9,9 +9,11 @@ import {
   resetV6Database,
   saveBankFolderV6,
   saveNoteV6,
+  savePracticeRunV6,
 } from "../lib/db-v6";
 import { syncWithGitHub } from "../lib/github-sync-v7";
 import { startMockGitHubServer } from "./mock-github-server.mjs";
+import type { PracticeRunV6 } from "../lib/v6-types";
 
 // End-to-end sync integration against the in-memory mock GitHub backend.
 // Each scenario simulates a fresh device (reset DB + switch deviceId) pulling
@@ -66,7 +68,8 @@ try {
 
     const sample = (await dbV6.questions.limit(5).toArray()).map((question) => ({ id: question.id, fingerprint: question.contentFingerprint }));
     const pushResult = await sync();
-    assert.ok(pushResult.pushed > 0, "应把分块后的导入变更推送到 mock");
+    assert.equal(pushResult.pushed, 1, "大规模导入应为单个原子 change-set（不再分块）");
+    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v7/objects/")), "超大变更集应卸载为不可变对象而非内联塞入 segment");
 
     // Brand-new device pulls the whole vault.
     await freshClient("device-b");
@@ -165,6 +168,53 @@ try {
     const second = await sync();
     assert.equal(second.pushed, 0, "二次同步不应重复上传");
     console.log("scenario 5 passed: 重复同步幂等");
+  }
+
+  // --- Scenario 6: oversized practice run offloads to an immutable ref -----
+  // Reproduces the reported "v7 event exceeds 262144 UTF-8 bytes" crash: a run
+  // over a large bank carries thousands of answers in one change-set, far past
+  // the 256 KiB inline ceiling. It must be offloaded, not rejected.
+  {
+    server.reset();
+    await freshClient("device-a");
+    await sync();
+
+    const rows = Array.from({ length: 1800 }, (_, index) => ({ q: `大练习第 ${index + 1} 题：考点 ${index} 描述，下列哪项正确？`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
+    const bank = await importQuestionBankV6("大练习题库.json", rows);
+    const questionIds = (await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).map((membership) => membership.questionId);
+    assert.equal(questionIds.length, 1800, "练习应覆盖全部题目");
+
+    const runAt = new Date().toISOString();
+    const bigRun: PracticeRunV6 = {
+      id: "run-big",
+      bankId: bank.id,
+      bankIds: [bank.id],
+      bankName: "大练习",
+      mode: "sequential",
+      modeLabel: "练习",
+      questionIds,
+      questionTypes: Object.fromEntries(questionIds.map((id) => [id, "单选"])),
+      answers: Object.fromEntries(questionIds.map((id, index) => [id, { selected: ["A"], submitted: true, correct: true, updatedAt: runAt, deviceId: "device-a", eventId: `ev-${index}` }])),
+      shuffleOptions: false,
+      optionOrders: {},
+      startedAt: runAt,
+      updatedAt: runAt,
+      status: "completed",
+      revision: 1,
+    };
+    await savePracticeRunV6(bigRun);
+    const pushResult = await sync();
+    assert.ok(pushResult.pushed > 0, "大练习应作为变更推送");
+    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v7/objects/")).length >= 2, "大题库导入与大练习都应各自卸载为不可变对象");
+
+    await freshClient("device-b");
+    await sync();
+    assert.equal(await dbV6.questions.count(), 1800, "新设备应拉取到大题库");
+    const pulledRun = await dbV6.practiceRuns.get("run-big");
+    assert.ok(pulledRun, "新设备应拉取到大练习");
+    assert.equal(pulledRun!.status, "completed", "练习状态应一致");
+    assert.equal(Object.keys(pulledRun!.answers).length, 1800, "全部作答应随同步迁移到新设备");
+    console.log("scenario 6 passed: 超大练习（>256 KiB）通过不可变对象卸载后跨设备一致");
   }
 
   console.log("mock sync integration tests passed");

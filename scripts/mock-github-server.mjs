@@ -71,6 +71,11 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
     blobs.clear();
   }
 
+  /** Logical content paths currently stored, for offload/round-trip assertions. */
+  function contentPaths() {
+    return [...paths.keys()];
+  }
+
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "OPTIONS") {
@@ -136,7 +141,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
       const { port: actualPort } = server.address();
       const url = `http://${hostname}:${actualPort}`;
       const close = () => new Promise((resolveClose) => server.close(() => resolveClose()));
-      resolve({ url, port: actualPort, hostname, reset, close });
+      resolve({ url, port: actualPort, hostname, reset, contentPaths, close });
     });
   });
 }

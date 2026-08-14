@@ -12,6 +12,8 @@ import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "./change-set-v7-p
 import { createSyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6, type SyncCheckpointV6 } from "./sync-v6-checkpoint";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
+  SYNC_V7_MAX_HOT_BYTES,
+  SYNC_V7_MAX_SEGMENT_BYTES,
   SYNC_V7_SEGMENT_PREFIX,
   createSyncV7PublicationPlan,
   decodeSyncV7Segment,
@@ -25,6 +27,7 @@ import {
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
+import { hydrateSyncV7Events, offloadSyncV7Events } from "./sync-v7-payload";
 import type { GitHubSettings } from "./types";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number };
@@ -77,6 +80,107 @@ async function loadInstalledHead(settings: GitHubSettings): Promise<string | und
 
 async function saveInstalledHead(settings: GitHubSettings, cache: SyncV7HeadCache): Promise<void> {
   await dbV6.syncMeta.put({ key: cacheKey(settings, "installed-head"), value: headVersion(cache), updatedAt: new Date().toISOString() });
+}
+
+/**
+ * The highest remote `localSequence` per device that this client has already
+ * installed into its projection. Used to dedup downloaded changes by cursor
+ * instead of by committed-record id, so committed records can be garbage
+ * collected without re-pulling/re-counting them.
+ */
+async function loadInstalledCursors(settings: GitHubSettings): Promise<Record<string, number>> {
+  return ((await dbV6.syncMeta.get(cacheKey(settings, "installed-cursors")))?.value ?? {}) as Record<string, number>;
+}
+
+async function saveInstalledCursors(settings: GitHubSettings, cursors: Record<string, number>): Promise<void> {
+  await dbV6.syncMeta.put({ key: cacheKey(settings, "installed-cursors"), value: cursors, updatedAt: new Date().toISOString() });
+}
+
+/** Keep at most this many committed change-sets for the "已同步" history. */
+const SYNC_V7_COMMITTED_KEEP_RECENT = 500;
+
+/**
+ * Re-pack the hot window into fewer segments once this many have accumulated,
+ * even when the byte compaction threshold (4 MiB) has not been reached. Frequent
+ * small syncs otherwise leave many tiny segments that a fresh device must fetch
+ * one by one. Events are unchanged (same ids/digests); only their grouping does.
+ */
+const SYNC_V7_COALESCE_SEGMENT_THRESHOLD = 24;
+/**
+ * Segments at least this large are LEFT UNTOUCHED by coalescing. A near-full
+ * segment (≥ half the 1 MiB per-segment ceiling) can absorb little more, so
+ * re-packing it would just download + re-upload ~1 MiB and let paginate split it
+ * straight back out — pure waste. Only the smaller segments trailing behind the
+ * last large one get merged.
+ */
+const SYNC_V7_COALESCE_LEAVE_BYTES = Math.floor(SYNC_V7_MAX_SEGMENT_BYTES / 2);
+
+/**
+ * Garbage-collect committed change-sets whose `localSequence` has been absorbed
+ * by the installed cursor watermark, keeping only the most recent `keepRecent`
+ * for the sync-drawer history. Unabsorbed committed records are always kept.
+ */
+async function pruneCommittedChangeSets(cursors: Record<string, number>, keepRecent = SYNC_V7_COMMITTED_KEEP_RECENT): Promise<void> {
+  const committed = await listChangeSetsV7(["committed"]);
+  const absorbed = committed.filter((record) => (cursors[record.deviceId] ?? 0) >= record.localSequence);
+  if (absorbed.length <= keepRecent) return;
+  const excess = absorbed
+    .sort((a, b) => (b.committedAt ?? "").localeCompare(a.committedAt ?? "") || b.localSequence - a.localSequence || b.id.localeCompare(a.id))
+    .slice(keepRecent);
+  if (excess.length) await dbV6.changeSets.bulkDelete(excess.map((record) => record.id));
+}
+
+/**
+ * Coalesce the hot window: merge only the trailing run of SMALL segments into
+ * fewer fuller segments and publish a replacement head. Large segments (≥
+ * SYNC_V7_COALESCE_LEAVE_BYTES) are left in place — they are already near-full,
+ * so re-packing them is pure waste. Only the small segments after the last large
+ * one are touched, which keeps replay order intact: the kept prefix stays at its
+ * original generation and the merged suffix gets the next generation, so it
+ * replays last exactly as before. Events (including offload stubs) are passed
+ * through untouched, so referenced immutable objects stay valid. Returns the new
+ * head cache when a replacement was published, otherwise null (below threshold,
+ * nothing small to merge, no improvement, or a concurrent publish won the CAS).
+ */
+async function maybeCoalesceHotWindow(client: GitHubV7Remote, cache: SyncV7HeadCache, callback?: SyncProgressCallback): Promise<SyncV7HeadCache | null> {
+  const head = cache.head;
+  if (head.segments.length < SYNC_V7_COALESCE_SEGMENT_THRESHOLD) return null;
+  const ordered = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal);
+  // The kept prefix runs up to and including the last large segment; only the
+  // small segments trailing after it are worth merging.
+  let suffixStart = ordered.length;
+  while (suffixStart > 0 && ordered[suffixStart - 1].size < SYNC_V7_COALESCE_LEAVE_BYTES) suffixStart -= 1;
+  const keep = ordered.slice(0, suffixStart);
+  const smalls = ordered.slice(suffixStart);
+  if (smalls.length < 2) return null;
+  report(callback, "compact", `正在合并 ${smalls.length} 个小分段（保留 ${keep.length} 个大分段）`, 90);
+  const events: Array<Record<string, unknown>> = [];
+  for (const descriptor of smalls) {
+    const segment = decodeSyncV7Segment<Record<string, unknown>>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
+    events.push(...segment.events);
+  }
+  const pages = paginateSyncV7Events(events);
+  if (pages.length >= smalls.length) return null;
+  const generation = head.generation + 1;
+  const now = new Date().toISOString();
+  const metadata = { vaultId: head.vaultId, createdAt: now, producer: "exam-study-app" };
+  const cursors = { ...head.cursors };
+  const segmentFiles: SyncV7PublicationFile[] = [];
+  const mergedSegments: SyncV7SegmentDescriptor[] = [];
+  for (let index = 0; index < pages.length; index += 1) {
+    const ordinal = index;
+    const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors, events: pages[index].events });
+    const digest = await sha256(segmentBytes);
+    const path = descriptorPath(SYNC_V7_SEGMENT_PREFIX, digest);
+    const base = await uploadedDescriptor(client, path, segmentBytes, "segment");
+    mergedSegments.push({ ...base, generation, ordinal, count: pages[index].events.length, cursors, metadata });
+    segmentFiles.push({ path, bytes: segmentBytes, kind: "segment", uploaded: true });
+  }
+  const nextHead: SyncHeadV7 = { ...head, generatedAt: now, generation, segments: [...keep, ...mergedSegments], cursors };
+  const plan = createSyncV7PublicationPlan({ expectedHead: head, expectedHeadSha: cache.blobSha, head: nextHead, segments: segmentFiles });
+  const published = await client.publish(plan);
+  if (!published.ok) return null;
+  return published.cache;
 }
 
 async function saveQueueBase(projection: ChangeSetProjectionV7): Promise<void> {
@@ -156,7 +260,11 @@ async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?:
   for (const descriptor of [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal)) {
     if (cachedPaths.has(descriptor.path)) continue;
     const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
-    for (const change of segment.events) {
+    // Offloaded events arrive as thin stubs; resolve their bodies to full
+    // change-sets before the integrity check + projection, so the reducer and
+    // the local queue only ever see complete records.
+    const resolved = await hydrateSyncV7Events(segment.events, (ref) => client.readImmutableContents(ref.path, { size: ref.size, sha256: ref.sha256 }));
+    for (const change of resolved) {
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
       changes.push(change);
     }
@@ -227,8 +335,11 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
         : { ...record, state: "pending" as const, claimId: undefined, claimedAt: undefined };
     });
     if (interruptedClaims.length) await dbV6.changeSets.bulkPut(interruptedClaims);
-    const committedIds = new Set((await listChangeSetsV7(["committed"])).map((record) => record.id));
-    const unseen = downloaded.changes.filter((change) => !committedIds.has(change.id));
+    // Dedup by cursor watermark instead of by committed-record id: a change whose
+    // localSequence the installed cursor already covers has been applied before,
+    // even if its local committed record was garbage-collected.
+    const installedCursors = await loadInstalledCursors(settings);
+    const unseen = downloaded.changes.filter((change) => change.localSequence > (installedCursors[change.deviceId] ?? 0));
     const localPending = await listChangeSetsV7(["pending"]);
     let rebasedProjection = remoteProjection;
     const blocked: ChangeSetQueueRecordV7[] = [];
@@ -262,7 +373,9 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       const remaining = (await listChangeSetsV7(["blocked"])).length;
       report(callback, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
       await saveInstalledHead(settings, read.cache);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, migrated: false, receivedSnapshot };
+      await saveInstalledCursors(settings, read.head.cursors);
+      await pruneCommittedChangeSets(read.head.cursors);
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
       report(callback, "upload", `正在上传 ${claim.records.length} 组变更`, 62);
@@ -271,31 +384,45 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       const now = new Date().toISOString();
       const events = claim.records.map((record) => ({ formatVersion: record.formatVersion, id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, kind: record.kind, mutations: record.mutations, entityRefs: record.entityRefs, payloadRefs: record.payloadRefs, digest: record.digest }));
       const aggregateCursors = cursorsFor(claim.records);
-      // One claim can carry more events than fit in a single 1 MiB segment (a
-      // large import is split into many change-sets). Paginate them into several
-      // segments that share one generation and publish together.
-      const pages = paginateSyncV7Events(events);
+      // A single change-set (a large import, a big practice run) can exceed the
+      // 256 KiB inline-event ceiling. Offload any oversized body to a
+      // content-addressed immutable object and leave a thin stub in its place;
+      // the object files are published alongside the segments in the same plan.
+      const offloaded = await offloadSyncV7Events(events as Record<string, unknown>[]);
+      const objectFiles: SyncV7PublicationFile[] = offloaded.objects;
+      // Paginate the (now stub-slender) events into one or more 1 MiB segments
+      // that share one generation and publish together.
+      const pages = paginateSyncV7Events(offloaded.events);
+      // Decide compaction from the PROJECTED byte total (existing + new) BEFORE
+      // uploading or merging. Previously the merge guard threw at > 4 MiB before
+      // compaction could run, so an overflow push failed ("compact explicitly
+      // first") instead of snapshotting — the documented "hot window fills →
+      // checkpoint" behaviour was unreachable. Under compaction the new events
+      // fold into the checkpoint and the hot window clears, so the new segments
+      // are neither uploaded nor referenced (no orphaned immutables).
+      const existingHotBytes = read.head.segments.reduce((sum, item) => sum + item.size, 0);
+      const projectedHotBytes = existingHotBytes + pages.reduce((sum, page) => sum + page.size, 0);
+      const compaction = planSyncV7Compaction({ head: read.head, hotBytes: projectedHotBytes });
       const newSegments: SyncV7SegmentDescriptor[] = [];
       const segmentFiles: SyncV7PublicationFile[] = [];
-      for (let index = 0; index < pages.length; index += 1) {
-        const page = pages[index];
-        const ordinal = baseOrdinal + index;
-        const metadata = { vaultId: read.head.vaultId, createdAt: now, producer: "exam-study-app" };
-        const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: read.head.vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
-        const segmentDigest = await sha256(segmentBytes);
-        const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
-        const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
-        newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
-        segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment" });
+      if (!compaction.required) {
+        for (let index = 0; index < pages.length; index += 1) {
+          const page = pages[index];
+          const ordinal = baseOrdinal + index;
+          const metadata = { vaultId: read.head.vaultId, createdAt: now, producer: "exam-study-app" };
+          const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: read.head.vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
+          const segmentDigest = await sha256(segmentBytes);
+          const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
+          const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
+          newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
+          segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
+        }
       }
-      const segments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
-      const hotBytes = segments.reduce((sum, item) => sum + item.size, 0);
-      const compaction = planSyncV7Compaction({ head: read.head, hotBytes });
-      let checkpointFile: { path: string; bytes: Uint8Array; kind: "checkpoint" } | undefined;
+      let checkpointFile: { path: string; bytes: Uint8Array; kind: "checkpoint"; uploaded: true } | undefined;
       let checkpointDescriptor = read.head.checkpoint;
-      let nextSegments = segments;
+      let nextSegments: SyncV7SegmentDescriptor[];
       if (compaction.required) {
-        report(callback, "compact", "热窗口超过 4 MiB，正在生成检查点", 78);
+        report(callback, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", 78);
         const checkpoint = await checkpointFromProjection(
           replayInWireOrder(remoteProjection, claim.records),
           { ...read.head.cursors, ...aggregateCursors },
@@ -304,12 +431,15 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
         const digest = await sha256(bytes);
         const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
         const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
-        checkpointFile = { path, bytes, kind: "checkpoint" };
+        checkpointFile = { path, bytes, kind: "checkpoint", uploaded: true };
         checkpointDescriptor = uploaded;
         nextSegments = [];
+      } else {
+        // Safe: projectedHotBytes <= 4 MiB here, so the merge guard cannot trip.
+        nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
       }
       const nextHead: SyncHeadV7 = { ...read.head, generatedAt: now, generation, checkpoint: checkpointDescriptor, segments: nextSegments, cursors: { ...read.head.cursors, ...aggregateCursors } };
-      const plan = createSyncV7PublicationPlan({ expectedHead: read.head, expectedHeadSha: read.cache.blobSha, head: nextHead, segments: segmentFiles, ...(checkpointFile ? { checkpoint: checkpointFile, compaction } : {}) });
+      const plan = createSyncV7PublicationPlan({ expectedHead: read.head, expectedHeadSha: read.cache.blobSha, head: nextHead, segments: segmentFiles, ...(objectFiles.length ? { objects: objectFiles } : {}), ...(checkpointFile ? { checkpoint: checkpointFile, compaction } : {}) });
       const committed = await client.publish(plan);
       if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v7 远端索引丢失。"); continue; }
       await commitChangeSetClaimV7(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
@@ -318,9 +448,23 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       await saveHeadCache(settings, committed.cache);
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
       await saveInstalledHead(settings, committed.cache);
+      await saveInstalledCursors(settings, nextHead.cursors);
+      await pruneCommittedChangeSets(nextHead.cursors);
+      // The push is already durable. Coalescing is a best-effort maintenance write
+      // (re-packs many small segments into fewer); isolate its failures so a
+      // transient error never reverts the committed change-sets above.
+      let coalesced = false;
+      try {
+        const replacement = await maybeCoalesceHotWindow(client, committed.cache, callback);
+        if (replacement) {
+          await saveHeadCache(settings, replacement);
+          await saveInstalledHead(settings, replacement);
+          coalesced = true;
+        }
+      } catch { /* best-effort: a later sync will retry coalescing */ }
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(callback, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, migrated: false, receivedSnapshot };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaimV7(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
@@ -341,6 +485,8 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   await saveRemoteCache(settings, checkpoint, read.cache);
   await saveQueueBase(projection);
   await saveInstalledHead(settings, read.cache);
+  await saveInstalledCursors(settings, read.head.cursors);
+  await pruneCommittedChangeSets(read.head.cursors);
   report(callback, "complete", "v7 远端恢复完成", 100);
   return { pulled: downloaded.changes.length, formatVersion: 7 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: 0, archivedPracticeRuns: 0 };
 }
@@ -360,6 +506,41 @@ export async function getGitHubLogin(token: string): Promise<string> {
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as { cachedAt: string; checkpoint: SyncCheckpointV6 } | undefined;
   return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const } : null;
+}
+
+export interface SyncHotWindowState {
+  /** Immutable segment files currently listed in the mutable head. */
+  segmentCount: number;
+  /** Aggregate bytes of those segments — the hot-window fill level. */
+  hotBytes: number;
+  /** Hard cap on hotBytes before compaction folds segments into a checkpoint. */
+  hotBytesMax: number;
+  /** Monotonic publication generation of the head. */
+  generation: number;
+  /** False only before the vault has been initialised. */
+  hasCheckpoint: boolean;
+  /** Per-segment byte sizes, in replay order. Empty when there are no segments. */
+  segmentSizes: number[];
+}
+
+/**
+ * Read the locally cached head and summarise the hot-window state (segment
+ * count, fill bytes vs the compaction cap, generation). Offline — no network;
+ * reflects the head as of this device's last successful sync. Returns null when
+ * this device has never synced the vault.
+ */
+export async function getSyncHotWindowState(settings: GitHubSettings): Promise<SyncHotWindowState | null> {
+  const cache = await loadHeadCache(settings);
+  if (!cache) return null;
+  const head = cache.head;
+  return {
+    segmentCount: head.segments.length,
+    hotBytes: head.segments.reduce((sum, segment) => sum + segment.size, 0),
+    hotBytesMax: SYNC_V7_MAX_HOT_BYTES,
+    generation: head.generation,
+    hasCheckpoint: Boolean(head.checkpoint),
+    segmentSizes: head.segments.map((segment) => segment.size),
+  };
 }
 
 export async function restoreLastRemoteCache(settings: GitHubSettings, callback?: SyncProgressCallback) {

@@ -243,7 +243,14 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       if (related.length && mutation.kind === "bank.delete" && !mutation.cascade) fail(`题库 ${bank.id} 仍有题目关系，必须 cascade 删除`);
       projection.memberships = projection.memberships.filter((membership) => membership.bankId !== bank.id);
       projection.banks = projection.banks.filter((item) => item.id !== bank.id);
-      putTombstone(projection, "bank", bank.id, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      // A run that targets this bank can no longer be represented once the bank
+      // is gone; drop it so the checkpoint never references a dangling bank.
+      const deletedAt = mutation.deletedAt ?? context.createdAt;
+      for (const run of projection.practiceRuns.filter((run) => runBankIds(run).includes(bank.id))) {
+        putTombstone(projection, "practiceRun", run.id, deletedAt, context.deviceId, context.eventId);
+      }
+      projection.practiceRuns = projection.practiceRuns.filter((run) => !runBankIds(run).includes(bank.id));
+      putTombstone(projection, "bank", bank.id, deletedAt, context.deviceId, context.eventId);
       return;
     }
     case "bankFolder.save":

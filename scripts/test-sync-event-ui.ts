@@ -44,7 +44,8 @@ assert.match(drawer, /aria-labelledby="sync-event-drawer-title"/, "drawer has an
 assert.match(drawer, /event\.key === "Escape"/, "drawer closes with Escape");
 assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus when closed");
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
-assert.match(syncView, /onCreateAction=\{onCreateAction\}/, "sync page wires business-action creation into the manager");
+assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
+assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks); creation stays in the contextual drawer");
 assert.match(studyApp, /onCreateAction=\{\(\) => \{ setSyncDrawerOpen\(false\); setView\("banks"\); \}\}/, "top drawer routes creation through the normal business UI");
 
 assert.match(styles, /@media \(max-width: 760px\)/, "drawer has a mobile layout");

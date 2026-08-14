@@ -11,11 +11,13 @@ export function ConfirmDialog({
   description,
   confirmLabel = "确认",
   cancelLabel = "取消",
+  secondaryLabel,
   tone = "default",
   busy = false,
   hideCancel = false,
   progress,
   onConfirm,
+  onSecondary,
   onCancel,
 }: {
   open: boolean;
@@ -24,11 +26,13 @@ export function ConfirmDialog({
   description: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  secondaryLabel?: string;
   tone?: "default" | "danger" | "success";
   busy?: boolean;
   hideCancel?: boolean;
   progress?: { label: string; percent: number };
   onConfirm: () => void;
+  onSecondary?: () => void;
   onCancel: () => void;
 }) {
   useEffect(() => {
@@ -55,6 +59,7 @@ export function ConfirmDialog({
         <div className="confirm-dialog-body"><span className="confirm-dialog-icon"><Icon size={22} /></span><div>{description}{progress && <div className="dialog-progress" aria-label={`${progress.label} ${progress.percent}%`}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${progress.percent}%` }} /></i></div>}</div></div>
         <footer>
           {!hideCancel && <button disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
+          {onSecondary && secondaryLabel && <button className="confirm-dialog-secondary" disabled={busy} onClick={onSecondary}>{secondaryLabel}</button>}
           <button className={tone === "danger" ? "danger-button" : "primary"} disabled={busy} onClick={onConfirm}>
             {busy && <LoaderCircle className="spin" size={17} />}{busy ? "处理中…" : confirmLabel}
           </button>

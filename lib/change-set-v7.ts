@@ -243,6 +243,12 @@ function generatedId(deviceId: string, sequence: number): string {
 
 function normalizeMutation(mutation: ChangeSetMutationV7): ChangeSetMutationV7 {
   const value = structuredClone(mutation) as ChangeSetMutationV7;
+  // Drop optional fields left undefined by callers (e.g. question.split.note
+  // when the source has no note). Undefined survives structuredClone and would
+  // otherwise trip validateMutationShapeV7's `field in value` checks.
+  for (const key of Object.keys(value)) {
+    if ((value as Record<string, unknown>)[key] === undefined) delete (value as Record<string, unknown>)[key];
+  }
   if ("bankIds" in value && value.bankIds) value.bankIds = [...value.bankIds].sort();
   if ("questionIds" in value && value.questionIds) value.questionIds = [...value.questionIds].sort();
   if ("keys" in value && value.keys) value.keys = [...value.keys].sort();
@@ -590,12 +596,17 @@ function mutationCreatedRefs(mutation: ChangeSetMutationV7): ChangeSetEntityRefV
 export function dependentChangeSetIdsV7(target: ChangeSetV7, queued: readonly ChangeSetV7[]): string[] {
   const dependentIds = new Set<string>();
   const provided = new Set(target.mutations.flatMap(mutationCreatedRefs).map((ref) => `${ref.type}:${ref.id}`));
+  // Precompute each candidate's required refs once; `requires` depends only on
+  // the candidate's own mutations, never on the rest of the queue, so we avoid
+  // the O(n) conflict scan that dependenciesForChangeSetV7 would otherwise run
+  // per candidate per pass (this made the UI quadratic-to-cubic as events grew).
+  const requiresByCandidate = new Map(queued.map((candidate) => [candidate.id, new Set(dependenciesForChangeSetV7(candidate).requires)]));
   let changed = true;
   while (changed) {
     changed = false;
     for (const candidate of queued) {
       if (candidate.id === target.id || dependentIds.has(candidate.id)) continue;
-      if (!dependenciesForChangeSetV7(candidate, queued).requires.some((required) => provided.has(required))) continue;
+      if (![...requiresByCandidate.get(candidate.id)!].some((required) => provided.has(required))) continue;
       dependentIds.add(candidate.id);
       for (const mutation of candidate.mutations) {
         for (const ref of mutationCreatedRefs(mutation)) provided.add(`${ref.type}:${ref.id}`);

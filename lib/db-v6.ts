@@ -921,9 +921,17 @@ export async function deleteBankV6(bankId: string): Promise<boolean> {
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
   const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.bankQuestionMemberships, dbV6.tombstones, dbV6.changeSets], async () => {
+  // Runs that target this bank are dropped with it; otherwise their bankId
+  // would dangle and the checkpoint would fail referential validation.
+  const runs = (await dbV6.practiceRuns.toArray()).filter((run) => runBankIds(run).includes(bankId));
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.bankQuestionMemberships, dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV6.banks.delete(bankId);
+    for (const run of runs) {
+      await updatePracticeRunStatsInTx(run, undefined);
+      await dbV6.practiceRuns.delete(run.id);
+      await dbV6.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete") });
+    }
     await dbV6.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete") });
     await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp);
   });
@@ -1004,9 +1012,10 @@ function importDraft(row: ImportedQuestionRowV6): QuestionDraftV6 | undefined {
 
 /**
  * Import a plain JSON question list.  The bank id is deterministic for a
- * filename/name, while question identity is content-addressed globally.  A
- * large import is split into byte-bounded change-sets so no single event
- * exceeds the v7 inline limit.
+ * filename/name, while question identity is content-addressed globally.  The
+ * import is published as one atomic change-set; when its body exceeds the v7
+ * inline-event budget the sync layer offloads it to a content-addressed
+ * immutable object, so imports of any size stay within the protocol limits.
  */
 export async function importQuestionBankV6(fileName: string, raw: unknown): Promise<BankV6> {
   const parsed = rawQuestionRows(raw);
@@ -1064,34 +1073,11 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
     const refreshed = await refreshBankQuestionCountInTx(bank.id);
     if (refreshed) await dbV6.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
     const bankSnapshot = (await dbV6.banks.get(bank.id))!;
-    // A large import is split into bounded change-sets: each change-set encodes
-    // as one inline segment event, which must stay under SYNC_V7_MAX_EVENT_BYTES
-    // (256 KiB). The question.import reducer is idempotent on the bank, so
-    // multiple chunks for the same bank accumulate questions/memberships on
-    // every device without conflict.
-    const encoder = new TextEncoder();
-    const bytesOf = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
-    const IMPORT_CHUNK_BUDGET = 128 * 1024;
-    const chunks: Array<{ questions: QuestionV6[]; memberships: BankQuestionMembership[] }> = [];
-    let bucketQuestions: QuestionV6[] = [];
-    let bucketMemberships: BankQuestionMembership[] = [];
-    let bucketBytes = bytesOf(bankSnapshot);
-    for (const item of materialised) {
-      const size = bytesOf(item.question) + bytesOf(item.membership);
-      if (bucketBytes + size > IMPORT_CHUNK_BUDGET && bucketQuestions.length) {
-        chunks.push({ questions: bucketQuestions, memberships: bucketMemberships });
-        bucketQuestions = [];
-        bucketMemberships = [];
-        bucketBytes = bytesOf(bankSnapshot);
-      }
-      bucketQuestions.push(item.question);
-      bucketMemberships.push(item.membership);
-      bucketBytes += size;
-    }
-    if (bucketQuestions.length) chunks.push({ questions: bucketQuestions, memberships: bucketMemberships });
-    for (const chunk of chunks) {
-      await enqueueChangeSetV7([{ kind: "question.import", bank: bankSnapshot, questions: chunk.questions, memberships: chunk.memberships }], timestamp);
-    }
+    // A single atomic import change-set. The sync layer offloads any body that
+    // exceeds the v7 inline-event budget to a content-addressed immutable
+    // object, so a large import no longer needs to be split into byte-bounded
+    // chunks here; the whole import applies atomically on every device.
+    await enqueueChangeSetV7([{ kind: "question.import", bank: bankSnapshot, questions: materialised.map((item) => item.question), memberships: materialised.map((item) => item.membership) }], timestamp);
   });
   return (await dbV6.banks.get(bank.id))!;
 }

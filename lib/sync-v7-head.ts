@@ -152,6 +152,12 @@ export interface SyncV7PublicationFile {
   path: string;
   bytes: SyncV7Bytes;
   kind?: SyncV7DescriptorKind;
+  /**
+   * The file's bytes are already present on the remote (uploaded out-of-band to
+   * obtain its descriptor, e.g. via `uploadedDescriptor`). `publish` must not
+   * re-upload it; it only needs to exist when the head is written.
+   */
+  uploaded?: boolean;
 }
 
 export interface SyncV7PublicationPlan {
@@ -530,7 +536,7 @@ function validatePublicationFiles(files: readonly SyncV7PublicationFile[], kind:
     if (!file || typeof file.path !== "string") throw new TypeError("v7 publication file path is required");
     assertSyncV7Path(file.path, file.kind ?? kind);
     if ((file.kind ?? kind) !== kind) throw new TypeError(`v7 publication file kind must be ${kind}`);
-    return { path: file.path, bytes: file.bytes, kind: file.kind ?? kind };
+    return { path: file.path, bytes: file.bytes, kind: file.kind ?? kind, ...(file.uploaded ? { uploaded: true } : {}) };
   });
 }
 

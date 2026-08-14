@@ -28,8 +28,16 @@ function deleteIndexedDatabase(name: string) {
   });
 }
 
-/** Clear every client-side persistence surface available to this origin. */
-export async function clearAllSiteData() {
+/**
+ * localStorage keys that hold explicit user configuration and must survive a
+ * "clear data, keep config" reset: practice preferences/theme, and the GitHub
+ * connection (repo + token). Runtime state (selected banks, search history) is
+ * treated as data and cleared.
+ */
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-v6-preferences", "github-settings", "github-token"] as const;
+
+/** Wipe service workers, caches, all IndexedDB databases and cookies. */
+async function wipeServiceWorkersCachesDatabasesAndCookies() {
   const registrations = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistrations() : [];
   await Promise.all(registrations.map((registration) => registration.unregister()));
   if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
@@ -41,9 +49,31 @@ export async function clearAllSiteData() {
   const names = new Set([V6_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
+  clearSiteCookies();
+}
+
+/** Clear every client-side persistence surface available to this origin. */
+export async function clearAllSiteData() {
+  await wipeServiceWorkersCachesDatabasesAndCookies();
   localStorage.clear();
   sessionStorage.clear();
-  clearSiteCookies();
+}
+
+/**
+ * Clear all local content (题库、作答、练习、缓存、Cookie、运行时状态) but preserve
+ * user configuration — practice preferences/theme and the GitHub connection —
+ * so the user can immediately re-sync to repopulate the cleared content.
+ */
+export async function clearSiteDataExceptConfig() {
+  const snapshot = new Map<string, string>();
+  for (const key of CONFIG_LOCAL_STORAGE_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value !== null) snapshot.set(key, value);
+  }
+  await wipeServiceWorkersCachesDatabasesAndCookies();
+  localStorage.clear();
+  sessionStorage.clear();
+  for (const [key, value] of snapshot) localStorage.setItem(key, value);
 }
 
 export function reloadAsFreshSite() {
