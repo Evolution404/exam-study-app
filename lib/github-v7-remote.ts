@@ -17,6 +17,7 @@ import type {
   SyncV7PublicationFile,
   SyncV7PublicationPlan,
 } from "./sync-v7-head";
+import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
 
 // Keep these names stable for callers which switch transports at runtime.
 export const GITHUB_V7_API = "https://api.github.com";
@@ -97,6 +98,10 @@ export interface SyncV7ImmutablePutResult {
 export interface SyncV7BlobExpectation {
   size: number;
   sha256: string;
+  /** Path of the object, when known: JSON-kind objects travel through the
+   *  DEFLATE envelope and are inflated before the integrity check; assets and
+   *  unknown paths are verified as raw bytes. */
+  path?: string;
 }
 
 export class GitHubV7RemoteError extends Error {
@@ -396,7 +401,11 @@ export class GitHubV7Remote {
     const pathHash = /\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(input.path)?.[1];
     if (pathHash && pathHash !== sha256) throw new SyncV7BlobIntegrityError("sha256", pathHash, sha256);
     if (input.sha256 !== undefined) { assertSha256(input.sha256, "immutable v7 sha256"); if (input.sha256 !== sha256) throw new SyncV7BlobIntegrityError("sha256", input.sha256, sha256); }
-    const response = await this.request(contentPath(this.owner, this.repo, input.path), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v7): add ${input.path}`, content: encodeBase64(content), branch: this.branch }) });
+    // Storage envelope: JSON objects upload DEFLATE-compressed (4–5× less wire
+    // traffic and remote storage); the descriptor above stays addressed to the
+    // LOGICAL bytes, so identity is independent of the envelope format.
+    const stored = isJsonSyncPath(input.path) ? await encodeSyncV7JsonBytes(content) : content;
+    const response = await this.request(contentPath(this.owner, this.repo, input.path), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v7): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) });
     if (response.status !== 422) {
       this.requireOk(response, `put immutable ${input.path}`);
       const blobSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`));
@@ -408,7 +417,7 @@ export class GitHubV7Remote {
     try { existingSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`)); } catch { /* 422 body is often not JSON */ }
     if (!existingSha) existingSha = await this.readContentsMetadata(input.path);
     assertSha1(existingSha, "existing immutable blobSha");
-    const existing = await this.readBlob(existingSha, { size, sha256 });
+    const existing = await this.readBlob(existingSha, { size, sha256, path: input.path });
     if (!bytesEqual(existing, content)) throw new SyncV7ImmutableConflictError(input.path);
     return { path: input.path, blobSha: existingSha, sha256, size, created: false, idempotent: true, status: 422 };
   }
@@ -427,6 +436,7 @@ export class GitHubV7Remote {
     const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
     const expectation = typeof blobShaOrDescriptor === "string" ? expected : blobShaOrDescriptor;
     if (!blobSha || !expectation) throw new TypeError("blob SHA, size and sha256 are required");
+    const path = typeof blobShaOrDescriptor === "string" ? expectation.path : blobShaOrDescriptor.path;
     if (typeof blobShaOrDescriptor !== "string") {
       const kind = inferKind(blobShaOrDescriptor.path);
       assertSyncV7Path(blobShaOrDescriptor.path, kind);
@@ -437,7 +447,16 @@ export class GitHubV7Remote {
     assertSha256(expectation.sha256, "blob sha256");
     const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
     this.requireOk(response, `read blob ${blobSha}`);
-    const content = new Uint8Array(await response.arrayBuffer());
+    // Inflate the DEFLATE envelope (when the object carries one) BEFORE the
+    // integrity check: size and sha256 always describe the logical JSON bytes.
+    const raw = new Uint8Array(await response.arrayBuffer());
+    let content: Uint8Array;
+    try {
+      content = isJsonSyncPath(path) ? await decodeSyncV7JsonBytes(raw) : raw;
+    } catch {
+      // A corrupt envelope fails inflation before digests can be compared.
+      throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, "unreadable deflate envelope");
+    }
     if (content.byteLength !== expectation.size) throw new SyncV7BlobIntegrityError("size", expectation.size, content.byteLength);
     const sha256 = await digestHex(content);
     if (sha256 !== expectation.sha256) throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, sha256);
@@ -450,7 +469,7 @@ export class GitHubV7Remote {
 
   async readImmutableContents(path: string, expected: SyncV7BlobExpectation): Promise<Uint8Array> {
     assertSyncV7Path(path, inferKind(path));
-    return this.readBlob(await this.readContentsMetadata(path), expected);
+    return this.readBlob(await this.readContentsMetadata(path), { ...expected, path });
   }
 
   readAsset(descriptor: SyncV7Descriptor): Promise<Uint8Array> { assertSyncV7Path(descriptor.path, "asset"); return this.readBlob(descriptor); }
@@ -465,6 +484,12 @@ export class GitHubV7Remote {
   }
 
   private putPublicationFile(file: SyncV7PublicationFile, kind: SyncV7DescriptorKind): Promise<SyncV7ImmutablePutResult> { return this.putImmutable({ path: file.path, bytes: file.bytes, kind: file.kind ?? kind }); }
+}
+
+/** Content-hash JSON objects (checkpoints / segments / offloaded objects) use
+ *  the DEFLATE envelope; assets and head.json stay raw. */
+function isJsonSyncPath(path: string | undefined): boolean {
+  return path !== undefined && /\/[a-f0-9]{64}\.json$/.test(path);
 }
 
 function inferKind(path: string): SyncV7DescriptorKind {

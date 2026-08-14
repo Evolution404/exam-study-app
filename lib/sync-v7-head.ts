@@ -91,6 +91,13 @@ export interface SyncV7SegmentDescriptor extends SyncV7Descriptor {
   metadata: SyncV7SegmentMetadata;
 }
 
+export interface SyncV7DeviceWatermark {
+  /** The install watermark this device last reported (its installedCursors). */
+  cursors: Record<string, number>;
+  /** When that watermark was published; devices silent for too long retire. */
+  syncedAt: string;
+}
+
 export interface SyncHeadV7 {
   formatVersion: typeof SYNC_V7_FORMAT_VERSION;
   /** Explicit logical vault identity; never infer this from a repository name. */
@@ -103,6 +110,9 @@ export interface SyncHeadV7 {
   checkpoint: SyncV7Descriptor | null;
   segments: SyncV7SegmentDescriptor[];
   cursors: Record<string, number>;
+  /** Per-device install watermarks for causally-stable tombstone GC.  Optional
+   *  until the first device reports (absent = every device unconfirmed). */
+  devices?: Record<string, SyncV7DeviceWatermark>;
 }
 
 export type SyncHeadDescriptorV7 = SyncV7Descriptor;
@@ -361,6 +371,15 @@ export function validateSyncHeadV7(value: unknown): asserts value is SyncHeadV7 
   }
   const highestGeneration = value.segments.reduce((maximum, segment) => Math.max(maximum, segment.generation), 0);
   if (highestGeneration > value.generation) fail("segment generation cannot exceed head generation");
+  if (value.devices !== undefined) {
+    if (!isRecord(value.devices)) fail("devices must be an object keyed by deviceId");
+    for (const [device, watermark] of Object.entries(value.devices)) {
+      if (!device) fail("devices keys must be non-empty device ids");
+      if (!isRecord(watermark)) fail(`devices.${device} must be an object`);
+      validateCursors(watermark.cursors, `devices.${device}.cursors`);
+      assertDate(watermark.syncedAt, `devices.${device}.syncedAt`);
+    }
+  }
 }
 
 export function isSyncHeadV7(value: unknown): value is SyncHeadV7 {

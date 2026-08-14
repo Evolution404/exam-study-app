@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBankV6, createQuestionV6, resetV6Database } from "../lib/db-v6";
-import { restoreFullHistoryFromGitHub, syncWithGitHub, type SyncProgress } from "../lib/github-sync-v7";
+import { restoreFullHistoryFromGitHub, SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../lib/github-sync-v7";
 import { startMockGitHubServer } from "./mock-github-server.mjs";
 
 // 同步进度报告按当前 v7 协议重新设计后，进度必须是「工作量加权 + 单调不减 +
@@ -91,7 +91,18 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   }
   await freshClient("device-b");
   const pull = collector();
-  await syncWithGitHub(settings, "qa-token", pull.callback);
+  // 注入延迟让并发可观测：分段下载必须多路并发（防退化为 for...await 串行），
+  // 且并发受 SYNC_V7_DOWNLOAD_CONCURRENCY 封顶。
+  server.setBlobLatency(20);
+  server.stats.blobReads = 0;
+  server.stats.maxConcurrentBlobReads = 0;
+  try {
+    await syncWithGitHub(settings, "qa-token", pull.callback);
+  } finally {
+    server.setBlobLatency(0);
+  }
+  assert.ok(server.stats.maxConcurrentBlobReads >= 2, `多段拉取应并发下载（实测峰值 ${server.stats.maxConcurrentBlobReads}）`);
+  assert.ok(server.stats.maxConcurrentBlobReads <= SYNC_V7_DOWNLOAD_CONCURRENCY, `并发峰值不得超过 ${SYNC_V7_DOWNLOAD_CONCURRENCY}`);
   assertWellFormed(pull.reports, "多分段拉取", 10);
   const segmentReports = pull.reports.filter((report) => report.phase === "download" && /热窗口分段/.test(report.label));
   assert.ok(segmentReports.length >= smallSyncs, `多分段拉取应逐分段报告下载（期望 ≥ ${smallSyncs}，实际 ${segmentReports.length}）`);
@@ -103,7 +114,7 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   }
   assert.ok(pull.reports.some((report) => report.phase === "merge" && /回放远端变更/.test(report.label)), "拉取应报告远端回放进度");
   assert.ok(pull.reports.some((report) => report.phase === "merge" && /写入/.test(report.label)), "拉取应报告本机写入进度");
-  console.log(`scenario 2 passed: 多分段拉取 ${pull.reports.length} 条报告，下载分段级报告 ${segmentReports.length} 条`);
+  console.log(`scenario 2 passed: 多分段拉取 ${pull.reports.length} 条报告，下载分段级报告 ${segmentReports.length} 条，并发峰值 ${server.stats.maxConcurrentBlobReads}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -185,7 +185,8 @@ test("S5 损坏 blob：checkpoint 字节翻转 → 完整性错误、本地不�
     await sync();
     server.armCorruptOnce();
     await freshClient("device-b");
-    await assert.rejects(sync(), /blob sha256 mismatch/, "损坏的 blob 应触发完整性错误");
+    // 压缩信封首字节被翻转后嗅探不到 zlib 头 → 按明文处理 → 尺寸/摘要任一不符都算拦截。
+    await assert.rejects(sync(), /blob (size|sha256) mismatch/, "损坏的 blob 应触发完整性错误");
     assert.equal(await dbV6.questions.count(), 0, "本地应无半安装（题目表为空）");
   } finally {
     await server.close();

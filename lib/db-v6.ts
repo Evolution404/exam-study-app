@@ -292,9 +292,10 @@ function nextV6Sequence(deviceId = getV6DeviceId()): number {
   return sequenceCounter;
 }
 
-export async function enqueueChangeSetV7(mutations: readonly ChangeSetMutationV7[], createdAt = nowIso()): Promise<ChangeSetQueueRecordV7> {
+export async function enqueueChangeSetV7(mutations: readonly ChangeSetMutationV7[], createdAt = nowIso(), options?: { localSequence?: number }): Promise<ChangeSetQueueRecordV7> {
   const deviceId = getV6DeviceId();
-  const changeSet = await Dexie.waitFor(createChangeSetV7({ deviceId, localSequence: nextV6Sequence(deviceId), createdAt, mutations }));
+  const localSequence = options?.localSequence ?? nextV6Sequence(deviceId);
+  const changeSet = await Dexie.waitFor(createChangeSetV7({ deviceId, localSequence, createdAt, mutations }));
   const record: ChangeSetQueueRecordV7 = { ...changeSet, state: "pending" };
   await dbV6.changeSets.put(record);
   return record;
@@ -629,15 +630,16 @@ export async function deleteBankFolderV6(folderId: string): Promise<boolean> {
   const deviceId = getV6DeviceId();
   const eventId = makeV6Id("folder-delete");
   const banks = await dbV6.banks.where("folderId").equals(folderId).toArray();
+  const folderDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.bankFolders, dbV6.banks, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankFolders.delete(folderId);
     const detached = banks.map((bank) => ({ ...bank, folderId: undefined, updatedAt, deviceId }));
     await dbV6.banks.bulkPut(detached);
-    await dbV6.tombstones.put({ key: tombstoneKey("bankFolder", folderId), entityType: "bankFolder", entityId: folderId, deletedAt: updatedAt, deviceId, eventId });
+    await dbV6.tombstones.put({ key: tombstoneKey("bankFolder", folderId), entityType: "bankFolder", entityId: folderId, deletedAt: updatedAt, deviceId, eventId, sequence: folderDeleteSequence });
     await enqueueChangeSetV7([
       ...detached.map((bank) => ({ kind: "bank.update" as const, bank })),
       { kind: "bankFolder.delete", folderId, deletedAt: updatedAt },
-    ], updatedAt);
+    ], updatedAt, { localSequence: folderDeleteSequence });
   });
   return true;
 }
@@ -787,6 +789,7 @@ export async function splitQuestionV6(
     updatedAt: timestamp,
     deviceId,
   } : undefined;
+  const splitSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [
     dbV6.questions, dbV6.bankQuestionMemberships, dbV6.notes, dbV6.banks,
     dbV6.tombstones, dbV6.changeSets,
@@ -796,12 +799,12 @@ export async function splitQuestionV6(
       await dbV6.bankQuestionMemberships.delete(membership.key);
       await dbV6.tombstones.put({
         key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
-        deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-split"),
+        deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-split"), sequence: splitSequence,
       });
     }
     await dbV6.bankQuestionMemberships.bulkPut(movedMemberships);
     if (clonedNote) await dbV6.notes.put(clonedNote);
-    await enqueueChangeSetV7([{ kind: "question.split", originalQuestionId: original.id, clone, memberships: movedMemberships, deletedMembershipKeys: selected.map((membership) => membership.key), note: clonedNote }], timestamp);
+    await enqueueChangeSetV7([{ kind: "question.split", originalQuestionId: original.id, clone, memberships: movedMemberships, deletedMembershipKeys: selected.map((membership) => membership.key), note: clonedNote }], timestamp, { localSequence: splitSequence });
     for (const membership of selected) await refreshBankQuestionCountInTx(membership.bankId);
   });
   return { original, clones: [clone] };
@@ -823,13 +826,14 @@ export async function removeMembershipV6(
   if (!current) return false;
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
+  const membershipDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.delete(key);
     await dbV6.tombstones.put({
       key: tombstoneKey("membership", key), entityType: "membership", entityId: key,
-      deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"),
+      deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"), sequence: membershipDeleteSequence,
     });
-    await enqueueChangeSetV7([{ kind: "membership.remove", bankId, questionId, key, removedAt: timestamp }], timestamp);
+    await enqueueChangeSetV7([{ kind: "membership.remove", bankId, questionId, key, removedAt: timestamp }], timestamp, { localSequence: membershipDeleteSequence });
     await refreshBankQuestionCountInTx(bankId);
   });
   return true;
@@ -843,13 +847,14 @@ export async function removeMembershipsV6(bankId: string, questionIds: readonly 
   if (!memberships.length) return 0;
   const timestamp = nowIso();
   const deviceId = getV6DeviceId();
+  const membershipBulkDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.bankQuestionMemberships, dbV6.banks, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV6.tombstones.bulkPut(memberships.map((membership) => ({
       key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
-      deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"),
+      deletedAt: timestamp, deviceId, eventId: makeV6Id("membership-delete"), sequence: membershipBulkDeleteSequence,
     })));
-    await enqueueChangeSetV7([{ kind: "membership.bulk.remove", keys: memberships.map((membership) => membership.key), bankId, removedAt: timestamp }], timestamp);
+    await enqueueChangeSetV7([{ kind: "membership.bulk.remove", keys: memberships.map((membership) => membership.key), bankId, removedAt: timestamp }], timestamp, { localSequence: membershipBulkDeleteSequence });
     await refreshBankQuestionCountInTx(bankId);
   });
   return memberships.length;
@@ -866,17 +871,73 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
   const deviceId = getV6DeviceId();
   const memberships = await dbV6.bankQuestionMemberships.where("questionId").anyOf(existingIds).toArray();
   const affectedBankIds = [...new Set(memberships.map((membership) => membership.bankId))];
+  // H5 导入即删的抵消：被删题目的创建事件仍在本机 pending/blocked（从未推送）时，
+  // 从这些 change-set 里滤掉相关 mutation（change-set 变空则整组撤销）。远端从未见过
+  // 这些题目，因此它们既不需要墓碑也不需要删除事件——零墓碑零事件。
+  const unpublishedIds = new Set<string>();
+  const rewritable: Array<{ record: ChangeSetQueueRecordV7; mutations: ChangeSetMutationV7[] }> = [];
+  const cancellableIds: string[] = [];
+  for (const record of await dbV6.changeSets.where("state").anyOf(["pending", "blocked"]).toArray()) {
+    let touched = false;
+    const mutations = record.mutations.flatMap((mutation) => {
+      const created: string[] = mutation.kind === "question.upsert" ? [mutation.question.id]
+        : mutation.kind === "question.import" ? mutation.questions.map((item) => item.id)
+        : mutation.kind === "question.split" && deletingIds.has(mutation.clone.id) ? [mutation.clone.id]
+        : [];
+      const references = mutation.kind === "membership.save" ? [mutation.membership.questionId]
+        : mutation.kind === "membership.remove" ? [mutation.questionId]
+        : mutation.kind === "note.upserted" ? [mutation.note.questionId]
+        : mutation.kind === "note.deleted" ? [mutation.questionId]
+        : mutation.kind === "attempt.create" || mutation.kind === "attempt.update" ? [mutation.attempt.questionId]
+        : mutation.kind === "attempt.delete" && mutation.questionId ? [mutation.questionId]
+        : [];
+      if (created.some((id) => deletingIds.has(id))) {
+        touched = true;
+        created.forEach((id) => deletingIds.has(id) && unpublishedIds.add(id));
+        if (mutation.kind === "question.import") {
+          // 题库创建保留（空题库合法），只滤掉题目与关系。
+          const keptQuestions = mutation.questions.filter((item) => !deletingIds.has(item.id));
+          const keptMemberships = mutation.memberships.filter((item) => !deletingIds.has(item.questionId));
+          if (!keptQuestions.length && !keptMemberships.length) return [];
+          return [{ ...mutation, questions: keptQuestions, memberships: keptMemberships }];
+        }
+        if (mutation.kind === "question.bulk.upsert") {
+          const kept = mutation.questions.filter((item) => !deletingIds.has(item.id));
+          return kept.length ? [{ ...mutation, questions: kept }] : [];
+        }
+        return [];
+      }
+      if (references.some((id) => deletingIds.has(id))) {
+        touched = true;
+        return [];
+      }
+      return [mutation];
+    });
+    if (!touched) continue;
+    if (mutations.length) rewritable.push({ record, mutations });
+    else cancellableIds.push(record.id);
+  }
+  // 只对「远端可能已经见过」的题目写墓碑/删除事件（未被抵消的创建）。
+  const publishedIds = existingIds.filter((id) => !unpublishedIds.has(id));
+  const publishedMembershipKeys = new Set(memberships.filter((membership) => !unpublishedIds.has(membership.questionId)).map((membership) => membership.key));
+  const deleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [
     dbV6.questions, dbV6.bankQuestionMemberships, dbV6.attempts, dbV6.attemptStats,
     dbV6.attemptDailyStats, dbV6.notes, dbV6.questionGroups, dbV6.reviewRoundProgress,
     dbV6.practiceRuns, dbV6.banks, dbV6.tombstones,
     dbV6.changeSets,
   ], async () => {
+    for (const id of cancellableIds) await dbV6.changeSets.delete(id);
+    for (const { record, mutations } of rewritable) {
+      // 重写 digest 承载的 change-set：同 id/序号/时间，只裁剪 mutation。
+      const rebuilt = await Dexie.waitFor(createChangeSetV7({ id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, mutations }));
+      await dbV6.changeSets.put({ ...record, ...rebuilt, state: "pending", claimId: undefined, claimedAt: undefined, blockedReason: undefined });
+    }
     await dbV6.questions.bulkDelete(existingIds);
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
-    await dbV6.tombstones.bulkPut(memberships.map((membership) => ({
+    await dbV6.tombstones.bulkPut(memberships.filter((membership) => publishedMembershipKeys.has(membership.key)).map((membership) => ({
         key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
-        deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete"),
+        deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete"), sequence: deleteSequence,
       })));
     await dbV6.attempts.where("questionId").anyOf(existingIds).delete();
     await dbV6.attemptStats.bulkDelete(existingIds);
@@ -906,19 +967,22 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
       await dbV6.practiceRuns.put({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
     }
     for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
-    const tombstones: TombstoneV6[] = existingIds.map((questionId) => ({
+    const tombstones: TombstoneV6[] = publishedIds.map((questionId) => ({
       key: tombstoneKey("question", questionId),
       entityType: "question",
       entityId: questionId,
       deletedAt: timestamp,
       deviceId,
       eventId: makeV6Id("question-delete"),
+      sequence: deleteSequence,
     }));
     for (const groupId of emptiedGroupIds) {
-      tombstones.push({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete") });
+      tombstones.push({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete"), sequence: deleteSequence });
     }
     await dbV6.tombstones.bulkPut(tombstones);
-    await enqueueChangeSetV7([{ kind: "question.bulk.delete", questionIds: existingIds, deletedAt: timestamp, cascade: true }], timestamp);
+    if (publishedIds.length) {
+      await enqueueChangeSetV7([{ kind: "question.bulk.delete", questionIds: publishedIds, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: deleteSequence });
+    }
   });
   return existingIds.length;
 }
@@ -939,16 +1003,17 @@ export async function deleteBankV6(bankId: string): Promise<boolean> {
   // Runs that target this bank are dropped with it; otherwise their bankId
   // would dangle and the checkpoint would fail referential validation.
   const runs = (await dbV6.practiceRuns.toArray()).filter((run) => runBankIds(run).includes(bankId));
+  const bankDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.banks, dbV6.bankQuestionMemberships, dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV6.banks.delete(bankId);
     for (const run of runs) {
       await updatePracticeRunStatsInTx(run, undefined);
       await dbV6.practiceRuns.delete(run.id);
-      await dbV6.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete") });
+      await dbV6.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete"), sequence: bankDeleteSequence });
     }
-    await dbV6.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete") });
-    await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp);
+    await dbV6.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV6Id("bank-delete"), sequence: bankDeleteSequence });
+    await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
   });
   return true;
 }
@@ -1416,10 +1481,11 @@ export async function deleteQuestionGroupV6(groupId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV6DeviceId();
   const eventId = makeV6Id("group-delete");
+  const groupDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.questionGroups, dbV6.tombstones, dbV6.changeSets], async () => {
     await dbV6.questionGroups.delete(groupId);
-    await dbV6.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId });
-    await enqueueChangeSetV7([{ kind: "questionGroup.deleted", groupId, deletedAt }], deletedAt);
+    await dbV6.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId, sequence: groupDeleteSequence });
+    await enqueueChangeSetV7([{ kind: "questionGroup.deleted", groupId, deletedAt }], deletedAt, { localSequence: groupDeleteSequence });
   });
   return true;
 }
@@ -1454,15 +1520,16 @@ export async function deletePracticeRunV6(runId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV6DeviceId();
   const eventId = makeV6Id("run-delete");
+  const runDeleteSequence = nextV6Sequence(deviceId);
   await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats, dbV6.tombstones, dbV6.changeSets], async () => {
     await updatePracticeRunStatsInTx(current, undefined);
     await dbV6.practiceRuns.delete(runId);
     if (!hasSubmittedAnswer) return;
     await dbV6.tombstones.put({
       key: tombstoneKey("practiceRun", runId), entityType: "practiceRun", entityId: runId,
-      deletedAt, deviceId, eventId,
+      deletedAt, deviceId, eventId, sequence: runDeleteSequence,
     });
-    await enqueueChangeSetV7([{ kind: "practice.run.deleted", runId, deletedAt }], deletedAt);
+    await enqueueChangeSetV7([{ kind: "practice.run.deleted", runId, deletedAt }], deletedAt, { localSequence: runDeleteSequence });
   });
   return true;
 }

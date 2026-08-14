@@ -175,10 +175,10 @@ function removeAttemptRound(projection: ChangeSetProjectionV7, attemptId: string
   if (projection.attemptRoundIds) delete projection.attemptRoundIds[attemptId];
 }
 
-function putTombstone(projection: ChangeSetProjectionV7, entityType: TombstoneV6["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string): void {
+function putTombstone(projection: ChangeSetProjectionV7, entityType: TombstoneV6["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   const key = `${entityType}:${entityId}`;
   const old = projection.tombstones.find((item) => item.key === key);
-  const next: TombstoneV6 = { key, entityType, entityId, deletedAt, deviceId, eventId };
+  const next: TombstoneV6 = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
   if (!old) projection.tombstones.push(next);
   else if (compareClock(next, old) > 0) projection.tombstones[projection.tombstones.indexOf(old)] = next;
 }
@@ -191,7 +191,7 @@ function rejectTombstoned(projection: ChangeSetProjectionV7, type: string, id: s
   if (projection.tombstones.some((item) => item.key === `${type}:${id}`)) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
 }
 
-function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, questionId: string, deletedAt: string, deviceId: string, eventId: string): void {
+function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, questionId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   ensureQuestion(projection, questionId);
   projection.questions = projection.questions.filter((question) => question.id !== questionId);
   projection.memberships = projection.memberships.filter((membership) => membership.questionId !== questionId);
@@ -205,7 +205,7 @@ function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, question
       // 题目删除把组裁空时，一并写墓碑，使后续到达的陈旧 questionGroup.saved 被
       // rejectTombstoned 拦截（题组不可复活）。此前只丢弃组不写墓碑，远端 replay 后
       // saved 仍能重建含 dangling 题目引用的组。
-      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId);
+      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId, sequence);
       return [];
     }
     return [{ ...group, items }];
@@ -218,10 +218,46 @@ function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, question
     delete questionTypes[questionId];
     return { ...run, questionIds: run.questionIds.filter((id) => id !== questionId), answers, questionTypes, updatedAt: deletedAt };
   });
-  putTombstone(projection, "question", questionId, deletedAt, deviceId, eventId);
+  putTombstone(projection, "question", questionId, deletedAt, deviceId, eventId, sequence);
 }
 
-function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMutationV7, context: { createdAt: string; deviceId: string; eventId: string }): void {
+/** Bulk cascade delete in ONE pass per table (Set membership instead of a
+ *  full cascade per question — the naive path was O(questions × tables)). */
+function updateQuestionsBulkDeleteCascade(projection: ChangeSetProjectionV7, questionIds: readonly string[], deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  const ids = new Set(questionIds);
+  for (const questionId of ids) ensureQuestion(projection, questionId);
+  const keepQuestion = (questionId: string) => !ids.has(questionId);
+  projection.questions = projection.questions.filter((question) => keepQuestion(question.id));
+  projection.memberships = projection.memberships.filter((membership) => keepQuestion(membership.questionId));
+  const attemptIds = new Set(projection.attempts.filter((attempt) => !keepQuestion(attempt.questionId)).map((attempt) => attempt.id));
+  projection.attempts = projection.attempts.filter((attempt) => keepQuestion(attempt.questionId));
+  projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([attemptId]) => !attemptIds.has(attemptId)));
+  projection.notes = projection.notes.filter((note) => keepQuestion(note.questionId));
+  projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => keepQuestion(item.questionId));
+  projection.questionGroups = projection.questionGroups.flatMap((group) => {
+    const items = group.items.filter((item) => keepQuestion(item.questionId));
+    if (!items.length) {
+      // 与单题删除一致：组被裁空时写墓碑，拦截后续陈旧的 questionGroup.saved。
+      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId, sequence);
+      return [];
+    }
+    return [{ ...group, items }];
+  });
+  projection.practiceRuns = projection.practiceRuns.map((run) => {
+    if (!run.questionIds.some((id) => ids.has(id))) return run;
+    const answers = { ...run.answers };
+    const questionTypes = { ...run.questionTypes };
+    for (const questionId of run.questionIds) {
+      if (!ids.has(questionId)) continue;
+      delete answers[questionId];
+      delete questionTypes[questionId];
+    }
+    return { ...run, questionIds: run.questionIds.filter(keepQuestion), answers, questionTypes, updatedAt: deletedAt };
+  });
+  for (const questionId of ids) putTombstone(projection, "question", questionId, deletedAt, deviceId, eventId, sequence);
+}
+
+function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMutationV7, context: { createdAt: string; deviceId: string; eventId: string; localSequence: number }): void {
   switch (mutation.kind) {
     case "bank.create":
       rejectTombstoned(projection, "bank", mutation.bank.id);
@@ -254,10 +290,10 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       // is gone; drop it so the checkpoint never references a dangling bank.
       const deletedAt = mutation.deletedAt ?? context.createdAt;
       for (const run of projection.practiceRuns.filter((run) => runBankIds(run).includes(bank.id))) {
-        putTombstone(projection, "practiceRun", run.id, deletedAt, context.deviceId, context.eventId);
+        putTombstone(projection, "practiceRun", run.id, deletedAt, context.deviceId, context.eventId, context.localSequence);
       }
       projection.practiceRuns = projection.practiceRuns.filter((run) => !runBankIds(run).includes(bank.id));
-      putTombstone(projection, "bank", bank.id, deletedAt, context.deviceId, context.eventId);
+      putTombstone(projection, "bank", bank.id, deletedAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "bankFolder.save":
@@ -269,7 +305,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       ensureFolder(projection, mutation.folderId);
       if (projection.banks.some((bank) => bank.folderId === mutation.folderId)) fail(`文件夹 ${mutation.folderId} 仍被题库使用`);
       projection.bankFolders = projection.bankFolders.filter((folder) => folder.id !== mutation.folderId);
-      putTombstone(projection, "bankFolder", mutation.folderId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      putTombstone(projection, "bankFolder", mutation.folderId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "question.upsert":
@@ -287,7 +323,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
         || projection.reviewRoundProgress.some((item) => item.questionId === question.id)
         || projection.questionGroups.some((item) => item.items.some((entry) => entry.questionId === question.id));
       if (mutation.kind === "question.delete" && hasDependencies && !mutation.cascade) fail(`题目 ${question.id} 仍有学习记录或关联，必须 cascade 删除`);
-      updateQuestionDeleteCascade(projection, question.id, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      updateQuestionDeleteCascade(projection, question.id, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "question.split": {
@@ -335,7 +371,12 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       for (const question of mutation.questions) applyMutation(projection, { kind: "question.upsert", question }, context);
       return;
     case "question.bulk.delete":
-      for (const questionId of mutation.questionIds) applyMutation(projection, { kind: "question.delete", questionId, deletedAt: mutation.deletedAt, cascade: mutation.cascade }, context);
+      if (!mutation.cascade) {
+        // 保留单题删除的非级联语义：仍有依赖时必须显式 cascade（生产端总是 cascade）。
+        for (const questionId of mutation.questionIds) applyMutation(projection, { kind: "question.delete", questionId, deletedAt: mutation.deletedAt, cascade: mutation.cascade }, context);
+        return;
+      }
+      updateQuestionsBulkDeleteCascade(projection, mutation.questionIds, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "membership.save": {
       ensureBank(projection, mutation.membership.bankId);
@@ -350,7 +391,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       const key = mutation.key ?? membershipKey(mutation.bankId, mutation.questionId);
       const current = removeMembership(projection, key);
       if (current.bankId !== mutation.bankId || current.questionId !== mutation.questionId) fail(`题库关系 ${key} 与目标不一致`);
-      putTombstone(projection, "membership", key, mutation.removedAt ?? context.createdAt, context.deviceId, context.eventId);
+      putTombstone(projection, "membership", key, mutation.removedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "membership.bulk.save": for (const membership of mutation.memberships) applyMutation(projection, { kind: "membership.save", membership }, context); return;
@@ -370,7 +411,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       ensureAsset(projection, mutation.assetId);
       if (projection.questions.some((question) => [...question.content, ...question.options.flat()].some((block) => block.type === "image" && block.assetId === mutation.assetId))) fail(`图片资产 ${mutation.assetId} 仍被题目引用`);
       projection.imageAssets = projection.imageAssets.filter((asset) => asset.id !== mutation.assetId);
-      putTombstone(projection, "imageAsset", mutation.assetId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      putTombstone(projection, "imageAsset", mutation.assetId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "attempt.create": case "attempt.update": {
@@ -397,7 +438,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       if (mutation.kind === "practice.answer.updated" && !byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 不存在`);
       setById(projection.attempts, mutation.attempt, mutation.kind === "practice.answer.submitted");
       upsertAttemptRound(projection, mutation.attempt.id, mutation.reviewRoundId ?? run.reviewRoundId);
-      setRunAnswer(run, mutation.questionId, mutation.answer);
+      setById(projection.practiceRuns, runWithAnswer(run, mutation.questionId, mutation.answer), false);
       return;
     }
     case "practice.answer.deleted": {
@@ -424,7 +465,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     case "practice.run.deleted":
       removeById(projection.practiceRuns, mutation.runId, "练习");
-      putTombstone(projection, "practiceRun", mutation.runId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      putTombstone(projection, "practiceRun", mutation.runId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "note.upserted":
       ensureQuestion(projection, mutation.note.questionId);
@@ -444,7 +485,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       removeById(projection.questionGroups, mutation.groupId, "题组");
       // 写墓碑，使后续到达的陈旧 questionGroup.saved 被 rejectTombstoned 拦截（题组不可复活，
       // 与题库/资产一致）。此前只 removeById 不写墓碑，导致远端 replay 后 saved 仍能重建组。
-      putTombstone(projection, "questionGroup", mutation.groupId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
+      putTombstone(projection, "questionGroup", mutation.groupId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "review.round.saved":
       mutation.round.bankIds.forEach((bankId) => ensureBank(projection, bankId));
@@ -491,12 +532,15 @@ function runBankIds(run: Pick<PracticeRunV6, "bankId" | "bankIds">): string[] {
   return uniqueStrings(run.bankIds?.length ? run.bankIds : [run.bankId]);
 }
 
-function setRunAnswer(run: PracticeRunV6, questionId: string, answer: PracticeRunV6["answers"][string]): void {
-  run.answers = { ...run.answers, [questionId]: clone(answer) };
-  run.updatedAt = answer.updatedAt ?? run.updatedAt;
-  run.revision += 1;
-  const submitted = run.questionIds.reduce((last, id, index) => run.answers[id]?.submitted ? index : last, -1);
-  if (submitted >= 0) run.lastAnsweredIndex = submitted;
+/** Copy-on-write answer update: returns a NEW run object.  In-place mutation
+ *  would leak into the base projection shared with a shallow replay envelope,
+ *  breaking per-record rollback. */
+function runWithAnswer(run: PracticeRunV6, questionId: string, answer: PracticeRunV6["answers"][string]): PracticeRunV6 {
+  const answers = { ...run.answers, [questionId]: clone(answer) };
+  const updatedAt = answer.updatedAt ?? run.updatedAt;
+  const revision = run.revision + 1;
+  const submitted = run.questionIds.reduce((last, id, index) => answers[id]?.submitted ? index : last, -1);
+  return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
 }
 
 function sortAttempts(attempts: readonly AttemptV6[]): AttemptV6[] {
@@ -504,8 +548,14 @@ function sortAttempts(attempts: readonly AttemptV6[]): AttemptV6[] {
 }
 
 function deriveAttemptStats(attempts: readonly AttemptV6[]): AttemptStatsV6[] {
+  // Group by direct push (the old `[...grouped.get(k) ?? [], a]` spread was
+  // O(k²) copies for a question answered k times).
   const grouped = new Map<string, AttemptV6[]>();
-  for (const attempt of sortAttempts(attempts)) grouped.set(attempt.questionId, [...(grouped.get(attempt.questionId) ?? []), attempt]);
+  for (const attempt of sortAttempts(attempts)) {
+    const bucket = grouped.get(attempt.questionId);
+    if (bucket) bucket.push(attempt);
+    else grouped.set(attempt.questionId, [attempt]);
+  }
   return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([questionId, values]) => {
     const ordered = sortAttempts(values);
     const first = ordered[0];
@@ -565,9 +615,11 @@ function deriveRunStats(runs: readonly PracticeRunV6[]): PracticeRunStatsV6[] {
 
 function deriveRoundProgress(projection: ChangeSetProjectionV7): ReviewRoundProgress[] {
   const roundsById = new Map(projection.reviewRounds.map((round) => [round.id, round]));
+  // Run lookup by Map — the old per-attempt linear find made this O(attempts × runs).
+  const runsById = new Map(projection.practiceRuns.map((run) => [run.id, run]));
   const grouped = new Map<string, ReviewRoundProgress>();
   for (const attempt of sortAttempts(projection.attempts)) {
-    const run = projection.practiceRuns.find((candidate) => candidate.id === attempt.runId);
+    const run = runsById.get(attempt.runId);
     const roundIds = uniqueStrings([...(projection.attemptRoundIds?.[attempt.id] ?? []), ...(run?.reviewRoundId ? [run.reviewRoundId] : [])]);
     for (const roundId of roundIds) {
       if (!roundsById.has(roundId)) fail(`作答 ${attempt.id} 引用了不存在的轮次 ${roundId}`);
@@ -585,7 +637,12 @@ function deriveRoundProgress(projection: ChangeSetProjectionV7): ReviewRoundProg
 
 /** Rebuild every derived v6 table from the durable entity/attempt projections. */
 export function recomputeChangeSetProjectionV7(input: ChangeSetProjectionInputV7): ChangeSetProjectionV7 {
-  const projection = normalizeProjection(input);
+  return recomputeProjectionInPlace(normalizeProjection(input));
+}
+
+/** In-place recompute for envelopes the caller privately owns (replay paths):
+ *  skips the defensive deep clone of `recomputeChangeSetProjectionV7`. */
+function recomputeProjectionInPlace(projection: ChangeSetProjectionV7): ChangeSetProjectionV7 {
   const countByBank = new Map<string, number>();
   for (const membership of projection.memberships) countByBank.set(membership.bankId, (countByBank.get(membership.bankId) ?? 0) + 1);
   projection.banks = projection.banks.map((bank) => ({ ...bank, questionCount: countByBank.get(bank.id) ?? 0 }));
@@ -612,8 +669,13 @@ function pushIssue(issues: ProjectionValidationIssueV7[], path: string, message:
   issues.push({ path, message });
 }
 
-/** Return all referential/count errors without mutating the supplied projection. */
-export function projectionValidationIssuesV7(input: ChangeSetProjectionInputV7): ProjectionValidationIssueV7[] {
+/** Return all referential/count errors without mutating the supplied projection.
+ *  `verifyDerived: false` skips the staleness re-derivation — call it ONLY on a
+ *  projection that was just passed through `recomputeChangeSetProjectionV7`
+ *  (fresh derived tables are correct by construction; the re-derivation plus
+ *  four full-table JSON comparisons exist for externally supplied inputs). */
+export function projectionValidationIssuesV7(input: ChangeSetProjectionInputV7, options?: { verifyDerived?: boolean }): ProjectionValidationIssueV7[] {
+  const verifyDerived = options?.verifyDerived !== false;
   const issues: ProjectionValidationIssueV7[] = [];
   let projection: ChangeSetProjectionV7;
   try { projection = normalizeProjection(input); } catch (error) { return [{ path: "projection", message: String(error) }]; }
@@ -644,6 +706,7 @@ export function projectionValidationIssuesV7(input: ChangeSetProjectionInputV7):
     for (const questionId of run.questionIds) if (!questions.has(questionId)) pushIssue(issues, `practiceRuns.${run.id}.questionIds`, `missing question ${questionId}`);
   }
   try {
+    if (!verifyDerived) return issues;
     const rebuilt = recomputeChangeSetProjectionV7(projection);
     for (const bank of projection.banks) if (bank.questionCount !== rebuilt.banks.find((candidate) => candidate.id === bank.id)?.questionCount) pushIssue(issues, `banks.${bank.id}.questionCount`, "count is stale");
     if (JSON.stringify(projection.attemptStats) !== JSON.stringify(rebuilt.attemptStats)) pushIssue(issues, "attemptStats", "derived stats are stale");
@@ -663,19 +726,81 @@ export function assertChangeSetProjectionV7(input: ChangeSetProjectionInputV7): 
   if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
 }
 
-/** Apply all mutations atomically to a cloned projection. */
+/** Shallow replay envelope: a new projection object whose top-level arrays are
+ *  fresh (pointer-copied) but whose elements are shared with the base until a
+ *  mutation writes them.  Every mutation path writes either a whole array or a
+ *  CLONED entity into a slot (see runWithAnswer for the one former exception),
+ *  so the base projection is never observably mutated and a failed record can
+ *  be rolled back by simply discarding its envelope. */
+function shallowEnvelope(base: ChangeSetProjectionV7): ChangeSetProjectionV7 {
+  const memberships = [...base.memberships];
+  return {
+    banks: [...base.banks],
+    bankFolders: [...base.bankFolders],
+    questions: [...base.questions],
+    memberships,
+    bankQuestionMemberships: memberships,
+    imageAssets: [...base.imageAssets],
+    attempts: [...base.attempts],
+    attemptStats: [...base.attemptStats],
+    attemptDailyStats: [...base.attemptDailyStats],
+    notes: [...base.notes],
+    practiceRuns: [...base.practiceRuns],
+    practiceRunStats: [...base.practiceRunStats],
+    questionGroups: [...base.questionGroups],
+    reviewRounds: [...base.reviewRounds],
+    reviewRoundProgress: [...base.reviewRoundProgress],
+    tombstones: [...base.tombstones],
+    attemptRoundIds: { ...base.attemptRoundIds },
+  };
+}
+
+/** Apply one change-set's mutations to a private envelope, recompute derived
+ *  tables once, and validate.  (Single-change fast path of the batch replay.) */
 export function reduceChangeSetV7(input: ChangeSetProjectionInputV7, changeSet: ChangeSetV7): ChangeSetProjectionV7 {
   assertChangeSetV7(changeSet);
-  const next = normalizeProjection(input);
-  const context = { createdAt: changeSet.createdAt, deviceId: changeSet.deviceId, eventId: changeSet.id };
-  // Applying to a private clone guarantees no partial writes if any mutation
+  const next = shallowEnvelope(normalizeProjection(input));
+  const context = { createdAt: changeSet.createdAt, deviceId: changeSet.deviceId, eventId: changeSet.id, localSequence: changeSet.localSequence };
+  // Applying to a private envelope guarantees no partial writes if any mutation
   // fails.  Mutations are intentionally kept in their supplied order: a
   // createQuestion batch may create a question before its membership/answer.
   for (const mutation of changeSet.mutations) applyMutation(next, mutation, context);
-  const rebuilt = recomputeChangeSetProjectionV7(next);
-  const issues = projectionValidationIssuesV7(rebuilt);
+  const rebuilt = recomputeProjectionInPlace(next);
+  const issues = projectionValidationIssuesV7(rebuilt, { verifyDerived: false });
   if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
   return rebuilt;
+}
+
+/** Batch replay for sync pulls and queue rebuilds: applies every change-set on
+ *  its own shallow envelope (discarding the envelope on failure = poison-skip
+ *  with the exact rollback semantics of the single-record path) and performs
+ *  ONE recompute + validation at the end instead of two per record.  Records
+ *  that fail mid-application are skipped and their ids returned; pass
+ *  `onConflict: "throw"` to propagate the first failure instead (queue
+ *  rebuilds must stay strict). */
+export function replayChangeSetBatchV7(input: ChangeSetProjectionInputV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void, options?: { onConflict?: "skip" | "throw" }): { projection: ChangeSetProjectionV7; skipped: string[] } {
+  const skip = options?.onConflict !== "throw";
+  let good = normalizeProjection(input);
+  const skipped: string[] = [];
+  const every = Math.max(1, Math.floor(changes.length / 24));
+  for (let index = 0; index < changes.length; index += 1) {
+    const change = changes[index];
+    try {
+      assertChangeSetV7(change);
+      const envelope = shallowEnvelope(good);
+      const context = { createdAt: change.createdAt, deviceId: change.deviceId, eventId: change.id, localSequence: change.localSequence };
+      for (const mutation of change.mutations) applyMutation(envelope, mutation, context);
+      good = envelope;
+    } catch (error) {
+      if (!skip) throw error;
+      skipped.push(change.id);
+    }
+    if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
+  }
+  const rebuilt = recomputeProjectionInPlace(good);
+  const issues = projectionValidationIssuesV7(rebuilt, { verifyDerived: false });
+  if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
+  return { projection: rebuilt, skipped };
 }
 
 export const applyChangeSetV7 = reduceChangeSetV7;

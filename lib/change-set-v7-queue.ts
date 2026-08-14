@@ -1,5 +1,5 @@
 import { createChangeSetV7, dependentChangeSetIdsV7, type ChangeSetMutationV7 } from "./change-set-v7";
-import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
+import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { dbV6, restoreV6Checkpoint, type ChangeSetQueueRecordV7 } from "./db-v6";
 
 async function queueBase(): Promise<ChangeSetProjectionV7> {
@@ -32,12 +32,10 @@ async function pendingInOrder(): Promise<ChangeSetQueueRecordV7[]> {
 }
 
 async function rebuild(records: readonly ChangeSetQueueRecordV7[]): Promise<ChangeSetProjectionV7> {
-  let projection = await queueBase();
-  for (const record of records) {
-    if (record.state === "blocked") continue;
-    projection = reduceChangeSetV7(projection, record);
-  }
-  return projection;
+  // Strict batch replay: any failing record must throw (user-facing queue
+  // surgery relies on rebuild failing loudly), but derived tables recompute once.
+  const applicable = records.filter((record) => record.state !== "blocked");
+  return replayChangeSetBatchV7(await queueBase(), applicable, undefined, { onConflict: "throw" }).projection;
 }
 
 async function install(projection: ChangeSetProjectionV7): Promise<void> {

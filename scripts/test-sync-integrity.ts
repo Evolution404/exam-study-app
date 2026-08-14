@@ -55,6 +55,12 @@ try {
   await saveQuestionGroupV6({ name: "往返题组", type: "自定义", description: "组说明", items: [{ questionId: q1.id, note: "组内提示" }] });
   await createReviewRoundV6({ name: "往返复习轮", bankIds: [bank.id] });
   await putImageAssetDescriptorV6({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });
+  // H5：创建事件仍在 pending 未推送时，删题会抵消该事件（零墓碑零删除事件）。
+  // 本场景要验证「已推送」的删除路径 → 先把创建 change-set 标记为 committed。
+  const { dbV6 } = await import("../lib/db-v6");
+  const publishedRecords = (await dbV6.changeSets.where("state").equals("pending").toArray())
+    .filter((record) => record.mutations.some((mutation) => (mutation.kind === "question.upsert" && mutation.question.id === q2.id) || (mutation.kind === "membership.save" && mutation.membership.questionId === q2.id)));
+  await dbV6.changeSets.bulkPut(publishedRecords.map((record) => ({ ...record, state: "committed" as const, committedAt: new Date().toISOString() })));
   await deleteQuestionV6(q2.id);
 
   // Build the checkpoint from the DB, then round-trip it through JSON bytes.

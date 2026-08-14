@@ -27,6 +27,13 @@ export type SyncFileV6 = LegacySyncFile;
 export type SyncMetaV6 = LegacySyncMeta;
 export interface TombstoneV6 extends Omit<LegacySyncTombstone, "entityType"> {
   entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset";
+  /**
+   * Causal-stability anchor: the deleting device's localSequence for the
+   * deletion event.  A tombstone is reclaimable once every known device's
+   * reported watermark for the deleting device reaches this sequence — the
+   * Yorkie minVersionVector / Riak reaping rule (see SYNC_V7_DEVICE_RETIRE_DAYS).
+   */
+  sequence: number;
 }
 
 /** The question kinds currently supported by the v6 content model. */

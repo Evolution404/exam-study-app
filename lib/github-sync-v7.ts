@@ -1,6 +1,7 @@
 import {
   commitChangeSetClaimV7,
   dbV6,
+  getV6DeviceId,
   listChangeSetsV7,
   releaseChangeSetClaimV7,
   claimPendingChangeSetsV7,
@@ -8,7 +9,7 @@ import {
   type ChangeSetQueueRecordV7,
 } from "./db-v6";
 import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
-import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
+import { assertChangeSetProjectionV7, reduceChangeSetV7, replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { createSyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6, type SyncCheckpointV6 } from "./sync-v6-checkpoint";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
@@ -23,9 +24,11 @@ import {
   planSyncV7Compaction,
   type SyncHeadV7,
   type SyncV7Descriptor,
+  type SyncV7DeviceWatermark,
   type SyncV7PublicationFile,
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
+import type { TombstoneV6 } from "./v6-types";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
 import { hydrateSyncV7Events, offloadSyncV7Events } from "./sync-v7-payload";
 import type { GitHubSettings } from "./types";
@@ -104,15 +107,81 @@ async function saveRemoteCache(settings: GitHubSettings, checkpoint: SyncCheckpo
   await dbV6.syncMeta.put({ key: cacheKey(settings, "checkpoint"), value: { cachedAt: new Date().toISOString(), checkpoint, head }, updatedAt: new Date().toISOString() });
 }
 
-type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache };
+export type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache };
 
 async function loadRemoteCache(settings: GitHubSettings): Promise<RemoteCacheV7 | undefined> {
   return (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as RemoteCacheV7 | undefined;
 }
 
-function headVersion(cache: SyncV7HeadCache): string {
+/** A device that has not reported a watermark for this long stops blocking
+ *  tombstone GC (Riak-style reaping): a phone lost for 90+ days must not pin
+ *  every tombstone forever.  Its un-pulled deletions simply win — the same
+ *  resolution rule the compareClock tie-break already applies elsewhere. */
+export const SYNC_V7_DEVICE_RETIRE_DAYS = 90;
+
+/** Causally-stable tombstone GC (Yorkie minVersionVector / Riak reaping):
+ *  a tombstone is reclaimable once every non-retired known device has reported
+ *  a watermark for the deleting device at or beyond the tombstone's deletion
+ *  sequence.  Key soundness insight: a pending change-set referencing entity X
+ *  can only be created while X exists locally — i.e. BEFORE that device pulled
+ *  the deletion — so once its watermark passes the deletion sequence it can no
+ *  longer produce a resurrection.  Devices that never reported stay
+ *  conservative (block reclamation); the self device just performed the
+ *  install and counts as confirmed.  Tombstones without a sequence anchor
+ *  (legacy data predating H1) are always kept. */
+export function reclaimableTombstonesV7(
+  tombstones: readonly TombstoneV6[],
+  input: { devices: Record<string, SyncV7DeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string },
+): { keep: TombstoneV6[]; dropped: number } {
+  const now = input.now ?? new Date().toISOString();
+  const retireCutoff = Date.parse(now) - SYNC_V7_DEVICE_RETIRE_DAYS * 86_400_000;
+  const decisionSet = [...new Set([...Object.keys(input.devices), ...Object.keys(input.headCursors)])].filter((device) => {
+    if (device === input.selfDeviceId) return false;
+    const watermark = input.devices[device];
+    if (!watermark) return true; // never reported: unconfirmed (blocks reclamation)
+    return Date.parse(watermark.syncedAt) >= retireCutoff; // retired devices stop blocking
+  });
+  const keep: TombstoneV6[] = [];
+  let dropped = 0;
+  for (const tombstone of tombstones) {
+    if (typeof tombstone.sequence !== "number" || !Number.isFinite(tombstone.sequence)) { keep.push(tombstone); continue; }
+    const confirmed = decisionSet.every((device) => (input.devices[device]?.cursors[tombstone.deviceId] ?? -1) >= tombstone.sequence);
+    if (confirmed) dropped += 1;
+    else keep.push(tombstone);
+  }
+  return { keep, dropped };
+}
+
+/** Best-effort device watermark publish (H2): report this device's installed
+ *  cursors on the head so tombstone GC can prove causal stability.  Writes
+ *  only when the watermark actually advanced (idle syncs stay zero-write); a
+ *  CAS conflict skips silently — the next sync republishes. */
+async function publishDeviceWatermark(client: GitHubV7Remote, deviceId: string, cursors: Record<string, number>): Promise<void> {
+  const read = await client.readHead();
+  if (!read.initialized) return;
+  const previous = read.head.devices?.[deviceId];
+  const advanced = Object.entries(cursors).some(([device, sequence]) => sequence > (previous?.cursors[device] ?? -1));
+  if (!advanced) return;
+  const nextHead: SyncHeadV7 = { ...read.head, devices: { ...(read.head.devices ?? {}), [deviceId]: { cursors, syncedAt: new Date().toISOString() } } };
+  await client.putHead(nextHead, read.cache); // conflict → throw → caller swallows
+}
+
+/** Content fingerprint of what the installed projection covers: the checkpoint
+ *  identity plus the per-device cursor watermark at install time.  Deliberately
+ *  excludes head.generatedAt and segment digests — a coalesce re-pack or a peer's
+ *  timestamp bump does not change the installed tables, so it must not trigger a
+ *  full re-install (the old headVersion did exactly that). */
+export function installFingerprint(cache: SyncV7HeadCache): string {
   const head = cache.head;
-  return cache.blobSha ?? `${head.generatedAt}:${head.checkpoint?.sha256 ?? "none"}:${head.segments.map((item) => item.sha256).join(":")}`;
+  const cursors = Object.keys(head.cursors).sort().map((device) => `${device}=${head.cursors[device]}`).join(",");
+  return `${head.checkpoint?.sha256 ?? "none"}:${cursors}`;
+}
+
+/** Pure install decision (unit-testable): reinstall only when the checkpoint
+ *  identity or cursor watermark moved, or when there are unseen remote changes /
+ *  blocked rebase outcomes that must be persisted. */
+export function projectionNeedsInstall(installedFingerprint: string | undefined, cache: SyncV7HeadCache, unseenCount: number, blockedCount: number): boolean {
+  return installedFingerprint !== installFingerprint(cache) || unseenCount > 0 || blockedCount > 0;
 }
 
 async function loadInstalledHead(settings: GitHubSettings): Promise<string | undefined> {
@@ -120,7 +189,7 @@ async function loadInstalledHead(settings: GitHubSettings): Promise<string | und
 }
 
 async function saveInstalledHead(settings: GitHubSettings, cache: SyncV7HeadCache): Promise<void> {
-  await dbV6.syncMeta.put({ key: cacheKey(settings, "installed-head"), value: headVersion(cache), updatedAt: new Date().toISOString() });
+  await dbV6.syncMeta.put({ key: cacheKey(settings, "installed-head"), value: installFingerprint(cache), updatedAt: new Date().toISOString() });
 }
 
 /**
@@ -205,16 +274,21 @@ async function maybeCoalesceHotWindow(client: GitHubV7Remote, cache: SyncV7HeadC
   const generation = head.generation + 1;
   const now = new Date().toISOString();
   const metadata = { vaultId: head.vaultId, createdAt: now, producer: "exam-study-app" };
+  // Head cursors keep the FULL watermark; each coalesced page records its own
+  // real coverage (cursorsFor of its events), so a peer can prove the page's
+  // events are already folded into its cached checkpoint and skip re-downloading
+  // after a re-pack — the previous full-watermark copy made that undecidable.
   const cursors = { ...head.cursors };
   const segmentFiles: SyncV7PublicationFile[] = [];
   const mergedSegments: SyncV7SegmentDescriptor[] = [];
   for (let index = 0; index < pages.length; index += 1) {
     const ordinal = index;
-    const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors, events: pages[index].events });
+    const pageCursors = cursorsFor(pages[index].events as Array<{ deviceId: string; localSequence: number }>);
+    const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors: pageCursors, events: pages[index].events });
     const digest = await sha256(segmentBytes);
     const path = descriptorPath(SYNC_V7_SEGMENT_PREFIX, digest);
     const base = await uploadedDescriptor(client, path, segmentBytes, "segment");
-    mergedSegments.push({ ...base, generation, ordinal, count: pages[index].events.length, cursors, metadata });
+    mergedSegments.push({ ...base, generation, ordinal, count: pages[index].events.length, cursors: pageCursors, metadata });
     segmentFiles.push({ path, bytes: segmentBytes, kind: "segment", uploaded: true });
   }
   const nextHead: SyncHeadV7 = { ...head, generatedAt: now, generation, segments: [...keep, ...mergedSegments], cursors };
@@ -235,13 +309,26 @@ async function projectionFromCheckpoint(checkpoint: SyncCheckpointV6): Promise<C
 async function checkpointFromProjection(
   projection: ChangeSetProjectionV7,
   cursors: Record<string, number>,
+  options?: { tombstoneGc?: { devices: Record<string, SyncV7DeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
 ): Promise<SyncCheckpointV6> {
+  // Causally-stable tombstone GC (H3/H4): reclaim tombstones every known
+  // device has observed; the compaction checkpoint is the only place old
+  // tombstones would otherwise persist forever.
+  let tombstones = projection.tombstones;
+  if (options?.tombstoneGc) {
+    const gc = reclaimableTombstonesV7(tombstones, options.tombstoneGc);
+    tombstones = gc.keep;
+  }
+  // Direct construction: the old spread of createSyncCheckpointV6() read and
+  // deep-cloned all 16 tables out of IndexedDB, then discarded every field —
+  // up to three wasted full snapshots per sync.
   const checkpoint: SyncCheckpointV6 = {
-    ...(await createSyncCheckpointV6()),
+    formatVersion: 6,
     generatedAt: new Date().toISOString(),
     cursors: { ...cursors },
     state: {
       ...projection,
+      tombstones,
       memberships: projection.memberships,
       imageAssets: projection.imageAssets.map((asset) => ({
         id: asset.id,
@@ -252,81 +339,116 @@ async function checkpointFromProjection(
         remote: asset.remote,
       })),
     },
-  };
-  checkpoint.counts = {
-    banks: projection.banks.length,
-    bankFolders: projection.bankFolders.length,
-    questions: projection.questions.length,
-    memberships: projection.memberships.length,
-    imageAssets: projection.imageAssets.length,
-    attempts: projection.attempts.length,
-    attemptStats: projection.attemptStats.length,
-    attemptDailyStats: projection.attemptDailyStats.length,
-    notes: projection.notes.length,
-    practiceRuns: projection.practiceRuns.length,
-    practiceRunStats: projection.practiceRunStats.length,
-    questionGroups: projection.questionGroups.length,
-    reviewRounds: projection.reviewRounds.length,
-    reviewRoundProgress: projection.reviewRoundProgress.length,
-    tombstones: projection.tombstones.length,
-    totalAttempts: projection.attempts.length,
-    totalPracticeRuns: projection.practiceRuns.length,
+    counts: {
+      banks: projection.banks.length,
+      bankFolders: projection.bankFolders.length,
+      questions: projection.questions.length,
+      memberships: projection.memberships.length,
+      imageAssets: projection.imageAssets.length,
+      attempts: projection.attempts.length,
+      attemptStats: projection.attemptStats.length,
+      attemptDailyStats: projection.attemptDailyStats.length,
+      notes: projection.notes.length,
+      practiceRuns: projection.practiceRuns.length,
+      practiceRunStats: projection.practiceRunStats.length,
+      questionGroups: projection.questionGroups.length,
+      reviewRounds: projection.reviewRounds.length,
+      reviewRoundProgress: projection.reviewRoundProgress.length,
+      tombstones: tombstones.length,
+      totalAttempts: projection.attempts.length,
+      totalPracticeRuns: projection.practiceRuns.length,
+    },
   };
   return checkpoint;
 }
 
 function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void): ChangeSetProjectionV7 {
-  let next = projection;
-  const every = Math.max(1, Math.floor(changes.length / 20));
-  for (let index = 0; index < changes.length; index += 1) {
-    next = reduceChangeSetV7(next, changes[index]);
-    if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
-  }
-  return next;
+  // Strict batch replay: compaction/restore must fail loudly on any bad record,
+  // but derived tables recompute + validate once instead of per record.
+  return replayChangeSetBatchV7(projection, changes, onStep, { onConflict: "throw" }).projection;
 }
 
 // Replay remote (committed) change-sets defensively. A single poisoned record — e.g. a
 // committed upsert for an entity already tombstoned and compacted into the checkpoint —
-// throws inside reduceChangeSetV7 (rejectTombstoned). Previously that rejected the ENTIRE
+// throws inside the batch applier (rejectTombstoned). Previously that rejected the ENTIRE
 // sync, so one such record permanently blocked a device from pulling anything. Skip poison
 // records instead: the checkpoint/tombstone state already won the conflict, so dropping the
 // conflicting replay is the correct end state. Skipped ids are surfaced (not silent) and the
 // records are still marked committed via the cursor watermark, so they won't re-pull forever.
 export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void): { projection: ChangeSetProjectionV7; skipped: string[] } {
-  let next = projection;
-  const skipped: string[] = [];
-  // Report at most ~24 times across the replay so a multi-thousand-change
-  // pull still advances the bar without spamming the callback per change.
-  const every = Math.max(1, Math.floor(changes.length / 24));
-  for (let index = 0; index < changes.length; index += 1) {
-    try {
-      next = reduceChangeSetV7(next, changes[index]);
-    } catch {
-      skipped.push(changes[index].id);
-    }
-    if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
-  }
-  return { projection: next, skipped };
+  return replayChangeSetBatchV7(projection, changes, onStep);
 }
 
 async function installProjection(projection: ChangeSetProjectionV7): Promise<void> {
-  const checkpoint = await checkpointFromProjection(projection, {});
-  await restoreV6Checkpoint(checkpoint.state);
+  // Restore directly from the projection state — building a full checkpoint
+  // envelope (with counts/cursors) just to unwrap it was pure overhead.
+  await restoreV6Checkpoint({
+    ...projection,
+    memberships: projection.memberships,
+    imageAssets: projection.imageAssets.map((asset) => ({
+      id: asset.id,
+      mimeType: asset.mimeType,
+      size: asset.size,
+      width: asset.width,
+      height: asset.height,
+      remote: asset.remote,
+    })),
+  });
 }
 
 function descriptorEqual(a: SyncV7Descriptor, b: SyncV7Descriptor): boolean {
   return a.path === b.path && a.sha256 === b.sha256 && a.size === b.size;
 }
 
-async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[]; reusedCache: boolean }> {
+/** Hot-window segments download concurrently (bounded): results are collected
+ *  by original index, so the replay order below stays the generation/ordinal
+ *  wire order regardless of completion order. */
+export const SYNC_V7_DOWNLOAD_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const run = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index]!, index);
+    }
+  };
+  const lanes = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: lanes }, run));
+  return results;
+}
+
+/** Exported for the install-fingerprint suite: drives the tiered cache-reuse
+ *  decision directly against a remote head + an arbitrary cached view. */
+export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[]; reusedCache: boolean }> {
   if (!head.checkpoint) throw new Error("v7 远端缺少初始化检查点。");
+  // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
+  //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
+  //           (original checkpoint + every segment replayed at save time) is a
+  //           valid base and costs zero network.  A segment is skipped when its
+  //           path is byte-identical to a cached one, OR when its page cursors
+  //           are entirely below the cached checkpoint's watermark — the second
+  //           rule is what survives a coalesce re-pack, where every path changes
+  //           but the events are the same.  (Previously ANY re-pack invalidated
+  //           the whole cache and re-downloaded the unchanged checkpoint.)
+  //  tier 2 — checkpoint descriptor changed (real compaction): download the new
+  //           checkpoint and every segment, replay from scratch.
   const cachedHead = cached?.head.head;
-  const canReuse = Boolean(cached && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint)
-    && cachedHead.segments.every((oldItem) => head.segments.some((item) => descriptorEqual(oldItem, item))));
+  const checkpointReusable = Boolean(cached && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint));
+  const canReuse = checkpointReusable;
+  const coveredCursors = checkpointReusable ? (cached!.checkpoint.cursors ?? {}) : {};
+  const cachedSegmentPaths = new Set((cachedHead?.segments ?? []).map((item) => item.path));
+  const segmentCovered = (descriptor: SyncV7SegmentDescriptor): boolean => {
+    if (cachedSegmentPaths.has(descriptor.path)) return true;
+    const cursors = descriptor.cursors ?? {};
+    return Object.keys(cursors).length > 0 && Object.entries(cursors).every(([device, sequence]) => sequence <= (coveredCursors[device] ?? -1));
+  };
   // Weight the download steps by their actual bytes so a many-segment pull
   // advances the bar per segment instead of stalling on one flat report.
   const checkpointBytes = canReuse ? 0 : head.checkpoint.size;
-  const pendingSegments = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal).filter((descriptor) => !(canReuse && cachedHead!.segments.some((item) => item.path === descriptor.path)));
+  const pendingSegments = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal).filter((descriptor) => !(canReuse && segmentCovered(descriptor)));
   const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + descriptor.size, 0);
   const totalBytes = Math.max(1, checkpointBytes + segmentBytes);
   let doneBytes = 0;
@@ -341,9 +463,12 @@ async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?:
     doneBytes += checkpointBytes;
     onStep?.(doneBytes / totalBytes, "检查点已下载");
   }
+  // Segments download through a bounded-concurrency pool: each lane fetches,
+  // decodes and digest-verifies whole segments; per-segment progress reports
+  // accumulate monotonic byte counts, so the bar never moves backwards.
+  let doneSegments = 0;
   const changes: ChangeSetV7[] = [];
-  for (let index = 0; index < pendingSegments.length; index += 1) {
-    const descriptor = pendingSegments[index];
+  const segmentChanges = await mapWithConcurrency(pendingSegments, SYNC_V7_DOWNLOAD_CONCURRENCY, async (descriptor) => {
     const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
     // Offloaded events arrive as thin stubs; resolve their bodies to full
     // change-sets before the integrity check + projection, so the reducer and
@@ -351,11 +476,14 @@ async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?:
     const resolved = await hydrateSyncV7Events(segment.events, (ref) => client.readImmutableContents(ref.path, { size: ref.size, sha256: ref.sha256 }));
     for (const change of resolved) {
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
-      changes.push(change);
     }
     doneBytes += descriptor.size;
-    onStep?.(doneBytes / totalBytes, `正在下载热窗口分段（${index + 1}/${pendingSegments.length}）`);
-  }
+    doneSegments += 1;
+    onStep?.(doneBytes / totalBytes, `正在下载热窗口分段（${doneSegments}/${pendingSegments.length}）`);
+    return resolved;
+  });
+  // Flatten in wire order (generation/ordinal) — completion order is irrelevant.
+  for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]!);
   return { checkpoint, changes, reusedCache: canReuse };
 }
 
@@ -364,7 +492,9 @@ async function uploadedDescriptor(client: GitHubV7Remote, path: string, bytes: U
   return { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size };
 }
 
-function cursorsFor(changes: readonly ChangeSetV7[]): Record<string, number> {
+/** Per-device max localSequence over the given events — the true coverage
+ *  watermark of a page, as opposed to the full head watermark. */
+function cursorsFor(changes: ReadonlyArray<{ deviceId: string; localSequence: number }>): Record<string, number> {
   const cursors: Record<string, number> = {};
   for (const change of changes) cursors[change.deviceId] = Math.max(cursors[change.deviceId] ?? 0, change.localSequence);
   return cursors;
@@ -421,7 +551,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const cached = await loadRemoteCache(settings);
     report(progress, "download", cached ? "正在检查 v7 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
     let downloadSteps = 0;
-    const downloaded = await downloadRemote(client, read.head, cached, (fraction, label) => {
+    const downloaded = await downloadRemoteV7(client, read.head, cached, (fraction, label) => {
       downloadSteps += 1;
       report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]);
     });
@@ -471,12 +601,12 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       }
     }
     const firstProjectionInstall = !installedHead;
-    const needsInstall = installedHead !== headVersion(read.cache) || unseen.length > 0 || blocked.length > 0;
+    const needsInstall = projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
     if (needsInstall) {
       report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
       await installProjection(rebasedProjection);
       report(progress, "merge", "本机数据已更新", bandPercent(bands.install, 1), bands.install[1]);
-      installedHead = headVersion(read.cache);
+      installedHead = installFingerprint(read.cache);
       await saveInstalledHead(settings, read.cache);
       if (firstProjectionInstall || !downloaded.reusedCache) receivedSnapshot = downloaded.checkpoint.counts;
       if (blocked.length) await dbV6.changeSets.bulkPut(blocked);
@@ -495,6 +625,8 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await saveInstalledHead(settings, read.cache);
       await saveInstalledCursors(settings, read.head.cursors);
       await pruneCommittedChangeSets(read.head.cursors);
+      // H2：游标前进才写设备水位（空闲同步零 head 写入）；冲突静默跳过。
+      try { await publishDeviceWatermark(client, getV6DeviceId(), read.head.cursors); } catch { /* best-effort */ }
       return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
@@ -533,11 +665,14 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const page = pages[index];
           const ordinal = baseOrdinal + index;
           const metadata = { vaultId, createdAt: now, producer: "exam-study-app" };
-          const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
+          // Page-local coverage cursors (see maybeCoalesceHotWindow): lets a peer
+          // skip this page when its events are below the peer's cached watermark.
+          const pageCursors = cursorsFor(page.events as Array<{ deviceId: string; localSequence: number }>);
+          const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
           const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
-          newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
+          newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: pageCursors, metadata });
           segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
           report(progress, "upload", `正在上传分段（${index + 1}/${pages.length}）`, bandPercent(bands.upload!, 0.3 + 0.4 * (index + 1) / pages.length), bandPercent(bands.upload!, 0.7));
         }
@@ -563,7 +698,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
         } else {
           report(progress, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", bandPercent(bands.upload!, 0.5), bandPercent(bands.upload!, 0.7));
-          const checkpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors });
+          const checkpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors }, { tombstoneGc: { devices: read.head.devices ?? {}, headCursors: { ...read.head.cursors, ...aggregateCursors }, selfDeviceId: getV6DeviceId() } });
           const bytes = encodeSyncCheckpointV6(checkpoint);
           const digest = await sha256(bytes);
           const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
@@ -607,6 +742,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           coalesced = true;
         }
       } catch { /* best-effort: a later sync will retry coalescing */ }
+      try { await publishDeviceWatermark(client, getV6DeviceId(), nextHead.cursors); } catch { /* best-effort */ }
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
       return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
@@ -642,7 +778,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
   const progress = monotonicProgress(callback);
   report(progress, "download", "正在从远端抓取完整 v7 数据", bandPercent(bands.download, 0.02), bands.download[1]);
-  const downloaded = await downloadRemote(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]));
+  const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]));
   const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]));
   report(progress, "merge", `正在写入 ${projection.questions.length.toLocaleString("zh-CN")} 道题到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
   await installProjection(projection);
@@ -737,3 +873,111 @@ export async function getSyncStats() { const checkpoint = await createSyncCheckp
 export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}) { await syncWithGitHub(settings, token); const rows = (await dbV6.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }
 
 export type { ChangeSetQueueRecordV7 };
+
+export interface MigrateVaultResult {
+  migrated: boolean;
+  /** Why no migration happened (migrated: false only). */
+  reason?: string;
+  /** True when the read-only verification phase completed successfully. */
+  verified: boolean;
+  /** Legacy tombstones dropped under the all-devices-rebuilt-from-remote premise. */
+  droppedTombstones: number;
+  hotEvents: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  /** Counts of the verified projection (verification / dry-run only). */
+  counts?: SyncCheckpointV6["counts"];
+}
+
+/**
+ * One-shot remote migration to the compressed storage envelope (Part G).
+ *
+ * Phase 1 — VERIFY (read-only; any failure aborts with ZERO remote changes):
+ * download head + checkpoint + every hot segment, check each object's sha256/
+ * size descriptor, verify every event digest, replay the projection and
+ * validate referential integrity.
+ *
+ * Phase 2 — MIGRATE: fold「checkpoint projection + all hot events」into ONE new
+ * checkpoint stored through the DEFLATE envelope (a controlled compaction),
+ * clear the hot window, CAS-publish the new head, then re-read the published
+ * checkpoint and re-verify its digest.  head.json stays plain JSON by design.
+ * Old immutable objects are left in place (harmless; content-addressed).
+ * Under the「all devices wiped and re-sync from remote」premise every legacy
+ * tombstone is dropped (nothing offline can resurrect an entity) and the count
+ * reported.  CAS conflicts re-read and retry (≤4); the migration never
+ * overwrites a concurrent write.
+ *
+ * Idempotent: an empty hot window (or an already-folded checkpoint) reports
+ * `migrated: false` with a reason and touches nothing.
+ */
+export async function migrateVaultToCompressed(settings: GitHubSettings, token: string, onProgress?: (label: string) => void, options?: SyncWithGitHubOptions & { verifyOnly?: boolean }): Promise<MigrateVaultResult> {
+  const client = remote(settings, token, options?.fetch);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const read = await client.readHead();
+    if (!read.initialized) throw new Error("远端还没有 v7 数据，无需迁移。");
+    const head = read.head;
+    if (!head.checkpoint) throw new Error("远端缺少检查点，无法迁移。");
+
+    // ---- Phase 1: read-only verification ----------------------------------
+    onProgress?.(`验证检查点（${(head.checkpoint.size / 1024).toFixed(0)} KiB）`);
+    const checkpoint = parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
+    const ordered = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal);
+    const changes: ChangeSetV7[] = [];
+    for (const descriptor of ordered) {
+      onProgress?.(`验证热窗口分段 ${descriptor.generation}/${descriptor.ordinal}`);
+      const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
+      const resolved = await hydrateSyncV7Events(segment.events, (ref) => client.readImmutableContents(ref.path, { size: ref.size, sha256: ref.sha256 }));
+      for (const change of resolved) {
+        if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败，迁移中止（远端未改动）。`);
+      }
+      changes.push(...resolved);
+    }
+    const replayed = replayRemoteResilient(await projectionFromCheckpoint(checkpoint), changes);
+    assertChangeSetProjectionV7(replayed.projection);
+
+    // ---- Verify-only dry run: report and touch nothing ---------------------
+    const hotBytes = ordered.reduce((sum, descriptor) => sum + descriptor.size, 0);
+    const checkpointBytes0 = head.checkpoint.size;
+    const dryRun = (reason: string): MigrateVaultResult => ({
+      migrated: false,
+      reason,
+      verified: true,
+      droppedTombstones: replayed.projection.tombstones.length,
+      hotEvents: changes.length,
+      bytesBefore: checkpointBytes0 + hotBytes,
+      bytesAfter: checkpointBytes0 + hotBytes,
+      counts: { ...checkpoint.counts, tombstones: replayed.projection.tombstones.length },
+    });
+    if (options?.verifyOnly) return dryRun("验证通过（只读，未改动远端）");
+
+    // ---- Idempotence: nothing to fold --------------------------------------
+    if (!head.segments.length) {
+      return { migrated: false, verified: true, reason: "热窗口为空，检查点保持原样（读取端自动兼容新旧格式）", droppedTombstones: 0, hotEvents: 0, bytesBefore: head.checkpoint.size, bytesAfter: head.checkpoint.size };
+    }
+
+    // ---- Phase 2: fold into one compressed checkpoint ----------------------
+    const bytesBefore = head.checkpoint.size + ordered.reduce((sum, descriptor) => sum + descriptor.size, 0);
+    const droppedTombstones = replayed.projection.tombstones.length;
+    // 全部设备将从远端重建（本地已清空）→ 存量墓碑无从复活，直接丢弃。
+    const compacted = { ...replayed.projection, tombstones: [] as ChangeSetProjectionV7["tombstones"] };
+    const generation = head.generation + 1;
+    const nextCursors = { ...head.cursors, ...cursorsFor(changes) };
+    const newCheckpoint = await checkpointFromProjection(compacted, nextCursors);
+    const bytes = encodeSyncCheckpointV6(newCheckpoint);
+    const digest = await sha256(bytes);
+    const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
+    onProgress?.(`上传压缩检查点（逻辑 ${(bytes.byteLength / 1024).toFixed(0)} KiB）`);
+    const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
+    const nextHead: SyncHeadV7 = { ...head, generatedAt: new Date().toISOString(), generation, checkpoint: { ...uploaded, generation }, segments: [], cursors: nextCursors };
+    const published = await client.putHead(nextHead, read.cache);
+    if (!published.ok) {
+      onProgress?.("远端索引被并发更新，重新校验后重试");
+      continue;
+    }
+    // 发布后复核：重读新检查点对象，确认 digest 与逻辑字节一致。
+    const verifyBytes = await client.readBlob({ ...uploaded, generation });
+    if (verifyBytes.byteLength !== bytes.byteLength || await sha256(verifyBytes) !== digest) throw new Error("迁移后复核失败：新检查点读回不一致。");
+    return { migrated: true, verified: true, droppedTombstones, hotEvents: changes.length, bytesBefore, bytesAfter: bytes.byteLength };
+  }
+  throw new Error("远端持续发生并发更新，迁移未执行（远端数据未损坏）。");
+}

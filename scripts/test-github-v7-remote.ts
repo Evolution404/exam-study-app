@@ -130,9 +130,9 @@ const retry = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes
 assert.equal(retry.idempotent, true);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("different"), kind: "segment" }), SyncV7BlobIntegrityError);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("v7 segment payload"), kind: "segment", sha256: digest("different") }), SyncV7BlobIntegrityError);
-const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, sha256: digest(segmentBytes) });
+const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, sha256: digest(segmentBytes), path: segmentPath });
 assert.deepEqual([...loaded], [...segmentBytes]);
-await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes) }), SyncV7BlobIntegrityError);
+await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
 
 const largeAsset = new Uint8Array(1_100_000); largeAsset.fill(0x5a);
 const assetPath = `${SYNC_V7_ASSET_PREFIX}${digest(largeAsset)}.webp`;
