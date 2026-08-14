@@ -68,3 +68,29 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # 部署后立即清空边缘缓存。部署过渡期 /assets/* 可能被当成 SPA 回退
+      # 返回 200 index.html，并因 _headers 的 immutable 规则被边缘缓存一年——
+      # 下次加载永久命中污染条目（本会话已中招一次）。purge 清掉任何此类残留。
+      # 尽力而为：token 若缺 Zone·Cache Purge 权限则打 warning，不使部署误报失败。
+      - name: Purge Cloudflare edge cache
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: |
+          ZONE_NAME="980923.xyz"
+          ZONE_ID=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" | jq -r '.result[0].id // empty')
+          if [ -z "$ZONE_ID" ]; then
+            echo "::warning::无法解析 zone ${ZONE_NAME} 的 id，跳过边缘缓存清理"
+            exit 0
+          fi
+          BODY=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything": true}' \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache")
+          if jq -e '.success' <<<"$BODY" >/dev/null; then
+            echo "已清除 Cloudflare 边缘缓存（zone ${ZONE_NAME}，purge_everything）"
+          else
+            MSG=$(jq -r '.errors[0].message' <<<"$BODY")
+            echo "::warning::缓存清理未生效：${MSG}（若为权限不足，请在 Cloudflare 给该 token 增加 Zone·Cache Purge 权限）"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
