@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, BarChart3, BookOpenCheck, Bookmark,
-  CalendarClock, CheckCircle2, ChevronRight, Clock3, Edit3, FileText, FileUp, Folder,
+  CalendarClock, CheckCircle2, ChevronRight, Clock3, Download, Edit3, FileText, FileUp, Folder,
   FolderOpen, FolderPlus, Gauge, GripVertical, History, Library, NotebookPen, Pencil,
   Plus, Search, Tag, Target, Trash2, X,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import { AppSelect } from "@/app/app-select";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { ModalPortal } from "@/app/modal-portal";
 import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteBankWithExclusiveQuestionsV6, deleteQuestionsV6, deleteQuestionV6, removeMembershipsV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
+import { buildQuestionBankXlsx, downloadExport, questionExportJson, sanitizeFileName } from "@/lib/question-bank-export";
 import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
 import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/v6-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
@@ -177,6 +178,7 @@ function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpe
 function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wrongRemovalStreak, onTab, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; progressScope: ProgressScope; progressScopeLabel: string; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
   const [questionPreset, setQuestionPreset] = useState<QuestionPreset>("all");
   const [activityRange, setActivityRange] = useState<ActivityRange>(7);
+  const [exportOpen, setExportOpen] = useState(false);
   const [referenceTime] = useState(Date.now);
   const defaultCustomFrom = new Date(referenceTime);
   defaultCustomFrom.setDate(defaultCustomFrom.getDate() - 6);
@@ -285,7 +287,7 @@ function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wro
     <div className="bank-detail-heading">
       <button onClick={onBack}><ArrowLeft size={16} />返回题库管理</button>
       <div><span className="section-kicker">{folderName}</span><h1>{bankTitle(bank)}</h1><p>{bank.description || "尚未填写题库说明"}</p></div>
-      <div><button onClick={onEdit}><Edit3 size={16} />编辑题库</button><button className="danger-button" onClick={onDelete}><Trash2 size={16} />删除题库</button></div>
+      <div><button onClick={() => setExportOpen(true)}><Download size={16} />导出题库</button><button onClick={onEdit}><Edit3 size={16} />编辑题库</button><button className="danger-button" onClick={onDelete}><Trash2 size={16} />删除题库</button></div>
     </div>
     <div className="bank-detail-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => onTab("overview")}>基本信息</button><button className={tab === "questions" ? "active" : ""} onClick={() => onTab("questions")}>试题管理 <span>{questions.length || bank.questionCount}</span></button></div>
     {tab === "overview" ? <div className="bank-dashboard">
@@ -350,7 +352,33 @@ function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wro
 
       <section className="bank-profile-details"><div><span>系统原名</span><strong>{bank.name}</strong></div><div><span>所属文件夹</span><strong>{folderName}</strong></div><div><span>导入日期</span><strong>{fullDate(bank.importedAt)}</strong></div><div><span>题库信息更新</span><strong>{formatDateTime(bank.updatedAt || bank.importedAt)}</strong></div></section>
     </div> : <QuestionManager bank={bank} questions={questions} attemptStats={attemptStats} notes={notes} roundProgress={roundProgress} progressScope={progressScope} progressScopeLabel={progressScopeLabel} preset={questionPreset} wrongRemovalStreak={wrongRemovalStreak} referenceTime={referenceTime} onPresetChange={setQuestionPreset} onNotice={onNotice} />}
+    {exportOpen && <BankExportDialog bank={bank} questions={questions} notes={notes} onClose={() => setExportOpen(false)} onNotice={onNotice} />}
   </>;
+}
+
+function BankExportDialog({ bank, questions, notes, onClose, onNotice }: { bank: Bank; questions: Question[]; notes: Note[]; onClose: () => void; onNotice: (message: string) => void }) {
+  const [busy, setBusy] = useState<"excel" | "json" | null>(null);
+  async function exportBank(format: "excel" | "json") {
+    setBusy(format);
+    try {
+      const noteMap = new Map(notes.map((note) => [note.questionId, note.content]));
+      const baseName = sanitizeFileName(bankTitle(bank));
+      if (format === "excel") {
+        const bytes = buildQuestionBankXlsx(questions, noteMap);
+        await downloadExport(`${baseName}.xlsx`, new Blob([bytes.slice()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      } else {
+        const text = questionExportJson(bankTitle(bank), questions, noteMap);
+        await downloadExport(`${baseName}.json`, new Blob([text], { type: "application/json" }));
+      }
+      onClose();
+      onNotice(`题库“${bankTitle(bank)}”已导出为 ${format === "excel" ? "Excel" : "JSON"}`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "导出失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+  return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="simple-dialog small"><header><div><span className="section-kicker">导出题库</span><h2>{bankTitle(bank)}</h2></div><button className="icon-button" aria-label="关闭导出" onClick={onClose}><X size={17} /></button></header><div><p className="export-summary">共 {questions.length.toLocaleString()} 道题，将导出题干、题型、答案、标签、解析与选项。</p></div><footer><button disabled={busy !== null} onClick={onClose}>取消</button><button disabled={busy !== null} onClick={() => void exportBank("excel")}>{busy === "excel" ? "正在导出…" : "导出 Excel"}</button><button className="primary" disabled={busy !== null} onClick={() => void exportBank("json")}>{busy === "json" ? "正在导出…" : "导出 JSON"}</button></footer></section></div></ModalPortal>;
 }
 
 function DashboardMetric({ icon, label, value, suffix, detail, tone, onClick }: { icon: ReactNode; label: string; value: number; suffix?: string; detail: string; tone?: "warning"; onClick: () => void }) {

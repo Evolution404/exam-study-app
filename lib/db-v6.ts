@@ -203,6 +203,8 @@ export interface QuestionDraftV6 {
   answer: string | string[];
   tags?: string[];
   favorite?: boolean;
+  /** Optional personal note/analysis, imported from a 解析 column or JSON field. */
+  note?: string;
 }
 
 export interface BankQuestionJoinV6 {
@@ -1017,7 +1019,8 @@ function importDraft(row: ImportedQuestionRowV6): QuestionDraftV6 | undefined {
   if (!answer.trim() || (type !== "计算" && options.length < 2)) return undefined;
   const rawTags = record.tags ?? record["标签"];
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
-  return { type, stem, options, answer, tags: uniqueStrings(tags) };
+  const note = rowString(record, "note", "analysis", "解析").trim();
+  return { type, stem, options, answer, tags: uniqueStrings(tags), ...(note ? { note } : {}) };
 }
 
 /**
@@ -1053,6 +1056,7 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
   };
   const seenInImport = new Set<string>();
   const materialised: Array<{ question: QuestionV6; membership: BankQuestionMembership }> = [];
+  const materialisedNotes: NoteV6[] = [];
   let sortOrder = await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).count();
   for (const draft of rows) {
     const provisional = questionFromDraft(makeV6Id("question"), draft, timestamp, deviceId);
@@ -1071,8 +1075,13 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
       deviceId,
     };
     materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId } });
+    // Imported 解析 becomes a personal note only when the question has none yet;
+    // an existing note is user-owned and must not be overwritten by re-import.
+    if (draft.note?.trim() && !(await dbV6.notes.get(question.id))) {
+      materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
+    }
   }
-  await dbV6.transaction("rw", [dbV6.banks, dbV6.questions, dbV6.bankQuestionMemberships, dbV6.tombstones, dbV6.changeSets], async () => {
+  await dbV6.transaction("rw", [dbV6.banks, dbV6.questions, dbV6.bankQuestionMemberships, dbV6.tombstones, dbV6.changeSets, dbV6.notes], async () => {
     await dbV6.banks.put(bank);
     for (const item of materialised) {
       // Existing content is user-owned and already semantically identical;
@@ -1080,6 +1089,7 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
       if (!(await dbV6.questions.get(item.question.id))) await dbV6.questions.put(item.question);
       await saveMembershipInTx(item.membership);
     }
+    for (const note of materialisedNotes) await dbV6.notes.put(note);
     const refreshed = await refreshBankQuestionCountInTx(bank.id);
     if (refreshed) await dbV6.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
     const bankSnapshot = (await dbV6.banks.get(bank.id))!;
@@ -1088,6 +1098,11 @@ export async function importQuestionBankV6(fileName: string, raw: unknown): Prom
     // object, so a large import no longer needs to be split into byte-bounded
     // chunks here; the whole import applies atomically on every device.
     await enqueueChangeSetV7([{ kind: "question.import", bank: bankSnapshot, questions: materialised.map((item) => item.question), memberships: materialised.map((item) => item.membership) }], timestamp);
+    if (materialisedNotes.length) {
+      // Imported notes publish as a follow-up batch; the queue planner orders
+      // them after question.import because each note depends on its question.
+      await enqueueChangeSetV7(materialisedNotes.map((note) => ({ kind: "note.upserted" as const, note })), timestamp);
+    }
   });
   return (await dbV6.banks.get(bank.id))!;
 }

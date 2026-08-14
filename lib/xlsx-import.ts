@@ -11,6 +11,7 @@ export interface ImportedQuestionRow {
   a: string[];
   type: QuestionType;
   tags: string[];
+  note?: string;
 }
 
 export interface XlsxValidationIssue {
@@ -221,19 +222,19 @@ function duplicateKey(stem: string, options: string[]) {
 export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] {
   const header = rows[0]?.map((value) => value?.trim() ?? "") ?? [];
   const issues: XlsxValidationIssue[] = [];
-  const requiredHeaders = ["题干", "题型", "答案", "标签"];
+  const requiredHeaders = ["题干", "题型", "答案", "标签", "解析"];
   if (requiredHeaders.some((value, index) => header[index] !== value)) {
-    throw new XlsxImportError("题库表头无效，请使用本项目下载的最新模板且不要修改第一行。", [{ row: 1, message: "A–D 列必须依次为“题干、题型、答案、标签”。" }]);
+    throw new XlsxImportError("题库表头无效，请使用本项目下载的最新模板且不要修改第一行。", [{ row: 1, message: "A–E 列必须依次为“题干、题型、答案、标签、解析”。" }]);
   }
   let declaredOptionColumns = 0;
-  for (let index = 4; index < header.length && header[index]; index += 1) {
+  for (let index = 5; index < header.length && header[index]; index += 1) {
     const expected = String.fromCharCode(65 + declaredOptionColumns);
     if (header[index].toUpperCase() !== expected) issues.push({ row: 1, message: `${expected} 选项列的表头必须是“${expected}”。` });
     declaredOptionColumns += 1;
   }
   if (declaredOptionColumns < 2) issues.push({ row: 1, message: "模板至少需要 A、B 两个选项列。" });
-  if (header.slice(4 + declaredOptionColumns).some(Boolean)) issues.push({ row: 1, message: "选项表头必须从 A 开始连续填写。" });
-  const usedOptionColumns = rows.slice(1).reduce((maximum, row) => Math.max(maximum, Math.max(0, (row?.length ?? 0) - 4)), 0);
+  if (header.slice(5 + declaredOptionColumns).some(Boolean)) issues.push({ row: 1, message: "选项表头必须从 A 开始连续填写。" });
+  const usedOptionColumns = rows.slice(1).reduce((maximum, row) => Math.max(maximum, Math.max(0, (row?.length ?? 0) - 5)), 0);
   const optionColumns = Math.max(declaredOptionColumns, usedOptionColumns);
   if (optionColumns > MAX_OPTIONS) issues.push({ row: 1, message: `每题最多支持 ${MAX_OPTIONS} 个选项。` });
   const questions: ImportedQuestionRow[] = [];
@@ -246,12 +247,13 @@ export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] 
     const typeText = source[1]?.trim() ?? "";
     const answerText = source[2]?.trim() ?? "";
     const tags = (source[3] ?? "").split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean);
+    const note = source[4]?.trim() ?? "";
     if (!stem) issues.push({ row, message: "题干不能为空。" });
     if (stem.startsWith("示例·") || stem.includes("（填好后删）")) issues.push({ row, message: "请删除模板自带的示例题。" });
     const type = (["单选", "多选", "判断", "计算"] as const).find((item) => item === typeText);
     if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断或计算。" });
     if (!answerText) issues.push({ row, message: "答案不能为空。" });
-    const optionCells = source.slice(4, 4 + optionColumns).map((value) => value?.trim() ?? "");
+    const optionCells = source.slice(5, 5 + optionColumns).map((value) => value?.trim() ?? "");
     const lastOption = optionCells.findLastIndex(Boolean);
     const options = lastOption >= 0 ? optionCells.slice(0, lastOption + 1) : [];
     let answer = answerText;
@@ -280,7 +282,7 @@ export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] 
       if (previous) issues.push({ row, message: `与第 ${previous} 行题目重复。` });
       else seen.set(key, row);
     }
-    questions.push({ q: stem, ans: answer, a: type === "计算" ? [] : options, type: type ?? "单选", tags });
+    questions.push({ q: stem, ans: answer, a: type === "计算" ? [] : options, type: type ?? "单选", tags, ...(note ? { note } : {}) });
   }
   if (!questions.length) issues.push({ row: 2, message: "题库中没有可导入的题目。" });
   if (questions.length > MAX_QUESTIONS) issues.push({ row: MAX_QUESTIONS + 2, message: `单次最多导入 ${MAX_QUESTIONS} 道题。` });

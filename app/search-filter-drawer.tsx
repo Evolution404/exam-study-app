@@ -33,7 +33,7 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[]): S
   return {
     bankScope: currentBankIds.length ? "current" : "all",
     customBankIds: [],
-    keywordMode: "plain",
+    keywordMode: "regex",
     status: "all",
     tag: "all",
     noteFilter: "all",
@@ -66,7 +66,7 @@ export function effectiveSearchProgressScope(filters: SearchFilters, settingScop
 export function countActiveSearchFilters(filters: SearchFilters): number {
   return [
     filters.bankScope !== "current",
-    filters.keywordMode !== "plain",
+    filters.keywordMode !== "regex",
     filters.status !== "all",
     filters.tag !== "all",
     filters.noteFilter !== "all",
@@ -181,8 +181,8 @@ export function SearchFilterDrawer({
             <section className="search-filter-section">
               <h3>内容匹配</h3>
               <div className="search-filter-segments" role="radiogroup" aria-label="关键词方式">
-                <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>
                 <button role="radio" aria-checked={filters.keywordMode === "regex"} className={filters.keywordMode === "regex" ? "active" : ""} onClick={() => patch({ keywordMode: "regex" })}>正则表达式</button>
+                <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>
               </div>
               <div className="search-filter-select-row">
                 <label htmlFor="search-filter-tag">用户标签<AppSelect id="search-filter-tag" ariaLabel="用户标签" value={filters.tag} onValueChange={(tag) => patch({ tag })} options={[{ value: "all", label: "全部标签" }, ...tags.map((tag) => ({ value: tag, label: tag }))]} /></label>
