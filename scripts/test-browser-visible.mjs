@@ -684,6 +684,224 @@ async function runMobile(page, mockServer) {
   await capture(page, contextName, "cross-device-bank-pulled");
 }
 
+async function runManagementQA(page, mockServer) {
+  const contextName = "management";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await expectText(page, "送电线路工-初级工");
+
+  // ===== 题库管理：文件夹 / 编辑 / 新增 / 批量 / 删除 =====
+  // 新建文件夹（FolderDialog 无 role="dialog"，用 .simple-dialog 定位）
+  await clickTextButton(page, "新建文件夹");
+  const folderDialog = page.locator(".simple-dialog").filter({ hasText: "文件夹名称" });
+  await folderDialog.waitFor({ state: "visible" });
+  await folderDialog.getByLabel("文件夹名称").fill("线路工题库");
+  await folderDialog.getByLabel("说明").fill("归类送电线路工相关题库");
+  await folderDialog.getByRole("button", { name: "保存文件夹" }).click();
+  await expectNotice(page, /文件夹“线路工题库”已保存/, "folder save notice");
+  await capture(page, contextName, "folder-created");
+
+  // 编辑题库：改名 + 移入文件夹
+  await page.locator("button.bank-management-main").filter({ hasText: "送电线路工-初级工" }).first().click();
+  await expectText(page, "范围表现（近 90 天）");
+  await clickTextButton(page, "编辑题库");
+  const editDialog = page.locator(".simple-dialog").filter({ hasText: "展示名称" });
+  await editDialog.waitFor({ state: "visible" });
+  await editDialog.getByLabel("展示名称").fill("送电线路工-基础");
+  await editDialog.getByLabel("所属文件夹").click();
+  await page.getByRole("option", { name: "线路工题库" }).click();
+  await editDialog.getByRole("button", { name: "保存题库" }).click();
+  await expectNotice(page, /已保存/, "bank edit notice");
+  await clickTextButton(page, "返回题库管理");
+  await expectText(page, "题库管理");
+  await expectText(page, "送电线路工-基础");
+  await expectText(page, "线路工题库");
+  await capture(page, contextName, "bank-edited");
+
+  // 新增题目（单选，答案默认 A）
+  await page.locator("button.bank-management-main").filter({ hasText: "送电线路工-基础" }).first().click();
+  await expectText(page, "范围表现（近 90 天）");
+  await clickTextButton(page, "试题管理");
+  await clickTextButton(page, "新增题目");
+  const addDialog = page.getByRole("dialog", { name: "新增题目" });
+  await addDialog.waitFor({ state: "visible" });
+  await addDialog.locator(".editor-rich-field textarea").first().fill("导线弧垂与安全距离的关系是什么？");
+  await addDialog.getByLabel("个人解析").fill("弧垂增大时安全距离应随之调整。");
+  await addDialog.locator('input[placeholder="例如：弧垂，易混，必背"]').fill("易混,巡视");
+  await addDialog.getByRole("button", { name: "添加题目" }).click();
+  await expectNotice(page, /新题目已添加/, "question add notice");
+  const addedStem = page.locator(".managed-question-list article").filter({ hasText: "导线弧垂与安全距离的关系" }).first();
+  await addedStem.waitFor({ state: "visible" });
+  await capture(page, contextName, "question-added");
+
+  // 编辑题目：改题干
+  await addedStem.getByRole("button", { name: "编辑题目" }).click();
+  const editQuestionDialog = page.getByRole("dialog", { name: "编辑题目" });
+  await editQuestionDialog.waitFor({ state: "visible" });
+  await editQuestionDialog.locator(".editor-rich-field textarea").first().fill("弧垂增大时安全距离如何变化？");
+  await clickTextButton(page, "保存修改");
+  await page.getByRole("dialog", { name: "编辑题目" }).waitFor({ state: "hidden" });
+  await expectNotice(page, /题目已保存/, "question edit notice");
+  await page.locator(".managed-question-list article").filter({ hasText: "弧垂增大时安全距离如何变化" }).first().waitFor({ state: "visible" });
+  await capture(page, contextName, "question-edited");
+
+  // 批量操作：勾选 2 道 → 从题库移除
+  const checkboxes = page.locator(".managed-question-check input");
+  assert.ok(await checkboxes.count() >= 2, "expected at least two managed questions");
+  await checkboxes.nth(0).check({ force: true });
+  await checkboxes.nth(1).check({ force: true });
+  await expectText(page, "已选 2 道");
+  await clickTextButton(page, "从题库移除");
+  await page.getByRole("alertdialog", { name: /从题库移除 \d+ 道题/ }).waitFor({ state: "visible" });
+  await clickTextButton(page, "批量移除");
+  await expectNotice(page, /移除 \d+ 道题/, "bulk remove notice");
+  await capture(page, contextName, "bulk-removed");
+
+  // 未归档题目：批量移除的 fixture 前两道应出现在这里
+  await clickTextButton(page, "返回题库管理");
+  await clickTextButton(page, "未归档题目");
+  await expectText(page, "未归档题目");
+  const unfiled = page.locator(".managed-question-list article").filter({ hasText: "导线的主要作用是什么" }).first();
+  await unfiled.waitFor({ state: "visible" });
+  await capture(page, contextName, "unfiled-questions");
+  await clickTextButton(page, "隐藏未归档");
+
+  // ===== 标签管理（知识整理 · 标签 tab） =====
+  await clickButton(page, "知识整理");
+  await expectText(page, "标签");
+  const tagCard = page.locator(".tag-card-grid article").filter({ hasText: "易混" }).first();
+  await tagCard.waitFor({ state: "visible" });
+  await tagCard.getByRole("button", { name: "练习" }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  await capture(page, contextName, "tag-practice");
+
+  // ===== 题组管理（知识整理 · 题组 tab，需在删除题库前：搜索依赖题库内题目） =====
+  await clickButton(page, "知识整理");
+  await expectText(page, "标签");
+  await clickTextButton(page, "题组");
+
+  // 新建题组：名称 / 说明 / 搜索添加题目 / 组内提示
+  await page.getByLabel("题组名称").fill("弧垂易混题组");
+  await page.getByLabel("题组说明").fill("弧垂与安全距离的对应关系容易混淆");
+  const groupSearch = page.locator(".group-search input");
+  await groupSearch.fill("巡视");
+  await page.waitForTimeout(600);
+  const firstResult = page.locator(".group-search-results button").first();
+  await firstResult.waitFor({ state: "visible" });
+  await firstResult.click();
+  await page.locator(".group-items input").first().fill("区分：弧垂增大时安全距离减小");
+  await clickTextButton(page, "保存题组");
+  await expectNotice(page, /题组“弧垂易混题组”已保存，共 1 道题/, "group save notice");
+  let groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组" }).first();
+  await groupCard.waitFor({ state: "visible" });
+  await capture(page, contextName, "group-created");
+
+  // 编辑题组：改名 + 删除单题
+  await groupCard.getByRole("button", { name: "编辑" }).click();
+  await page.getByLabel("题组名称").fill("弧垂易混题组-改");
+  await clickTextButton(page, "保存题组");
+  await expectNotice(page, /题组“弧垂易混题组-改”已保存/, "group rename notice");
+  groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组-改" }).first();
+  await groupCard.waitFor({ state: "visible" });
+  await capture(page, contextName, "group-renamed");
+
+  // 练习题组 → 答题并输入解析（note）→ 自动保存 → 暂停返回
+  await groupCard.getByRole("button", { name: "练习题组" }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await page.locator(".practice-progress span").filter({ hasText: "题组 · 弧垂易混题组-改" }).waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  const noteField = page.locator('textarea[placeholder="写下错因、口诀或区分条件…"]');
+  await noteField.fill("弧垂与安全距离成反比，做题时先判断弧垂方向。");
+  await expectText(page, "已自动保存");
+  await capture(page, contextName, "note-saved");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  await clickButton(page, "知识整理");
+  await clickTextButton(page, "题组");
+
+  // 删除题组
+  groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组-改" }).first();
+  await groupCard.getByRole("button", { name: "删除" }).click();
+  await page.getByRole("alertdialog", { name: "删除这个题组？" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "删除题组" }).click();
+  await expectNotice(page, /题组.*已删除/, "group delete notice");
+  await capture(page, contextName, "group-deleted");
+
+  // 删除题库（保留题目）——题组与解析都依赖题库内题目，故放在最后
+  await clickButton(page, "题库");
+  await expectText(page, "题库管理");
+  await page.locator("button.bank-management-main").filter({ hasText: "送电线路工-基础" }).first().click();
+  await expectText(page, "范围表现（近 90 天）");
+  await clickTextButton(page, "删除题库");
+  await page.getByRole("dialog", { name: "删除题库时如何处理题目？" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: /只删除题库，保留题目/ }).click();
+  await expectNotice(page, /已删除，题目已保留/, "bank delete keep questions");
+  await expectText(page, "题库管理");
+  await capture(page, contextName, "bank-deleted");
+
+  // ===== 事件管理（同步页） =====
+  await clickButton(page, "同步");
+  await expectText(page, "GitHub 同步");
+
+  // 刷新按钮
+  await clickTextButton(page, "刷新");
+  await page.locator(".sync-event-manager").waitFor({ state: "visible" });
+  await expectText(page, "等待同步");
+
+  // 展开事件详情
+  const eventList = page.locator(".sync-event-list");
+  await eventList.waitFor({ state: "visible" });
+  const firstEventSummary = page.locator(".sync-event-summary").first();
+  await firstEventSummary.waitFor({ state: "visible" });
+  await firstEventSummary.click();
+  await page.locator(".sync-event-detail").first().waitFor({ state: "visible" });
+  await page.locator(".sync-event-mutations").first().waitFor({ state: "visible" });
+  await capture(page, contextName, "event-detail");
+
+  // 编辑事件：展开的事件若可编辑则编辑业务字段
+  const editFieldButton = page.locator(".sync-event-detail").first().getByRole("button", { name: "编辑业务字段" });
+  if (await editFieldButton.count() > 0) {
+    await editFieldButton.click();
+    const editor = page.locator(".sync-event-editor");
+    await editor.waitFor({ state: "visible" });
+    await editor.getByRole("button", { name: "保存修改" }).click();
+    await editor.waitFor({ state: "hidden" });
+    await capture(page, contextName, "event-edited");
+  }
+
+  // 删除一个 pending 事件（确认对话框）
+  const deleteButton = page.locator(".sync-event-row-actions button[aria-label^='删除整组']").first();
+  if (await deleteButton.count() > 0) {
+    await deleteButton.click();
+    const deleteDialog = page.getByRole("alertdialog", { name: "删除整个 change-set？" });
+    await deleteDialog.waitFor({ state: "visible" });
+    await deleteDialog.getByRole("button", { name: "删除整组" }).click();
+    await deleteDialog.waitFor({ state: "hidden" });
+    await capture(page, contextName, "event-deleted");
+  }
+
+  // 批量抽屉（已同步/待同步分组）
+  const batchSections = page.locator(".sync-event-batch");
+  assert.ok(await batchSections.count() >= 1, "event manager must render batch sections");
+  await capture(page, contextName, "event-batches");
+
+  // 真实同步（mock 后端）：清空全部待同步事件
+  const mgmtFields = page.locator(".settings-card").first().locator("input");
+  await mgmtFields.nth(0).fill("qa");
+  await mgmtFields.nth(1).fill("mgmt-vault");
+  await mgmtFields.nth(3).fill("tok");
+  await mgmtFields.nth(4).fill(mockServer.url);
+  await clickTextButton(page, "立即同步");
+  await page.locator(".simple-dialog").filter({ hasText: "正在同步云端数据" }).waitFor({ state: "hidden", timeout: 20_000 }).catch(() => {});
+  const syncToast = await page.locator(".toast").first().innerText().catch(() => "");
+  assert.match(syncToast, /v7 同步完成/, "management events should sync successfully");
+  await capture(page, contextName, "events-synced");
+}
+
 async function main() {
   await mkdir(runRoot, { recursive: true });
   await startDevServerIfNeeded();
@@ -710,6 +928,13 @@ async function main() {
     mobile.setDefaultNavigationTimeout(25_000);
     await runMobile(mobile, mockServer);
     await mobileContext.close();
+
+    const mgmtContext = await browser.newContext({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1 });
+    const mgmt = await mgmtContext.newPage();
+    mgmt.setDefaultTimeout(10_000);
+    mgmt.setDefaultNavigationTimeout(25_000);
+    await runManagementQA(mgmt, mockServer);
+    await mgmtContext.close();
   } finally {
     await mockServer.close();
     await browser.close();

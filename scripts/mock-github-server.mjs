@@ -71,9 +71,12 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
     blobs.clear();
   }
 
-  /** Logical content paths currently stored, for offload/round-trip assertions. */
+  /**
+   * Logical content paths currently stored (repo-prefixed internally, but the
+   * prefix is stripped so assertions keep using `sync/v7/...`).
+   */
   function contentPaths() {
-    return [...paths.keys()];
+    return [...paths.keys()].map((key) => key.replace(/^[^/]+\/[^/]+\//, ""));
   }
 
   const server = createServer(async (req, res) => {
@@ -97,12 +100,15 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
       }
 
       // GET/PUT /repos/:o/:r/contents/:path[?ref=branch]
+      // Storage keys are repo-prefixed so distinct owner/repo pairs (different
+      // vaults) never share files — mirroring real GitHub's per-repo namespaces.
       const contentMatch = CONTENT_RE.exec(pathname);
       if (contentMatch) {
+        const storageKey = `${contentMatch[1]}/${contentMatch[2]}/${contentMatch[3].split("/").map(decodeURIComponent).join("/")}`;
         const logicalPath = contentMatch[3].split("/").map(decodeURIComponent).join("/");
 
         if (req.method === "GET") {
-          const sha = paths.get(logicalPath);
+          const sha = paths.get(storageKey);
           if (!sha) return sendJson(res, 404, { message: "Not Found" });
           const buffer = blobs.get(sha);
           return sendJson(res, 200, {
@@ -119,8 +125,8 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
           const body = JSON.parse((await readBody(req)).toString("utf8"));
           const buffer = Buffer.from(body.content, "base64");
           const sha = sha1Hex(buffer);
-          const existed = paths.has(logicalPath);
-          paths.set(logicalPath, sha);
+          const existed = paths.has(storageKey);
+          paths.set(storageKey, sha);
           blobs.set(sha, buffer);
           return sendJson(res, existed ? 200 : 201, {
             content: { sha, path: logicalPath, size: buffer.length },
