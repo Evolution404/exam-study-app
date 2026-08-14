@@ -141,9 +141,9 @@
   color: var(--color-text);
   background: transparent;
   font-family: inherit;
-  /* 与全局搜索框一致：固定正常字号，否则继承 settings-card 的小字号，
+  /* 与全局搜索框一致：显式固定字号，否则继承 settings-card 的小字号，
      44px 高的容器里光标会缩成一小截 */
-  font-size: 16px;
+  font-size: 14px;
 }
 
 /* settings-card 内的标准 input 样式会设置边框与内边距；搜索框容器已提供边框，这里需覆盖回来 */
