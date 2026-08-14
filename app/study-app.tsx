@@ -17,6 +17,7 @@ import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, su
 import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
 import type { SearchPracticeOptions } from "@/app/search-view";
 import type { BankQuickMode } from "@/app/bank-library-view";
+import { useSmoothProgress } from "@/app/use-smooth-progress";
 import { QuickSearch } from "@/app/quick-search";
 import { ContentBlockRenderer } from "@/app/content-block-renderer";
 import { ProgressScopeSetting } from "@/app/progress-scope-setting";
@@ -327,6 +328,7 @@ export function StudyApp() {
   const [quickSyncing, setQuickSyncing] = useState(false);
   const [quickRestoring, setQuickRestoring] = useState(false);
   const [quickSyncProgress, setQuickSyncProgress] = useState<SyncProgress>();
+  const smoothQuickSyncProgress = useSmoothProgress(quickSyncProgress);
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
   const [syncDrawerOpen, setSyncDrawerOpen] = useState(false);
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
@@ -1054,7 +1056,7 @@ export function StudyApp() {
           <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" title="单击立即同步；长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
         </header>
 
-        {quickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quickSyncProgress.percent}><span>{quickSyncProgress.label}<em>{quickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${quickSyncProgress.percent}%` }} /></i></div>}
+        {smoothQuickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={smoothQuickSyncProgress.percent}><span>{smoothQuickSyncProgress.label}<em>{smoothQuickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${smoothQuickSyncProgress.percent}%` }} /></i></div>}
 
         {notice && <div className={`toast ${classifyNoticeTone(notice)}`}><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept={QUESTION_BANK_FILE_ACCEPT} hidden onChange={(event) => onImport(event.target.files?.[0])} />
@@ -1073,8 +1075,8 @@ export function StudyApp() {
           )}
         </Suspense></div>
       </section>
-      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={quickSyncProgress} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
-      <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
+      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={smoothQuickSyncProgress ?? quickSyncProgress} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
+      <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? smoothQuickSyncProgress ?? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
       <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">

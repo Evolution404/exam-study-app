@@ -33,7 +33,7 @@ assert.match(styles, /\.editor-backdrop \{ position:fixed; inset:0; z-index:120;
 assert.match(styles, /@media\(max-width:760px\)\{\.restore-card-actions\{grid-column:1\/-1;width:100%;display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/, "mobile restore actions must occupy their own full-width row");
 assert.ok(confirmDialog.includes("dialog-progress"), "busy confirmation dialogs must render operation progress");
 assert.ok(studyApp.includes("top-sync-progress"), "top-bar sync must expose page-level progress");
-assert.ok(syncView.includes("progress={operationProgress}"), "sync view must show progress in a modal");
+assert.ok(syncView.includes("progress={smoothProgress}"), "sync view must show (smoothed) progress in a modal");
 assert.ok(credentials.includes("localStorage.setItem(tokenKey, token)"), "GitHub token must survive a closed mobile tab");
 assert.match(styles, /\.mobile-sync-settings\{display:block/, "mobile configuration must include sync settings");
 assert.match(styles, /\.desktop-shortcut-settings[^}]*display:none!important/, "mobile configuration must hide keyboard shortcuts");

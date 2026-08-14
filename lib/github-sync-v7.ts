@@ -30,13 +30,46 @@ import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
 import { hydrateSyncV7Events, offloadSyncV7Events } from "./sync-v7-payload";
 import type { GitHubSettings } from "./types";
 
-export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number };
+export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;
+
+/**
+ * Phase percent bands for one sync run, laid out over 0–100 so the bar always
+ * advances inside the phase that is actually doing the work.  The layout
+ * adapts to whether a push is expected: a pull-only run stretches download /
+ * merge / install instead of reserving an upload band it will never enter.
+ */
+interface SyncBands { download: readonly [number, number]; merge: readonly [number, number]; install: readonly [number, number]; upload?: readonly [number, number]; cache: readonly [number, number]; }
+
+function syncBands(hasPush: boolean): SyncBands {
+  return hasPush
+    ? { download: [6, 34], merge: [34, 46], install: [46, 56], upload: [56, 92], cache: [92, 98] }
+    : { download: [6, 50], merge: [50, 70], install: [70, 92], cache: [92, 98] };
+}
+
+function bandPercent(band: readonly [number, number], fraction: number): number {
+  return band[0] + (band[1] - band[0]) * Math.max(0, Math.min(1, fraction));
+}
+
+/**
+ * Wrap a callback so a run's reported percent never moves backwards — a CAS
+ * retry restarts the download/upload steps, and the bar should hold its
+ * position (labels still update) instead of snapping back to the start.
+ */
+function monotonicProgress(callback?: SyncProgressCallback): SyncProgressCallback | undefined {
+  if (!callback) return undefined;
+  let floor = 0;
+  return (progress) => {
+    const percent = Math.max(progress.percent, floor);
+    floor = percent;
+    callback({ ...progress, percent });
+  };
+}
 
 const CACHE_PREFIX = "v7:sync:";
 
-function report(callback: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number): void {
-  callback?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))) });
+function report(callback: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number, to?: number): void {
+  callback?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))), ...(to !== undefined ? { to: Math.max(0, Math.min(100, Math.round(to))) } : {}) });
 }
 
 function branch(settings: GitHubSettings): string { return settings.branch?.trim() || "main"; }
@@ -161,7 +194,7 @@ async function maybeCoalesceHotWindow(client: GitHubV7Remote, cache: SyncV7HeadC
   const keep = ordered.slice(0, suffixStart);
   const smalls = ordered.slice(suffixStart);
   if (smalls.length < 2) return null;
-  report(callback, "compact", `正在合并 ${smalls.length} 个小分段（保留 ${keep.length} 个大分段）`, 90);
+  report(callback, "compact", `正在合并 ${smalls.length} 个小分段（保留 ${keep.length} 个大分段）`, 94, 98);
   const events: Array<Record<string, unknown>> = [];
   for (const descriptor of smalls) {
     const segment = decodeSyncV7Segment<Record<string, unknown>>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
@@ -242,9 +275,13 @@ async function checkpointFromProjection(
   return checkpoint;
 }
 
-function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[]): ChangeSetProjectionV7 {
+function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void): ChangeSetProjectionV7 {
   let next = projection;
-  for (const change of changes) next = reduceChangeSetV7(next, change);
+  const every = Math.max(1, Math.floor(changes.length / 20));
+  for (let index = 0; index < changes.length; index += 1) {
+    next = reduceChangeSetV7(next, changes[index]);
+    if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
+  }
   return next;
 }
 
@@ -255,15 +292,19 @@ function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly 
 // records instead: the checkpoint/tombstone state already won the conflict, so dropping the
 // conflicting replay is the correct end state. Skipped ids are surfaced (not silent) and the
 // records are still marked committed via the cursor watermark, so they won't re-pull forever.
-export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[]): { projection: ChangeSetProjectionV7; skipped: string[] } {
+export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void): { projection: ChangeSetProjectionV7; skipped: string[] } {
   let next = projection;
   const skipped: string[] = [];
-  for (const change of changes) {
+  // Report at most ~24 times across the replay so a multi-thousand-change
+  // pull still advances the bar without spamming the callback per change.
+  const every = Math.max(1, Math.floor(changes.length / 24));
+  for (let index = 0; index < changes.length; index += 1) {
     try {
-      next = reduceChangeSetV7(next, change);
+      next = reduceChangeSetV7(next, changes[index]);
     } catch {
-      skipped.push(change.id);
+      skipped.push(changes[index].id);
     }
+    if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
   }
   return { projection: next, skipped };
 }
@@ -277,16 +318,32 @@ function descriptorEqual(a: SyncV7Descriptor, b: SyncV7Descriptor): boolean {
   return a.path === b.path && a.sha256 === b.sha256 && a.size === b.size;
 }
 
-async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[]; reusedCache: boolean }> {
+async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV6; changes: ChangeSetV7[]; reusedCache: boolean }> {
   if (!head.checkpoint) throw new Error("v7 远端缺少初始化检查点。");
   const cachedHead = cached?.head.head;
   const canReuse = Boolean(cached && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint)
     && cachedHead.segments.every((oldItem) => head.segments.some((item) => descriptorEqual(oldItem, item))));
-  const checkpoint = canReuse ? cached!.checkpoint : parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
-  const cachedPaths = new Set(canReuse ? cachedHead!.segments.map((item) => item.path) : []);
+  // Weight the download steps by their actual bytes so a many-segment pull
+  // advances the bar per segment instead of stalling on one flat report.
+  const checkpointBytes = canReuse ? 0 : head.checkpoint.size;
+  const pendingSegments = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal).filter((descriptor) => !(canReuse && cachedHead!.segments.some((item) => item.path === descriptor.path)));
+  const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + descriptor.size, 0);
+  const totalBytes = Math.max(1, checkpointBytes + segmentBytes);
+  let doneBytes = 0;
+  let checkpoint: SyncCheckpointV6;
+  if (canReuse) {
+    checkpoint = cached!.checkpoint;
+  } else {
+    onStep?.(0.01, `正在下载检查点（${(head.checkpoint.size / (1024 * 1024)).toFixed(1)} MB）`);
+    checkpoint = parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
+  }
+  if (!canReuse) {
+    doneBytes += checkpointBytes;
+    onStep?.(doneBytes / totalBytes, "检查点已下载");
+  }
   const changes: ChangeSetV7[] = [];
-  for (const descriptor of [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal)) {
-    if (cachedPaths.has(descriptor.path)) continue;
+  for (let index = 0; index < pendingSegments.length; index += 1) {
+    const descriptor = pendingSegments[index];
     const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
     // Offloaded events arrive as thin stubs; resolve their bodies to full
     // change-sets before the integrity check + projection, so the reducer and
@@ -296,6 +353,8 @@ async function downloadRemote(client: GitHubV7Remote, head: SyncHeadV7, cached?:
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
       changes.push(change);
     }
+    doneBytes += descriptor.size;
+    onStep?.(doneBytes / totalBytes, `正在下载热窗口分段（${index + 1}/${pendingSegments.length}）`);
   }
   return { checkpoint, changes, reusedCache: canReuse };
 }
@@ -315,7 +374,7 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const client = remote(settings, token, fetchImpl);
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
-  report(callback, "prepare", "正在初始化 v7 热窗口", 8);
+  report(callback, "prepare", "正在初始化 v7 热窗口", 4, 6);
   const checkpoint = await createSyncCheckpointV6();
   const bytes = encodeSyncCheckpointV6(checkpoint);
   const digest = await sha256(bytes);
@@ -347,20 +406,29 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
 
 async function syncWithGitHubInternal(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
   const client = remote(settings, token, options?.fetch);
+  const progress = monotonicProgress(callback);
+  report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initialize(settings, token, callback, options?.fetch); read = await client.readHead(); }
   if (!read.initialized) throw new Error("无法初始化 v7 远端。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpointV6["counts"] | undefined;
+  // Band layout is decided once per run from whether there is anything to push,
+  // so the bar spans 0–100 over the phases this run will actually enter.
+  const bands = syncBands((await listChangeSetsV7(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);
-    report(callback, "download", cached ? "正在检查 v7 热窗口增量" : "正在下载远端完整数据", 18);
-    const downloaded = await downloadRemote(client, read.head, cached);
-    const remoteReplay = replayRemoteResilient(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
+    report(progress, "download", cached ? "正在检查 v7 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
+    let downloadSteps = 0;
+    const downloaded = await downloadRemote(client, read.head, cached, (fraction, label) => {
+      downloadSteps += 1;
+      report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]);
+    });
+    if (!downloadSteps) report(progress, "download", "热窗口没有新数据", bands.download[1], bands.download[1]);
+    const remoteReplay = replayRemoteResilient(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
     const remoteProjection = remoteReplay.projection;
-    if (remoteReplay.skipped.length) report(callback, "merge", `已跳过 ${remoteReplay.skipped.length} 组与已删数据冲突的远端变更`, 42);
-    report(callback, "merge", `正在合并 ${remoteProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${remoteProjection.attempts.length.toLocaleString("zh-CN")} 条作答`, 42);
+    if (remoteReplay.skipped.length) report(progress, "merge", `已跳过 ${remoteReplay.skipped.length} 组与已删数据冲突的远端变更`, bandPercent(bands.merge, 0.5), bands.merge[1]);
     const remoteById = new Map(downloaded.changes.map((change) => [change.id, change]));
     const remoteCursors = read.head.cursors;
     const interruptedClaims = (await listChangeSetsV7(["claimed"])).map((record) => {
@@ -386,9 +454,14 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const localPending = await listChangeSetsV7(["pending"]);
     let rebasedProjection = remoteProjection;
     const blocked: ChangeSetQueueRecordV7[] = [];
-    for (const record of localPending) {
+    const localEvery = Math.max(1, Math.floor(localPending.length / 12));
+    for (let localIndex = 0; localIndex < localPending.length; localIndex += 1) {
+      const record = localPending[localIndex];
       try {
         rebasedProjection = reduceChangeSetV7(rebasedProjection, record);
+        if ((localIndex + 1) % localEvery === 0 || localIndex + 1 === localPending.length) {
+          report(progress, "merge", `正在归并本机待上传变更（${localIndex + 1}/${localPending.length}）`, bandPercent(bands.merge, 0.5 + 0.5 * (localIndex + 1) / localPending.length), bands.merge[1]);
+        }
       } catch (error) {
         blocked.push({
           ...record,
@@ -400,7 +473,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const firstProjectionInstall = !installedHead;
     const needsInstall = installedHead !== headVersion(read.cache) || unseen.length > 0 || blocked.length > 0;
     if (needsInstall) {
+      report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
       await installProjection(rebasedProjection);
+      report(progress, "merge", "本机数据已更新", bandPercent(bands.install, 1), bands.install[1]);
       installedHead = headVersion(read.cache);
       await saveInstalledHead(settings, read.cache);
       if (firstProjectionInstall || !downloaded.reusedCache) receivedSnapshot = downloaded.checkpoint.counts;
@@ -408,20 +483,22 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await dbV6.changeSets.bulkPut(unseen.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
       pulled += unseen.length;
     }
+    if (!needsInstall && !unseen.length) report(progress, "merge", "远端与本机已一致，无需合并", bands.merge[1], bands.merge[1]);
     const claim = await claimPendingChangeSetsV7();
     if (!claim.records.length) {
+      report(progress, "cache", "正在更新本机缓存", bandPercent(bands.cache, 0.4), bands.cache[1]);
       await saveHeadCache(settings, read.cache);
       await saveRemoteCache(settings, await checkpointFromProjection(remoteProjection, read.head.cursors), read.cache);
       await saveQueueBase(remoteProjection);
       const remaining = (await listChangeSetsV7(["blocked"])).length;
-      report(callback, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
+      report(progress, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
       await saveInstalledHead(settings, read.cache);
       await saveInstalledCursors(settings, read.head.cursors);
       await pruneCommittedChangeSets(read.head.cursors);
       return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
-      report(callback, "upload", `正在上传 ${claim.records.length} 组变更`, 62);
+      report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.02), bandPercent(bands.upload!, 0.12));
       const generation = read.head.generation + 1;
       const baseOrdinal = read.head.segments.filter((item) => item.generation === generation).length;
       const now = new Date().toISOString();
@@ -431,7 +508,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 256 KiB inline-event ceiling. Offload any oversized body to a
       // content-addressed immutable object and leave a thin stub in its place;
       // the object files are published alongside the segments in the same plan.
+      report(progress, "upload", `正在整理 ${events.length} 组变更`, bandPercent(bands.upload!, 0.1), bandPercent(bands.upload!, 0.2));
       const offloaded = await offloadSyncV7Events(events as Record<string, unknown>[]);
+      if (offloaded.objects.length) report(progress, "upload", `已卸载 ${offloaded.objects.length} 个大对象`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.3));
       const objectFiles: SyncV7PublicationFile[] = offloaded.objects;
       // Paginate the (now stub-slender) events into one or more 1 MiB segments
       // that share one generation and publish together.
@@ -460,6 +539,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
           newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
           segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
+          report(progress, "upload", `正在上传分段（${index + 1}/${pages.length}）`, bandPercent(bands.upload!, 0.3 + 0.4 * (index + 1) / pages.length), bandPercent(bands.upload!, 0.7));
         }
       };
       if (!compaction.required) await uploadNewSegments();
@@ -476,13 +556,13 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         try {
           compactionProjection = replayInWireOrder(remoteProjection, claim.records);
         } catch (error) {
-          report(callback, "compact", `压实重放失败，退回分段推送：${error instanceof Error ? error.message : String(error)}`, 76);
+          report(progress, "compact", `压实重放失败，退回分段推送：${error instanceof Error ? error.message : String(error)}`, bandPercent(bands.upload!, 0.45), bandPercent(bands.upload!, 0.7));
         }
         if (!compactionProjection) {
           await uploadNewSegments();
           nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
         } else {
-          report(callback, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", 78);
+          report(progress, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", bandPercent(bands.upload!, 0.5), bandPercent(bands.upload!, 0.7));
           const checkpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors });
           const bytes = encodeSyncCheckpointV6(checkpoint);
           const digest = await sha256(bytes);
@@ -498,7 +578,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       }
       const nextHead: SyncHeadV7 = { ...read.head, generatedAt: now, generation, checkpoint: checkpointDescriptor, segments: nextSegments, cursors: { ...read.head.cursors, ...aggregateCursors } };
       const plan = createSyncV7PublicationPlan({ expectedHead: read.head, expectedHeadSha: read.cache.blobSha, head: nextHead, segments: segmentFiles, ...(objectFiles.length ? { objects: objectFiles } : {}), ...(checkpointFile ? { checkpoint: checkpointFile, compaction } : {}) });
+      report(progress, "upload", "正在发布新版索引", bandPercent(bands.upload!, 0.72), bandPercent(bands.upload!, 0.8));
       const committed = await client.publish(plan);
+      if (committed.ok) report(progress, "upload", "远端已接受本次变更", bandPercent(bands.upload!, 0.8), bandPercent(bands.upload!, 0.88));
       if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v7 远端索引丢失。"); continue; }
       await commitChangeSetClaimV7(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
       // B3: reuse the already-validated rebasedProjection (createdAt order) rather
@@ -506,6 +588,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // mutation pair would throw here (rejectTombstoned) after the push already
       // committed, leaving the local queue-base stale and the sync in an error state.
       const committedProjection = rebasedProjection;
+      report(progress, "cache", "正在更新本机缓存", bandPercent(bands.upload!, 0.86), bands.cache[1]);
       await saveQueueBase(committedProjection);
       await saveHeadCache(settings, committed.cache);
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
@@ -525,7 +608,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         }
       } catch { /* best-effort: a later sync will retry coalescing */ }
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
-      report(callback, "complete", "同步完成", 100);
+      report(progress, "complete", "同步完成", 100);
       return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaimV7(claim.claimId); throw error; }
   }
@@ -556,10 +639,14 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   // explicitly discard) before overwriting from remote.
   const unsynced = await listChangeSetsV7(["pending", "blocked", "claimed"]);
   if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复远程历史。`);
-  report(callback, "download", "正在从远端抓取完整 v7 数据", 20);
-  const downloaded = await downloadRemote(client, read.head);
-  const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
+  const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
+  const progress = monotonicProgress(callback);
+  report(progress, "download", "正在从远端抓取完整 v7 数据", bandPercent(bands.download, 0.02), bands.download[1]);
+  const downloaded = await downloadRemote(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]));
+  const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]));
+  report(progress, "merge", `正在写入 ${projection.questions.length.toLocaleString("zh-CN")} 道题到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
   await installProjection(projection);
+  report(progress, "cache", "正在重建本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
   await dbV6.changeSets.clear();
   await dbV6.changeSets.bulkPut(downloaded.changes.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
   await saveHeadCache(settings, read.cache);
@@ -632,10 +719,10 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
 }
 
 export async function restoreLastRemoteCache(settings: GitHubSettings, callback?: SyncProgressCallback) {
-  report(callback, "prepare", "正在检查本地 v7 恢复记录", 8);
+  report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
   const value = (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache } | undefined;
   if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
-  report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 45);
+  report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
   await restoreV6Checkpoint(value.checkpoint.state);
   await dbV6.changeSets.clear();
   await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
