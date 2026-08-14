@@ -410,11 +410,76 @@ export function StudyApp() {
   const activeQuestion = useLiveQuery(async () => {
     if (!activeQuestionId) return undefined;
     const view = await getQuestionViewV6(activeQuestionId, practiceSession?.bankId);
-    if (!view) return undefined;
+    // null = 已解析但题目不存在（本机或后台同步删除），区别于加载中的 undefined，
+    // 供下方「跳过已删题」effect 判定当前题已消失。
+    if (!view) return null;
     const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
     const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
     return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
   }, [activeQuestionId, practiceSession?.bankId]);
+
+  // 练习中当前题被删除（本机管理或后台同步拉取）时自动跳过；若练习内已无存活的题，
+  // 则保存已作答并结束进入结果页。删除操作已把该题从持久化 run 里剔除，这里只需对齐内存会话。
+  useEffect(() => {
+    if (view !== "practice" || !practiceSession || activeQuestion !== null || !activeQuestionId) return;
+    const deletedId = activeQuestionId;
+    const survivors = practiceSession.questionIds.filter((id) => id !== deletedId);
+    // activeQuestion 用 useLiveQuery 解析（异步）；session 刚被本 effect 裁剪后到 liveQuery
+    // 重解析之间存在窗口，此时 activeQuestion 仍为 null 但题目其实还在。直接查 DB 确认真伪，
+    // 避免把「liveQuery 尚未刷新」误判为删除，导致连环跳过把整组题清空。
+    let cancelled = false;
+    void (async () => {
+      const stillExists = await getQuestionViewV6(deletedId, practiceSession.bankId);
+      if (cancelled || stillExists) return; // 题目还在，只是 liveQuery 没刷新，不跳过
+      if (!survivors.length) {
+        setNotice("练习中的题目已被删除，本次练习结束");
+        const answers = Object.fromEntries(Object.entries(practiceSession.answers).filter(([id]) => id !== deletedId));
+        const runId = practiceSession.runId;
+        setPracticeSession(null);
+        void setPracticeRunStatus(runId, "completed", answers).then(() => {
+          setResultRunId(runId);
+          setFinishPrompt(undefined);
+          setView("practiceResult");
+        });
+        return;
+      }
+      changeSession((session) => {
+        if (!session.questionIds.includes(deletedId)) return session;
+        const answers = Object.fromEntries(Object.entries(session.answers).filter(([id]) => id !== deletedId));
+        const questionTypes = Object.fromEntries(Object.entries(session.questionTypes ?? {}).filter(([id]) => id !== deletedId));
+        const nextQuestionIds = session.questionIds.filter((id) => id !== deletedId);
+        let lastAnsweredIndex = -1;
+        nextQuestionIds.forEach((id, index) => { if (session.answers[id]?.submitted) lastAnsweredIndex = index; });
+        return {
+          ...session,
+          questionIds: nextQuestionIds,
+          answers,
+          questionTypes,
+          currentIndex: Math.min(session.currentIndex, nextQuestionIds.length - 1),
+          lastAnsweredIndex,
+        };
+      });
+      setNotice("题目已删除，自动跳过");
+    })();
+    return () => { cancelled = true; };
+  }, [activeQuestion, activeQuestionId, practiceSession, view]);
+
+  // E3: 删除题库（本机管理或后台同步拉取）会硬删活动 run 行并写墓碑，但 React 的 practiceSession
+  // 仍是陈旧快照——继续答题时 savePracticeProgress 会命中 if(!current) return 而静默丢答案（幽灵会话）。
+  // 监听当前 run 行是否存在，消失时置空会话、回首页并提示。activeRunExists 用 false 显式区分
+  // 「已解析且不存在」与加载中的 undefined。
+  const activeRunExists = useLiveQuery(async () => {
+    if (!practiceSession) return undefined;
+    return Boolean(await dbV6.practiceRuns.get(practiceSession.runId));
+  }, [practiceSession?.runId]);
+  useEffect(() => {
+    if (view !== "practice" || !practiceSession || activeRunExists !== false) return;
+    queueMicrotask(() => {
+      setPracticeSession(null);
+      setView("home");
+      setNotice("本次练习对应的题库已被删除，练习已结束");
+    });
+  }, [activeRunExists, practiceSession, view]);
   const stats = useLiveQuery(async () => {
     const today = calendarDate(new Date());
     const [questions, attemptStats, todayRows, pending, notes] = await Promise.all([
@@ -1008,7 +1073,7 @@ export function StudyApp() {
           )}
         </Suspense></div>
       </section>
-      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={quickSyncProgress} onCreateAction={() => { setSyncDrawerOpen(false); setView("banks"); }} onRefresh={() => undefined} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
+      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={quickSyncProgress} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />

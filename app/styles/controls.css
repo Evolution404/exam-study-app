@@ -1,6 +1,13 @@
-.app-shell :where(button, a, input, textarea, select, [tabindex]):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 72%, transparent);
-  outline-offset: 2px;
+.app-shell :where(button, a, select, [tabindex]):focus-visible {
+  /* 浅色、贴合圆角的聚焦环：box-shadow 跟随元素 border-radius，避免深色矩形 outline。
+     用 2px 较实的描边而非宽半透明带，避免看起来像外部阴影。 */
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+/* 文本输入类聚焦只靠边框变色，不套外部环 */
+.app-shell :where(input, textarea):focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .app-select-trigger {

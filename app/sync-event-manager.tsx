@@ -8,8 +8,6 @@ import {
   Clock3,
   FilePenLine,
   LoaderCircle,
-  Plus,
-  RefreshCw,
   Search,
   Send,
   ShieldAlert,
@@ -48,11 +46,8 @@ export interface SyncEventManagerProps {
   onSelectedIdChange?: (id: string | undefined) => void;
   onEdit?: (changeSetId: string, edit: SyncChangeSetTypedEditV7) => void | Promise<void>;
   onDelete?: (changeSetId: string, options: { cascadeDependents: boolean }) => void | Promise<void>;
-  onCreateAction?: () => void;
-  onRefresh?: () => void | Promise<void>;
   onSyncNow?: () => void | Promise<void>;
   progress?: SyncEventProgressV7;
-  refreshing?: boolean;
   syncing?: boolean;
   busyChangeSetId?: string;
   showBatchSections?: boolean;
@@ -237,11 +232,8 @@ export function SyncEventManager({
   onSelectedIdChange,
   onEdit,
   onDelete,
-  onCreateAction,
-  onRefresh,
   onSyncNow,
   progress,
-  refreshing = false,
   syncing = false,
   busyChangeSetId,
   showBatchSections = false,
@@ -254,6 +246,7 @@ export function SyncEventManager({
   const [editing, setEditing] = useState<{ changeSetId: string; mutationIndex: number }>();
   const [deleteTarget, setDeleteTarget] = useState<SyncChangeSetItemV7>();
   const [cascadeDependents, setCascadeDependents] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const selectionIsControlled = Boolean(onSelectedIdChange);
   const requestedSelectedId = selectionIsControlled ? controlledSelectedId : internalSelectedId;
@@ -273,9 +266,16 @@ export function SyncEventManager({
 
   async function confirmDelete() {
     if (!deleteTarget || !onDelete) return;
-    await onDelete(deleteTarget.changeSet.id, { cascadeDependents });
-    setDeleteTarget(undefined);
-    setCascadeDependents(false);
+    try {
+      setDeleteError(undefined);
+      await onDelete(deleteTarget.changeSet.id, { cascadeDependents });
+      setDeleteTarget(undefined);
+      setCascadeDependents(false);
+    } catch (error) {
+      // 有依赖但未勾选级联删除时，库会拒绝并给出指引（如“请选择同时删除”）；
+      // 捕获后内联显示，避免弹窗静默失败。
+      setDeleteError(error instanceof Error ? error.message : "删除失败，请重试。");
+    }
   }
 
   function renderItem(item: SyncChangeSetItemV7) {
@@ -293,7 +293,7 @@ export function SyncEventManager({
         </button>
         <div className="sync-event-row-actions">
           {canEdit && <button type="button" aria-label={`编辑 ${changeSetSummary(changeSet)}`} onClick={() => { select(changeSet.id); setEditing({ changeSetId: changeSet.id, mutationIndex: changeSet.mutations.findIndex(editableMutation) }); }}><FilePenLine size={16} /></button>}
-          {canDelete && <button className="danger-quiet" type="button" aria-label={`删除整组 ${changeSetSummary(changeSet)}`} onClick={() => { setDeleteTarget(item); setCascadeDependents(false); }}><Trash2 size={16} /></button>}
+          {canDelete && <button className="danger-quiet" type="button" aria-label={`删除整组 ${changeSetSummary(changeSet)}`} onClick={() => { setDeleteTarget(item); setCascadeDependents(false); setDeleteError(undefined); }}><Trash2 size={16} /></button>}
         </div>
       </div>
       {open && <div className="sync-event-detail" id={`sync-event-detail-${changeSet.id}`}>
@@ -321,12 +321,9 @@ export function SyncEventManager({
     <div className="sync-event-toolbar">
       <label className="sync-event-search"><Search size={17} /><span className="sr-only">搜索同步操作</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索类型、对象或编号" /></label>
       <AppSelect className="sync-event-filter" ariaLabel="按状态筛选" value={status} onValueChange={(value) => setStatus(value as typeof status)} options={[{ value: "all", label: "全部状态" }, ...Object.entries(stateLabels).map(([value, label]) => ({ value, label }))]} />
-    </div>
-
-    <div className="sync-event-manager-actions">
-      {onCreateAction && <button type="button" onClick={onCreateAction}><Plus size={16} />新建业务操作</button>}
-      {onRefresh && <button type="button" disabled={refreshing || syncing} onClick={() => void onRefresh()}>{refreshing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}刷新</button>}
-      {onSyncNow && <button className="primary" type="button" disabled={syncing || !items.some((item) => item.state === "pending" || item.state === "claimed")} onClick={() => void onSyncNow()}>{syncing ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}{syncing ? "同步中" : "立即同步"}</button>}
+      <div className="sync-event-manager-actions">
+        {onSyncNow && <button className="primary" type="button" disabled={syncing || !items.some((item) => item.state === "pending" || item.state === "claimed")} onClick={() => void onSyncNow()}>{syncing ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}{syncing ? "同步中" : "立即同步"}</button>}
+      </div>
     </div>
 
     {progress && <div className="sync-event-progress" role="progressbar" aria-label={progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} /></i></div>}
@@ -365,8 +362,9 @@ export function SyncEventManager({
       tone="danger"
       busy={Boolean(deleteTarget && busyChangeSetId === deleteTarget.changeSet.id)}
       confirmLabel="删除整组"
-      onCancel={() => { setDeleteTarget(undefined); setCascadeDependents(false); }}
+      onCancel={() => { setDeleteTarget(undefined); setCascadeDependents(false); setDeleteError(undefined); }}
       onConfirm={() => void confirmDelete()}
+      error={deleteError}
       description={deleteTarget ? <><strong>{changeSetSummary(deleteTarget.changeSet)}</strong><span>删除后，上层数据服务会从安全基线重建本地投影；不会只移除其中一条变更。</span>{deleteTarget.dependentChangeSetIds?.length ? <label className="sync-event-cascade"><input type="checkbox" checked={cascadeDependents} onChange={(event) => setCascadeDependents(event.target.checked)} />同时删除依赖它的 {deleteTarget.dependentChangeSetIds.length} 组操作</label> : null}</> : null}
     />
   </section>;

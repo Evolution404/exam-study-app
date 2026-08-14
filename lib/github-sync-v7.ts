@@ -42,7 +42,15 @@ function report(callback: SyncProgressCallback | undefined, phase: SyncProgress[
 function branch(settings: GitHubSettings): string { return settings.branch?.trim() || "main"; }
 function vaultId(settings: GitHubSettings): string { return `${settings.owner.toLocaleLowerCase("en-US")}/${settings.repo.toLocaleLowerCase("en-US")}@${branch(settings)}`; }
 function cacheKey(settings: GitHubSettings, suffix: string): string { return `${CACHE_PREFIX}${suffix}:${vaultId(settings)}`; }
-function remote(settings: GitHubSettings, token: string): GitHubV7Remote { return new GitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: branch(settings), token, apiBaseUrl: settings.apiBaseUrl, vaultId: vaultId(settings) }); }
+
+/**
+ * Optional injection seam for tests. `fetch` lets a test substitute a flaky or
+ * fault-injecting fetch to exercise network-error / retry paths through the full
+ * sync loop without touching the mock server. Production callers omit it.
+ */
+export type SyncWithGitHubOptions = { fetch?: typeof fetch };
+
+function remote(settings: GitHubSettings, token: string, fetchImpl?: SyncWithGitHubOptions["fetch"]): GitHubV7Remote { return new GitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: branch(settings), token, apiBaseUrl: settings.apiBaseUrl, vaultId: vaultId(settings), ...(fetchImpl ? { fetch: fetchImpl } : {}) }); }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
@@ -240,6 +248,26 @@ function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly 
   return next;
 }
 
+// Replay remote (committed) change-sets defensively. A single poisoned record — e.g. a
+// committed upsert for an entity already tombstoned and compacted into the checkpoint —
+// throws inside reduceChangeSetV7 (rejectTombstoned). Previously that rejected the ENTIRE
+// sync, so one such record permanently blocked a device from pulling anything. Skip poison
+// records instead: the checkpoint/tombstone state already won the conflict, so dropping the
+// conflicting replay is the correct end state. Skipped ids are surfaced (not silent) and the
+// records are still marked committed via the cursor watermark, so they won't re-pull forever.
+export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[]): { projection: ChangeSetProjectionV7; skipped: string[] } {
+  let next = projection;
+  const skipped: string[] = [];
+  for (const change of changes) {
+    try {
+      next = reduceChangeSetV7(next, change);
+    } catch {
+      skipped.push(change.id);
+    }
+  }
+  return { projection: next, skipped };
+}
+
 async function installProjection(projection: ChangeSetProjectionV7): Promise<void> {
   const checkpoint = await checkpointFromProjection(projection, {});
   await restoreV6Checkpoint(checkpoint.state);
@@ -283,8 +311,8 @@ function cursorsFor(changes: readonly ChangeSetV7[]): Record<string, number> {
   return cursors;
 }
 
-async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback): Promise<SyncV7HeadCache> {
-  const client = remote(settings, token);
+async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"]): Promise<SyncV7HeadCache> {
+  const client = remote(settings, token, fetchImpl);
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
   report(callback, "prepare", "正在初始化 v7 热窗口", 8);
@@ -301,6 +329,13 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
     if (!winner.initialized) throw new Error("v7 初始化冲突，请重试。");
     return winner.cache;
   }
+  // B4: a GitHub-compatible layer may return ok on an un-CAS'd PUT and let the
+  // last writer silently win, overwriting a concurrent bootstrap. Re-read the
+  // head to confirm ownership; if another device actually won, adopt its cache
+  // instead of marking our pending changes committed against a head we don't own.
+  const confirmed = await client.readHead();
+  if (!confirmed.initialized) throw new Error("v7 初始化冲突，请重试。");
+  if (confirmed.cache.blobSha !== committed.blobSha) return confirmed.cache;
   await saveHeadCache(settings, committed.cache);
   await saveRemoteCache(settings, checkpoint, committed.cache);
   const covered = await listChangeSetsV7(["pending", "blocked"]);
@@ -310,10 +345,10 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   return committed.cache;
 }
 
-export async function syncWithGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback) {
-  const client = remote(settings, token);
+async function syncWithGitHubInternal(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
+  const client = remote(settings, token, options?.fetch);
   let read = await client.readHead(await loadHeadCache(settings));
-  if (!read.initialized) { await initialize(settings, token, callback); read = await client.readHead(); }
+  if (!read.initialized) { await initialize(settings, token, callback, options?.fetch); read = await client.readHead(); }
   if (!read.initialized) throw new Error("无法初始化 v7 远端。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
@@ -322,13 +357,21 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
     const cached = await loadRemoteCache(settings);
     report(callback, "download", cached ? "正在检查 v7 热窗口增量" : "正在下载远端完整数据", 18);
     const downloaded = await downloadRemote(client, read.head, cached);
-    const remoteProjection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
+    const remoteReplay = replayRemoteResilient(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
+    const remoteProjection = remoteReplay.projection;
+    if (remoteReplay.skipped.length) report(callback, "merge", `已跳过 ${remoteReplay.skipped.length} 组与已删数据冲突的远端变更`, 42);
     report(callback, "merge", `正在合并 ${remoteProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${remoteProjection.attempts.length.toLocaleString("zh-CN")} 条作答`, 42);
     const remoteById = new Map(downloaded.changes.map((change) => [change.id, change]));
     const remoteCursors = read.head.cursors;
     const interruptedClaims = (await listChangeSetsV7(["claimed"])).map((record) => {
       const remoteChange = remoteById.get(record.id);
-      if (remoteChange && remoteChange.digest !== record.digest) throw new Error(`远端变更集 ${record.id} 与本地锁定版本不一致。`);
+      // B2: a claimed record whose id already exists remotely with a DIFFERENT
+      // digest means the local locked version is stale (crashed mid-publish, then
+      // the same id was re-edited). Previously this threw and froze ALL sync for
+      // the device. Downgrade to blocked so unrelated remote data still pulls.
+      if (remoteChange && remoteChange.digest !== record.digest) {
+        return { ...record, state: "blocked" as const, blockedReason: "远端已存在同 id 但内容不同的变更集，本地锁定版本已过期。", claimId: undefined, claimedAt: undefined };
+      }
       const coveredByRemote = Boolean(remoteChange) || (remoteCursors[record.deviceId] ?? 0) >= record.localSequence;
       return coveredByRemote
         ? { ...record, state: "committed" as const, committedAt: new Date().toISOString(), claimId: undefined, claimedAt: undefined }
@@ -405,35 +448,50 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       const compaction = planSyncV7Compaction({ head: read.head, hotBytes: projectedHotBytes });
       const newSegments: SyncV7SegmentDescriptor[] = [];
       const segmentFiles: SyncV7PublicationFile[] = [];
-      if (!compaction.required) {
+      const vaultId = read.head.vaultId;
+      const uploadNewSegments = async (): Promise<void> => {
         for (let index = 0; index < pages.length; index += 1) {
           const page = pages[index];
           const ordinal = baseOrdinal + index;
-          const metadata = { vaultId: read.head.vaultId, createdAt: now, producer: "exam-study-app" };
-          const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: read.head.vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
+          const metadata = { vaultId, createdAt: now, producer: "exam-study-app" };
+          const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId, generation, ordinal, metadata, cursors: aggregateCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
           const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
           newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: aggregateCursors, metadata });
           segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
         }
-      }
+      };
+      if (!compaction.required) await uploadNewSegments();
       let checkpointFile: { path: string; bytes: Uint8Array; kind: "checkpoint"; uploaded: true } | undefined;
       let checkpointDescriptor = read.head.checkpoint;
       let nextSegments: SyncV7SegmentDescriptor[];
       if (compaction.required) {
-        report(callback, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", 78);
-        const checkpoint = await checkpointFromProjection(
-          replayInWireOrder(remoteProjection, claim.records),
-          { ...read.head.cursors, ...aggregateCursors },
-        );
-        const bytes = encodeSyncCheckpointV6(checkpoint);
-        const digest = await sha256(bytes);
-        const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
-        const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
-        checkpointFile = { path, bytes, kind: "checkpoint", uploaded: true };
-        checkpointDescriptor = uploaded;
-        nextSegments = [];
+        // B3: compacting replays the claimed records in wire order. A single
+        // poisoned record (e.g. an upsert rejected by a tombstone that only
+        // surfaces under wire-order rather than createdAt-order replay) would
+        // previously abort the whole sync. Fall back to ordinary segment push
+        // instead of crashing — the events still publish, just uncompressed.
+        let compactionProjection: ChangeSetProjectionV7 | undefined;
+        try {
+          compactionProjection = replayInWireOrder(remoteProjection, claim.records);
+        } catch (error) {
+          report(callback, "compact", `压实重放失败，退回分段推送：${error instanceof Error ? error.message : String(error)}`, 76);
+        }
+        if (!compactionProjection) {
+          await uploadNewSegments();
+          nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
+        } else {
+          report(callback, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", 78);
+          const checkpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors });
+          const bytes = encodeSyncCheckpointV6(checkpoint);
+          const digest = await sha256(bytes);
+          const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
+          const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
+          checkpointFile = { path, bytes, kind: "checkpoint", uploaded: true };
+          checkpointDescriptor = uploaded;
+          nextSegments = [];
+        }
       } else {
         // Safe: projectedHotBytes <= 4 MiB here, so the merge guard cannot trip.
         nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
@@ -443,7 +501,11 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
       const committed = await client.publish(plan);
       if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v7 远端索引丢失。"); continue; }
       await commitChangeSetClaimV7(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
-      const committedProjection = replayInWireOrder(remoteProjection, claim.records);
+      // B3: reuse the already-validated rebasedProjection (createdAt order) rather
+      // than re-replaying claim.records in wire/claim order — a tombstone-sensitive
+      // mutation pair would throw here (rejectTombstoned) after the push already
+      // committed, leaving the local queue-base stale and the sync in an error state.
+      const committedProjection = rebasedProjection;
       await saveQueueBase(committedProjection);
       await saveHeadCache(settings, committed.cache);
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
@@ -470,10 +532,30 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
 }
 
-export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback) {
-  const client = remote(settings, token);
+// B5: serialize all in-realm callers of syncWithGitHub. Manual sync, auto-sync,
+// quick-sync and loadAttemptHistory all funnel here; a module-level mutex makes
+// concurrent calls share the single in-flight run instead of racing the claim /
+// install / head-CAS steps. (Cross-tab remains a Web Locks follow-up.)
+let syncInFlight: ReturnType<typeof syncWithGitHubInternal> | null = null;
+export async function syncWithGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = syncWithGitHubInternal(settings, token, callback, options);
+  try {
+    return await syncInFlight;
+  } finally {
+    syncInFlight = null;
+  }
+}
+
+export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
+  const client = remote(settings, token, options?.fetch);
   const read = await client.readHead();
   if (!read.initialized) throw new Error("远端还没有 v7 数据。");
+  // B1: restore wipes the whole local change-set queue. Guard against silently
+  // discarding un-synced local edits — surface them so the caller can sync (or
+  // explicitly discard) before overwriting from remote.
+  const unsynced = await listChangeSetsV7(["pending", "blocked", "claimed"]);
+  if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复远程历史。`);
   report(callback, "download", "正在从远端抓取完整 v7 数据", 20);
   const downloaded = await downloadRemote(client, read.head);
   const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes);
@@ -557,7 +639,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const, pulled: 0, deferred: 0 };
 }
 
-export async function verifyGitHubVault(settings: GitHubSettings, token: string) { return (await remote(settings, token).readHead()).initialized ? 7 as const : 0 as const; }
+export async function verifyGitHubVault(settings: GitHubSettings, token: string, options?: SyncWithGitHubOptions) { return (await remote(settings, token, options?.fetch).readHead()).initialized ? 7 as const : 0 as const; }
 export async function getSyncStats() { const checkpoint = await createSyncCheckpointV6(); return { ...checkpoint.counts, pendingEvents: (await listChangeSetsV7(["pending", "blocked"])).length }; }
 export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}) { await syncWithGitHub(settings, token); const rows = (await dbV6.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }
 

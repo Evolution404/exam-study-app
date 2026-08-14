@@ -202,6 +202,19 @@ async function importFixture(page) {
   await page.waitForTimeout(250);
 }
 
+async function setPracticePreferences(page, patch) {
+  // 直接写入偏好再刷新，与 desktop 场景在配置页里逐个勾选等价但更快：
+  // 默认 shuffleOptions=true 会让选项随机排列（[0] 不再是正确答案），
+  // autoNextCorrect=true 会在答对后自动前进并显示“回答正确，即将进入下一题”，
+  // 两者都会让确定性作答断言不可靠。
+  await page.evaluate((values) => {
+    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
+    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, ...values }));
+  }, patch);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+}
+
 async function selectBankOnPracticeSetup(page) {
   const bankButton = page.locator(".scope-bank-list button").filter({ hasText: "送电线路工-初级工" });
   const visibleBankButton = await visibleLocator(page, bankButton, "practice bank selector");
@@ -746,6 +759,27 @@ async function runManagementQA(page, mockServer) {
   await page.locator(".managed-question-list article").filter({ hasText: "弧垂增大时安全距离如何变化" }).first().waitFor({ state: "visible" });
   await capture(page, contextName, "question-edited");
 
+  // 题目详情：进度指示单独一行 + 上一题/下一题切换（与搜索详情统一）
+  await page.locator(".managed-question-list article").first().locator("button").first().click();
+  const managedDetail = page.getByRole("dialog", { name: "题目详情" });
+  await managedDetail.waitFor({ state: "visible" });
+  const detailCount = managedDetail.locator(".search-detail-count");
+  await detailCount.waitFor({ state: "visible" });
+  const detailCountBefore = (await detailCount.textContent()) ?? "";
+  assert.match(detailCountBefore, /^\d+ \/ \d+$/, "题目详情应显示进度指示（当前/总数）");
+  await managedDetail.getByRole("button", { name: /下一题/ }).click();
+  await page.waitForFunction((before) => {
+    const el = document.querySelector(".search-question-detail .search-detail-count");
+    return el && el.textContent !== before;
+  }, detailCountBefore);
+  await managedDetail.getByRole("button", { name: /上一题/ }).click();
+  await page.waitForFunction((before) => {
+    const el = document.querySelector(".search-question-detail .search-detail-count");
+    return el && el.textContent === before;
+  }, detailCountBefore);
+  await managedDetail.getByRole("button", { name: "关闭题目详情" }).click();
+  await capture(page, contextName, "question-detail-nav");
+
   // 批量操作：勾选 2 道 → 从题库移除
   const checkboxes = page.locator(".managed-question-check input");
   assert.ok(await checkboxes.count() >= 2, "expected at least two managed questions");
@@ -847,8 +881,7 @@ async function runManagementQA(page, mockServer) {
   await clickButton(page, "同步");
   await expectText(page, "GitHub 同步");
 
-  // 刷新按钮
-  await clickTextButton(page, "刷新");
+  // 事件管理器渲染（刷新按钮已移除，为空操作）
   await page.locator(".sync-event-manager").waitFor({ state: "visible" });
   await expectText(page, "等待同步");
 
@@ -900,12 +933,418 @@ async function runManagementQA(page, mockServer) {
   const syncToast = await page.locator(".toast").first().innerText().catch(() => "");
   assert.match(syncToast, /v7 同步完成/, "management events should sync successfully");
   await capture(page, contextName, "events-synced");
+
+  // 本次同步抽屉：搜索输入框必须无边框、聚焦只靠边框变色（统一输入框样式，避免内外两个矩形或聚焦光环）
+  await page.locator(".sync-queue-trigger").click();
+  await page.locator(".sync-event-drawer").waitFor({ state: "visible" });
+  const drawerSearchInput = page.locator(".sync-event-drawer .sync-event-search input").first();
+  await drawerSearchInput.focus();
+  await page.waitForTimeout(120);
+  const drawerInputBorder = await drawerSearchInput.evaluate((input) => ({
+    borderWidth: getComputedStyle(input).borderWidth,
+    boxShadow: getComputedStyle(input).boxShadow,
+    labelBorder: getComputedStyle(input.parentElement).borderRadius,
+    labelBoxShadow: getComputedStyle(input.parentElement).boxShadow,
+    labelBorderColor: getComputedStyle(input.parentElement).borderColor,
+  }));
+  assert.equal(drawerInputBorder.borderWidth, "0px", "drawer search input must be borderless (unified single-rectangle input)");
+  assert.equal(drawerInputBorder.boxShadow, "none", "drawer search input must not add a focus box-shadow ring");
+  assert.equal(drawerInputBorder.labelBorder, "11px", "drawer search input must stay inside the rounded container");
+  assert.equal(drawerInputBorder.labelBoxShadow, "none", "drawer search container must not show a focus glow ring");
+  assert.notEqual(drawerInputBorder.labelBorderColor, "rgba(0, 0, 0, 0)", "drawer search container must still signal focus via border color");
+  await capture(page, contextName, "sync-drawer-search");
+  await page.getByRole("button", { name: "关闭同步抽屉" }).click();
+  await page.locator(".sync-event-drawer").waitFor({ state: "hidden" });
 }
+
+async function runReviewRounds(page) {
+  const contextName = "review";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await expectText(page, "送电线路工-初级工");
+  await setPracticePreferences(page, { autoNextCorrect: false, shuffleOptions: false });
+
+  // 复习轮次挂在「配置」的「出题与复习」卡片
+  await clickButton(page, "配置");
+  await expectText(page, "答题配置");
+  const managerHeading = page.getByRole("heading", { name: "命名并追踪复习轮次" });
+  await managerHeading.scrollIntoViewIfNeeded();
+  await expectText(page, "还没有复习轮次");
+  await capture(page, contextName, "review-round-empty");
+
+  // 新建轮次：命名 + 选择题库
+  await clickTextButton(page, "新建轮次");
+  const editor = page.locator(".review-round-editor");
+  await editor.waitFor({ state: "visible" });
+  await expectText(page, "命名复习轮次");
+  await editor.locator(".review-round-name-field input").fill("春季第一轮");
+  await editor.locator(".review-round-bank-picker label").filter({ hasText: "送电线路工-初级工" }).click();
+  await clickTextButton(page, "保存轮次");
+  await expectNotice(page, /已创建复习轮次「春季第一轮」/, "review round create notice");
+  const roundCard = page.locator(".review-round-card").filter({ hasText: "春季第一轮" }).first();
+  await roundCard.waitFor({ state: "visible" });
+  const metricsText = await roundCard.locator(".review-round-metrics").innerText();
+  assert.match(metricsText, /5/, "created round must show the fixture bank question count");
+  assert.match(metricsText, /0/, "created round must start at zero completed");
+  await capture(page, contextName, "review-round-created");
+
+  // 编辑轮次：改名 + 调整范围
+  await roundCard.getByRole("button", { name: "编辑范围" }).click();
+  await editor.waitFor({ state: "visible" });
+  await expectText(page, "调整轮次范围");
+  await editor.locator(".review-round-name-field input").fill("春季第一轮-改");
+  await clickTextButton(page, "保存轮次");
+  await expectNotice(page, /复习轮次已更新/, "review round update notice");
+  await page.locator(".review-round-card").filter({ hasText: "春季第一轮-改" }).first().waitFor({ state: "visible" });
+
+  // 绑定轮次发起练习（复习轮次选择器自动选中轮次题库）
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  const roundSelect = page.getByLabel("复习轮次");
+  await roundSelect.scrollIntoViewIfNeeded();
+  await roundSelect.click();
+  await page.getByRole("option", { name: /春季第一轮/ }).click();
+  await page.waitForFunction(() => {
+    const bank = [...document.querySelectorAll(".scope-bank-list button")].find((button) => button.textContent?.includes("送电线路工-初级工"));
+    return bank?.getAttribute("aria-pressed") === "true";
+  }, undefined, { timeout: 5_000 });
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await capture(page, contextName, "review-round-practice");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+
+  // 提前结束轮次（两次确认）→ 已完成 + 最终快照
+  await clickButton(page, "配置");
+  await expectText(page, "答题配置");
+  await managerHeading.scrollIntoViewIfNeeded();
+  const updatedCard = page.locator(".review-round-card").filter({ hasText: "春季第一轮-改" }).first();
+  await updatedCard.getByRole("button", { name: "提前结束轮次" }).click();
+  await expectText(page, "再次确认结束");
+  await updatedCard.getByRole("button", { name: "再次确认结束" }).click();
+  await expectNotice(page, /复习轮次已完成并保存最终快照/, "review round complete notice");
+  await updatedCard.locator(".review-round-status.completed").waitFor({ state: "visible" });
+  assert.match(await updatedCard.locator(".review-round-snapshot").innerText(), /结束时共 5 道题/, "completed round must freeze the final snapshot");
+  await capture(page, contextName, "review-round-completed");
+
+  // 归档 → 卡片消失回到空态
+  await updatedCard.getByRole("button", { name: "归档" }).click();
+  await expectNotice(page, /复习轮次已归档/, "review round archive notice");
+  await page.locator(".review-round-card").waitFor({ state: "detached" });
+  await expectText(page, "还没有复习轮次");
+  await capture(page, contextName, "review-round-archived");
+}
+
+async function runSearchBatch(page) {
+  const contextName = "search";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await expectText(page, "送电线路工-初级工");
+  await setPracticePreferences(page, { autoNextCorrect: false, shuffleOptions: false });
+
+  // 关键词搜索 + 题型标签
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“巡视”找到 \d+ 道题/);
+  await capture(page, contextName, "search-results");
+  await page.locator(".search-type-tabs button").filter({ hasText: "单选" }).click();
+  assert.equal(await page.locator(".search-result-list article").count(), 1, "single-choice tab must narrow the results");
+  await page.locator(".search-type-tabs button").filter({ hasText: "全部" }).click();
+
+  // 题目详情：下一题 / 上一题 / 收藏 / 只练这一题
+  // 结果按题型分组排序（单选在前）：第一条是“发现异常”，之后是多选“哪些做法”、判断“巡视前”。
+  await page.locator(".search-result-list article").first().locator(".search-result-main").click();
+  const detail = page.getByRole("dialog", { name: "题目详情" });
+  await detail.waitFor({ state: "visible" });
+  await detail.getByText(/发现异常后，最合适的第一步是什么/).waitFor({ state: "visible" });
+  await detail.getByRole("button", { name: /下一题/ }).click();
+  await detail.getByText(/哪些做法有助于安全巡视/).waitFor({ state: "visible" });
+  await detail.getByRole("button", { name: /下一题/ }).click();
+  await detail.getByText(/巡视前应确认天气和现场风险/).waitFor({ state: "visible" });
+  await detail.getByRole("button", { name: /上一题/ }).click();
+  await detail.getByText(/哪些做法有助于安全巡视/).waitFor({ state: "visible" });
+  await detail.getByRole("button", { name: /^收藏/ }).click();
+  await expectNotice(page, /已收藏这道题/, "detail favorite notice");
+  await detail.getByRole("button", { name: /只练这一题/ }).click();
+  const practiceDialog = page.getByRole("dialog", { name: "搜索练习配置" });
+  await practiceDialog.waitFor({ state: "visible" });
+  await practiceDialog.getByRole("button", { name: /开始练习/ }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0, 1], true);
+  await expectText(page, "回答正确");
+  await capture(page, contextName, "search-single-practice");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+
+  // 批量：收藏所选 + 批量添加标签
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  // 离开搜索视图会清空 query，重新进入需重新输入关键词
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  const checkboxes = page.locator(".search-result-list .result-checkbox input");
+  assert.ok(await checkboxes.count() >= 2, "expected at least two search results for batch operations");
+  await checkboxes.nth(0).check({ force: true });
+  await checkboxes.nth(1).check({ force: true });
+  await expectText(page, "已选择 2 道");
+  await clickTextButton(page, "收藏所选");
+  await expectNotice(page, /已收藏 \d+ 道题/, "batch favorite notice");
+  await page.locator(".batch-tag input").fill("易混");
+  await clickTextButton(page, "添加");
+  await expectNotice(page, /已给 2 道题添加标签“易混”/, "batch tag notice");
+  await capture(page, contextName, "search-batch-ops");
+
+  // 练习已选 → 起手 2 题
+  await clickTextButton(page, "练习已选");
+  await practiceDialog.waitFor({ state: "visible" });
+  await expectText(page, /共有 \d+ 道可练题目/);
+  await practiceDialog.getByRole("button", { name: /开始练习/ }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await waitForQuestion(page, 1, 2);
+  await answerCurrentQuestion(page, [1]);
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+
+  // 练习全部结果
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  // 离开搜索视图会清空 query，重新进入需重新输入关键词
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  const allCheckboxes = page.locator(".search-result-list .result-checkbox input");
+  await allCheckboxes.nth(0).check({ force: true });
+  await allCheckboxes.nth(1).check({ force: true });
+  await clickTextButton(page, "练习全部结果");
+  await practiceDialog.waitFor({ state: "visible" });
+  await expectText(page, /共有 \d+ 道可练题目/);
+  await practiceDialog.getByRole("button", { name: /开始练习/ }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await waitForQuestion(page, 1, 3);
+  await capture(page, contextName, "search-practice-all");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+
+  // 加入题组 → 题组编辑器预填 + 上/下移排序（拖拽排序的替代覆盖）
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  // 离开搜索视图会清空 query，重新进入需重新输入关键词
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  const lastCheckboxes = page.locator(".search-result-list .result-checkbox input");
+  await lastCheckboxes.nth(0).check({ force: true });
+  await lastCheckboxes.nth(1).check({ force: true });
+  await clickTextButton(page, "加入题组");
+  await expectText(page, "新建题组");
+  const groupItems = page.locator(".group-items article");
+  assert.equal(await groupItems.count(), 2, "加入题组 must prefill the two selected questions");
+  const firstStem = await groupItems.first().innerText();
+  await groupItems.first().locator("button").nth(1).click();
+  await page.waitForFunction((previous) => {
+    const first = document.querySelector(".group-items article")?.innerText ?? "";
+    return first.trim() !== previous;
+  }, firstStem);
+  await capture(page, contextName, "search-to-group");
+}
+
+async function runHistoryResult(page) {
+  const contextName = "history";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await expectText(page, "送电线路工-初级工");
+  await setPracticePreferences(page, { autoNextCorrect: false, shuffleOptions: false });
+
+  // 完成一次 5 题练习（第 2 题答错，其余答对 → 80%）
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  // 1 导线（单选 A）→ 对
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  // 2 发现异常（单选 B）→ 答错
+  await waitForQuestion(page, 2, 5);
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "这次没有答对");
+  await clickTextButton(page, "下一题");
+  // 3 哪些做法（多选 AB）→ 对
+  await waitForQuestion(page, 3, 5);
+  await answerCurrentQuestion(page, [0, 1], true);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  // 4 巡视前（判断 A）→ 对
+  await waitForQuestion(page, 4, 5);
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  // 5 图片（计算 10）→ 对
+  await waitForQuestion(page, 5, 5);
+  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await clickTextButton(page, "确认答案");
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "查看本次结果");
+  await expectText(page, "本次正确率");
+  assert.match(await page.locator(".result-score strong").innerText(), /^80/, "four correct of five answered must show 80% accuracy");
+  await capture(page, contextName, "result-page");
+
+  // 结果筛选 + 只练本次错题
+  await clickTextButton(page, "只看错题");
+  assert.equal(await page.locator(".result-question-groups button[aria-label^='查看第']").count(), 1, "wrong filter must narrow to the one wrong question");
+  await clickTextButton(page, "全部题目");
+  await capture(page, contextName, "result-filter-wrong");
+  await clickTextButton(page, "只练本次错题");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await waitForQuestion(page, 1, 1);
+  await answerCurrentQuestion(page, [1]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "查看本次结果");
+  await expectText(page, "本次正确率");
+  await capture(page, contextName, "result-repeat-wrong");
+  await clickTextButton(page, "返回练习记录");
+
+  // 练习记录：已完成 tab
+  await page.locator(".history-filters button").filter({ hasText: /已完成/ }).click();
+  await page.locator(".history-list article .run-status").filter({ hasText: "已完成" }).first().waitFor({ state: "visible" });
+  await capture(page, contextName, "history-completed");
+
+  // 进行中 → 继续练习 → 放弃 → 删除
+  await page.locator(".practice-hub-tabs button").filter({ hasText: "开始练习" }).click();
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "随机指定题数");
+  await page.getByRole("spinbutton", { name: "本次随机题数" }).fill("2");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await page.locator(".practice-hub-tabs button").filter({ hasText: "练习记录" }).click();
+  await expectText(page, "练习记录");
+  const inProgressTab = page.locator(".history-filters button").filter({ hasText: /进行中/ });
+  await inProgressTab.click();
+  const inProgressRun = page.locator(".history-list article").first();
+  await inProgressRun.waitFor({ state: "visible" });
+  await capture(page, contextName, "history-in-progress");
+  await inProgressRun.getByRole("button", { name: "继续练习" }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  await clickButton(page, "练习");
+  await page.locator(".practice-hub-tabs button").filter({ hasText: "练习记录" }).click();
+  await inProgressTab.click();
+  const resumedRun = page.locator(".history-list article").first();
+  await resumedRun.waitFor({ state: "visible" });
+  await resumedRun.getByRole("button", { name: "放弃练习" }).click();
+  await expectNotice(page, /已放弃这次练习，记录仍会保留/, "abandon run notice");
+  await page.locator(".history-filters button").filter({ hasText: /已放弃/ }).click();
+  await page.locator(".history-list article .run-status").filter({ hasText: "已放弃" }).first().waitFor({ state: "visible" });
+  await capture(page, contextName, "history-abandoned");
+  // 删除按钮平时被 swipe-content 覆盖（需先滑动暴露）——用 dispatchEvent 直接触发其
+  // 点击处理器作为替代（滑动手势见 TESTING.md 已知限制）。
+  await page.locator(".history-list article .history-delete-action").first().dispatchEvent("click");
+  await expectNotice(page, /练习记录已删除，并加入同步队列/, "delete record notice");
+  await expectText(page, "这里还没有记录");
+  await capture(page, contextName, "history-deleted");
+}
+
+// 练习进行中删除题目/题库的竞争状态：直接经页面内 import 数据层触发删除（等价后台同步拉取删除），
+// 验证练习界面不会卡死或静默丢答案。
+async function runInFlightDeletionQA(page) {
+  const contextName = "inflight";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await setPracticePreferences(page, { autoNextCorrect: false, shuffleOptions: false });
+
+  // 开启全量顺序练习
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await page.waitForTimeout(300);
+  const firstStem = (await page.locator(".practice-stem").innerText()).trim();
+
+  // S1.1a：删除「当前题」→ 自动跳过到下一道存活题（skip-effect）
+  const currentId = await page.evaluate(async (stemText) => {
+    const { dbV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const all = await dbV6.questions.toArray();
+    const hit = all.find((q) => q.content.some((b) => b.type === "text" && b.text === stemText));
+    return hit ? hit.id : null;
+  }, firstStem);
+  assert.ok(currentId, "应能定位当前题 id");
+  await page.evaluate(async (id) => {
+    const { deleteQuestionsV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    await deleteQuestionsV6([id]);
+  }, currentId);
+  await expectNotice(page, /题目已删除，自动跳过/, "delete-current-question skip notice");
+  await page.waitForTimeout(400);
+  const nextStem = (await page.locator(".practice-stem").innerText()).trim();
+  assert.notEqual(nextStem, firstStem, "删除当前题后应前进到下一道存活题");
+  await capture(page, contextName, "skipped-current-question");
+
+  // S1.1b：一次性删除剩余全部题 → 优雅结束进结果页（练习中题目被删光）
+  await page.evaluate(async () => {
+    const { dbV6, deleteQuestionsV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const all = await dbV6.questions.toArray();
+    await deleteQuestionsV6(all.map((q) => q.id));
+  });
+  await expectNotice(page, /练习中的题目已被删除，本次练习结束/, "all-questions-deleted end notice");
+  await page.locator(".run-result").waitFor({ state: "visible" });
+  await capture(page, contextName, "ended-all-deleted");
+
+  // S1.3：新开一次练习，删除其题库 → run 行被硬删，练习会话应被置空并提示（E3 修复，避免幽灵会话丢答案）
+  // 上一段已删光全部题目，这里重新导入题库以恢复可练题目。
+  await importFixture(page);
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await page.waitForTimeout(300);
+  const bankId = await page.evaluate(async () => {
+    const { dbV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const bank = (await dbV6.banks.toArray())[0];
+    return bank?.id;
+  });
+  assert.ok(bankId, "应能定位练习题库 id");
+  await page.evaluate(async (id) => {
+    const { deleteBankV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    await deleteBankV6(id);
+  }, bankId);
+  await expectNotice(page, /题库已被删除|练习已结束/, "bank-deleted-during-practice notice (E3)");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".question-card").isVisible(), false, "删除题库后应离开练习界面（无幽灵会话）");
+  await capture(page, contextName, "bank-deleted-no-phantom");
+}
+
+
+const GROUPS = [
+  { key: "desktop", run: runDesktop, viewport: { width: 1440, height: 960 }, minScreenshots: 12 },
+  { key: "mobile", run: runMobile, viewport: { width: 390, height: 844 }, isMobile: true, requires: ["desktop"], minScreenshots: 6 },
+  { key: "management", run: runManagementQA, viewport: { width: 1440, height: 960 }, minScreenshots: 8 },
+  { key: "review", run: runReviewRounds, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
+  { key: "search", run: runSearchBatch, viewport: { width: 1440, height: 960 }, minScreenshots: 4 },
+  { key: "history", run: runHistoryResult, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
+  { key: "inflight", run: runInFlightDeletionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
+];
 
 async function main() {
   await mkdir(runRoot, { recursive: true });
   await startDevServerIfNeeded();
-  // In-process mock GitHub backend: both browser contexts share it, so the
+  // In-process mock GitHub backend: all browser contexts share it, so the
   // desktop sync pushes real data and the mobile sync pulls it back — a true
   // cross-device round-trip without any external network.
   const mockServer = await startMockGitHubServer();
@@ -914,34 +1353,53 @@ async function main() {
     headless: false,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });
+
+  // BROWSER_GROUPS=desktop,mobile,management,review,search,history
+  // (comma-separated; unset = all groups). Each group gets a fresh browser
+  // context and its own IndexedDB; `requires` expands dependencies first so a
+  // group that depends on another device's pushed data (mobile → desktop) still
+  // works when selected on its own.
+  const allKeys = GROUPS.map((group) => group.key);
+  const requested = (process.env.BROWSER_GROUPS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  const unknown = requested.filter((key) => !allKeys.includes(key));
+  if (unknown.length) throw new Error(`Unknown BROWSER_GROUPS: ${unknown.join(", ")}. Available: ${allKeys.join(", ")}`);
+  const requestedSet = new Set(requested.length ? requested : allKeys);
+  const selected = GROUPS.filter((group) => requestedSet.has(group.key));
+  const expanded = [];
+  for (const group of selected) {
+    for (const dependency of group.requires ?? []) {
+      const dep = GROUPS.find((candidate) => candidate.key === dependency);
+      if (dep && !expanded.some((item) => item.key === dep.key)) expanded.push(dep);
+    }
+    if (!expanded.some((item) => item.key === group.key)) expanded.push(group);
+  }
+
+  const ran = [];
   try {
-    const desktopContext = await browser.newContext({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1 });
-    const desktop = await desktopContext.newPage();
-    desktop.setDefaultTimeout(10_000);
-    desktop.setDefaultNavigationTimeout(25_000);
-    await runDesktop(desktop, mockServer);
-    await desktopContext.close();
-
-    const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
-    const mobile = await mobileContext.newPage();
-    mobile.setDefaultTimeout(10_000);
-    mobile.setDefaultNavigationTimeout(25_000);
-    await runMobile(mobile, mockServer);
-    await mobileContext.close();
-
-    const mgmtContext = await browser.newContext({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1 });
-    const mgmt = await mgmtContext.newPage();
-    mgmt.setDefaultTimeout(10_000);
-    mgmt.setDefaultNavigationTimeout(25_000);
-    await runManagementQA(mgmt, mockServer);
-    await mgmtContext.close();
+    for (const group of expanded) {
+      const contextOptions = {
+        viewport: group.viewport,
+        deviceScaleFactor: 1,
+        ...(group.isMobile ? { isMobile: true, hasTouch: true } : {}),
+      };
+      const context = await browser.newContext(contextOptions);
+      const page = await context.newPage();
+      page.setDefaultTimeout(10_000);
+      page.setDefaultNavigationTimeout(25_000);
+      const before = screenshots.length;
+      await group.run(page, mockServer);
+      const count = screenshots.length - before;
+      ran.push({ key: group.key, screenshots: count });
+      assert.ok(count >= group.minScreenshots, `${group.key} group must capture at least ${group.minScreenshots} screenshots, got ${count}`);
+      await context.close();
+    }
   } finally {
     await mockServer.close();
     await browser.close();
   }
-  assert.ok(screenshots.length >= 12, `expected at least 12 QA screenshots, got ${screenshots.length}`);
-  await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify({ baseUrl, chromeExecutable, screenshots }, null, 2)}\n`);
-  console.log(`Visible browser QA passed: ${screenshots.length} screenshots in ${path.relative(root, runRoot)}`);
+  const manifest = { baseUrl, chromeExecutable, groups: ran, screenshots };
+  await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`Visible browser QA passed: ${ran.map((item) => `${item.key}(${item.screenshots})`).join(", ")} in ${path.relative(root, runRoot)}`);
 }
 
 try {

@@ -879,11 +879,18 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
     await dbV6.reviewRoundProgress.where("questionId").anyOf(existingIds).delete();
     await dbV6.notes.bulkDelete(existingIds);
     const groups = await dbV6.questionGroups.toArray();
+    const emptiedGroupIds: string[] = [];
     for (const group of groups) {
       const items = group.items.filter((item) => !deletingIds.has(item.questionId));
       if (items.length !== group.items.length) {
         if (items.length) await dbV6.questionGroups.put({ ...group, items, updatedAt: timestamp });
-        else await dbV6.questionGroups.delete(group.id);
+        else {
+          // E6: 删题把组裁空时，与显式 deleteQuestionGroupV6 一致地写墓碑——本地 tombstone 表
+          // 与投影（question.bulk.delete 回放时 updateQuestionDeleteCascade 也写墓碑）保持一致，
+          // 使后续到达的陈旧 questionGroup.saved 在本机 rebase 时被 rejectTombstoned 拦截。
+          await dbV6.questionGroups.delete(group.id);
+          emptiedGroupIds.push(group.id);
+        }
       }
     }
     const runs = await dbV6.practiceRuns.toArray();
@@ -902,6 +909,9 @@ export async function deleteQuestionsV6(questionIds: readonly string[]): Promise
       deviceId,
       eventId: makeV6Id("question-delete"),
     }));
+    for (const groupId of emptiedGroupIds) {
+      tombstones.push({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt: timestamp, deviceId, eventId: makeV6Id("question-delete") });
+    }
     await dbV6.tombstones.bulkPut(tombstones);
     await enqueueChangeSetV7([{ kind: "question.bulk.delete", questionIds: existingIds, deletedAt: timestamp, cascade: true }], timestamp);
   });
@@ -1194,15 +1204,37 @@ export async function savePracticeRunV6(run: PracticeRunV6): Promise<PracticeRun
  * event. Submitted answers and status changes have their own single events;
  * emitting a run snapshot here would reintroduce the historical two-events-
  * per-answer bug and can exceed the event-page limit for large runs.
+ *
+ * The read and write are kept inside one transaction, and the run's structural
+ * fields (questionIds/questionTypes) are always taken from the authoritative
+ * DB row — never from the passed `run`, which may be a stale snapshot. This
+ * closes a read-after-write race where a concurrent deleteQuestionsV6 trims the
+ * run between the old non-atomic get and put: previously the stale questionIds
+ * were written back, resurrecting a just-deleted question in the run. Answers
+ * referencing questions no longer in the run are dropped so they cannot
+ * outlive their question. Returns undefined if the run was deleted (the caller
+ * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
-export async function savePracticeProgressV6(run: PracticeRunV6): Promise<PracticeRunV6> {
-  const current = await dbV6.practiceRuns.get(run.id);
-  const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
-  await dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats], async () => {
+export async function savePracticeProgressV6(run: PracticeRunV6): Promise<PracticeRunV6 | undefined> {
+  return dbV6.transaction("rw", [dbV6.practiceRuns, dbV6.practiceRunStats], async () => {
+    const current = await dbV6.practiceRuns.get(run.id);
+    if (!current) return undefined;
+    const liveQuestionIds = new Set(current.questionIds);
+    const answers = Object.fromEntries(Object.entries(run.answers).filter(([questionId]) => liveQuestionIds.has(questionId)));
+    const questionTypes = Object.fromEntries(Object.entries(current.questionTypes).filter(([questionId]) => liveQuestionIds.has(questionId)));
+    const updated: PracticeRunV6 = {
+      ...current,
+      questionIds: current.questionIds,
+      questionTypes,
+      answers,
+      lastAnsweredIndex: run.lastAnsweredIndex,
+      updatedAt: run.updatedAt || nowIso(),
+      revision: current.revision + 1,
+    };
     await updatePracticeRunStatsInTx(current, updated);
     await dbV6.practiceRuns.put(updated);
+    return updated;
   });
-  return updated;
 }
 
 export async function getReviewRoundQuestionIdsV6(roundId: string): Promise<string[]> {

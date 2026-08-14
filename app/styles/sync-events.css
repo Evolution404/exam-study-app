@@ -87,6 +87,10 @@
   padding-inline: 0;
 }
 
+.sync-event-drawer .sync-event-toolbar {
+  padding-top: 18px;
+}
+
 .sync-event-manager {
   display: flex;
   flex-direction: column;
@@ -97,10 +101,9 @@
 .sync-event-toolbar {
   flex: none;
   padding: 0 0 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 168px;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .sync-event-search,
@@ -116,33 +119,52 @@
   background: var(--color-surface-raised);
 }
 
-.settings-card .sync-event-search {
-  margin: 0;
-  display: flex;
-  padding: 0 11px;
+.sync-event-search {
+  flex: none;
+  width: min(300px, 100%);
+  padding: 0 12px;
 }
 
-.settings-card .sync-event-search input {
+/* .app-select-trigger 的 width:100% 在打包顺序上更靠后，需用更高优先级覆盖 */
+.sync-event-toolbar .sync-event-filter {
+  flex: none;
+  width: 168px;
+}
+
+/* 输入框本身无边框，由外层圆角容器统一呈现（与全局搜索框一致），
+   避免内外两个矩形叠在一起 */
+.sync-event-search input {
   min-width: 0;
   width: 100%;
-  height: 42px;
   border: 0;
-  border-radius: 0;
-  padding: 0;
   outline: 0;
   color: var(--color-text);
   background: transparent;
-  font: inherit;
+  font-family: inherit;
+  /* 与全局搜索框一致：固定正常字号，否则继承 settings-card 的小字号，
+     44px 高的容器里光标会缩成一小截 */
+  font-size: 16px;
+}
+
+/* settings-card 内的标准 input 样式会设置边框与内边距；搜索框容器已提供边框，这里需覆盖回来 */
+.settings-card .sync-event-search input {
+  border: 0;
+  padding: 0;
+}
+
+.settings-card .sync-event-search {
+  margin: 0;
+  display: flex;
+  gap: 8px;
 }
 
 .settings-card .sync-event-filter {
   margin: 0;
-  padding: 0 11px;
 }
 
 .sync-event-manager-actions {
   flex: none;
-  padding: 0 0 18px;
+  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -197,6 +219,11 @@
 .sync-event-summary:hover {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
+}
+
+/* 立即同步等主按钮悬浮保持绿色，不变浅 */
+.sync-event-manager-actions button.primary:hover {
+  background: var(--green);
 }
 
 .sync-event-manager-actions button:focus-visible,
@@ -332,16 +359,39 @@
   border-radius: 14px;
   overflow: hidden;
   background: var(--color-surface-raised);
+  transition: border-color .18s ease;
 }
 
 .sync-event-item.state-blocked {
   border-color: var(--color-warning);
 }
 
+/* 悬浮/聚焦时边框与底色一起切绿（blocked 保留警告边框） */
+.sync-event-item:hover,
+.sync-event-item:focus-within {
+  border-color: var(--color-primary);
+}
+
 .sync-event-item-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  transition: background-color .18s ease;
+}
+
+/* 悬浮底色覆盖整行（含右侧操作区），作为一个整体切换 */
+.sync-event-item-main:hover {
+  background: var(--color-primary-soft);
+}
+
+/* 摘要按钮的背景交给整行统一切换，避免自身再叠一层造成分段变色 */
+.sync-event-item-main:hover .sync-event-summary {
+  background: transparent;
+}
+
+/* 删除按钮自身底色不随行悬浮切换，只有按钮上下的行底色变化 */
+.sync-event-item-main:hover .sync-event-row-actions .danger-quiet {
+  background: var(--color-danger-soft);
 }
 
 .sync-event-summary {
@@ -587,10 +637,9 @@
 
 .sync-event-editor input:focus,
 .sync-event-editor textarea:focus,
-.sync-event-search:focus-within,
-.sync-event-filter:focus-within {
+.sync-event-search:focus-within {
+  /* 只靠边框变色提示聚焦（与全局文本输入一致），不加外部光影环 */
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 
 .sync-event-editor-note {
@@ -645,21 +694,53 @@
   font-size: 10px;
 }
 
-.sync-event-cascade {
+/* 加 .confirm-dialog 前缀压过通用 .simple-dialog label/input 规则（同 bundle 里更靠后且同优先级）。
+   否则 label 会被改成 grid 把文字挤到下一行、checkbox 会被撑成 width:100% 的矩形。 */
+.confirm-dialog .sync-event-cascade {
   margin-top: 10px;
   padding: 9px;
   border-radius: 9px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   color: var(--color-danger);
   background: var(--color-danger-soft);
   cursor: pointer;
 }
 
-.sync-event-cascade input {
-  margin-top: 4px;
-  accent-color: var(--color-danger);
+/* 自定义方框代替原生小勾选框：18px 固定大小，垂直居中对齐文字 */
+.confirm-dialog .sync-event-cascade input {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: 0;
+  padding: 0; /* 压过通用 .simple-dialog input 的 padding:10px，否则 border-box 下把方框撑到 23px */
+  border: 1.5px solid color-mix(in srgb, var(--color-danger) 55%, transparent);
+  border-radius: 5px;
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+
+.confirm-dialog .sync-event-cascade input:hover {
+  border-color: var(--color-danger);
+}
+
+.confirm-dialog .sync-event-cascade input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+
+.confirm-dialog .sync-event-cascade input:checked {
+  border-color: var(--color-danger);
+  background-color: var(--color-danger);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  background-size: 13px;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .sync-event-manager .sr-only {
@@ -692,12 +773,20 @@
   }
 
   .sync-event-toolbar {
-    grid-template-columns: minmax(0, 1fr) 132px;
+    flex-wrap: wrap;
+  }
+
+  .sync-event-search {
+    width: 100%;
+  }
+
+  .sync-event-filter {
+    width: min(150px, 46%);
   }
 
   .sync-event-manager-actions {
     overflow-x: auto;
-    justify-content: flex-start;
+    justify-content: flex-end;
   }
 
   .sync-event-manager-actions button {

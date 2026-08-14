@@ -181,6 +181,68 @@ assert.equal((await dbV6.questions.bulkGet(detachIds)).filter(Boolean).length, 2
 assert.equal(await deleteQuestionsV6(detachIds), 2);
 assert.equal((await dbV6.questions.bulkGet(detachIds)).filter(Boolean).length, 0);
 
+// S1.2 [R4] savePracticeProgress 读后写竞争：被 deleteQuestionsV6 裁剪后回写陈旧快照，
+// 不得把已删题目塞回 run（复活）。修复后以 DB 当前的 questionIds 为准，并丢弃指向已删题的作答。
+{
+  const r4Bank = await createBankV6("R4竞争测试");
+  const r4q1 = await createQuestionV6(r4Bank.id, { type: "单选", stem: "R4题一", options: ["对", "错"], answer: "A" });
+  const r4q2 = await createQuestionV6(r4Bank.id, { type: "单选", stem: "R4题二", options: ["对", "错"], answer: "A" });
+  const r4Run = await createPracticeRunV6({ bankId: r4Bank.id, questionIds: [r4q1.id, r4q2.id] });
+  await recordPracticeAnswerV6({ runId: r4Run.id, questionId: r4q1.id, selected: "A", correct: true });
+  // 模拟 study-app 保存前读到的陈旧快照（含 q1、q1 的答案）
+  const staleSnapshot = await dbV6.practiceRuns.get(r4Run.id);
+  assert.ok(staleSnapshot && staleSnapshot.questionIds.includes(r4q1.id));
+  // 另一处并发删除 q1：run 被裁剪为 [q2]，answers 中 q1 被移除
+  await deleteQuestionV6(r4q1.id);
+  const trimmed = await dbV6.practiceRuns.get(r4Run.id);
+  assert.deepEqual(trimmed?.questionIds, [r4q2.id], "删除后 run 应已裁剪");
+  // 现在用陈旧快照调用 savePracticeProgressV6（模拟保存与删除交错的窗口）
+  await savePracticeProgressV6({ ...staleSnapshot!, answers: { [r4q1.id]: { selected: ["A"], correct: true, submitted: true, updatedAt: staleSnapshot!.updatedAt, deviceId: staleSnapshot!.deviceId, eventId: "evt-r4" } }, lastAnsweredIndex: 0, updatedAt: new Date().toISOString(), revision: staleSnapshot!.revision + 1 });
+  const after = await dbV6.practiceRuns.get(r4Run.id);
+  assert.ok(after, "run 行应保留");
+  assert.deepEqual(after.questionIds, [r4q2.id], "已删题 q1 不得被陈旧保存复活回 run");
+  assert.ok(!after.answers[r4q1.id], "指向已删题的陈旧作答应被丢弃");
+  assert.equal(after.revision, (trimmed?.revision ?? 0) + 1, "revision 应基于 DB 当前值自增");
+  console.log("S1.2 passed: savePracticeProgress 读后写竞争不再复活已删题（R4）");
+}
+
+// S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
+{
+  const e5Bank = await createBankV6("E5跨run清理");
+  const e5q1 = await createQuestionV6(e5Bank.id, { type: "单选", stem: "E5共享题", options: ["对", "错"], answer: "A" });
+  const e5q2 = await createQuestionV6(e5Bank.id, { type: "单选", stem: "E5陪跑题", options: ["对", "错"], answer: "A" });
+  const runA = await createPracticeRunV6({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
+  const runB = await createPracticeRunV6({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
+  await recordPracticeAnswerV6({ runId: runA.id, questionId: e5q1.id, selected: "A", correct: true });
+  await recordPracticeAnswerV6({ runId: runB.id, questionId: e5q1.id, selected: "B", correct: false });
+  assert.ok((await dbV6.attemptStats.get(e5q1.id))?.total, "删前应有全局统计");
+  assert.equal(await dbV6.attempts.where("questionId").equals(e5q1.id).count(), 2, "删前两条 run 各有一条作答");
+  await deleteQuestionV6(e5q1.id);
+  assert.equal(await dbV6.attempts.where("questionId").equals(e5q1.id).count(), 0, "跨 runA/runB 的全部 attempts 应被清空");
+  assert.equal(await dbV6.attemptStats.get(e5q1.id), undefined, "全局统计应清除");
+  assert.equal(await dbV6.attemptDailyStats.where("questionId").equals(e5q1.id).count(), 0, "每日统计应清除");
+  const runAAfter = await dbV6.practiceRuns.get(runA.id);
+  const runBAfter = await dbV6.practiceRuns.get(runB.id);
+  assert.deepEqual(runAAfter?.questionIds, [e5q2.id], "runA 应被裁剪（行保留）");
+  assert.deepEqual(runBAfter?.questionIds, [e5q2.id], "runB 应被裁剪（行保留）");
+  console.log("S1.4 passed: 删题级联清空跨 run 全部 attempts（E5 全局清理语义）");
+}
+
+// S2.5 [E4] 删活动复习轮次中的题 → 该题已不在轮次目标集，in-flight 作答应被拒（特征化）。
+// 活动轮次的目标集运行时按 bankIds 动态派生，删题后该题不再属于目标集。
+{
+  const e4Bank = await createBankV6("E4复习轮次");
+  const e4q1 = await createQuestionV6(e4Bank.id, { type: "单选", stem: "E4轮次题一", options: ["对", "错"], answer: "A" });
+  await createQuestionV6(e4Bank.id, { type: "单选", stem: "E4轮次题二", options: ["对", "错"], answer: "A" });
+  const e4Round = await createReviewRoundV6({ name: "E4轮", bankIds: [e4Bank.id] });
+  assert.ok((await getReviewRoundQuestionIdsV6(e4Round.id)).includes(e4q1.id), "删前 q1 应在轮次目标集");
+  const e4Run = await createPracticeRunV6({ bankIds: [e4Bank.id], questionIds: await getReviewRoundQuestionIdsV6(e4Round.id), reviewRoundId: e4Round.id });
+  await deleteQuestionV6(e4q1.id);
+  assert.ok(!(await getReviewRoundQuestionIdsV6(e4Round.id)).includes(e4q1.id), "删后 q1 不再属于轮次目标集");
+  await assert.rejects(() => recordPracticeAnswerV6({ runId: e4Run.id, questionId: e4q1.id, selected: "A", correct: true, reviewRoundId: e4Round.id }), /复习轮次|不属于|练习记录不包含当前题目/, "已删题的 in-flight 作答应被拒（删题已裁剪 run，作答无法落地）");
+  console.log("S2.5 passed: 删活动复习轮次中的题后该题作答被拒（E4 特征化）");
+}
+
 // Image descriptor/blob validation and cache-only clearing.
 const bytes = new Uint8Array([1, 2, 3]);
 const blob = new Blob([bytes], { type: "image/png" });

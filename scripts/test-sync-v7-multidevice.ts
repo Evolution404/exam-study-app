@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createChangeSetV7 } from "../lib/change-set-v7";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../lib/change-set-v7-projection";
+import { replayRemoteResilient } from "../lib/github-sync-v7";
 import { planSyncV7Compaction, replaySyncV7Segments } from "../lib/sync-v7-head";
 import type { BankQuestionMembership, BankV6, QuestionV6 } from "../lib/v6-types";
 
@@ -49,6 +50,20 @@ const deleted = await createChangeSetV7({ id: "delete", deviceId: "device-a", lo
 const staleEdit = await createChangeSetV7({ id: "stale", deviceId: "device-b", localSequence: 3, createdAt: at, mutation: { kind: "question.upsert", question: { ...question("question-b", "device-b"), answer: "B" } } });
 const afterDelete = reduceChangeSetV7(merged, deleted);
 assert.throws(() => reduceChangeSetV7(afterDelete, staleEdit), /不存在|conflict|deleted/i);
+
+// Hazard 防御：远端（committed）回放路径没有 local-pending 那样的 per-record try/catch。
+// 若一条已提交的远端变更与检查点里的墓碑冲突（理论上因「下载先于推送」极难触达，但需防御），
+// replayRemoteResilient 应跳过该毒记录而非让整个 sync 抛错。此处 afterDelete 即「含墓碑的检查点投影」，
+// staleEdit 即「后续 segment 里的陈旧 upsert」——单条 reduceChangeSetV7 会抛（上一行已证），但批量回放不得崩。
+const resilient = replayRemoteResilient(afterDelete, [staleEdit]);
+assert.deepEqual(resilient.skipped, ["stale"], "与墓碑冲突的远端变更应被跳过并记录其 id");
+assert.equal(resilient.projection.questions.find((item) => item.id === "question-b"), undefined, "墓碑优先：被跳过的毒 upsert 不得让已删题复活");
+assert.ok(resilient.projection.tombstones.some((item) => item.key === "question:question-b"), "墓碑应保留");
+// 正常记录仍应照常应用（不被毒记录波及）
+const otherQuestion = await createChangeSetV7({ id: "other", deviceId: "device-c", localSequence: 1, createdAt: at, mutation: { kind: "question.upsert", question: question("question-c", "device-c") } });
+const mixed = replayRemoteResilient(afterDelete, [staleEdit, otherQuestion]);
+assert.deepEqual(mixed.skipped, ["stale"], "毒记录被跳过");
+assert.equal(mixed.projection.questions.find((item) => item.id === "question-c")?.id, "question-c", "毒记录前后的正常变更仍应正常应用");
 
 // Repeated normal sync and CAS retries remain below the real aggregate byte
 // threshold and therefore categorically cannot request a checkpoint.

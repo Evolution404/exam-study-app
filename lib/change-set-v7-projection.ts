@@ -201,7 +201,14 @@ function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, question
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => item.questionId !== questionId);
   projection.questionGroups = projection.questionGroups.flatMap((group) => {
     const items = group.items.filter((item) => item.questionId !== questionId);
-    return items.length ? [{ ...group, items }] : [];
+    if (!items.length) {
+      // 题目删除把组裁空时，一并写墓碑，使后续到达的陈旧 questionGroup.saved 被
+      // rejectTombstoned 拦截（题组不可复活）。此前只丢弃组不写墓碑，远端 replay 后
+      // saved 仍能重建含 dangling 题目引用的组。
+      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId);
+      return [];
+    }
+    return [{ ...group, items }];
   });
   projection.practiceRuns = projection.practiceRuns.map((run) => {
     if (!run.questionIds.includes(questionId)) return run;
@@ -435,6 +442,9 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       return;
     case "questionGroup.deleted":
       removeById(projection.questionGroups, mutation.groupId, "题组");
+      // 写墓碑，使后续到达的陈旧 questionGroup.saved 被 rejectTombstoned 拦截（题组不可复活，
+      // 与题库/资产一致）。此前只 removeById 不写墓碑，导致远端 replay 后 saved 仍能重建组。
+      putTombstone(projection, "questionGroup", mutation.groupId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId);
       return;
     case "review.round.saved":
       mutation.round.bankIds.forEach((bankId) => ensureBank(projection, bankId));

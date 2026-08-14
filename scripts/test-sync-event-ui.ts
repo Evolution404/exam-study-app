@@ -24,12 +24,15 @@ assert.doesNotMatch(manager, /JSON\.stringify|contentEditable|原始 JSON|raw JS
 assert.match(manager, /删除整个 change-set/, "deletion is whole-change-set only");
 assert.match(manager, /cascadeDependents/, "dependency cascade decision is returned to the controller");
 assert.match(manager, /dependentChangeSetIds/, "dependent operations are shown before cascade deletion");
-assert.match(styles, /\.sync-event-toolbar\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 168px;[\s\S]*gap:\s*12px;/, "desktop toolbar keeps consistent spacing and a compact status selector");
+assert.match(manager, /deleteError/, "delete dialog surfaces rejected deletions inline instead of silently failing");
+assert.match(manager, /error=\{deleteError\}/, "manager passes the inline delete error to the confirm dialog");
+assert.match(styles, /\.sync-event-toolbar\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*10px;/, "desktop toolbar lays out search, filter and sync actions as one row");
+assert.match(styles, /\.sync-event-toolbar \.sync-event-filter\s*\{[\s\S]*width:\s*168px;/, "status filter keeps a compact fixed width");
 assert.match(styles, /\.sync-event-search,[\s\S]*\.sync-event-filter\s*\{[\s\S]*height:\s*44px;/, "search and status controls share the standard control height");
 assert.match(styles, /\.settings-card \.sync-event-search input\s*\{[\s\S]*border:\s*0;[\s\S]*padding:\s*0;/, "sync search resists generic settings-card input styles");
 
-assert.match(manager, /onCreateAction/, "business action creation is callback-controlled");
-assert.match(manager, /onRefresh/, "refresh is callback-controlled");
+assert.doesNotMatch(manager, /onCreateAction|新建业务操作/, "misleading '新建业务操作' button was removed; creation lives in the normal business UI");
+assert.doesNotMatch(manager, /onRefresh|刷新/, "no-op refresh button was removed; only the sync action remains");
 assert.match(manager, /onSyncNow/, "sync is callback-controlled");
 assert.match(manager, /role="progressbar"/, "sync progress is accessible");
 assert.match(manager, /正在同步/, "syncing (claimed) batch has a named section");
@@ -45,8 +48,8 @@ assert.match(drawer, /event\.key === "Escape"/, "drawer closes with Escape");
 assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus when closed");
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
 assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
-assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks); creation stays in the contextual drawer");
-assert.match(studyApp, /onCreateAction=\{\(\) => \{ setSyncDrawerOpen\(false\); setView\("banks"\); \}\}/, "top drawer routes creation through the normal business UI");
+assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks)");
+assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 
 assert.match(styles, /@media \(max-width: 760px\)/, "drawer has a mobile layout");
 assert.match(styles, /@media \(max-width: 430px\)/, "drawer adapts to narrow phones");

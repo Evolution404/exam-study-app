@@ -12,6 +12,19 @@
 //   • imported  -> `startMockGitHubServer({ port })` returns { url, port, reset, close }
 //   • standalone -> `node scripts/mock-github-server.mjs [port]` prints the URL
 //     so a real browser/dev session can point at it for manual verification.
+//
+// Test-only options (default off, preserving the original happy-path behaviour):
+//   • cas: true        — honor `body.sha` on contents PUT (409 on stale, 422 when
+//                        sha missing on an existing file) and `If-None-Match` on
+//                        contents GET (304). Unlocks CAS-retry / concurrent-push /
+//                        bootstrap-split-brain / ETag tests through syncWithGitHub.
+//   • faults: {...}    — inject failures: failPutOnce/failGetOnce (first match →
+//                        500 then recover), corruptBlob (serve flipped bytes for a
+//                        sha), blackholePath (404 for a path), conflictHeadPutOnce /
+//                        conflictHeadPutAlways (409 on a head update). Unlocks
+//                        partial-upload / network-error / corruption / hydration /
+//                        CAS-exhaustion tests. `armCorruptOnce()` (on the returned
+//                        handle) flips the NEXT blob GET once.
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -60,15 +73,30 @@ function readBody(req) {
 
 /**
  * Start an in-memory mock of the GitHub API subset used by v7 sync.
- * @returns {Promise<{ url: string, port: number, hostname: string, reset: () => void, close: () => Promise<void> }>}
+ * @param {{ port?: number, hostname?: string, cas?: boolean, faults?: MockFaults }} [options]
+ * @returns {Promise<{ url: string, port: number, hostname: string, reset: () => void, contentPaths: () => string[], close: () => Promise<void> }>}
  */
-export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {}) {
+export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = false, faults } = {}) {
   const paths = new Map(); // logical content path -> blobSha
   const blobs = new Map(); // blobSha -> Buffer
+  // One-shot fault state: tracks whether failPutOnce/failGetOnce have fired yet.
+  let putFaultFired = false;
+  let getFaultFired = false;
+  // Armed via armCorruptOnce(): the next blob GET flips a byte (simulating a
+  // corrupted transfer), then self-clears. Lets tests push data intact, then
+  // corrupt the NEXT download a fresh device makes.
+  let corruptNextBlob = false;
+  // Armed via armFailBlobGetOnce(): the next blob GET returns 500 (simulating a
+  // failed object/checkpoint/segment download), then self-clears.
+  let failNextBlobGet = false;
 
   function reset() {
     paths.clear();
     blobs.clear();
+    putFaultFired = false;
+    getFaultFired = false;
+    corruptNextBlob = false;
+    failNextBlobGet = false;
   }
 
   /**
@@ -77,6 +105,28 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
    */
   function contentPaths() {
     return [...paths.keys()].map((key) => key.replace(/^[^/]+\/[^/]+\//, ""));
+  }
+
+  /** Whether a path matches an active blackhole fault (→ 404). */
+  function blackholed(logicalPath) {
+    return Boolean(faults?.blackholePath && faults.blackholePath.test(logicalPath));
+  }
+  /** Possibly corrupt a blob buffer for a given blobSha (same length, flipped byte). */
+  function maybeCorrupt(sha, buffer) {
+    const matched = faults?.corruptBlob === true || (faults?.corruptBlob instanceof Set && faults.corruptBlob.has(sha));
+    if (!matched) return buffer;
+    const corrupted = Buffer.from(buffer); // copy
+    corrupted.writeUInt8((corrupted[0] ^ 0xff) >>> 0, 0);
+    return corrupted;
+  }
+  // armCorruptOnce target: corrupt only immutable BLOB downloads (checkpoint/
+  // segment/object), never the head.json contents read — a corrupt head would
+  // fail JSON parse instead of the sha256 integrity check we intend to exercise.
+  function corruptBlobBuffer(buffer) {
+    corruptNextBlob = false;
+    const corrupted = Buffer.from(buffer);
+    corrupted.writeUInt8((corrupted[0] ^ 0xff) >>> 0, 0);
+    return corrupted;
   }
 
   const server = createServer(async (req, res) => {
@@ -94,9 +144,10 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
       const blobMatch = BLOB_RE.exec(pathname);
       if (req.method === "GET" && blobMatch) {
         const sha = decodeURIComponent(blobMatch[3]);
+        if (failNextBlobGet) { failNextBlobGet = false; return sendJson(res, 500, { message: "transient mock blob GET failure" }); }
         const buffer = blobs.get(sha);
         if (!buffer) return sendJson(res, 404, { message: "Not Found" });
-        return sendRaw(res, 200, buffer);
+        return sendRaw(res, 200, corruptNextBlob ? corruptBlobBuffer(buffer) : maybeCorrupt(sha, buffer));
       }
 
       // GET/PUT /repos/:o/:r/contents/:path[?ref=branch]
@@ -108,11 +159,22 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
         const logicalPath = contentMatch[3].split("/").map(decodeURIComponent).join("/");
 
         if (req.method === "GET") {
+          if (blackholed(logicalPath)) return sendJson(res, 404, { message: "Not Found" });
+          // Fault injection: fail the first matching GET once, then recover.
+          if (faults?.failGetOnce && !getFaultFired && faults.failGetOnce.test(logicalPath)) {
+            getFaultFired = true;
+            return sendJson(res, 500, { message: "transient mock GET failure" });
+          }
           const sha = paths.get(storageKey);
           if (!sha) return sendJson(res, 404, { message: "Not Found" });
+          // Conditional GET: honor If-None-Match against the current etag (CAS mode).
+          if (cas) {
+            const inm = req.headers["if-none-match"];
+            if (inm && inm === `"${sha}"`) return sendJson(res, 304, { message: "Not Modified" }, { etag: `"${sha}"` });
+          }
           const buffer = blobs.get(sha);
           return sendJson(res, 200, {
-            content: buffer.toString("base64"),
+            content: maybeCorrupt(sha, buffer).toString("base64"),
             encoding: "base64",
             sha,
             path: logicalPath,
@@ -122,10 +184,41 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
         }
 
         if (req.method === "PUT") {
+          if (blackholed(logicalPath)) return sendJson(res, 404, { message: "Not Found" });
+          // Fault injection: fail the first matching PUT once, then recover.
+          if (faults?.failPutOnce && !putFaultFired && faults.failPutOnce.test(logicalPath)) {
+            putFaultFired = true;
+            return sendJson(res, 500, { message: "transient mock PUT failure" });
+          }
           const body = JSON.parse((await readBody(req)).toString("utf8"));
           const buffer = Buffer.from(body.content, "base64");
           const sha = sha1Hex(buffer);
           const existed = paths.has(storageKey);
+          // Fault injection: force the first head UPDATE to 409 Conflict once —
+          // simulates a concurrent device winning the head CAS between this client's
+          // readHead and publish, exercising syncWithGitHub's CAS retry/rebase loop.
+          // Only fires on an existing head (a data-sync update), never on the
+          // bootstrap create, so initialize is unaffected.
+          if (faults?.conflictHeadPutOnce && !putFaultFired && existed && logicalPath === "sync/v7/head.json") {
+            putFaultFired = true;
+            return sendJson(res, 409, { message: "Conflict" });
+          }
+          if (faults?.conflictHeadPutAlways && existed && logicalPath === "sync/v7/head.json") {
+            return sendJson(res, 409, { message: "Conflict" });
+          }
+          // CAS mode emulates GitHub's optimistic concurrency on the Contents API:
+          //   • sha present and stale → 409 Conflict (head-advanced)
+          //   • sha missing on an existing file → 422 (head-already-exists); the
+          //     client turns this into an idempotent verify for immutables or a
+          //     conflict for an initial head create.
+          if (cas && existed) {
+            const currentSha = paths.get(storageKey);
+            if (typeof body.sha === "string") {
+              if (body.sha !== currentSha) return sendJson(res, 409, { message: "Conflict" });
+            } else {
+              return sendJson(res, 422, { message: "already exists", errors: [{ code: "already_exists" }] });
+            }
+          }
           paths.set(storageKey, sha);
           blobs.set(sha, buffer);
           return sendJson(res, existed ? 200 : 201, {
@@ -147,7 +240,9 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1" } = {})
       const { port: actualPort } = server.address();
       const url = `http://${hostname}:${actualPort}`;
       const close = () => new Promise((resolveClose) => server.close(() => resolveClose()));
-      resolve({ url, port: actualPort, hostname, reset, contentPaths, close });
+      const armCorruptOnce = () => { corruptNextBlob = true; };
+      const armFailBlobGetOnce = () => { failNextBlobGet = true; };
+      resolve({ url, port: actualPort, hostname, reset, contentPaths, armCorruptOnce, armFailBlobGetOnce, close });
     });
   });
 }
