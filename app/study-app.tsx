@@ -552,7 +552,7 @@ export function StudyApp() {
     try {
       setNotice("正在识别并校验题库…");
       const { bank, type } = await importQuestionBankFile(file);
-      setNotice(`已从 ${type === "xlsx" ? "Excel" : "JSON"} 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
+      setNotice(`已从 ${type === "xlsx" ? "Excel" : type === "zip" ? "压缩包" : "JSON"} 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
       setView("banks");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "题库导入失败");

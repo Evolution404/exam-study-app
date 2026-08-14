@@ -244,3 +244,32 @@ export function deleteContentBlock(blocks: readonly ContentBlock[], blockId: str
   if (index < 0) return [...blocks];
   return [...blocks.slice(0, index), ...blocks.slice(index + 1)];
 }
+
+/** Split placeholder-bearing text (【图1】【图2】…) into text/image blocks.
+ *
+ *  The Excel export writes image positions as 【图N】 markers and ships the
+ *  bytes separately; import reverses that here.  Placeholders whose N exceeds
+ *  the available asset list (a missing or evicted image) are dropped so the
+ *  stem never keeps a dangling marker.
+ */
+export function blocksFromPlaceholderText(value: string, assetIds: readonly string[], idPrefix = "image"): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  const pattern = /【图([0-9]+)】/g;
+  let cursor = 0;
+  let blockIndex = 0;
+  for (const match of value.matchAll(pattern)) {
+    const before = value.slice(cursor, match.index);
+    if (before) blocks.push({ id: `text-${idPrefix}-${blockIndex++}`, type: "text", text: before });
+    const assetId = assetIds[Number(match[1]) - 1];
+    if (assetId) blocks.push({ id: `${idPrefix}-${blockIndex++}`, type: "image", assetId });
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+  const rest = value.slice(cursor);
+  if (rest) blocks.push({ id: `text-${idPrefix}-${blockIndex++}`, type: "text", text: rest });
+  return blocks;
+}
+
+/** Remove 【图N】 markers from text that has no accompanying images. */
+export function stripImagePlaceholders(value: string): string {
+  return value.replace(/【图[0-9]+】/g, "").trim();
+}

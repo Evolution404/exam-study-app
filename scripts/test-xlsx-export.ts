@@ -24,11 +24,12 @@ assert.deepEqual(rows[4], ["计算题", "计算", "12.5", "计算", "计算题�
 const bytes = buildQuestionBankXlsx(questions, notes);
 const buffer = (bytes.buffer as ArrayBuffer).slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 const parsed = await parseQuestionBankWorkbook(buffer);
-assert.equal(parsed.length, 4);
-assert.deepEqual(parsed[0], { q: "单选题", ans: "B", a: ["选项一", "选项二", "选项三", "选项四"], type: "单选", tags: ["基础", "示例"], note: "单选题解析" });
-assert.deepEqual(parsed[1], { q: "多选题", ans: "AC", a: ["甲", "乙", "丙", "丁"], type: "多选", tags: [] });
-assert.deepEqual(parsed[2], { q: "判断题", ans: "A", a: ["正确", "错误"], type: "判断", tags: ["判断"], note: "判断题解析" });
-assert.deepEqual(parsed[3], { q: "计算题", ans: "12.5", a: [], type: "计算", tags: ["计算"], note: "计算题解析" });
+assert.equal(parsed.images.size, 0, "无图题库不应嵌入任何单元格图片");
+assert.equal(parsed.rows.length, 4);
+assert.deepEqual(parsed.rows[0], { q: "单选题", ans: "B", a: ["选项一", "选项二", "选项三", "选项四"], type: "单选", tags: ["基础", "示例"], note: "单选题解析" });
+assert.deepEqual(parsed.rows[1], { q: "多选题", ans: "AC", a: ["甲", "乙", "丙", "丁"], type: "多选", tags: [] });
+assert.deepEqual(parsed.rows[2], { q: "判断题", ans: "A", a: ["正确", "错误"], type: "判断", tags: ["判断"], note: "判断题解析" });
+assert.deepEqual(parsed.rows[3], { q: "计算题", ans: "12.5", a: [], type: "计算", tags: ["计算"], note: "计算题解析" });
 
 // JSON 导出结构：无解析的题不带 note 字段
 const json = JSON.parse(questionExportJson("测试题库", questions, notes));

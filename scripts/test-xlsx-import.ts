@@ -10,7 +10,8 @@ import {
 
 const template = await readFile(new URL("../public/题库模板.xlsx", import.meta.url));
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;
-const rows = await readQuestionWorkbook(templateBuffer);
+const workbook = await readQuestionWorkbook(templateBuffer);
+const rows = workbook.rows;
 assert.deepEqual(rows[0].slice(0, 9), ["题干", "题型", "答案", "标签", "解析", "A", "B", "C", "D"]);
 assert.match(rows[1][0], /^示例·单选/);
 assert.match(rows[3][0], /^示例·判断/);

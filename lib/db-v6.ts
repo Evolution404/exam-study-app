@@ -11,9 +11,12 @@ import Dexie, { type EntityTable } from "dexie";
 import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7";
 import { sha256Blob, sha256Bytes } from "./image-assets";
 import {
+  blocksFromPlaceholderText,
+  deriveContentText,
   normalizeContentText,
   plainTextToContentBlocks,
   questionContentFingerprint,
+  stripImagePlaceholders,
 } from "./question-content";
 import { normalizeCalculationAnswer } from "./question-utils";
 import type { PracticeAnswerState, PracticeRunStatus, QuestionType } from "./types";
@@ -1001,26 +1004,73 @@ function rowOptions(row: Record<string, unknown>): unknown {
   return row.options ?? row.a ?? row.choices ?? row["选项"];
 }
 
+const ASSET_ID_PATTERN = /^[0-9a-f]{64}$/;
+const PLACEHOLDER_TEST = /【图[0-9]+】/;
+
+/** Sanitise semi-trusted imported blocks: text blocks keep their text, image
+ *  blocks must reference a materialised 64-hex asset id.  Anything else is
+ *  dropped rather than trusted. */
+function importedBlocks(value: unknown): ContentBlock[] | undefined {
+  if (!Array.isArray(value) || !value.length) return undefined;
+  const blocks: ContentBlock[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return undefined;
+    const block = item as Record<string, unknown>;
+    if (block.type === "text" && typeof block.text === "string") {
+      blocks.push({ id: `text-${blocks.length}`, type: "text", text: normalizeContentText(block.text) });
+    } else if (block.type === "image" && typeof block.assetId === "string" && ASSET_ID_PATTERN.test(block.assetId)) {
+      blocks.push({ id: `image-${blocks.length}`, type: "image", assetId: block.assetId });
+    } else return undefined;
+  }
+  return blocks;
+}
+
 function importDraft(row: ImportedQuestionRowV6): QuestionDraftV6 | undefined {
   if (!row || typeof row !== "object") return undefined;
   const record = row as unknown as Record<string, unknown>;
-  const stem = normalizeContentText(rowString(record, "stem", "question", "q", "题干"));
-  if (!stem) return undefined;
+  const imageIds = Array.isArray(record.images)
+    ? record.images.map(String).filter((id) => ASSET_ID_PATTERN.test(id))
+    : [];
+  // Structured content (zip bundle) wins; otherwise placeholder text (Excel
+  // image columns) is split back into blocks, and plain stems stay plain.
+  const structuredContent = importedBlocks(record.content);
+  const rawStem = normalizeContentText(rowString(record, "stem", "question", "q", "题干"));
+  const stem = rawStem || (structuredContent ? deriveContentText(structuredContent) : "");
+  if (!stem && !structuredContent?.length) return undefined;
+  const content = structuredContent ?? (imageIds.length ? blocksFromPlaceholderText(rawStem, imageIds, "stem") : undefined);
+  const cleanStem = content ? undefined : (imageIds.length ? rawStem : stripImagePlaceholders(rawStem));
   const rawOptions = rowOptions(record);
-  const options = Array.isArray(rawOptions) ? rawOptions.map((item) => String(item ?? "").trim()) : [];
+  const blockOptions = Array.isArray(rawOptions) && rawOptions.length > 0 && rawOptions.every((item) => Array.isArray(item))
+    ? rawOptions.map((item, index) => importedBlocks(item) ?? plainTextToContentBlocks("", `option-${index}-0`))
+    : undefined;
+  // Excel image columns ship option text with 【图N】 markers; those options
+  // split into block arrays so the images land inside the option itself.
+  const placeholderOption = (value: unknown, index: number) => {
+    const optionText = String(value ?? "").trim();
+    return imageIds.length && PLACEHOLDER_TEST.test(optionText) ? blocksFromPlaceholderText(optionText, imageIds, `option-${index}`) : optionText;
+  };
+  const options = blockOptions ?? (Array.isArray(rawOptions) ? rawOptions.map(placeholderOption) : []);
+  const optionTexts = options.map((option) => typeof option === "string" ? option : deriveContentText(option));
   const rawType = rowString(record, "type", "questionType", "题型").trim();
   const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";
   const answer = Array.isArray(rawAnswer) ? rawAnswer.map(String).join("") : String(rawAnswer);
   const type: QuestionTypeV6 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算"
     ? rawType
-    : options.length === 2 && options[0] === "正确" && options[1] === "错误"
+    : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"
       ? "判断"
       : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
   if (!answer.trim() || (type !== "计算" && options.length < 2)) return undefined;
   const rawTags = record.tags ?? record["标签"];
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
   const note = rowString(record, "note", "analysis", "解析").trim();
-  return { type, stem, options, answer, tags: uniqueStrings(tags), ...(note ? { note } : {}) };
+  return {
+    type,
+    ...(content ? { content } : { stem: cleanStem ?? stem }),
+    options,
+    answer,
+    tags: uniqueStrings(tags),
+    ...(note ? { note } : {}),
+  };
 }
 
 /**

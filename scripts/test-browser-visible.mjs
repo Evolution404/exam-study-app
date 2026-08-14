@@ -39,10 +39,10 @@ const excelFixtureFile = {
   buffer: XLSX.write((() => {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["题干", "题型", "答案", "标签", "A", "B", "C"],
-      ["Excel 导入后的第一道题是什么？", "单选", "A", "Excel", "通过校验", "跳过校验", "无法判断"],
-      ["Excel 导入支持多选吗？", "多选", "AB", "Excel", "支持", "可以", "不支持"],
-      ["Excel 计算题的标准答案是多少？", "计算", "10", "Excel，计算"],
+      ["题干", "题型", "答案", "标签", "解析", "A", "B", "C"],
+      ["Excel 导入后的第一道题是什么？", "单选", "A", "Excel", "", "通过校验", "跳过校验", "无法判断"],
+      ["Excel 导入支持多选吗？", "多选", "AB", "Excel", "", "支持", "可以", "不支持"],
+      ["Excel 计算题的标准答案是多少？", "计算", "10", "Excel，计算", ""],
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "题库");
     return workbook;

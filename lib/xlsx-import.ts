@@ -4,6 +4,13 @@ const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_QUESTIONS = 20_000;
 const MAX_OPTIONS = 24;
+const MAX_IMAGES_PER_QUESTION = 12;
+
+/** A cell image recovered from `xl/cellimages.xml`, keyed by its DISPIMG id. */
+export interface WorkbookImage {
+  bytes: Uint8Array;
+  mimeType: "image/png" | "image/jpeg";
+}
 
 export interface ImportedQuestionRow {
   q: string;
@@ -12,7 +19,18 @@ export interface ImportedQuestionRow {
   type: QuestionType;
   tags: string[];
   note?: string;
+  /** DISPIMG ids placed in the 图片N columns, index 0 = 【图1】. */
+  images?: string[];
 }
+
+/** Parser output: text rows plus the workbook's embedded cell images. */
+export interface QuestionWorkbook {
+  rows: string[][];
+  images: Map<string, WorkbookImage>;
+}
+
+const DISPIMG_PATTERN = /^=DISPIMG\("([^"]+)",1\)$/;
+const IMAGE_HEADER_PATTERN = /^图片([1-9][0-9]*)$/;
 
 export interface XlsxValidationIssue {
   row: number;
@@ -112,11 +130,11 @@ function readZipEntries(buffer: ArrayBuffer) {
   return entries;
 }
 
-async function unzipText(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string, required = true) {
+async function unzipBytes(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string, required = true): Promise<Uint8Array> {
   const entry = entries.get(normalizeArchivePath(path));
   if (!entry) {
     if (required) fail(`Excel 文件缺少必要内容：${path}`);
-    return "";
+    return new Uint8Array(0);
   }
   const view = new DataView(buffer);
   const offset = entry.localHeaderOffset;
@@ -134,6 +152,12 @@ async function unzipText(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, pa
     bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   } else fail(`Excel 使用了不支持的压缩方式（${entry.compression}）。`);
   if (bytes.byteLength !== entry.uncompressedSize) fail("Excel 文件解压长度不一致，文件可能已损坏。");
+  return bytes;
+}
+
+async function unzipText(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string, required = true) {
+  const bytes = await unzipBytes(buffer, entries, path, required);
+  if (!bytes.byteLength && !entries.has(normalizeArchivePath(path))) return "";
   return new TextDecoder().decode(bytes);
 }
 
@@ -188,7 +212,7 @@ function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
       const reference = xmlAttribute(cellMatch[1], "r") ?? "";
       const index = columnIndex(reference);
       if (index < 0) continue;
-      if (index > MAX_OPTIONS + 3) fail(`第 ${rowNumber} 行包含过多选项，最多支持 ${MAX_OPTIONS} 个。`);
+      if (index > 4 + MAX_OPTIONS + MAX_IMAGES_PER_QUESTION) fail(`第 ${rowNumber} 行包含过多列，最多支持 ${MAX_OPTIONS} 个选项和 ${MAX_IMAGES_PER_QUESTION} 张图片。`);
       cells[index] = cellText(cellMatch[1], cellMatch[2] ?? "", sharedStrings).trim();
     }
     rows[rowNumber - 1] = cells;
@@ -196,7 +220,44 @@ function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
   return rows;
 }
 
-export async function readQuestionWorkbook(buffer: ArrayBuffer) {
+/** Locate and decode the WPS cell-image table: xl/cellimages.xml maps a
+ *  DISPIMG id to an rId, and its .rels maps the rId to a media file. */
+async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, relationshipsXml: string): Promise<Map<string, WorkbookImage>> {
+  const images = new Map<string, WorkbookImage>();
+  let cellImagesTarget = "";
+  for (const match of relationshipsXml.matchAll(/<Relationship\b([^>]*)\/?\s*>/gi)) {
+    if ((xmlAttribute(match[1], "Type") ?? "").includes("/cellImage")) {
+      const target = xmlAttribute(match[1], "Target");
+      if (target) cellImagesTarget = normalizeArchivePath(target.startsWith("/") ? target : `xl/${target}`);
+    }
+  }
+  if (!cellImagesTarget) return images;
+  const cellImagesXml = await unzipText(buffer, entries, cellImagesTarget, false);
+  if (!cellImagesXml) return images;
+  const imageRelsXml = await unzipText(buffer, entries, `xl/_rels/${cellImagesTarget.split("/").pop()}.rels`, false);
+  const mediaByRelationship = new Map<string, string>();
+  for (const match of (imageRelsXml || "").matchAll(/<Relationship\b([^>]*)\/?\s*>/gi)) {
+    const id = xmlAttribute(match[1], "Id");
+    const target = xmlAttribute(match[1], "Target");
+    if (id && target) mediaByRelationship.set(id, normalizeArchivePath(target.startsWith("/") ? target : `xl/${target.replace(/^\.\.\//, "")}`));
+  }
+  for (const match of cellImagesXml.matchAll(/<etc:cellImage\b[^>]*>([\s\S]*?)<\/etc:cellImage>/gi)) {
+    const body = match[1];
+    const id = body.match(/<xdr:cNvPr\b[^>]*\bname\s*=\s*"([^"]*)"/i)?.[1];
+    const embed = body.match(/r:embed\s*=\s*"([^"]*)"/i)?.[1];
+    if (!id || !embed) continue;
+    const mediaPath = mediaByRelationship.get(embed);
+    if (!mediaPath) continue;
+    const bytes = await unzipBytes(buffer, entries, mediaPath, false);
+    if (!bytes.byteLength) continue;
+    const signature = bytes[0] === 0x89 && bytes[1] === 0x50 ? "image/png" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : undefined;
+    if (!signature) continue;
+    images.set(id, { bytes, mimeType: signature });
+  }
+  return images;
+}
+
+export async function readQuestionWorkbook(buffer: ArrayBuffer): Promise<QuestionWorkbook> {
   if (!buffer.byteLength) fail("Excel 文件为空。");
   if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 12 MB 上限。");
   const entries = readZipEntries(buffer);
@@ -205,7 +266,8 @@ export async function readQuestionWorkbook(buffer: ArrayBuffer) {
   const sharedStrings = sharedStringsFromXml(await unzipText(buffer, entries, "xl/sharedStrings.xml", false));
   const sheetPath = relationshipTarget(workbook, relationships, "题库");
   const sheet = await unzipText(buffer, entries, sheetPath);
-  return rowsFromSheetXml(sheet, sharedStrings);
+  const images = await readCellImages(buffer, entries, relationships);
+  return { rows: rowsFromSheetXml(sheet, sharedStrings), images };
 }
 
 function normalizedAnswer(value: string, options: string[]) {
@@ -215,11 +277,11 @@ function normalizedAnswer(value: string, options: string[]) {
   return [...compact.replace(/[\s,，、;；/]+/g, "")].sort().join("");
 }
 
-function duplicateKey(stem: string, options: string[]) {
-  return `${stem.replace(/\s+/g, "").replace(/[！-～]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))}\u0000${options.join("\u0000")}`;
+function duplicateKey(stem: string, options: string[], imageIds: string[]) {
+  return `${stem.replace(/\s+/g, "").replace(/[！-～]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))}\u0000${options.join("\u0000")}\u0000${imageIds.join("\u0000")}`;
 }
 
-export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] {
+export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<string, WorkbookImage> = new Map()): ImportedQuestionRow[] {
   const header = rows[0]?.map((value) => value?.trim() ?? "") ?? [];
   const issues: XlsxValidationIssue[] = [];
   const requiredHeaders = ["题干", "题型", "答案", "标签", "解析"];
@@ -227,14 +289,35 @@ export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] 
     throw new XlsxImportError("题库表头无效，请使用本项目下载的最新模板且不要修改第一行。", [{ row: 1, message: "A–E 列必须依次为“题干、题型、答案、标签、解析”。" }]);
   }
   let declaredOptionColumns = 0;
-  for (let index = 5; index < header.length && header[index]; index += 1) {
+  let headerCursor = 5;
+  // Option headers run A、B、C… until the first 图片N header (or a blank cell).
+  for (; headerCursor < header.length && header[headerCursor] && !IMAGE_HEADER_PATTERN.test(header[headerCursor]); headerCursor += 1) {
     const expected = String.fromCharCode(65 + declaredOptionColumns);
-    if (header[index].toUpperCase() !== expected) issues.push({ row: 1, message: `${expected} 选项列的表头必须是“${expected}”。` });
+    if (header[headerCursor].toUpperCase() !== expected) issues.push({ row: 1, message: `${expected} 选项列的表头必须是“${expected}”。` });
     declaredOptionColumns += 1;
   }
   if (declaredOptionColumns < 2) issues.push({ row: 1, message: "模板至少需要 A、B 两个选项列。" });
-  if (header.slice(5 + declaredOptionColumns).some(Boolean)) issues.push({ row: 1, message: "选项表头必须从 A 开始连续填写。" });
-  const usedOptionColumns = rows.slice(1).reduce((maximum, row) => Math.max(maximum, Math.max(0, (row?.length ?? 0) - 5)), 0);
+  let declaredImageColumns = 0;
+  for (; headerCursor < header.length && header[headerCursor]; headerCursor += 1) {
+    const match = header[headerCursor].match(IMAGE_HEADER_PATTERN);
+    if (!match || Number(match[1]) !== declaredImageColumns + 1) {
+      issues.push({ row: 1, message: "选项列之后的表头必须依次为“图片1、图片2…”。" });
+      break;
+    }
+    declaredImageColumns += 1;
+  }
+  if (declaredImageColumns > MAX_IMAGES_PER_QUESTION) issues.push({ row: 1, message: `每题最多支持 ${MAX_IMAGES_PER_QUESTION} 张图片。` });
+  if (header.slice(headerCursor).some(Boolean)) issues.push({ row: 1, message: "选项表头必须从 A 开始连续填写。" });
+  // Option usage only counts text cells — DISPIMG formula cells belong to the
+  // trailing image columns and must not widen the option region.
+  let usedOptionColumns = 0;
+  for (const source of rows.slice(1)) {
+    for (let index = 5; index < (source?.length ?? 0); index += 1) {
+      const value = source[index]?.trim() ?? "";
+      if (!value || DISPIMG_PATTERN.test(value) || IMAGE_HEADER_PATTERN.test(header[index] ?? "")) continue;
+      usedOptionColumns = Math.max(usedOptionColumns, index - 4);
+    }
+  }
   const optionColumns = Math.max(declaredOptionColumns, usedOptionColumns);
   if (optionColumns > MAX_OPTIONS) issues.push({ row: 1, message: `每题最多支持 ${MAX_OPTIONS} 个选项。` });
   const questions: ImportedQuestionRow[] = [];
@@ -276,13 +359,32 @@ export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] 
       }
       if (type === "判断" && (options.length !== 2 || options[0] !== "正确" || options[1] !== "错误")) issues.push({ row, message: "判断题选项必须依次为“正确、错误”。" });
     }
+    // Trailing image columns hold =DISPIMG("ID_…",1) formulas; map each cell
+    // to its workbook image and keep the ids in placeholder order.
+    const imageIds: string[] = [];
+    const imageCells = source.slice(5 + optionColumns, 5 + optionColumns + Math.max(declaredImageColumns, MAX_IMAGES_PER_QUESTION));
+    for (const cell of imageCells) {
+      const value = cell?.trim() ?? "";
+      if (!value) continue;
+      const id = value.match(DISPIMG_PATTERN)?.[1];
+      if (!id) {
+        issues.push({ row, message: "图片列只能包含嵌入图片，请使用 WPS 在单元格中插入图片。" });
+        continue;
+      }
+      if (!images.has(id)) {
+        issues.push({ row, message: `图片 ${id.slice(0, 10)}… 缺失，文件可能已损坏。` });
+        continue;
+      }
+      imageIds.push(id);
+    }
+    if (imageIds.length > MAX_IMAGES_PER_QUESTION) issues.push({ row, message: `每题最多支持 ${MAX_IMAGES_PER_QUESTION} 张图片。` });
     if (stem && (type === "计算" || options.length >= 2)) {
-      const key = duplicateKey(stem, options);
+      const key = duplicateKey(stem, options, imageIds);
       const previous = seen.get(key);
       if (previous) issues.push({ row, message: `与第 ${previous} 行题目重复。` });
       else seen.set(key, row);
     }
-    questions.push({ q: stem, ans: answer, a: type === "计算" ? [] : options, type: type ?? "单选", tags, ...(note ? { note } : {}) });
+    questions.push({ q: stem, ans: answer, a: type === "计算" ? [] : options, type: type ?? "单选", tags, ...(note ? { note } : {}), ...(imageIds.length ? { images: imageIds } : {}) });
   }
   if (!questions.length) issues.push({ row: 2, message: "题库中没有可导入的题目。" });
   if (questions.length > MAX_QUESTIONS) issues.push({ row: MAX_QUESTIONS + 2, message: `单次最多导入 ${MAX_QUESTIONS} 道题。` });
@@ -294,8 +396,9 @@ export function parseQuestionBankTable(rows: string[][]): ImportedQuestionRow[] 
   return questions;
 }
 
-export async function parseQuestionBankWorkbook(buffer: ArrayBuffer) {
-  return parseQuestionBankTable(await readQuestionWorkbook(buffer));
+export async function parseQuestionBankWorkbook(buffer: ArrayBuffer): Promise<{ rows: ImportedQuestionRow[]; images: Map<string, WorkbookImage> }> {
+  const workbook = await readQuestionWorkbook(buffer);
+  return { images: workbook.images, rows: parseQuestionBankTable(workbook.rows, workbook.images) };
 }
 
 export function importFileName(fileName: string) {

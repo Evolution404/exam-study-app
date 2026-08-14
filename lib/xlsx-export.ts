@@ -5,13 +5,35 @@
  * runtime dependency, entries are stored uncompressed (ZIP method 0) and text
  * cells use `t="inlineStr"`.  Only the small subset of the format the reader
  * understands is emitted, so the output round-trips through `parseQuestionBankWorkbook`.
+ *
+ * Images are embedded the WPS way: `xl/cellimages.xml` maps a DISPIMG id to a
+ * media file and the cell value is a `=DISPIMG("ID_…",1)` formula (see the
+ * 图片嵌入测试.xlsx reference).  Microsoft Excel shows `#NAME?` for those
+ * cells but keeps every text column intact.
  */
 
 const encoder = new TextEncoder();
 
+/** Cell values starting with this marker are emitted as DISPIMG formula cells. */
+export const DISPIMG_FORMULA_PREFIX = "=DISPIMG(";
+
 export interface XlsxSheet {
   name: string;
   rows: string[][];
+  /** Row heights in points, index 0 = row 1.  Omitted rows use the default. */
+  rowHeights?: number[];
+  /** Column widths in character units, index 0 = column A.  0 keeps the default. */
+  columnWidths?: number[];
+}
+
+export interface XlsxEmbeddedImage {
+  /** DISPIMG identifier — the string inside =DISPIMG("…",1). */
+  id: string;
+  bytes: Uint8Array;
+  extension: "png" | "jpg";
+  /** Native pixel size, written as the cellImage shape extent (EMU). */
+  width: number;
+  height: number;
 }
 
 interface ZipFile {
@@ -46,15 +68,33 @@ function cellReference(column: number, row: number): string {
   return `${columnLetter(column)}${row}`;
 }
 
-function worksheetXml(rows: string[][]): string {
-  const body = rows.map((row, rowIndex) => {
+function cellXml(value: string, columnIndex: number, rowIndex: number): string {
+  const reference = cellReference(columnIndex, rowIndex + 1);
+  if (value.startsWith(DISPIMG_FORMULA_PREFIX)) {
+    // Mirror the WPS reference layout: prefixed <f> plus a cached <v> that
+    // holds the literal formula text.
+    const formula = value.slice(1);
+    return `<c r="${reference}" t="str"><f>_xlfn.${formula}</f><v>${xmlEscape(value)}</v></c>`;
+  }
+  return `<c r="${reference}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`;
+}
+
+function worksheetXml(sheet: XlsxSheet): string {
+  const widths = sheet.columnWidths ?? [];
+  const cols = widths
+    .map((width, index) => (width > 0 ? `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>` : ""))
+    .join("");
+  const colsXml = cols ? `<cols>${cols}</cols>` : "";
+  const body = sheet.rows.map((row, rowIndex) => {
+    const height = sheet.rowHeights?.[rowIndex] ?? 0;
+    const heightXml = height > 0 ? ` ht="${height}" customHeight="1"` : "";
     const cells = row.map((value, columnIndex) => {
       if (value === undefined || value === null || value === "") return "";
-      return `<c r="${cellReference(columnIndex, rowIndex + 1)}" t="inlineStr"><is><t>${xmlEscape(String(value))}</t></is></c>`;
+      return cellXml(String(value), columnIndex, rowIndex);
     }).join("");
-    return `<row r="${rowIndex + 1}">${cells}</row>`;
+    return `<row r="${rowIndex + 1}"${heightXml}>${cells}</row>`;
   }).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${body}</sheetData></worksheet>`;
 }
 
 function workbookXml(sheets: XlsxSheet[]): string {
@@ -62,14 +102,32 @@ function workbookXml(sheets: XlsxSheet[]): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${entries}</sheets></workbook>`;
 }
 
-function workbookRels(sheets: XlsxSheet[]): string {
+function workbookRels(sheets: XlsxSheet[], hasImages: boolean): string {
   const entries = sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("");
+  const cellImages = hasImages ? `<Relationship Id="rId${sheets.length + 1}" Type="http://www.wps.cn/officeDocument/2020/cellImage" Target="cellimages.xml"/>` : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries}${cellImages}</Relationships>`;
+}
+
+function cellImagesXml(images: readonly XlsxEmbeddedImage[]): string {
+  const body = images.map((image, index) => {
+    const relationship = `rId${index + 1}`;
+    const extent = { cx: Math.max(1, Math.round(image.width * 9525)), cy: Math.max(1, Math.round(image.height * 9525)) };
+    return `<etc:cellImage><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${index + 2}" name="${xmlEscape(image.id)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="${relationship}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${extent.cx}" cy="${extent.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln w="9525"><a:noFill/></a:ln></xdr:spPr></xdr:pic></etc:cellImage>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><etc:cellImages xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:etc="http://www.wps.cn/officeDocument/2017/etCustomData">${body}</etc:cellImages>`;
+}
+
+function cellImagesRels(images: readonly XlsxEmbeddedImage[]): string {
+  const entries = images.map((image, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${index + 1}.${image.extension}"/>`).join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries}</Relationships>`;
 }
 
-function contentTypes(sheets: XlsxSheet[]): string {
+function contentTypes(sheets: XlsxSheet[], images: readonly XlsxEmbeddedImage[]): string {
   const overrides = sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}</Types>`;
+  const defaults = images.length
+    ? `<Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Override PartName="/xl/cellimages.xml" ContentType="vnd.wps-officedocument.cellimage+xml"/>`
+    : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}${defaults}</Types>`;
 }
 
 function rootRels(): string {
@@ -96,7 +154,8 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return result;
 }
 
-function buildZip(files: ZipFile[]): Uint8Array {
+/** Build an uncompressed (STORED) zip archive from named entries. */
+export function buildStoredZip(files: ZipFile[]): Uint8Array {
   const nameBytes = files.map((file) => encoder.encode(file.name));
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
@@ -161,14 +220,21 @@ function buildZip(files: ZipFile[]): Uint8Array {
   return concat([localPart, centralPart, eocd]);
 }
 
-/** Build a complete .xlsx workbook from one or more sheets. */
-export function buildXlsx(sheets: XlsxSheet[]): Uint8Array {
+/** Build a complete .xlsx workbook from one or more sheets, optionally embedding DISPIMG cell images. */
+export function buildXlsx(sheets: XlsxSheet[], images: readonly XlsxEmbeddedImage[] = []): Uint8Array {
   const files: ZipFile[] = [
-    { name: "[Content_Types].xml", data: encoder.encode(contentTypes(sheets)) },
+    { name: "[Content_Types].xml", data: encoder.encode(contentTypes(sheets, images)) },
     { name: "_rels/.rels", data: encoder.encode(rootRels()) },
     { name: "xl/workbook.xml", data: encoder.encode(workbookXml(sheets)) },
-    { name: "xl/_rels/workbook.xml.rels", data: encoder.encode(workbookRels(sheets)) },
-    ...sheets.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, data: encoder.encode(worksheetXml(sheet.rows)) })),
+    { name: "xl/_rels/workbook.xml.rels", data: encoder.encode(workbookRels(sheets, images.length > 0)) },
+    ...sheets.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, data: encoder.encode(worksheetXml(sheet)) })),
   ];
-  return buildZip(files);
+  if (images.length) {
+    files.push(
+      { name: "xl/cellimages.xml", data: encoder.encode(cellImagesXml(images)) },
+      { name: "xl/_rels/cellimages.xml.rels", data: encoder.encode(cellImagesRels(images)) },
+      ...images.map((image, index) => ({ name: `xl/media/image${index + 1}.${image.extension}`, data: image.bytes })),
+    );
+  }
+  return buildStoredZip(files);
 }

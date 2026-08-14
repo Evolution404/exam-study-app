@@ -22,7 +22,7 @@
     "test:sync-v7-protocol": "tsx scripts/test-sync-v7-head.ts && tsx scripts/test-github-v7-remote.ts",
     "test:pwa": "tsx scripts/test-pwa-cache.ts",
     "test:shortcuts": "tsx scripts/test-keyboard-shortcuts.ts",
-    "test:xlsx": "tsx scripts/test-xlsx-import.ts && tsx scripts/test-xlsx-export.ts",
+    "test:xlsx": "tsx scripts/test-xlsx-import.ts && tsx scripts/test-xlsx-export.ts && tsx scripts/test-question-images.ts",
     "test:browser": "node scripts/test-browser-visible.mjs",
     "test:browser:desktop": "BROWSER_GROUPS=desktop node scripts/test-browser-visible.mjs",
     "test:browser:mobile": "BROWSER_GROUPS=mobile node scripts/test-browser-visible.mjs",
