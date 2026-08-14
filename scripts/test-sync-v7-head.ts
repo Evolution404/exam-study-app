@@ -19,6 +19,7 @@ import {
   planSyncV7Compaction,
   replaySyncV7Segments,
   validateSyncHeadV7,
+  validateSyncV7Descriptor,
 } from "../lib/sync-v7-head";
 import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../lib/sync-v7-head";
 
@@ -112,5 +113,15 @@ assert.throws(() => createSyncV7ObjectRef(`${SYNC_V7_OBJECT_PREFIX}${"0".repeat(
 const pages = paginateSyncV7Events(Array.from({ length: 100 }, (_, index) => ({ id: index, text: "tiny" })));
 assert.ok(pages.length >= 1);
 assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
+
+// storedSize（实际存储/线上字节）：合法可选字段；非法值被拒。
+{
+  const base = { path: "sync/v7/checkpoints/" + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
+  const withStored = { ...base, storedSize: 42 };
+  assert.ok(validateSyncV7Descriptor(withStored, "checkpoint") === undefined, "storedSize 合法");
+  let rejected = false;
+  try { validateSyncV7Descriptor({ ...base, storedSize: -1 }, "checkpoint"); } catch { rejected = true; }
+  assert.equal(rejected, true, "负 storedSize 必须被拒");
+}
 
 console.log("sync v7 head tests passed: vault identity, explicit byte compaction, append-only publication, replay ordering, refs and limits");

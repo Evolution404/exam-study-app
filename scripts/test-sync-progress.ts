@@ -138,6 +138,8 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   await restoreFullHistoryFromGitHub(settings, "qa-token", restore.callback);
   assertWellFormed(restore.reports, "远端恢复", 8);
   assert.ok(restore.reports.some((report) => report.phase === "download" && /热窗口分段/.test(report.label)), "远端恢复应逐分段报告下载");
+  // 新上传的 descriptor 携带 storedSize → 下载前即显示实际/解压后双尺寸。
+  assert.ok(restore.reports.some((report) => report.phase === "download" && /正在下载检查点（实际 [\d.]+ MB \/ 解压后 [\d.]+ MB）/.test(report.label ?? "")), `下载检查点应显示实际与解压后双尺寸（实际标签：${restore.reports.find((report) => /正在下载检查点/.test(report.label ?? ""))?.label}）`);
   console.log(`scenario 4 passed: 远端恢复 ${restore.reports.length} 条报告`);
 }
 

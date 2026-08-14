@@ -266,6 +266,45 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   assert.equal(headIdempotent.checkpoint.sha256, headMigrated.checkpoint.sha256, "幂等检查不改动远端");
 }
 
+// --- 6. storedSize 补填：剥掉后 backfill 补回，幂等 ---------------------------
+{
+  const { backfillVaultStoredSizes } = await import("../lib/github-sync-v7");
+  const backfillSettings = { owner: "qa", repo: "backfill-vault", branch: "main", apiBaseUrl: server.url };
+  const backfillSync = () => syncWithGitHub(backfillSettings, "qa-token");
+  await freshClient("backfill-a");
+  await backfillSync();
+  const bank6 = await createBankV6("补填题库");
+  for (let index = 0; index < 4; index += 1) await createQuestionV6(bank6.id, question(`补填第 ${index} 题：` + "压缩正文。".repeat(60)));
+  await backfillSync();
+  const backfillRemote = createGitHubV7Remote({ owner: "qa", repo: "backfill-vault", token: "t", apiBaseUrl: server.url });
+  const annotated = await backfillRemote.readHead();
+  assert.ok(annotated.initialized && annotated.head.checkpoint.storedSize !== undefined, "新上传的 descriptor 应携带 storedSize");
+
+  // 模拟存量 head：剥掉全部 storedSize 再 CAS 发布。
+  const strippedHead: typeof annotated.head = {
+    ...annotated.head,
+    checkpoint: { ...annotated.head.checkpoint!, storedSize: undefined },
+    segments: annotated.head.segments.map((descriptor) => ({ ...descriptor, storedSize: undefined })),
+  };
+  const strippedPut = await backfillRemote.putHead(strippedHead, annotated.cache);
+  assert.equal(strippedPut.ok, true, "剥掉 storedSize 的 head 应能发布（字段可选）");
+  const strippedRead = await backfillRemote.readHead();
+  assert.ok(strippedRead.head.checkpoint.storedSize === undefined, "剥离后 head 无 storedSize");
+
+  const backfilled = await backfillVaultStoredSizes(backfillSettings, "qa-token", () => undefined);
+  assert.equal(backfilled.updated, true, "backfill 应更新 head");
+  assert.equal(backfilled.filled, 1 + strippedRead.head.segments.length, "每个 descriptor 都应补上 storedSize");
+  const after = (await backfillRemote.readHead()).head;
+  assert.ok(after.checkpoint.storedSize !== undefined && after.checkpoint.storedSize > 0, "补填后的检查点 storedSize 有效");
+  for (const descriptor of after.segments) assert.ok(descriptor.storedSize !== undefined && descriptor.storedSize > 0, "补填后的分段 storedSize 有效");
+  assert.equal(after.checkpoint.sha256, strippedRead.head.checkpoint.sha256, "补填只加元数据，不改对象身份");
+
+  // 幂等：已补填的 head 零写入。
+  const again = await backfillVaultStoredSizes(backfillSettings, "qa-token", () => undefined);
+  assert.equal(again.updated, false, "重复补填应零写入");
+  assert.equal(again.filled, 0, "无 descriptor 需要补");
+}
+
 await server.close();
 dbV6.close();
 console.log("sync compression tests passed: codec 单元/回退、线上压缩信封与体积、混合格式共存、幂等读回、head 保持纯 JSON、迁移三场景");

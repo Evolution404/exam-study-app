@@ -456,7 +456,11 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   if (canReuse) {
     checkpoint = cached!.checkpoint;
   } else {
-    onStep?.(0.01, `正在下载检查点（${(head.checkpoint.size / (1024 * 1024)).toFixed(1)} MB）`);
+    const megabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    const sizeLabel = head.checkpoint.storedSize !== undefined
+      ? `实际 ${megabytes(head.checkpoint.storedSize)} / 解压后 ${megabytes(head.checkpoint.size)}`
+      : `解压后 ${megabytes(head.checkpoint.size)}`;
+    onStep?.(0.01, `正在下载检查点（${sizeLabel}）`);
     checkpoint = parseSyncCheckpointV6(await client.readBlob(head.checkpoint));
   }
   if (!canReuse) {
@@ -489,7 +493,8 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
 
 async function uploadedDescriptor(client: GitHubV7Remote, path: string, bytes: Uint8Array, kind: "checkpoint" | "segment"): Promise<SyncV7Descriptor> {
   const uploaded = await client.putImmutable({ path, bytes, kind });
-  return { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size };
+  // storedSize 让读端在下载前就知道实际传输量（descriptor.size 按设计是解压后字节）。
+  return { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size, storedSize: uploaded.storedSize };
 }
 
 /** Per-device max localSequence over the given events — the true coverage
@@ -980,4 +985,52 @@ export async function migrateVaultToCompressed(settings: GitHubSettings, token: 
     return { migrated: true, verified: true, droppedTombstones, hotEvents: changes.length, bytesBefore, bytesAfter: bytes.byteLength };
   }
   throw new Error("远端持续发生并发更新，迁移未执行（远端数据未损坏）。");
+}
+
+export interface BackfillStoredSizeResult {
+  /** True when the head was re-published with filled storedSize fields. */
+  updated: boolean;
+  /** Descriptors examined (checkpoint + segments). */
+  descriptors: number;
+  /** Descriptors that were missing storedSize and got it filled. */
+  filled: number;
+}
+
+/**
+ * One-shot backfill of `storedSize` on legacy descriptors: measure each
+ * referenced blob's actual wire bytes (one raw GET per object — the only way
+ * to learn it for objects uploaded before the field existed) and CAS-publish
+ * an updated head.  Objects already carrying storedSize are not re-measured;
+ * a fully annotated head is a no-op with zero writes.  CAS conflicts re-read
+ * and retry (≤4); concurrent writers are never overwritten.
+ */
+export async function backfillVaultStoredSizes(settings: GitHubSettings, token: string, onProgress?: (label: string) => void, options?: SyncWithGitHubOptions): Promise<BackfillStoredSizeResult> {
+  const client = remote(settings, token, options?.fetch);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const read = await client.readHead();
+    if (!read.initialized) throw new Error("远端还没有 v7 数据，无需补填。");
+    const head = read.head;
+    const candidates: Array<SyncV7Descriptor | null> = [head.checkpoint, ...head.segments];
+    const targets = candidates.filter((descriptor): descriptor is SyncV7Descriptor => descriptor !== null && descriptor.storedSize === undefined);
+    if (!targets.length) return { updated: false, descriptors: 1 + head.segments.length, filled: 0 };
+    let filled = 0;
+    const annotate = async (descriptor: SyncV7Descriptor): Promise<SyncV7Descriptor> => {
+      if (descriptor.storedSize !== undefined) return descriptor;
+      onProgress?.(`测量 ${descriptor.path} 的实际字节`);
+      const storedSize = await client.readBlobWireSize(descriptor.blobSha);
+      filled += 1;
+      return { ...descriptor, storedSize };
+    };
+    const checkpoint = await annotate(head.checkpoint!);
+    const segments: SyncV7SegmentDescriptor[] = [];
+    for (const descriptor of head.segments) segments.push({ ...(await annotate(descriptor)) } as SyncV7SegmentDescriptor);
+    const nextHead: SyncHeadV7 = { ...head, generatedAt: new Date().toISOString(), checkpoint, segments };
+    const published = await client.putHead(nextHead, read.cache);
+    if (!published.ok) {
+      onProgress?.("远端索引被并发更新，重读后重试");
+      continue;
+    }
+    return { updated: true, descriptors: 1 + head.segments.length, filled };
+  }
+  throw new Error("远端持续并发更新，补填未执行（远端数据未损坏）。");
 }

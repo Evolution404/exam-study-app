@@ -90,6 +90,8 @@ export interface SyncV7ImmutablePutResult {
   blobSha: string;
   sha256: string;
   size: number;
+  /** Actual stored/wire bytes of the uploaded object (the DEFLATE envelope). */
+  storedSize: number;
   created: boolean;
   idempotent: boolean;
   status: number;
@@ -411,7 +413,7 @@ export class GitHubV7Remote {
       const blobSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`));
       if (!blobSha) throw new GitHubV7RemoteError(`put immutable ${input.path}`, response.status, "GitHub did not return the blob SHA");
       assertSha1(blobSha, "returned immutable blobSha");
-      return { path: input.path, blobSha, sha256, size, created: response.status === 201, idempotent: false, status: response.status };
+      return { path: input.path, blobSha, sha256, size, storedSize: stored.byteLength, created: response.status === 201, idempotent: false, status: response.status };
     }
     let existingSha: string | undefined;
     try { existingSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`)); } catch { /* 422 body is often not JSON */ }
@@ -419,7 +421,7 @@ export class GitHubV7Remote {
     assertSha1(existingSha, "existing immutable blobSha");
     const existing = await this.readBlob(existingSha, { size, sha256, path: input.path });
     if (!bytesEqual(existing, content)) throw new SyncV7ImmutableConflictError(input.path);
-    return { path: input.path, blobSha: existingSha, sha256, size, created: false, idempotent: true, status: 422 };
+    return { path: input.path, blobSha: existingSha, sha256, size, storedSize: stored.byteLength, created: false, idempotent: true, status: 422 };
   }
 
   putImmutableFile(input: SyncV7ImmutableFileInput): Promise<SyncV7ImmutablePutResult>;
@@ -461,6 +463,15 @@ export class GitHubV7Remote {
     const sha256 = await digestHex(content);
     if (sha256 !== expectation.sha256) throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, sha256);
     return content;
+  }
+
+  /** Actual wire size of a stored blob (the envelope, before inflation) —
+   *  one-time measurement used to backfill `storedSize` on legacy descriptors. */
+  async readBlobWireSize(blobSha: string): Promise<number> {
+    assertSha1(blobSha, "blobSha");
+    const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
+    this.requireOk(response, `read blob wire size ${blobSha}`);
+    return (await response.arrayBuffer()).byteLength;
   }
 
   readImmutableBlob(blobSha: string, expected: SyncV7BlobExpectation): Promise<Uint8Array>;

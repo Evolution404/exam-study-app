@@ -57,8 +57,14 @@ export interface SyncV7Descriptor {
   blobSha: string;
   /** SHA-256 of the exact (uncompressed) bytes represented by this object. */
   sha256: string;
-  /** Size of the exact bytes represented by this object. */
+  /** Size of the exact (uncompressed) bytes represented by this object. */
   size: number;
+  /** ACTUAL stored/wire bytes (the DEFLATE envelope).  Optional because it is
+   *  metadata added after the codec landed — legacy descriptors predate it,
+   *  and every new upload fills it so readers can show real transfer sizes
+   *  BEFORE downloading.  `size` stays the logical byte count by design
+   *  (content addressing). */
+  storedSize?: number;
   /** Publication generation at which this checkpoint snapshot was written. */
   generation?: number;
 }
@@ -305,6 +311,7 @@ function validateDescriptor(value: unknown, kind: SyncV7DescriptorKind): asserts
   assertSha(value.blobSha, `${kind}.blobSha`, SHA1);
   assertSha(value.sha256, `${kind}.sha256`, SHA256);
   assertSize(value.size, `${kind}.size`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
+  if (value.storedSize !== undefined) assertSize(value.storedSize, `${kind}.storedSize`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
   if (value.generation !== undefined) assertSafeInteger(value.generation, `${kind}.generation`, 0);
   const digest = digestFromPath(value.path);
   if (digest && digest !== value.sha256) fail(`${kind} path digest must equal descriptor.sha256`);
@@ -320,7 +327,7 @@ function sameCursors(left: Record<string, number>, right: Record<string, number>
 }
 
 export function sameSyncV7Descriptor(left: SyncV7Descriptor, right: SyncV7Descriptor): boolean {
-  return left.path === right.path && left.blobSha === right.blobSha && left.sha256 === right.sha256 && left.size === right.size;
+  return left.path === right.path && left.blobSha === right.blobSha && left.sha256 === right.sha256 && left.size === right.size && left.storedSize === right.storedSize;
 }
 
 export function sameSyncV7Segment(left: SyncV7SegmentDescriptor, right: SyncV7SegmentDescriptor): boolean {
@@ -395,7 +402,7 @@ export function validateSyncV7Descriptor(value: unknown, kind: SyncV7DescriptorK
 }
 
 function cloneDescriptor(value: SyncV7Descriptor): SyncV7Descriptor {
-  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size, ...(value.generation !== undefined ? { generation: value.generation } : {}) };
+  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size, ...(value.storedSize !== undefined ? { storedSize: value.storedSize } : {}), ...(value.generation !== undefined ? { generation: value.generation } : {}) };
 }
 
 function cloneMetadata(value: SyncV7SegmentMetadata): SyncV7SegmentMetadata {

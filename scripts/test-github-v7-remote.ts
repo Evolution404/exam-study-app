@@ -126,6 +126,8 @@ const segmentBytes = bytes("v7 segment payload");
 const segmentPath = `${SYNC_V7_SEGMENT_PREFIX}${digest(segmentBytes)}.json`;
 const uploaded = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes, kind: "segment", sha256: digest(segmentBytes), size: segmentBytes.byteLength });
 assert.equal(uploaded.created, true);
+assert.equal(typeof uploaded.storedSize, "number", "put 结果应携带实际存储字节 storedSize");
+assert.ok(uploaded.storedSize > 0, "storedSize 应为正数");
 const retry = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes, kind: "segment", sha256: digest(segmentBytes), size: segmentBytes.byteLength });
 assert.equal(retry.idempotent, true);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("different"), kind: "segment" }), SyncV7BlobIntegrityError);
