@@ -491,7 +491,7 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 /* Configuration workspace: give primary preference groups a shared frame and
    keep mobile controls compact without changing their values or behavior. */
 .preferences-view{width:min(980px,100%);display:grid;gap:16px}
-.preferences-view>.preference-card,.preferences-view>.desktop-shortcut-settings>.preference-card{max-width:none;margin:0}
+.preferences-view>.preference-card,.preferences-view>.desktop-shortcut-settings>.preference-card,.preferences-view>.review-round-manager{max-width:none;margin:0}
 .preferences-view .settings-title{margin-bottom:18px}
 @media(min-width:761px){.preferences-view>.desktop-shortcut-settings{display:contents}}
 @media(max-width:760px){

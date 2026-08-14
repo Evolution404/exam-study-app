@@ -971,6 +971,10 @@ async function runReviewRounds(page) {
   const managerHeading = page.getByRole("heading", { name: "命名并追踪复习轮次" });
   await managerHeading.scrollIntoViewIfNeeded();
   await expectText(page, "还没有复习轮次");
+  // 复习轮次卡片宽度应与配置页其他卡片一致（不窄于 preference-card）
+  const roundWidth = await page.locator(".review-round-manager").evaluate((el) => el.getBoundingClientRect().width);
+  const cardWidth = await page.locator(".preference-card").first().evaluate((el) => el.getBoundingClientRect().width);
+  assert.ok(Math.abs(roundWidth - cardWidth) <= 1, `复习轮次宽度(${roundWidth}px)应与配置卡片一致(${cardWidth}px)`);
   await capture(page, contextName, "review-round-empty");
 
   // 新建轮次：命名 + 选择题库
