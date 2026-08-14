@@ -50,6 +50,11 @@ assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch
 assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
 assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks)");
 assert.match(syncView, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segment count and hot bytes in order");
+// 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
+// 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
+const componentsCss = await readFile(new URL("../app/styles/components.css", import.meta.url), "utf8");
+assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
+assert.ok(!/\.sync-hot-window\{[^}]*grid-template-columns:1fr/.test(componentsCss), "任何规则（含媒体查询）不得把热窗口覆盖回单列");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 
 assert.match(styles, /@media \(max-width: 760px\)/, "drawer has a mobile layout");

@@ -556,7 +556,7 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 .clear-data-card .restore-icon{color:var(--color-danger);background:var(--color-surface)}
 .clear-data-card .section-kicker{color:var(--color-danger)}
 .clear-data-card .danger-button{border-color:var(--color-danger);color:var(--color-danger);background:var(--color-surface)}
-@media(max-width:760px){.sync-readiness{margin-top:-4px}.clear-data-card{margin-top:24px}.sync-hot-window{grid-template-columns:1fr;gap:8px}}
+@media(max-width:760px){.sync-readiness{margin-top:-4px}.clear-data-card{margin-top:24px}}
 
 /* Home dashboard refinements: keep scope selection, actions and metrics easy to scan. */
 .home-bank-grid.single-bank{grid-template-columns:1fr}
