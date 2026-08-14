@@ -13,6 +13,9 @@ const routes = JSON.parse(read("public/_routes.json")) as { include: string[]; e
 
 assert.match(serviceWorker, /const CACHE = "shijuan-v9"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
+assert.match(serviceWorker, /const APP_REQUEST_TIMEOUT_MS = 8000/, "non-navigation app requests need a longer network budget than the navigation cut-off");
+assert.match(serviceWorker, /`\$\{BASE\}icons\/favicon-64\.png`/, "the favicon must be precached so a cold first load never re-fetches it late");
+assert.match(serviceWorker, /networkFirst[\s\S]{0,400}fetchWithTimeout\(request, APP_REQUEST_TIMEOUT_MS\)/, "networkFirst must use the app request budget, not the 1.2 s navigation timeout");
 assert.match(serviceWorker, /function navigationNetworkFirst/);
 assert.match(serviceWorker, /function assetCacheFirst/);
 assert.match(serviceWorker, /function isExpectedAssetResponse/);

@@ -1,10 +1,16 @@
 const CACHE = "shijuan-v9";
 const CACHE_PREFIX = "shijuan-";
 const NAVIGATION_TIMEOUT_MS = 1200;
+// Non-navigation app requests (favicon, manifest, misc icons) have no cached
+// shell to fall back to, so they get a generous network budget instead of the
+// navigation's snappy 1.2 s cut-off — aborting the favicon mid-flight used to
+// surface as "已取消" errors in the network panel.
+const APP_REQUEST_TIMEOUT_MS = 8000;
 const BASE = new URL("./", self.registration.scope).pathname;
 const PRECACHE_URLS = [
   BASE,
   `${BASE}manifest.webmanifest`,
+  `${BASE}icons/favicon-64.png`,
   `${BASE}icons/app-icon-192.png`,
   `${BASE}icons/app-icon-512.png`,
   `${BASE}icons/apple-touch-icon.png`,
@@ -93,7 +99,7 @@ async function assetCacheFirst(request) {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
-    const response = await fetchWithTimeout(request);
+    const response = await fetchWithTimeout(request, APP_REQUEST_TIMEOUT_MS);
     if (!response.ok && response.type !== "opaque") throw new Error(`request returned ${response.status}`);
     await putInCache(request, response);
     return response;
