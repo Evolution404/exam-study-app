@@ -8,6 +8,8 @@ const syncView = read("app/sync-view.tsx");
 const siteDataReset = read("lib/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");
+const proxy = read("functions/api-github/[[path]].js");
+const routes = JSON.parse(read("public/_routes.json")) as { include: string[]; exclude: string[] };
 
 assert.match(serviceWorker, /const CACHE = "shijuan-v9"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
@@ -20,10 +22,19 @@ assert.match(serviceWorker, /if \(cached\) await cache\.delete\(request\)/, "inv
 assert.match(serviceWorker, /fetch\(request, \{ cache: "no-cache" \}\)/, "immutable asset recovery must bypass a poisoned HTTP cache entry");
 assert.match(serviceWorker, /fetch\(request, \{ signal: controller\.signal, cache: "no-cache" \}\)/, "navigation revalidates the HTML shell instead of accepting a stale HTTP-cache entry");
 assert.match(serviceWorker, /return url\.pathname\.startsWith\(`\$\{BASE\}assets\//);
+assert.match(serviceWorker, /return !url\.pathname\.startsWith\(`\$\{BASE\}api-github\/`\)/, "the same-origin GitHub API proxy must bypass the service worker (no caching, no stale offline fallback)");
 assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
 assert.doesNotMatch(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE/);
 assert.match(headers, /\/index\.html[\s\S]*Cache-Control: no-cache, must-revalidate/, "entry HTML must revalidate on every deployment");
 assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=31536000, immutable/, "content-hashed assets remain safely immutable");
+
+// 同源 GitHub API 代理：Pages Function 只透传字节，路由只覆盖 /api-github/*。
+assert.match(proxy, /"https:\/\/api\.github\.com"/, "proxy targets the GitHub API");
+assert.match(proxy, /headers\.delete\("cookie"\)/, "proxy strips edge cookies before forwarding upstream");
+assert.match(proxy, /redirect: "manual"/, "proxy preserves redirect semantics instead of following them");
+assert.match(proxy, /responseHeaders\.delete\("set-cookie"\)/, "upstream cookies are dropped on the way back");
+assert.deepEqual(routes.include, ["/api-github/*"], "functions route only the API proxy path");
+assert.deepEqual(routes.exclude, [], "no other path runs as a function");
 
 assert.match(main, /updateViaCache: "none"/);
 assert.match(studyApp, /function updateServiceWorkerWithinTimeout/);

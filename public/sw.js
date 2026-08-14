@@ -12,7 +12,11 @@ const PRECACHE_URLS = [
 
 function isAppRequest(request) {
   const url = new URL(request.url);
-  return url.origin === self.location.origin && url.pathname.startsWith(BASE);
+  if (url.origin !== self.location.origin || !url.pathname.startsWith(BASE)) return false;
+  // The same-origin GitHub API proxy must bypass the worker entirely: caching
+  // its responses (or falling back to a stale head.json offline) would corrupt
+  // the sync protocol's ETag/digest assumptions.
+  return !url.pathname.startsWith(`${BASE}api-github/`);
 }
 
 function isNavigationRequest(request) {

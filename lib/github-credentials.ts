@@ -3,7 +3,12 @@ import type { GitHubSettings } from "./types";
 const settingsKey = "github-settings";
 const tokenKey = "github-token";
 
-export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = { owner: "", repo: "exam-study-vault", branch: "main" };
+/**
+ * 同步默认走应用同源的 GitHub 代理（Cloudflare Pages Function，见
+ * functions/api-github/）：同源请求不触发 CORS preflight。需要直连或外部
+ * 中转时，在同步页把「同步中转地址」改成完整 URL 即可。
+ */
+export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = { owner: "", repo: "exam-study-vault", branch: "main", apiBaseUrl: "/api-github" };
 
 export function loadGitHubSettings(): GitHubSettings {
   if (typeof window === "undefined") return DEFAULT_GITHUB_SETTINGS;

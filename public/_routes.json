@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Only the same-origin GitHub API proxy is a Function; everything else is static.",
+  "include": ["/api-github/*"],
+  "exclude": []
+}
