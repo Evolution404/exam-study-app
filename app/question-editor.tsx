@@ -210,7 +210,7 @@ export function QuestionEditor({
         <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAssetV6} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
         {type !== "判断" && options.length < 8 && <button type="button" className="add-option" onClick={addOption}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>
-      <label>个人解析<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="写下错因、口诀或区分条件…" rows={4} /><small>纯文本；保存时与题目一起写入，可在做题页继续编辑。</small></label>
+      <label>个人解析<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="写下错因、口诀或区分条件…" rows={4} /><small>支持 Markdown 与 LaTeX 公式；保存时与题目一起写入，可在做题页继续编辑。</small></label>
       <div className="editor-preview"><span>预览</span><ContentBlockRenderer blocks={content} loadAsset={loadImageAssetV6} /></div>
       {error && <p className="editor-error">{error}</p>}
     </div>

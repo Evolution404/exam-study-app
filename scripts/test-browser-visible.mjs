@@ -462,7 +462,7 @@ async function runDesktop(page, mockServer) {
   await answerCurrentQuestion(page, [0]);
   await expectText(page, "回答正确");
   assert.equal(await pendingEventCount(page), pendingBeforeFirstAnswer + 1, "one submitted answer must add exactly one pending sync event");
-  const note = page.locator('textarea[placeholder="写下错因、口诀或区分条件…"]');
+  const note = page.locator('textarea[placeholder^="写下错因、口诀或区分条件…"]');
   await note.fill("先确认线路和风险，再按规程巡视。");
   await expectText(page, "已自动保存");
   await capture(page, contextName, "practice-answer");
@@ -848,7 +848,7 @@ async function runManagementQA(page, mockServer) {
   await page.locator(".practice-progress span").filter({ hasText: "题组 · 弧垂易混题组-改" }).waitFor({ state: "visible" });
   await answerCurrentQuestion(page, [0]);
   await expectText(page, "回答正确");
-  const noteField = page.locator('textarea[placeholder="写下错因、口诀或区分条件…"]');
+  const noteField = page.locator('textarea[placeholder^="写下错因、口诀或区分条件…"]');
   await noteField.fill("弧垂与安全距离成反比，做题时先判断弧垂方向。");
   await expectText(page, "已自动保存");
   await capture(page, contextName, "note-saved");

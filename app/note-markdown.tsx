@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadKatex } from "@/app/math-text";
-import { parseNoteMarkdown, type NoteBlock, type NoteInline } from "@/lib/note-markdown";
+import { parseNoteMarkdown, type NoteBlock, type NoteInline, type NoteListItem } from "@/lib/note-markdown";
 
 type KatexRenderer = typeof import("katex")["default"];
 
@@ -32,7 +32,14 @@ function renderInline(nodes: readonly NoteInline[], keyPrefix: string): ReactNod
   });
 }
 
-function renderBlock(block: NoteBlock, index: number): ReactNode {
+function renderItems(items: readonly NoteListItem[], keyPrefix: string): ReactNode[] {
+  return items.map((item, index) => {
+    const key = `${keyPrefix}-item-${index}`;
+    return <li key={key}>{renderInline(item.inline, key)}{item.children.map((child, childIndex) => renderBlock(child, `${key}-child-${childIndex}`))}</li>;
+  });
+}
+
+function renderBlock(block: NoteBlock, index: number | string): ReactNode {
   const key = `block-${index}`;
   switch (block.kind) {
     case "paragraph": return <p key={key}>{renderInline(block.children, key)}</p>;
@@ -43,10 +50,11 @@ function renderBlock(block: NoteBlock, index: number): ReactNode {
       return <h6 key={key}>{content}</h6>;
     }
     case "list":
-      if (block.ordered) return <ol key={key}>{block.items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInline(item, `${key}-${itemIndex}`)}</li>)}</ol>;
-      return <ul key={key}>{block.items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInline(item, `${key}-${itemIndex}`)}</li>)}</ul>;
+      if (block.ordered) return <ol key={key}>{renderItems(block.items, key)}</ol>;
+      return <ul key={key}>{renderItems(block.items, key)}</ul>;
     case "quote": return <blockquote key={key}>{renderInline(block.children, key)}</blockquote>;
     case "code": return <pre key={key}><code>{block.text}</code></pre>;
+    case "formula": return <div key={key} className="note-md-display-formula"><Formula source={block.source} display /></div>;
     case "divider": return <hr key={key} />;
   }
 }
