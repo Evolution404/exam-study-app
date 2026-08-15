@@ -41,6 +41,11 @@ export const testGroups = {
     "test:sync-tombstone-gc",
     "test:sync-multidevice-checkpoints",
     "test:sync-fresh-install-contract",
+    "test:sync-note-tombstone",
+    "test:sync-attempt-tombstone",
+    "test:sync-claim-order",
+    "test:sync-watermark-cache",
+    "test:sync-compaction-plan-head",
   ],
 };
 

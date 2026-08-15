@@ -20,7 +20,7 @@ await enqueueChangeSetV7([{ kind: "bank.create", bank: { id: "bank-2", name: "�
 
 const claim = await claimPendingChangeSetsV7();
 const order = claim.records.map((record) => record.localSequence);
-assert.deepEqual(order, [9, 10, 11], "claim 应按 createdAt/deviceId/localSequence 的确定顺序返回待同步变更");
+assert.deepEqual(order, [9, 11, 10], "claim 应按 createdAt/deviceId/localSequence 的确定顺序返回待同步变更");
 
 await dbV6.close();
 console.log("sync claim order tests passed");

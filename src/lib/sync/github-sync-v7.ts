@@ -164,7 +164,7 @@ async function publishDeviceWatermark(client: GitHubV7Remote, settings: GitHubSe
   if (!advanced) return;
   const nextHead: SyncHeadV7 = { ...read.head, devices: { ...(read.head.devices ?? {}), [deviceId]: { cursors, syncedAt: new Date().toISOString() } } };
   const result = await client.putHead(nextHead, read.cache); // conflict → throw → caller swallows
-  if (result.ok) await saveHeadCache(settings, { head: nextHead }); // 让本地缓存 head 带上水位（面板「上次同步/设备」据此展示）
+  if (result.ok) await saveHeadCache(settings, { head: nextHead, ...(result.etag ? { etag: result.etag } : {}), ...(result.blobSha ? { blobSha: result.blobSha } : {}) }); // 让本地缓存 head 带上水位（面板「上次同步/设备」据此展示）
 }
 
 /** Content fingerprint of what the installed projection covers: the checkpoint

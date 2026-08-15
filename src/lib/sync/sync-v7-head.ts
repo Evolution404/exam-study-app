@@ -543,7 +543,7 @@ export const replayV7Segments = replaySyncV7Segments;
 
 /** Compute checkpoint eligibility from actual aggregate bytes only. */
 export function planSyncV7Compaction(input: { head?: SyncHeadV7 | null; hotSegments?: readonly Pick<SyncV7SegmentDescriptor, "size">[]; hotBytes?: number }): SyncV7CompactionPlan {
-  const segments = input.hotSegments ?? [];
+  const segments = input.hotSegments ?? (input.hotBytes === undefined ? input.head?.segments ?? [] : []);
   const hotBytes = input.hotBytes ?? segments.reduce((sum, segment) => sum + segment.size, 0);
   if (!Number.isSafeInteger(hotBytes) || hotBytes < 0) throw new TypeError("v7 hotBytes must be a non-negative safe integer");
   const initialization = !input.head || input.head.checkpoint === null;

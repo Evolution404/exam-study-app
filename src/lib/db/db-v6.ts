@@ -310,7 +310,8 @@ export async function claimPendingChangeSetsV7(): Promise<{ claimId: string; rec
   const claimId = makeV6Id("claim");
   const claimedAt = nowIso();
   return dbV6.transaction("rw", dbV6.changeSets, async () => {
-    const pending = await dbV6.changeSets.where("state").equals("pending").toArray();
+    const pending = (await dbV6.changeSets.where("state").equals("pending").toArray())
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.deviceId.localeCompare(right.deviceId) || left.localSequence - right.localSequence || left.id.localeCompare(right.id));
     const records = pending.map((record) => ({ ...record, state: "claimed" as const, claimId, claimedAt }));
     if (records.length) await dbV6.changeSets.bulkPut(records);
     return { claimId, records };

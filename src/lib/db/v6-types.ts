@@ -26,7 +26,7 @@ export type QuestionGroupV6 = LegacyQuestionGroup;
 export type SyncFileV6 = LegacySyncFile;
 export type SyncMetaV6 = LegacySyncMeta;
 export interface TombstoneV6 extends Omit<LegacySyncTombstone, "entityType"> {
-  entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset";
+  entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
   /**
    * Causal-stability anchor: the deleting device's localSequence for the
    * deletion event.  A tombstone is reclaimable once every known device's

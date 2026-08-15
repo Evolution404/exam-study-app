@@ -416,6 +416,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
     }
     case "attempt.create": case "attempt.update": {
       ensureQuestion(projection, mutation.attempt.questionId);
+      if (mutation.kind === "attempt.create") rejectTombstoned(projection, "attempt", mutation.attempt.id);
       if (mutation.attempt.elapsedMs < 0) fail("elapsedMs 不能为负数");
       if (mutation.kind === "attempt.create" && byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在`);
       if (mutation.kind === "attempt.update" && !byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 不存在`);
@@ -428,11 +429,13 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       if (mutation.questionId && mutation.questionId !== attempt.questionId) fail("删除作答 questionId 不一致");
       removeById(projection.attempts, mutation.attemptId, "作答");
       removeAttemptRound(projection, mutation.attemptId);
+      putTombstone(projection, "attempt", mutation.attemptId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
     case "practice.answer.submitted": case "practice.answer.updated": {
       const run = ensureRun(projection, mutation.runId);
       ensureQuestion(projection, mutation.questionId);
+      if (mutation.kind === "practice.answer.submitted") rejectTombstoned(projection, "attempt", mutation.attempt.id);
       if (mutation.attempt.runId !== mutation.runId || mutation.attempt.questionId !== mutation.questionId) fail("答案作答记录与 run/question 不一致");
       if (mutation.kind === "practice.answer.submitted" && byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在，提交必须使用新 id`);
       if (mutation.kind === "practice.answer.updated" && !byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 不存在`);
@@ -468,6 +471,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       putTombstone(projection, "practiceRun", mutation.runId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "note.upserted":
+      rejectTombstoned(projection, "note", mutation.note.questionId);
       ensureQuestion(projection, mutation.note.questionId);
       setByQuestionId(projection.notes, mutation.note);
       return;
@@ -475,6 +479,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       ensureQuestion(projection, mutation.questionId);
       if (!projection.notes.some((note) => note.questionId === mutation.questionId)) fail(`解析 ${mutation.questionId} 不存在`);
       projection.notes = projection.notes.filter((note) => note.questionId !== mutation.questionId);
+      putTombstone(projection, "note", mutation.questionId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "questionGroup.saved":
       rejectTombstoned(projection, "questionGroup", mutation.group.id);
