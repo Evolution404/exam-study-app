@@ -311,6 +311,11 @@ function activePracticeFromRun(run: PracticeRun, preferredIndex?: number): Activ
   };
 }
 
+const formatBuildTimestamp = () =>
+  new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(__APP_COMMIT_TIME__));
+const formatBuildTimestampShort = () =>
+  new Intl.DateTimeFormat("zh-CN", { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(__APP_COMMIT_TIME__));
+
 export function StudyApp() {
   const [view, setView] = useState<View>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1046,6 +1051,7 @@ export function StudyApp() {
         <div className="sidebar-foot">
           <span className="local-dot" />本地数据已保存
           <small>{stats.pending ? `${stats.pending} 条等待同步` : "没有待同步更改"}</small>
+          <small className="sidebar-build"><code>{__APP_COMMIT_SHA__.slice(0, 7)}</code> · {formatBuildTimestampShort()}</small>
         </div>
       </aside>
       <button className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`} aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
@@ -1403,7 +1409,7 @@ function ToleranceSetting({ value, onChange }: { value: number; onChange: (value
 }
 
 function BuildVersionCard() {
-  const builtAt = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(__APP_COMMIT_TIME__));
+  const builtAt = formatBuildTimestamp();
   return <section className="preference-card version-card"><div className="settings-title"><span><BadgeInfo /></span><div><h2>客户端版本</h2><p>用于确认当前设备是否已经加载最新发布版本。</p></div></div><dl><div><dt>提交哈希</dt><dd><code>{__APP_COMMIT_SHA__.slice(0, 12)}</code></dd></div><div><dt>提交时间</dt><dd>{builtAt}</dd></div></dl></section>;
 }
 

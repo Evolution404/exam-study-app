@@ -13,6 +13,8 @@ button { color:inherit; }
 .sidebar nav button:hover,.sidebar nav .nav-active { background:#345546; color:#fff; }
 .sidebar-foot { margin-top:auto; padding:15px 12px 3px; border-top:1px solid #3f594d; color:#d1dfd7; font-size:12px; }
 .sidebar-foot small { display:block; color:#8faa9b; margin:5px 0 0 14px; }
+.sidebar-foot .sidebar-build { margin-top:9px; font-size:11px; line-height:1.5; white-space:nowrap; }
+.sidebar-foot .sidebar-build code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#d1dfd7; font-weight:700; }
 .local-dot { display:inline-block; width:7px; height:7px; margin-right:7px; background:#7bd19b; border-radius:50%; box-shadow:0 0 0 4px #315442; }
 .workspace { width:calc(100% - 224px); margin-left:224px; min-height:100vh; }
 .topbar { height:78px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 clamp(22px,4vw,58px); background:rgba(243,240,233,.9); backdrop-filter:blur(16px); position:sticky; top:0; z-index:20; }
