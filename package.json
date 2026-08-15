@@ -68,7 +68,8 @@
     "test:fast": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint",
     "test:ci": "npm run test",
     "test:full": "npm run test && npm run test:browser",
-    "template:xlsx": "node scripts/tools/generate-xlsx-template.mjs"
+    "template:xlsx": "node scripts/tools/generate-xlsx-template.mjs",
+    "test:sync-multidevice-checkpoints": "tsx scripts/tests/test-sync-multidevice-checkpoints.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

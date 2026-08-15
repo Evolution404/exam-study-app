@@ -39,5 +39,6 @@ export const testGroups = {
     "test:sync-replay-perf",
     "test:sync-install-fingerprint",
     "test:sync-tombstone-gc",
+    "test:sync-multidevice-checkpoints",
   ],
 };
