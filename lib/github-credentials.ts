@@ -4,9 +4,10 @@ const settingsKey = "github-settings";
 const tokenKey = "github-token";
 
 /**
- * 同步默认走应用同源的 GitHub 代理（Cloudflare Pages Function，见
- * functions/api-github/）：同源请求不触发 CORS preflight。需要直连或外部
- * 中转时，在同步页把「同步中转地址」改成完整 URL 即可。
+ * 同步默认走应用同源的 GitHub 代理（Cloudflare Pages Function，源码见
+ * proxy/pages-function.js，构建时生成 functions/api-github/[[path]].js）：
+ * 同源请求不触发 CORS preflight。需要直连或外部中转时，在同步页把
+ * 「同步中转地址」改成完整 URL 即可。
  */
 export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = { owner: "", repo: "exam-study-vault", branch: "main", apiBaseUrl: "/api-github" };
 

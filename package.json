@@ -8,8 +8,9 @@
   "scripts": {
     "dev": "vite",
     "predev": "node scripts/subset-title-font.mjs",
-    "build": "vite build",
+    "build": "vite build && node scripts/emit-pages-relay.mjs",
     "prebuild": "node scripts/subset-title-font.mjs",
+    "relay:pages": "node scripts/emit-pages-relay.mjs",
     "preview": "vite preview",
     "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:question-types && npm run test:overview && npm run test:search-filters && npm run test:content-block-ui && npm run test:review-scope-ui && npm run test:v6-ui && npm run test:modal && npm run test:notice-tone",
     "typecheck": "tsc --noEmit",

@@ -1,5 +1,5 @@
 name = "exam-study-sync-proxy"
-main = "worker.js"
+main = "./worker.js"
 compatibility_date = "2026-08-12"
 
 # custom_domain 绑定会自动创建 sync.980923.xyz 的 DNS 记录（橙色云朵 proxy）。

@@ -42,3 +42,6 @@ yarn-error.log*
 
 # 构建时自动生成的标题字体子集
 /src/generated/
+
+# 构建时自动生成的 Pages Function（源文件在 proxy/）
+/functions/

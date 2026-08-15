@@ -617,6 +617,13 @@ async function runDesktop(page, mockServer) {
   await volumeCell.hover();
   const hint = page.locator(".hint-popover");
   await hint.waitFor({ state: "visible" });
+  // 打开动画是 0.12s 的 scale(.98→1)，若在动画中测量 boundingBox，x/y 会随
+  // 缩放偏移 1~3px，导致下面的“不实时跟随”断言偶发失败。等动画结束再测。
+  await page.waitForFunction(() => {
+    const element = document.querySelector(".hint-popover");
+    if (!element) return false;
+    return element.getAnimations().every((animation) => animation.playState === "finished");
+  });
   assert.match(await hint.first().innerText(), /检查点体积|实际 .* · 解压 .*/, "checkpoint volume hint must explain the volume");
   const hintBox1 = await hint.first().boundingBox();
   await volumeCell.hover({ position: { x: 3, y: 3 } }); // 在格内移动 → 锚定首次悬浮位置，不实时跟随
