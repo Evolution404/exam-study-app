@@ -42,6 +42,7 @@ export const testGroups = {
     "test:sync-multidevice-checkpoints",
     "test:sync-fresh-install-contract",
     "test:sync-note-tombstone",
+    "test:sync-membership-tombstone",
     "test:sync-attempt-tombstone",
     "test:sync-claim-order",
     "test:sync-watermark-cache",

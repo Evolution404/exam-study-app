@@ -379,6 +379,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       updateQuestionsBulkDeleteCascade(projection, mutation.questionIds, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     case "membership.save": {
+      rejectTombstoned(projection, "membership", mutation.membership.key);
       ensureBank(projection, mutation.membership.bankId);
       ensureQuestion(projection, mutation.membership.questionId);
       const canonical = membershipKey(mutation.membership.bankId, mutation.membership.questionId);
