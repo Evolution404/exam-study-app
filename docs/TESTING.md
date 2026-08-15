@@ -7,11 +7,11 @@
 | 层级 | 命令 | 包含内容 | 耗时量级 | 是否含构建 |
 |---|---|---|---|---|
 | 逻辑 `unit` | `npm run test:unit` / `make test-unit` | 纯计算：快捷键、Excel 导入、错题口径、题型展示、同步 payload、v6 领域 | 秒级 | 否 |
-| 源码断言 `source` | `npm run test:source` / `make test-source` | 源码/静态断言：架构门、PWA 缓存、弹窗层级、作答反馈 UI、内容块 UI、v6 数据流 | 秒级 | 否 |
+| 源码断言 `source` | `npm run test:source` / `make test-source` | 源码/静态断言：架构门、PWA 缓存、GitHub 代理一致性、弹窗层级、作答反馈 UI、内容块 UI、v6 数据流 | 秒级 | 否 |
 | 集成 `integration` | `npm run test:integration` / `make test-integration` | fake-indexeddb + mock 后端：db-v6、同步 mock、同步集成（事件/试题管理/合并） | 秒级 | 否 |
-| 快测 `fast` | `npm run test:fast` / `make test-fast` | unit + source + integration + typecheck + lint | 数秒–数十秒 | 否 |
+| 快测 `fast` | `npm run test:fast` / `make test-fast` | 并行执行 unit + source + integration，再执行 typecheck + lint | 数秒–数十秒 | 否 |
 | 完整 CI `test` | `npm test` / `make test` | architecture → typecheck → build → 全部逻辑/源码/集成脚本 | 数十秒 | 是 |
-| 全量 `full` | `npm run test:full` / `make test-full` | 完整 CI + 浏览器全部场景 | 数分钟 | 是（+真实浏览器） |
+| 全量 `full` | `npm run test:full` / `make test-full` | 完整 CI + 浏览器全部场景（默认 headless，可用 `make test-browser-visible` 看可见浏览器） | 数分钟 | 是（+真实浏览器） |
 
 ## 2. 浏览器分组速查
 
