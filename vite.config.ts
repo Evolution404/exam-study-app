@@ -24,5 +24,17 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: "react-vendor", test: /node_modules[/](react|react-dom|scheduler)[/]/ },
+            { name: "dexie-vendor", test: /node_modules[/](dexie|dexie-react-hooks)[/]/ },
+            { name: "katex-vendor", test: /node_modules[/]katex[/]/ },
+            { name: "lucide-vendor", test: /node_modules[/]lucide-react[/]/ },
+          ],
+        },
+      },
+    },
   },
 });
