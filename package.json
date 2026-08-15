@@ -82,7 +82,10 @@
     "test:sync-practice-answer-tombstone": "tsx scripts/tests/test-sync-practice-answer-tombstone.ts",
     "test:sync-restore-cache-cursors": "tsx scripts/tests/test-sync-restore-cache-cursors.ts",
     "test:sync-restore-cache-guard": "tsx scripts/tests/test-sync-restore-cache-guard.ts",
-    "test:sync-question-split-membership-tombstone": "tsx scripts/tests/test-sync-question-split-membership-tombstone.ts"
+    "test:sync-question-split-membership-tombstone": "tsx scripts/tests/test-sync-question-split-membership-tombstone.ts",
+    "test:sync-questiongroup-tombstone": "tsx scripts/tests/test-sync-questiongroup-tombstone.ts",
+    "test:sync-restore-full-claimed-guard": "tsx scripts/tests/test-sync-restore-full-claimed-guard.ts",
+    "test:sync-bank-delete-run-tombstone": "tsx scripts/tests/test-sync-bank-delete-run-tombstone.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",
