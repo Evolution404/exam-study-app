@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import * as XLSX from "xlsx";
@@ -59,6 +59,34 @@ const excelFixtureFile = {
 };
 
 let devServer;
+
+function frontmostAppName() {
+  if (process.platform !== "darwin") return "";
+  try {
+    return execFileSync(
+      "osascript",
+      ["-e", 'tell application "System Events" to get name of first application process whose frontmost is true'],
+      { encoding: "utf8", timeout: 3000 },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+// 可见浏览器测试会启动真实 Chrome。为了不把 Chrome 弹到最前打断用户操作，
+// 启动/新建页面后把焦点还给启动测试前正在使用的 App，让 Chrome 留在窗口栈下层。
+let lastUserApp = "";
+function keepBrowserInBackground() {
+  if (process.platform !== "darwin") return;
+  const front = frontmostAppName();
+  if (front && front !== "Google Chrome" && front !== "Chromium") lastUserApp = front;
+  if (!lastUserApp || lastUserApp === "Google Chrome" || lastUserApp === "Chromium") return;
+  try {
+    execFileSync("osascript", ["-e", `tell application ${JSON.stringify(lastUserApp)} to activate`], { timeout: 3000 });
+  } catch {
+    // 没有自动化权限或 App 名称不可用时不影响测试本身。
+  }
+}
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1660,11 +1688,13 @@ async function main() {
   // desktop sync pushes real data and the mobile sync pulls it back — a true
   // cross-device round-trip without any external network.
   const mockServer = await startMockGitHubServer();
+  lastUserApp = frontmostAppName();
   const browser = await chromium.launch({
     executablePath: chromeExecutable,
     headless: false,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });
+  keepBrowserInBackground();
 
   // BROWSER_GROUPS=desktop,mobile,management,review,search,history
   // (comma-separated; unset = all groups). Each group gets a fresh browser
@@ -1696,6 +1726,7 @@ async function main() {
       };
       const context = await browser.newContext(contextOptions);
       const page = await context.newPage();
+      keepBrowserInBackground();
       page.setDefaultTimeout(10_000);
       page.setDefaultNavigationTimeout(25_000);
       const before = screenshots.length;
