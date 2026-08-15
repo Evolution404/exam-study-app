@@ -334,7 +334,10 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
         ensureBank(projection, membership.bankId);
         if (membership.questionId !== mutation.clone.id) fail(`分裂关系 ${membership.key} 未指向 clone`);
       }
-      for (const key of mutation.deletedMembershipKeys ?? []) removeMembership(projection, key);
+      for (const key of mutation.deletedMembershipKeys ?? []) {
+        removeMembership(projection, key);
+        putTombstone(projection, "membership", key, context.createdAt, context.deviceId, context.eventId, context.localSequence);
+      }
       projection.questions.push(clone(mutation.clone));
       for (const membership of mutation.memberships) {
         if (projection.memberships.some((item) => item.key === membership.key)) fail(`题库关系 ${membership.key} 已存在`);

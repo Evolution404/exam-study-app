@@ -43,6 +43,7 @@ export const testGroups = {
     "test:sync-fresh-install-contract",
     "test:sync-note-tombstone",
     "test:sync-membership-tombstone",
+    "test:sync-question-split-membership-tombstone",
     "test:sync-attempt-tombstone",
     "test:sync-practice-answer-tombstone",
     "test:sync-restore-cache-cursors",
