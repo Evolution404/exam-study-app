@@ -79,7 +79,8 @@
     "test:sync-fresh-install-contract": "tsx scripts/tests/test-sync-fresh-install-contract.ts",
     "test:sync-tombstone-retired-date": "tsx scripts/tests/test-sync-tombstone-retired-date.ts",
     "test:sync-membership-tombstone": "tsx scripts/tests/test-sync-membership-tombstone.ts",
-    "test:sync-practice-answer-tombstone": "tsx scripts/tests/test-sync-practice-answer-tombstone.ts"
+    "test:sync-practice-answer-tombstone": "tsx scripts/tests/test-sync-practice-answer-tombstone.ts",
+    "test:sync-restore-cache-cursors": "tsx scripts/tests/test-sync-restore-cache-cursors.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

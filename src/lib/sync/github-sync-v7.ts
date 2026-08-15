@@ -883,6 +883,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
   await saveHeadCache(settings, value.head);
   await saveInstalledHead(settings, value.head);
+  await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
   report(callback, "complete", "本地数据恢复完成", 100);
   return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const, pulled: 0, deferred: 0 };
 }
