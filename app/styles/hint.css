@@ -1,0 +1,22 @@
+/* 全项目统一悬浮提示浮层（Hint 组件）。浅色/深色由 theme token 自动驱动。 */
+.hint-popover {
+  /* 直接 fixed 定位在鼠标位置；z-index 抬到顶层，盖过所有 drawer/modal。 */
+  z-index: 10000;
+  position: fixed;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--color-surface-raised);
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 10px 28px var(--shadow-color);
+  pointer-events: none; /* 提示纯展示，不拦截指针 */
+}
+
+.hint-popover[data-state="open"] { animation: app-select-open .12s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-popover { animation: none; }
+}

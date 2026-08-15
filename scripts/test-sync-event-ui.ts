@@ -8,6 +8,9 @@ const studyApp = await readFile(new URL("../app/study-app.tsx", import.meta.url)
 const hotWindowPanel = await readFile(new URL("../app/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/sync-events.css", import.meta.url), "utf8");
 const siteReset = await readFile(new URL("../lib/site-data-reset.ts", import.meta.url), "utf8");
+const hintSource = await readFile(new URL("../app/hint.tsx", import.meta.url), "utf8");
+const globalsCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
 assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
 for (const state of ["pending", "claimed", "blocked", "committed"]) {
@@ -57,10 +60,20 @@ assert.match(hotWindowPanel, /<dt>热窗口事件<\/dt><dd>\{hotWindow\.segmentE
 // 上次同步只显示本地上次成功同步时间（语义明确，不再显示设备/水位信息）。
 assert.match(hotWindowPanel, /<dt>上次同步<\/dt><dd>\{syncedAt \? formatSyncedAt\(syncedAt\) : "—"\}<\/dd>/, "last sync shows only the local sync time");
 assert.ok(!/latestSync|本设备|shortDeviceId|deviceCount/.test(hotWindowPanel), "panel carries no device-watermark display");
-// 检查点体积格内简洁（无「解压」文字），完整信息放悬浮 title。
+// 检查点体积格内简洁（无「解压」文字），完整信息放统一悬浮提示（Hint，跟随鼠标）。
 assert.match(hotWindowPanel, /checkpointStoredSize \?\? hotWindow\.checkpointSize/, "checkpoint volume cell shows a single value (stored size preferred)");
-assert.match(hotWindowPanel, /title=\{checkpointTitle\(hotWindow\)\}/, "checkpoint volume full detail moves to a hover title");
-assert.match(hotWindowPanel, /实际 \$\{formatBytes\(state\.checkpointStoredSize\)\} · 解压/, "hover title explains actual vs decompressed bytes");
+assert.doesNotMatch(hotWindowPanel, /<dd[^>]*title=/, "checkpoint volume cell no longer uses a native title attribute");
+assert.match(hotWindowPanel, /<Hint label=\{checkpointTitle\(hotWindow\)\}><dd>/, "checkpoint volume full detail moves to the unified Hint tooltip");
+assert.match(hotWindowPanel, /实际 \$\{formatBytes\(state\.checkpointStoredSize\)\} · 解压/, "hint label explains actual vs decompressed bytes");
+assert.match(hotWindowPanel, /检查点体积 \$\{formatBytes\(state\.checkpointSize\)\}/, "checkpoint hint also shows a value when stored equals logical size (hover always pops)");
+assert.match(hotWindowPanel, /尚未建立检查点，首次同步后自动生成/, "checkpoint hint explains when no checkpoint exists yet (hover always pops)");
+// 全项目统一提示机制：Radix Tooltip + Hint 封装、跟随指针、全局样式挂载。
+assert.ok(packageJson.dependencies["@radix-ui/react-tooltip"], "unified hint depends on @radix-ui/react-tooltip");
+assert.match(hintSource, /Tooltip\.Trigger\s+asChild/, "hint keeps the trigger element in place (Slot, no wrapper node)");
+assert.match(hintSource, /createPortal\(/, "hint renders the popover via createPortal (synchronous mount, no Presence delay)");
+assert.match(hintSource, /useLayoutEffect/, "hint measures the popover and clamps it inside the viewport after mount");
+assert.match(hintSource, /spaceAbove/, "hint flips to the opposite side when the preferred side has no room (no trigger-covering flicker)");
+assert.match(globalsCss, /@import "\.\/styles\/hint\.css"/, "hint styles are wired into the global stylesheet");
 // 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
 assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
 // 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。

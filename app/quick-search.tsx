@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, LoaderCircle, Search, X } from "lucide-react";
 import { MathText } from "@/app/math-text";
+import { Hint } from "@/app/hint";
 import { toQuestionViewModel } from "@/app/question-editor";
 import { dbV6 } from "@/lib/db-v6";
 import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
@@ -42,7 +43,7 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   }
 
   return <div ref={boxRef} className={`searchbox ${open && draft.trim() ? "results-open" : ""}`}>
-    <button className="search-page-trigger" aria-label="进入搜索主页" title="搜索主页与高级筛选" onClick={() => openSearch()}><Search size={17} /></button>
+    <Hint label="搜索主页与高级筛选"><button className="search-page-trigger" aria-label="进入搜索主页" onClick={() => openSearch()}><Search size={17} /></button></Hint>
     <input aria-label="快速正则搜索题目、选项、标签或解析" value={draft} onFocus={() => { setOpen(true); }} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setDraft(""); setOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />
     {draft && <button className="search-clear" aria-label="清除搜索" onClick={() => { setDraft(""); setOpen(false); }}><X size={15} /></button>}
     <QuickSearchResults query={draft} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />

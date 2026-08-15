@@ -28,7 +28,7 @@ export function ScopeSummaryChips({ total, done, scopeLabel, totalLabel = "题�
   ];
   const explanation = chips.find((chip) => chip.id === active);
   return <div className="scope-summary-chips" aria-label={`统计范围：${scopeLabel}，共 ${total} 题，已做 ${done} 题，未做 ${pending} 题`}>
-    {chips.map((chip) => <button type="button" key={chip.id} className={`scope-summary-chip tone-${chip.tone}`} aria-label={`${chip.heading}：${chip.value}`} aria-expanded={active === chip.id} aria-describedby={active === chip.id ? popoverId : undefined} title={`点击查看${chip.heading}说明`} onClick={() => setActive(active === chip.id ? undefined : chip.id)} onKeyDown={(event) => { if (event.key === "Escape") { setActive(undefined); event.currentTarget.blur(); } }} onBlur={() => setActive(undefined)}>{chip.icon}<strong>{chip.value}</strong></button>)}
+    {chips.map((chip) => <button type="button" key={chip.id} className={`scope-summary-chip tone-${chip.tone}`} aria-label={`${chip.heading}：${chip.value}`} aria-expanded={active === chip.id} aria-describedby={active === chip.id ? popoverId : undefined} onClick={() => setActive(active === chip.id ? undefined : chip.id)} onKeyDown={(event) => { if (event.key === "Escape") { setActive(undefined); event.currentTarget.blur(); } }} onBlur={() => setActive(undefined)}>{chip.icon}<strong>{chip.value}</strong></button>)}
     {explanation && <span id={popoverId} className="scope-summary-popover" role="tooltip"><strong>{explanation.heading}</strong><small>{explanation.detail}</small></span>}
   </div>;
 }

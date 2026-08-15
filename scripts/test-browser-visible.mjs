@@ -611,6 +611,20 @@ async function runDesktop(page, mockServer) {
   await capture(page, contextName, "sync-hot-window");
   assert.ok(mockServer.contentPaths().includes("sync/v7/head.json"), "mock backend must hold the v7 head after a real sync");
   assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v7/checkpoints/")), "mock backend must hold the initial checkpoint");
+  // 统一悬浮提示：检查点体积格以鼠标第一次悬浮的位置为中心弹出，格内移动不跟随，离开即关闭。
+  const volumeCell = hotWindow.locator("div").filter({ hasText: "检查点体积" }).locator("dd");
+  assert.equal(await volumeCell.getAttribute("title"), null, "checkpoint volume must not carry a native title");
+  await volumeCell.hover();
+  const hint = page.locator(".hint-popover");
+  await hint.waitFor({ state: "visible" });
+  assert.match(await hint.first().innerText(), /检查点体积|实际 .* · 解压 .*/, "checkpoint volume hint must explain the volume");
+  const hintBox1 = await hint.first().boundingBox();
+  await volumeCell.hover({ position: { x: 3, y: 3 } }); // 在格内移动 → 锚定首次悬浮位置，不实时跟随
+  await page.waitForTimeout(150);
+  const hintBox2 = await hint.first().boundingBox();
+  assert.ok(hintBox1 && hintBox2 && Math.abs(hintBox1.x - hintBox2.x) <= 1 && Math.abs(hintBox1.y - hintBox2.y) <= 1, "hint must stay centered on the first hover point (no real-time follow)");
+  await page.mouse.move(30, 300); // 离开触发元素 → 关闭
+  await hint.waitFor({ state: "hidden" });
   // Idempotent: a second sync with no new events pushes nothing but still succeeds.
   await clickTextButton(page, "立即同步");
   await expectNotice(page, /v7 同步完成/, "idempotent second sync");
@@ -691,6 +705,20 @@ async function runMobile(page, mockServer) {
   await expectSyncFailureNotice(page);
   await capture(page, contextName, "sync-error");
   await mobileFailingServer.close();
+
+  // 触控点按切换：展开待同步项 → 点按编号格出现完整 id 提示，再点按关闭。
+  const mobileSummary = page.locator(".sync-event-summary").first();
+  await mobileSummary.scrollIntoViewIfNeeded();
+  await mobileSummary.tap();
+  await page.waitForTimeout(250);
+  const mobileIdDd = page.locator(".sync-event-metadata dd").first();
+  await mobileIdDd.scrollIntoViewIfNeeded();
+  await mobileIdDd.tap();
+  const mobileHint = page.locator(".hint-popover");
+  await mobileHint.waitFor({ state: "visible" });
+  assert.ok((await mobileHint.first().innerText()).trim().length > 12, "tap must reveal the full change-set id hint");
+  await mobileIdDd.tap();
+  await mobileHint.waitFor({ state: "hidden" });
 
   // ===== 真实同步：第二设备从 mock 拉取第一设备（desktop）的数据 =====
   // Point at the same vault the desktop pushed to; this fresh IndexedDB has no

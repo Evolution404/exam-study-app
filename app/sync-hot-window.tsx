@@ -1,6 +1,7 @@
 "use client";
 
 import type { SyncHotWindowState } from "@/lib/github-sync";
+import { Hint } from "@/app/hint";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -11,12 +12,13 @@ function formatBytes(bytes: number): string {
 const formatSyncedAt = (iso: string) =>
   new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
-/** 检查点体积的完整说明（悬浮提示用）：实际存储字节 ≠ 逻辑大小时同时给出两者。 */
-const checkpointTitle = (state: SyncHotWindowState): string | undefined => {
-  if (state.checkpointSize === undefined) return undefined;
-  return state.checkpointStoredSize !== undefined && state.checkpointStoredSize !== state.checkpointSize
-    ? `实际 ${formatBytes(state.checkpointStoredSize)} · 解压 ${formatBytes(state.checkpointSize)}`
-    : undefined;
+/** 检查点体积的完整说明（悬浮提示用）：任何状态都给出可读解释，保证悬停必有提示。 */
+const checkpointTitle = (state: SyncHotWindowState): string => {
+  if (state.checkpointSize === undefined) return "尚未建立检查点，首次同步后自动生成";
+  if (state.checkpointStoredSize !== undefined && state.checkpointStoredSize !== state.checkpointSize) {
+    return `实际 ${formatBytes(state.checkpointStoredSize)} · 解压 ${formatBytes(state.checkpointSize)}`;
+  }
+  return `检查点体积 ${formatBytes(state.checkpointSize)}`;
 };
 
 /**
@@ -30,7 +32,7 @@ export function SyncHotWindowPanel({ hotWindow, syncedAt }: { hotWindow: SyncHot
     <div><dt>检查点</dt><dd>{hotWindow.hasCheckpoint ? `第 ${hotWindow.checkpointGeneration} 代` : "未建立"}</dd></div>
     <div><dt>当前头</dt><dd>第 {hotWindow.generation} 代</dd></div>
     <div><dt>分段</dt><dd>{hotWindow.segmentCount}</dd></div>
-    <div><dt>检查点体积</dt><dd title={checkpointTitle(hotWindow)}>{hotWindow.checkpointSize !== undefined ? formatBytes(hotWindow.checkpointStoredSize ?? hotWindow.checkpointSize) : "—"}</dd></div>
+    <div><dt>检查点体积</dt><Hint label={checkpointTitle(hotWindow)}><dd>{hotWindow.checkpointSize !== undefined ? formatBytes(hotWindow.checkpointStoredSize ?? hotWindow.checkpointSize) : "—"}</dd></Hint></div>
     <div><dt>热窗口事件</dt><dd>{hotWindow.segmentEvents}</dd></div>
     <div><dt>上次同步</dt><dd>{syncedAt ? formatSyncedAt(syncedAt) : "—"}</dd></div>
     <div className="sync-hot-window-fill"><dt>热窗口</dt><dd><span>{formatBytes(hotWindow.hotBytes)} / {formatBytes(hotWindow.hotBytesMax)}</span><i aria-hidden="true"><b style={{ width: `${Math.min(100, Math.round((hotWindow.hotBytes / hotWindow.hotBytesMax) * 100))}%` }} /></i></dd></div>

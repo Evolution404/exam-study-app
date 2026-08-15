@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { AppSelect } from "@/app/app-select";
+import { Hint } from "@/app/hint";
 import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/change-set-v7";
 import "@/app/styles/sync-events.css";
 
@@ -303,10 +304,10 @@ export function SyncEventManager({
         {item.statusMessage && <p className="sync-event-status-message">{item.statusMessage}</p>}
         {item.blockers?.length ? <div className="sync-event-blockers" role="status"><strong><AlertCircle size={16} />暂时不能同步</strong><ul>{item.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></div> : null}
         <dl className="sync-event-metadata">
-          <div><dt>操作编号</dt><dd title={changeSet.id}>{shortId(changeSet.id)}</dd></div>
-          <div><dt>设备</dt><dd title={changeSet.deviceId}>{shortId(changeSet.deviceId)}</dd></div>
+          <div><dt>操作编号</dt><Hint label={changeSet.id}><dd>{shortId(changeSet.id)}</dd></Hint></div>
+          <div><dt>设备</dt><Hint label={changeSet.deviceId}><dd>{shortId(changeSet.deviceId)}</dd></Hint></div>
           <div><dt>本地顺序</dt><dd>{changeSet.localSequence.toLocaleString("zh-CN")}</dd></div>
-          <div><dt>校验摘要</dt><dd title={changeSet.digest}>{shortId(changeSet.digest)}</dd></div>
+          <div><dt>校验摘要</dt><Hint label={changeSet.digest}><dd>{shortId(changeSet.digest)}</dd></Hint></div>
         </dl>
         <div className="sync-event-mutations" aria-label="变更明细">
           {changeSet.mutations.map((mutation, index) => <section key={`${mutation.kind}-${index}`}>
@@ -315,7 +316,7 @@ export function SyncEventManager({
             {editing?.changeSetId === changeSet.id && editing.mutationIndex === index && <TypedMutationEditor item={item} mutation={mutation} mutationIndex={index} busy={busy} onCancel={() => setEditing(undefined)} onSave={async (edit) => { await onEdit?.(changeSet.id, edit); setEditing(undefined); }} />}
           </section>)}
         </div>
-        <div className="sync-event-refs"><strong>涉及对象</strong><div>{changeSet.entityRefs.map((ref) => <span key={`${ref.type}:${ref.id}`} title={ref.id}>{ref.type} · {shortId(ref.id)}</span>)}</div></div>
+        <div className="sync-event-refs"><strong>涉及对象</strong><div>{changeSet.entityRefs.map((ref) => <Hint label={ref.id} key={`${ref.type}:${ref.id}`}><span>{ref.type} · {shortId(ref.id)}</span></Hint>)}</div></div>
       </div>}
     </article>;
   }

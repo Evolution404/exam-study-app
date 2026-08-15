@@ -6,6 +6,7 @@ import { MathText } from "@/app/math-text";
 import { NoteMarkdown } from "@/app/note-markdown";
 import { ContentBlockRenderer } from "@/app/content-block-renderer";
 import { ModalPortal } from "@/app/modal-portal";
+import { Hint } from "@/app/hint";
 import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
 import type { PracticeRunV6, QuestionTypeV6 } from "@/lib/v6-types";
 
@@ -28,7 +29,7 @@ export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onC
   if (!run) return null;
   const stats = runStats(run);
   return <section className="latest-practice-banner">
-    <div className="latest-practice-copy"><span className="section-kicker">继续最近练习</span><h2>{run.modeLabel}</h2><p>{run.bankName} · {formatTime(run.updatedAt)}</p><div className="latest-practice-progress"><i><b style={{ width: `${run.questionIds.length ? stats.answered / run.questionIds.length * 100 : 0}%` }} /></i><span>{stats.answered} / {run.questionIds.length} 已作答</span><span>{stats.accuracy}% 正确率</span></div><div className="latest-practice-actions"><button type="button" onClick={() => onContinue(run.id)}><Play size={16} fill="currentColor" />继续练习</button><button type="button" className="latest-practice-abandon" aria-label="放弃练习" title="放弃练习" onClick={() => onAbandon(run.id)}><XCircle size={17} /></button><button type="button" className="feature-secondary" onClick={onViewAll}><History size={16} />全部练习记录</button></div></div>
+    <div className="latest-practice-copy"><span className="section-kicker">继续最近练习</span><h2>{run.modeLabel}</h2><p>{run.bankName} · {formatTime(run.updatedAt)}</p><div className="latest-practice-progress"><i><b style={{ width: `${run.questionIds.length ? stats.answered / run.questionIds.length * 100 : 0}%` }} /></i><span>{stats.answered} / {run.questionIds.length} 已作答</span><span>{stats.accuracy}% 正确率</span></div><div className="latest-practice-actions"><button type="button" onClick={() => onContinue(run.id)}><Play size={16} fill="currentColor" />继续练习</button><Hint label="放弃练习"><button type="button" className="latest-practice-abandon" aria-label="放弃练习" onClick={() => onAbandon(run.id)}><XCircle size={17} /></button></Hint><button type="button" className="feature-secondary" onClick={onViewAll}><History size={16} />全部练习记录</button></div></div>
     <div className="latest-practice-score"><strong>{stats.answered}</strong><small>已答题</small><span>{stats.correct} 对 · {stats.wrong} 错</span></div>
   </section>;
 }
@@ -45,7 +46,7 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
     drag.current = null;
   };
   return <article className={offset < 0 ? "swiped" : ""}>
-    <button type="button" className="history-delete-action" aria-label={`删除${run.modeLabel}记录`} title="删除这条练习记录" onClick={() => onDelete(run.id)}><Trash2 size={20} /></button>
+    <Hint label="删除这条练习记录"><button type="button" className="history-delete-action" aria-label={`删除${run.modeLabel}记录`} onClick={() => onDelete(run.id)}><Trash2 size={20} /></button></Hint>
     <div
       className="history-swipe-content"
       style={{ transform: `translateX(${offset}px)` }}
@@ -64,7 +65,7 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
       onPointerCancel={finishSwipe}
     >
       <button type="button" className={run.status === "in_progress" ? "history-open has-actions" : "history-open"} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (offset < 0) { setOffset(0); return; } onOpen(run.id); }}><div className="history-title"><span className={`run-status ${run.status}`}>{statusText[run.status]}</span><strong>{run.modeLabel}</strong><small>{formatTime(run.startedAt)}</small></div><h3>{run.bankName}</h3><div className="history-metrics"><span><b>{stats.answered}</b> / {run.questionIds.length} 已作答</span><span><b>{stats.accuracy}%</b> 正确率</span><span>{stats.correct} 对 · {stats.wrong} 错</span></div>{run.status !== "in_progress" && <ChevronRight size={18} />}</button>
-      {run.status === "in_progress" && <div className="history-card-actions"><button type="button" aria-label="继续练习" title="继续练习" onClick={() => onContinue(run.id)}><Play size={15} fill="currentColor" /></button><button type="button" className="abandon" aria-label="放弃练习" title="放弃练习" onClick={() => onAbandon(run.id)}><XCircle size={16} /></button></div>}
+      {run.status === "in_progress" && <div className="history-card-actions"><Hint label="继续练习"><button type="button" aria-label="继续练习" onClick={() => onContinue(run.id)}><Play size={15} fill="currentColor" /></button></Hint><Hint label="放弃练习"><button type="button" className="abandon" aria-label="放弃练习" onClick={() => onAbandon(run.id)}><XCircle size={16} /></button></Hint></div>}
     </div>
   </article>;
 }
