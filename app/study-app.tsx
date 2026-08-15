@@ -508,7 +508,10 @@ export function StudyApp() {
       last: last?.latestAttemptAt,
     };
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
-  const syncChangeSets = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []) ?? [];
+  // The `?? []` fallback must be memoised too, otherwise its fresh array on
+  // every render would defeat the dependency check below.
+  const syncChangeSetsRaw = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []);
+  const syncChangeSets = useMemo(() => syncChangeSetsRaw ?? [], [syncChangeSetsRaw]);
   // Dependency resolution is only needed when the change-set list actually
   // changes; memoising it keeps every answer submission (which re-renders the
   // app) from re-running the O(n) scan over the event queue.
