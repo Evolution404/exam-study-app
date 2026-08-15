@@ -70,7 +70,13 @@
     "test:full": "node scripts/tools/run-test-full.mjs",
     "template:xlsx": "node scripts/tools/generate-xlsx-template.mjs",
     "test:sync-multidevice-checkpoints": "tsx scripts/tests/test-sync-multidevice-checkpoints.ts",
-    "test:fast:serial": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --serial"
+    "test:fast:serial": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --serial",
+    "test:sync-note-tombstone": "tsx scripts/tests/test-sync-note-tombstone.ts",
+    "test:sync-attempt-tombstone": "tsx scripts/tests/test-sync-attempt-tombstone.ts",
+    "test:sync-claim-order": "tsx scripts/tests/test-sync-claim-order.ts",
+    "test:sync-watermark-cache": "tsx scripts/tests/test-sync-watermark-cache.ts",
+    "test:sync-compaction-plan-head": "tsx scripts/tests/test-sync-compaction-plan-head.ts",
+    "test:sync-fresh-install-contract": "tsx scripts/tests/test-sync-fresh-install-contract.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

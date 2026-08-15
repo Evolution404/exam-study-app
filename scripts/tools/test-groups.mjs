@@ -40,6 +40,7 @@ export const testGroups = {
     "test:sync-install-fingerprint",
     "test:sync-tombstone-gc",
     "test:sync-multidevice-checkpoints",
+    "test:sync-fresh-install-contract",
   ],
 };
 
