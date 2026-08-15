@@ -8,10 +8,6 @@ const syncView = read("app/sync/sync-view.tsx");
 const siteDataReset = read("lib/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");
-const pagesProxy = read("proxy/pages-function.js");
-const relayCommon = read("proxy/github-relay-common.js");
-const workerProxy = read("proxy/worker.js");
-const routes = JSON.parse(read("public/_routes.json")) as { include: string[]; exclude: string[] };
 
 assert.match(serviceWorker, /const CACHE = "shijuan-v9"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
@@ -33,17 +29,8 @@ assert.doesNotMatch(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE/);
 assert.match(headers, /\/index\.html[\s\S]*Cache-Control: no-cache, must-revalidate/, "entry HTML must revalidate on every deployment");
 assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=31536000, immutable/, "content-hashed assets remain safely immutable");
 
-// 同源 GitHub API 代理：源文件在 proxy/，构建时生成 functions/api-github/[[path]].js；
-// 路由只覆盖 /api-github/*。
-assert.match(relayCommon, /"https:\/\/api\.github\.com"/, "proxy targets the GitHub API");
-assert.match(relayCommon, /"cookie"/, "proxy strips edge cookies before forwarding upstream");
-assert.match(relayCommon, /redirect: "manual"/, "proxy preserves redirect semantics instead of following them");
-assert.match(relayCommon, /delete\("set-cookie"\)/, "upstream cookies are dropped on the way back");
-assert.match(pagesProxy, /from "\.\/github-relay-common\.js"/, "pages relay must share the common relay module");
-assert.match(pagesProxy, /pathPrefix: "\/api-github"/, "pages relay must strip the /api-github prefix");
-assert.match(workerProxy, /from "\.\/github-relay-common\.js"/, "worker relay must share the common relay module");
-assert.deepEqual(routes.include, ["/api-github/*"], "functions route only the API proxy path");
-assert.deepEqual(routes.exclude, [], "no other path runs as a function");
+// 代理一致性由 test-github-relay-consistency 专门验证。这里只保留 PWA 边界：
+// 同源 /api-github 请求必须绕过 Service Worker，避免被缓存或离线回退。
 
 assert.match(main, /updateViaCache: "none"/);
 assert.match(studyApp, /function updateServiceWorkerWithinTimeout/);
