@@ -141,4 +141,46 @@ assert.match(styles, /\.note-markdown blockquote\{[^}]*white-space:pre-line/, "�
 assert.match(styles, /\.note-panel-view\{/, "渲染态视图样式存在");
 assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.note-markdown p/, "夜间模式并入既有选择器（不新增页面级夜间规则）");
 
-console.log("note markdown tests passed: 块级/嵌套列表/续行/块级公式/行内/安全性 + 三处展示面接线");
+// --- 防回退：详情页选项样式不得穿透 markdown（bug：列表被渲染成选项盒） ------
+// .search-detail-body 的选项列表样式必须收敛到直接子级（> ol > li），
+// 否则 .note-markdown 的 ol/li/span 会被渲染成答题选项按钮。
+const bareDescendant = /\.search-detail-body\s+(ol|li)[{,>:]/;
+assert.ok(!bareDescendant.test(styles), "components.css 不得存在 .search-detail-body ol/li 裸后代选择器（会穿透 markdown 列表）");
+assert.match(styles, /\.search-detail-body>ol>li>span\s*\{/, "选项徽章样式限定为直接子级");
+assert.ok(!/html\[data-theme="dark"\][^{}]*\.search-detail-body\s+li[{,>]/.test(styles), "夜间规则同样不得用裸后代选择器命中 markdown li");
+assert.match(styles, /\.note-markdown ol\{[^}]*display:block/, "markdown 有序列表兜底 display:block");
+assert.match(styles, /\.note-markdown li\{[^}]*display:list-item/, "markdown 列表项兜底 display:list-item（::marker 序号可见）");
+
+// --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
+// :288 的夜间 input 规则强制 #111813；搜索类输入框必须显式补 transparent!important。
+assert.match(
+  styles,
+  /html\[data-theme="dark"\] :is\([^)]*\.searchbox input[^)]*\.search-home-query input[^)]*\)\{background:transparent!important\}/,
+  "夜间模式搜索类 input 保持透明底（容器/input 无色差）",
+);
+
+// --- 防回退：详情页底部按钮夜间颜色（bug：夜间 >footer>button 匹配不到按钮） ----
+// 浅色规则是后代选择器 >footer button（命中 .search-detail-actions 内的按钮），
+// 夜间规则必须同作用域，否则按钮保持浅色 #fff。
+assert.match(styles, /\.search-question-detail>footer button\s*\{[^}]*background:#fff/, "浅色规则覆盖 footer 全部按钮");
+assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.search-question-detail>footer button[^)]*\)\{[^}]*background:#111813/, "夜间规则与浅色规则同作用域（后代选择器）");
+assert.ok(!styles.includes(".search-question-detail>footer>button"), "夜间/样式规则不得用 >footer>button 子选择器漏掉 actions 内按钮");
+
+// --- 防回退：空解析首字退出编辑（bug：渲染条件翻转卸载 textarea） ------------
+assert.match(studyApp, /onFocus=\{\(\) => setNoteEditing\(true\)\}/, "解析 textarea 聚焦即进入编辑态（空解析首字不退出）");
+
+// --- 防回退：搜索页吸附设计（顶栏滚走 / 搜索框钉顶 / 批量栏紧贴） ------------
+assert.match(studyApp, /className=\{`workspace \$\{view === "search" \? "view-search" : ""\}`\}/, "搜索视图给 workspace 打 view-search 标记");
+assert.match(styles, /\.workspace\.view-search \.topbar\s*\{\s*position:static/, "搜索页内全局顶栏不固定（随内容滚走）");
+assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19/, "搜索页搜索框钉在顶部");
+assert.match(styles, /--search-query-h:58px/, "搜索框高度以变量定义");
+assert.match(styles, /\.search-batch-bar \{ position:sticky; top:calc\(var\(--search-query-h\) \+ env\(safe-area-inset-top\)\)/, "批量栏吸附高度与搜索框高度同源");
+assert.ok(!styles.includes("top:87px"), "批量栏旧的 top:87px（吸附全局顶栏）已删除");
+assert.ok(!styles.includes("#f8fbf8f2") && !/:is\(\.search-view-all,\.search-batch-bar,/.test(styles), "批量栏底色已 token 化（无硬编码浅/深底色）");
+assert.match(styles, /\.search-page\.search-pinned \.search-home-query\s*\{[^}]*border-top-left-radius:0[^}]*border-top:0/, "搜索框吸顶后上圆角压平贴顶（去上边框）");
+assert.ok(!/\.search-page\.search-pinned \.search-home-query[^}]*border-bottom-left-radius:0/.test(styles), "搜索框吸附后下边缘保持圆角（不直角化）");
+assert.match(styles, /\.search-page\.search-stuck \.search-batch-bar\s*\{[^}]*border-top-left-radius:0/, "批量栏吸附后去掉上圆角（与搜索框无缝相接，无圆角缺口）");
+assert.ok(!/\.search-page\.search-stuck \.search-home-query/.test(styles), "搜索框下边缘不受批量栏吸附影响（保持圆角）");
+assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
+
+console.log("note markdown tests passed: 块级/嵌套列表/续行/块级公式/行内/安全性 + 三处展示面接线 + 防穿透/夜间/编辑态/搜索吸附防回退");

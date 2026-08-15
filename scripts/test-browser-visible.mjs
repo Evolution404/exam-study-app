@@ -33,6 +33,15 @@ const fixtureFile = {
   mimeType: "application/json",
   buffer: Buffer.from(JSON.stringify(fixture), "utf8"),
 };
+// 吸附几何断言专用：默认 fixture 只有 5 题，桌面视口下滚动量不足以让搜索框
+// 真正吸顶（最大滚动 187px < 自然位置 265px）。这批题目让条件搜索结果足够长。
+const bigFixtureFile = {
+  name: "吸附测试加长题库.json",
+  mimeType: "application/json",
+  buffer: Buffer.from(JSON.stringify(
+    Array.from({ length: 30 }, (_, index) => ({ q: `加长题库第 ${index + 1} 题：设备巡检记录的归档要求是？`, a: ["按月装订成册", "随意存放", "口头交接", "无需归档"], ans: "A" })),
+  ), "utf8"),
+};
 const excelFixtureFile = {
   name: "送电线路工-中级工.xlsx",
   mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1061,6 +1070,23 @@ async function runSearchBatch(page) {
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“巡视”找到 \d+ 道题/);
   await capture(page, contextName, "search-results");
+  // 吸附几何：搜索框钉顶、批量栏紧贴、全局顶栏滚走（桌面）。
+  // 导入加长题库 + 清空关键词做条件搜索，让列表足够长以保证真正吸顶。
+  await page.locator('input[type="file"]').first().setInputFiles(bigFixtureFile);
+  await page.waitForTimeout(600);
+  // 导入可能把视图带回首页，重新进入搜索页。
+  if (await page.locator(".search-page").count() === 0) {
+    await clickButton(page, "进入搜索主页");
+    await expectText(page, "搜索题库");
+  }
+  await page.getByLabel("搜索题库").fill("");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /条件搜索找到 \d+ 道题/);
+  await assertSearchPinGeometry(page, "desktop", { requireScroll: true });
+  // 恢复关键词搜索，后续详情导航依赖“巡视”结果集与排序。
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“巡视”找到 \d+ 道题/);
   await page.locator(".search-type-tabs button").filter({ hasText: "单选" }).click();
   assert.equal(await page.locator(".search-result-list article").count(), 1, "single-choice tab must narrow the results");
   await page.locator(".search-type-tabs button").filter({ hasText: "全部" }).click();
@@ -1338,12 +1364,72 @@ async function runInFlightDeletionQA(page) {
 }
 
 
+// ===== 搜索页吸附几何断言 =====
+// 设计（2026-08 用户确认）：搜索页内全局顶栏随内容滚走，页面自己的搜索框钉在
+// 视口顶部，批量操作栏紧贴搜索框正下方。滚动后逐一断言，防止吸附目标回退到
+// 全局顶栏（旧 bug：批量栏与顶部搜索框之间隔出大段距离）。
+async function assertSearchPinGeometry(page, label, { requireScroll = false } = {}) {
+  await page.evaluate(() => {
+    const workspace = document.querySelector(".workspace");
+    const scroller = workspace && getComputedStyle(workspace).overflowY === "auto" ? workspace : window;
+    scroller.scrollBy(0, 5000);
+  });
+  await page.waitForTimeout(250);
+  const geo = await page.evaluate(() => {
+    const query = document.querySelector(".search-home-query")?.getBoundingClientRect();
+    const bar = document.querySelector(".search-batch-bar")?.getBoundingClientRect();
+    const topbar = document.querySelector(".topbar")?.getBoundingClientRect();
+    const workspace = document.querySelector(".workspace");
+    const usesWorkspaceScroll = workspace !== null && getComputedStyle(workspace).overflowY === "auto";
+    const scroller = usesWorkspaceScroll ? workspace : document.scrollingElement;
+    return {
+      queryTop: query?.top,
+      queryBottom: query?.bottom,
+      barTop: bar?.top,
+      topbarBottom: topbar?.bottom,
+      scrollTop: scroller?.scrollTop ?? window.scrollY,
+      atScrollBottom: scroller ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1 : true,
+    };
+  });
+  assert.ok(geo.queryTop !== undefined && geo.barTop !== undefined, `${label}: 搜索结果页缺少搜索框或批量栏`);
+  if (geo.scrollTop < 10) {
+    // 内容不足以产生滚动：sticky 无从验证。专用组必须滚动（requireScroll），
+    // 顺路检查组（桌面 search）允许跳过。
+    assert.ok(!requireScroll, `${label}: 搜索结果应长于视口以验证吸附（scrollTop=${geo.scrollTop}）`);
+    console.log(`  · ${label}: 内容未超出视口，跳过吸附几何断言`);
+    return;
+  }
+  assert.ok(Math.abs(geo.queryTop) <= 1, `${label}: 搜索框应钉在视口顶部（实际 top=${geo.queryTop}）`);
+  assert.ok((geo.topbarBottom ?? 0) <= geo.queryTop + 1, `${label}: 全局顶栏应随滚动离场、不压在搜索框上（topbar.bottom=${geo.topbarBottom}）`);
+  // 批量栏必须紧贴搜索框下方；唯一例外是内容太短、滚动到底后批量栏天然位置仍在下方。
+  if (geo.barTop > geo.queryBottom + 1) {
+    assert.ok(geo.atScrollBottom, `${label}: 批量栏与搜索框之间不得有空隙（bar.top=${geo.barTop} vs query.bottom=${geo.queryBottom}），且未滚到底`);
+  }
+  await capture(page, "search-pin", `pinned-${label}`);
+}
+
+async function runSearchPinMobile(page) {
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await expectText(page, "送电线路工-初级工");
+  await page.locator('input[type="file"]').first().setInputFiles(bigFixtureFile);
+  await page.waitForTimeout(600);
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  // 空关键词条件搜索：展示全部题目，保证列表足够长可滚动。
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /条件搜索找到 \d+ 道题/);
+  await assertSearchPinGeometry(page, "mobile", { requireScroll: true });
+}
+
 const GROUPS = [
   { key: "desktop", run: runDesktop, viewport: { width: 1440, height: 960 }, minScreenshots: 12 },
   { key: "mobile", run: runMobile, viewport: { width: 390, height: 844 }, isMobile: true, requires: ["desktop"], minScreenshots: 6 },
   { key: "management", run: runManagementQA, viewport: { width: 1440, height: 960 }, minScreenshots: 8 },
   { key: "review", run: runReviewRounds, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "search", run: runSearchBatch, viewport: { width: 1440, height: 960 }, minScreenshots: 4 },
+  { key: "search-pin", run: runSearchPinMobile, viewport: { width: 390, height: 844 }, isMobile: true, minScreenshots: 1 },
   { key: "history", run: runHistoryResult, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "inflight", run: runInFlightDeletionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "dark", run: runDarkModeAudit, viewport: { width: 1440, height: 960 }, minScreenshots: 1 },
@@ -1398,6 +1484,24 @@ async function auditVisibleButtons(page, viewName, offenders) {
   }
 }
 
+// 夜间透明输入框审计：搜索类 input 的底色必须保持透明（旧 bug：全站夜间 input
+// 规则带 !important 强制 #111813，压进本应透明的搜索框，容器与 input 呈两种深色）。
+async function auditSearchInputsDark(page, offenders) {
+  const rows = await page.evaluate(() => {
+    const out = [];
+    for (const input of document.querySelectorAll(".searchbox input, .search-home-query input")) {
+      if (!(input instanceof HTMLInputElement) || input.offsetParent === null) continue;
+      out.push({ container: input.closest(".searchbox, .search-home-query")?.className ?? "?", bg: getComputedStyle(input).backgroundColor });
+    }
+    return out;
+  });
+  assert.ok(rows.length >= 2, `夜间审计应同时看到顶栏搜索框与搜索页搜索框（实际 ${rows.length} 个）`);
+  for (const row of rows) {
+    const bg = parseRgbChannels(row.bg);
+    if (bg && bg.a > 0.01) offenders.push(`夜间搜索框 input 底色不透明（.${row.container} bg=${row.bg}）`);
+  }
+}
+
 async function runDarkModeAudit(page) {
   const contextName = "dark";
   await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -1417,6 +1521,23 @@ async function runDarkModeAudit(page) {
     await page.waitForTimeout(450);
     await auditVisibleButtons(page, nav, offenders);
   }
+  // 搜索视图：透明输入框审计（顶栏 + 搜索页两个搜索框）。
+  await clickButton(page, "今日");
+  await clickButton(page, "进入搜索主页");
+  await expectText(page, "搜索题库");
+  await auditSearchInputsDark(page, offenders);
+  // 搜索详情面板底部操作按钮（历史回退点：夜间规则 >footer>button 子选择器
+  // 匹配不到 .search-detail-actions 内的按钮，三按钮保持浅色 #fff）。
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“巡视”找到 \d+ 道题/);
+  await page.locator(".search-result-list article").first().locator(".search-result-main").click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
+  await auditVisibleButtons(page, "搜索详情面板", offenders);
+  await capture(page, contextName, "search-detail-dark");
+  await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
+  await clickButton(page, "题库");
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
   await clickButton(page, "同步");
   await expectText(page, "GitHub 同步");

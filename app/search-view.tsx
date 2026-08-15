@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   ChevronRight, CircleAlert, Filter, GitBranch, History, ListChecks, LoaderCircle,
@@ -121,6 +121,37 @@ export function SearchView({
   onNotice: (message: string) => void;
 }) {
   const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  // 吸附两阶段状态（JS 给 .search-page 加状态类，CSS 过渡接管视觉）：
+  // search-pinned：搜索框吸到视口顶部 → 上圆角压平贴顶（下边缘保持圆角）。
+  // search-stuck：批量栏贴上搜索框 → 去掉批量栏上圆角，与搜索框无缝相接。
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    const workspace = document.querySelector(".workspace");
+    const scroller: Window | Element = workspace && getComputedStyle(workspace).overflowY === "auto" ? workspace : window;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const bar = page.querySelector<HTMLElement>(".search-batch-bar");
+      const query = page.querySelector<HTMLElement>(".search-home-query");
+      if (!bar || !query) { page.classList.remove("search-stuck", "search-pinned"); return; }
+      const queryRect = query.getBoundingClientRect();
+      page.classList.toggle("search-pinned", queryRect.top <= 1);
+      page.classList.toggle("search-stuck", bar.getBoundingClientRect().top <= queryRect.bottom + 1);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    scroller.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    update();
+    return () => {
+      scroller.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
   const [typeTab, setTypeTab] = useState<TypeTab>("全部");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
@@ -273,7 +304,7 @@ export function SearchView({
     filters.progressScopeOverride ? `统计：${scopeLabelFor(filters.progressScopeOverride)}` : "",
   ].filter(Boolean);
 
-  return <div className="search-page">
+  return <div className="search-page" ref={pageRef}>
     <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认正则表达式，也可以组合题库、学习状态、标签、难度和日期进行筛选。"}</p></div></div>
     <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") triggerSearch(); }} placeholder={filters.keywordMode === "regex" ? "正则示例：弧垂|导线" : "输入题干、选项、标签或个人解析"} /><div className="search-query-actions"><button aria-label="搜索" className="search-trigger-button" onClick={triggerSearch}><Search size={16} /><span className="search-action-label">搜索</span></button><button aria-label={activeFilterCount ? `筛选，已设置 ${activeFilterCount} 项` : "筛选"} className={`search-filter-toggle ${activeFilterCount ? "active" : ""}`} onClick={openFilters}><Filter size={16} /><span className="search-action-label">筛选</span>{activeFilterCount > 0 && <span className="search-filter-count">{activeFilterCount}</span>}</button></div></section>
     <div className="search-filter-chips" aria-label="当前筛选条件">{filterChips.map((chip) => <span key={chip}>{chip}</span>)}</div>
