@@ -15,7 +15,7 @@
 
 ## 2. 浏览器分组速查
 
-`scripts/test-browser-visible.mjs` 由 `BROWSER_GROUPS` 环境变量选择场景分组（逗号分隔，缺省=全部）。每组独立浏览器上下文 + 独立 IndexedDB；共享一个进程内 mock GitHub 服务器，因此可做真实跨设备同步。
+`scripts/tests/test-browser-visible.mjs` 由 `BROWSER_GROUPS` 环境变量选择场景分组（逗号分隔，缺省=全部）。每组独立浏览器上下文 + 独立 IndexedDB；共享一个进程内 mock GitHub 服务器，因此可做真实跨设备同步。
 
 | 分组 | 命令 | 覆盖 | 依赖 |
 |---|---|---|---|

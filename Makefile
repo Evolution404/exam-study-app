@@ -52,7 +52,7 @@ dev: ## 启动开发服务器
 	npm run dev
 
 mock: ## 启动内存 mock GitHub 服务器（手动验证）
-	node scripts/mock-github-server.mjs
+	node scripts/tools/mock-github-server.mjs
 
 build: ## 构建产物
 	npm run build
