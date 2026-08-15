@@ -11,7 +11,8 @@ import {
 import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice-resume";
-import type { SyncProgress } from "@/lib/github-sync";
+import type { SyncProgress, SyncHotWindowState } from "@/lib/github-sync";
+import { getLastRemoteCache, getSyncHotWindowState } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
 import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
 import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
@@ -337,6 +338,8 @@ export function StudyApp() {
   const smoothQuickSyncProgress = useSmoothProgress(quickSyncProgress);
   const [quickSyncHolding, setQuickSyncHolding] = useState(false);
   const [syncDrawerOpen, setSyncDrawerOpen] = useState(false);
+  const [drawerHotWindow, setDrawerHotWindow] = useState<SyncHotWindowState | null>(null);
+  const [drawerSyncedAt, setDrawerSyncedAt] = useState<string | null>(null);
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
   const [finishPrompt, setFinishPrompt] = useState<number>();
@@ -642,6 +645,23 @@ export function StudyApp() {
     }
   }
   quickSyncAction.current = quickSync;
+
+  // 同步抽屉打开时（以及抽屉开着时一次快速同步结束）刷新热窗口状态，
+  // 抽屉内展示与同步页完全一致的信息面板。
+  useEffect(() => {
+    if (!syncDrawerOpen) return;
+    const settings = loadGitHubSettings();
+    let active = true;
+    const load = settings.repo
+      ? Promise.all([getLastRemoteCache(settings), getSyncHotWindowState(settings)]).then(([cache, hotWindow]) => ({ hotWindow, syncedAt: cache?.cachedAt ?? null }))
+      : Promise.resolve({ hotWindow: null, syncedAt: null });
+    void load.then((value) => {
+      if (!active) return;
+      setDrawerHotWindow(value.hotWindow);
+      setDrawerSyncedAt(value.syncedAt);
+    });
+    return () => { active = false; };
+  }, [syncDrawerOpen, quickSyncing]);
 
   useEffect(() => {
     if (!preferences.autoSyncEnabled || stats.pending < preferences.autoSyncEventThreshold || automaticSyncRunning.current || syncOperationRunning.current || quickRestoring || Date.now() - lastAutomaticSyncAt.current < 30_000) return;
@@ -1085,7 +1105,7 @@ export function StudyApp() {
           )}
         </Suspense></div>
       </section>
-      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={smoothQuickSyncProgress ?? quickSyncProgress} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
+      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={smoothQuickSyncProgress ?? quickSyncProgress} hotWindow={drawerHotWindow} syncedAt={drawerSyncedAt} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? smoothQuickSyncProgress ?? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />

@@ -5,6 +5,7 @@ const manager = await readFile(new URL("../app/sync-event-manager.tsx", import.m
 const drawer = await readFile(new URL("../app/sync-event-drawer.tsx", import.meta.url), "utf8");
 const syncView = await readFile(new URL("../app/sync-view.tsx", import.meta.url), "utf8");
 const studyApp = await readFile(new URL("../app/study-app.tsx", import.meta.url), "utf8");
+const hotWindowPanel = await readFile(new URL("../app/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/sync-events.css", import.meta.url), "utf8");
 
 assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
@@ -49,11 +50,21 @@ assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus wh
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
 assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
 assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks)");
-assert.match(syncView, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segment count and hot bytes in order");
+assert.match(hotWindowPanel, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>检查点体积<\/dt>[\s\S]*<dt>设备<\/dt>[\s\S]*<dt>上次同步<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segments, checkpoint size, devices, last sync and hot bytes in order");
+assert.match(hotWindowPanel, /checkpointStoredSize[\s\S]{0,120}解压/, "checkpoint volume shows stored bytes plus decompressed size when available");
+assert.match(hotWindowPanel, /deviceCount/, "hot window exposes the device watermark count");
+assert.match(syncView, /<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{lastCache\?\.cachedAt\} \/>/, "sync page renders the shared hot window panel");
+// 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。
+assert.match(manager, /statusPanel\?: ReactNode;/, "manager offers a status panel slot below the toolbar");
+assert.match(drawer, /statusPanel=\{<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{syncedAt\} \/>/, "drawer feeds the shared panel through the status slot");
+assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\}/, "study-app passes hot window state to the drawer");
+assert.match(studyApp, /getSyncHotWindowState\(settings\)/, "drawer hot window state is loaded from the cached head");
 // 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
 // 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
 const componentsCss = await readFile(new URL("../app/styles/components.css", import.meta.url), "utf8");
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
+// 热窗口底色必须与 settings-card 同底（--color-surface），不得用 muted 色形成色差。
+assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-surface\)/, "hot window background matches the settings card surface");
 assert.ok(!/\.sync-hot-window\{[^}]*grid-template-columns:1fr/.test(componentsCss), "任何规则（含媒体查询）不得把热窗口覆盖回单列");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 

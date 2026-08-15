@@ -53,6 +53,8 @@ export interface SyncEventManagerProps {
   showBatchSections?: boolean;
   emptyMessage?: string;
   className?: string;
+  /** 渲染在工具栏正下方的状态面板（同步抽屉传入热窗口信息，与同步页一致）。 */
+  statusPanel?: ReactNode;
 }
 
 const stateLabels: Record<SyncChangeSetStateV7, string> = {
@@ -239,6 +241,7 @@ export function SyncEventManager({
   showBatchSections = false,
   emptyMessage = "还没有符合条件的同步操作。",
   className = "",
+  statusPanel,
 }: SyncEventManagerProps) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | SyncChangeSetStateV7>("all");
@@ -325,6 +328,8 @@ export function SyncEventManager({
         {onSyncNow && <button className="primary" type="button" disabled={syncing || !items.some((item) => item.state === "pending" || item.state === "claimed")} onClick={() => void onSyncNow()}>{syncing ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}{syncing ? "同步中" : "立即同步"}</button>}
       </div>
     </div>
+
+    {statusPanel}
 
     {progress && <div className="sync-event-progress" role="progressbar" aria-label={progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} /></i></div>}
 

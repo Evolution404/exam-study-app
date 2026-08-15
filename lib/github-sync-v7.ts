@@ -833,6 +833,12 @@ export interface SyncHotWindowState {
   hasCheckpoint: boolean;
   /** Per-segment byte sizes, in replay order. Empty when there are no segments. */
   segmentSizes: number[];
+  /** Logical (decompressed) size of the checkpoint snapshot, when one exists. */
+  checkpointSize?: number;
+  /** Actual stored (compressed) bytes of the checkpoint blob, when the descriptor carries it. */
+  checkpointStoredSize?: number;
+  /** Devices known to the head watermark table (因果回收的确认方). */
+  deviceCount: number;
 }
 
 /**
@@ -856,6 +862,8 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
     checkpointGeneration: head.checkpoint?.generation ?? (head.segments.length ? head.segments[0].generation - 1 : head.generation),
     hasCheckpoint: Boolean(head.checkpoint),
     segmentSizes: head.segments.map((segment) => segment.size),
+    ...(head.checkpoint ? { checkpointSize: head.checkpoint.size, ...(head.checkpoint.storedSize !== undefined ? { checkpointStoredSize: head.checkpoint.storedSize } : {}) } : {}),
+    deviceCount: Object.keys(head.devices ?? {}).length,
   };
 }
 

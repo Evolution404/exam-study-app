@@ -602,8 +602,12 @@ async function runDesktop(page, mockServer) {
   await hotWindow.waitFor({ state: "visible" });
   const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
   assert.ok(hotLabels.includes("检查点") && hotLabels.includes("当前头") && hotLabels.includes("分段") && hotLabels.includes("热窗口"), "hot window must expose checkpoint, head, segment count and hot bytes");
+  assert.ok(hotLabels.includes("检查点体积") && hotLabels.includes("设备") && hotLabels.includes("上次同步"), "hot window must expose checkpoint size, device count and last sync time");
   const hotValues = (await hotWindow.locator("dd").allInnerTexts()).map((text) => text.trim());
   assert.ok(hotValues.some((text) => /^第 \d+ 代$/.test(text)), "checkpoint generation must be shown after a real sync");
+  assert.ok(hotValues.some((text) => /\d+ (B|KB|MB)/.test(text)), "checkpoint volume must be shown after a real sync");
+  assert.ok(hotValues.some((text) => /^\d+ 台$/.test(text)), "device count must be shown after a real sync");
+  assert.ok(hotValues.some((text) => /\d{2}\/\d{2} \d{2}:\d{2}/.test(text)), "last sync time must be shown after a real sync");
   await capture(page, contextName, "sync-hot-window");
   assert.ok(mockServer.contentPaths().includes("sync/v7/head.json"), "mock backend must hold the v7 head after a real sync");
   assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v7/checkpoints/")), "mock backend must hold the initial checkpoint");
@@ -949,6 +953,13 @@ async function runManagementQA(page, mockServer) {
   // 本次同步抽屉：搜索输入框必须无边框、聚焦只靠边框变色（统一输入框样式，避免内外两个矩形或聚焦光环）
   await page.locator(".sync-queue-trigger").click();
   await page.locator(".sync-event-drawer").waitFor({ state: "visible" });
+  // 抽屉工具栏下方展示与同步页一致的热窗口信息面板。
+  const drawerHotLabels = (await page.locator(".sync-event-drawer .sync-hot-window dt").allInnerTexts()).map((text) => text.trim());
+  assert.ok(
+    drawerHotLabels.includes("检查点") && drawerHotLabels.includes("当前头") && drawerHotLabels.includes("分段")
+      && drawerHotLabels.includes("检查点体积") && drawerHotLabels.includes("设备") && drawerHotLabels.includes("上次同步") && drawerHotLabels.includes("热窗口"),
+    "drawer hot window panel must show the same fields as the sync page",
+  );
   const drawerSearchInput = page.locator(".sync-event-drawer .sync-event-search input").first();
   await drawerSearchInput.focus();
   await page.waitForTimeout(120);
