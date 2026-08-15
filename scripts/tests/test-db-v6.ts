@@ -34,10 +34,10 @@ import {
   splitQuestionV6,
   saveNoteV6,
   savePracticeProgressV6,
-} from "../../lib/db/db-v6";
-import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../lib/sync/change-set-v7-queue";
-import type { ImageAsset } from "../../lib/db/v6-types";
-import { sha256Blob } from "../../lib/io/image-assets";
+} from "../../src/lib/db/db-v6";
+import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
+import type { ImageAsset } from "../../src/lib/db/v6-types";
+import { sha256Blob } from "../../src/lib/io/image-assets";
 
 const OLD_NAME = "memory-line-study";
 await Dexie.delete(OLD_NAME);

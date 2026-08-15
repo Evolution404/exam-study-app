@@ -1,5 +1,5 @@
 // 项目级守卫：原生 HTML 元素（小写标签）上禁止出现 title 属性。
-// 全项目统一悬浮提示请用 app/ui/hint.tsx 的 Hint 组件（Radix Tooltip，
+// 全项目统一悬浮提示请用 src/app/ui/hint.tsx 的 Hint 组件（Radix Tooltip，
 // 桌面 hover/键盘焦点、触控点按、点外部/Esc 关闭）。
 // 组件 prop 的 title=（大写或点分标签，如 PanelTitle / ConfirmDialog / PreferenceSelect
 // 的标题文本）属于组件自己的契约，放行。
@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const scanDirs = ["app", "src"];
+const scanDirs = ["src"];
 const failures = [];
 
 function collectTsx(dir) {
@@ -46,7 +46,7 @@ for (const file of collectTsx(scanDirs[0]).concat(scanDirs.slice(1).flatMap((dir
 }
 
 if (failures.length) {
-  console.error("原生 title 悬浮提示已禁用：请统一改用 app/ui/hint.tsx 的 Hint 组件（桌面 hover / 触控点按）。");
+  console.error("原生 title 悬浮提示已禁用：请统一改用 src/app/ui/hint.tsx 的 Hint 组件（桌面 hover / 触控点按）。");
   for (const { file, line, column, tag } of failures) {
     console.error(`  ${file}:${line}:${column}  <${tag} title="...">`);
   }

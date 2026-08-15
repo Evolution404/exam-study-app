@@ -4,14 +4,14 @@ import {
   PROGRESS_SCOPE_EXPLANATION,
   progressScopeChoiceKey,
   selectableProgressRounds,
-} from "../../app/practice/progress-scope-setting";
+} from "../../src/app/practice/progress-scope-setting";
 import {
   activeReviewRounds,
   bankQuestionCount,
   roundSummaryMetrics,
-} from "../../app/practice/review-round-manager";
-import type { Bank } from "../../lib/db/types";
-import type { ReviewRound } from "../../lib/db/v6-types";
+} from "../../src/app/practice/review-round-manager";
+import type { Bank } from "../../src/types/types";
+import type { ReviewRound } from "../../src/lib/db/v6-types";
 
 const bank = (id: string, questionCount: number): Pick<Bank, "id" | "questionCount"> => ({ id, questionCount });
 const round = (id: string, status: ReviewRound["status"], bankIds: string[], finalQuestionIds?: string[]): ReviewRound => ({

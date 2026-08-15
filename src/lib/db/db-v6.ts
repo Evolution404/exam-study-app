@@ -19,7 +19,7 @@ import {
   stripImagePlaceholders,
 } from "../question/question-content";
 import { normalizeCalculationAnswer } from "../question/question-utils";
-import type { PracticeAnswerState, PracticeRunStatus, QuestionType } from "./types";
+import type { PracticeAnswerState, PracticeRunStatus, QuestionType } from "../../types/types";
 import type {
   AttemptDailyStatsV6,
   AttemptStatsV6,

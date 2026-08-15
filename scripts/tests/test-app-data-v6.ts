@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../src/lib/db/db-v6";
 import {
   listQuestionViewsForBanksV6,
   listUnfiledQuestionsV6,
   questionAnswerTextV6,
   questionPlainViewV6,
-} from "../../lib/db/app-data-v6";
+} from "../../src/lib/db/app-data-v6";
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,

@@ -1,4 +1,4 @@
-import type { Attempt, AttemptDailyStats, AttemptStats } from "@/lib/db/types";
+import type { Attempt, AttemptDailyStats, AttemptStats } from "@/types/types";
 
 export interface AttemptSummary {
   total: number;

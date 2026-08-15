@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const manager = await readFile(new URL("../../app/sync/sync-event-manager.tsx", import.meta.url), "utf8");
-const drawer = await readFile(new URL("../../app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
-const syncView = await readFile(new URL("../../app/sync/sync-view.tsx", import.meta.url), "utf8");
-const studyApp = await readFile(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
-const hotWindowPanel = await readFile(new URL("../../app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
-const styles = await readFile(new URL("../../app/styles/sync-events.css", import.meta.url), "utf8");
-const siteReset = await readFile(new URL("../../lib/sync/site-data-reset.ts", import.meta.url), "utf8");
-const hintSource = await readFile(new URL("../../app/ui/hint.tsx", import.meta.url), "utf8");
-const globalsCss = await readFile(new URL("../../app/globals.css", import.meta.url), "utf8");
+const manager = await readFile(new URL("../../src/app/sync/sync-event-manager.tsx", import.meta.url), "utf8");
+const drawer = await readFile(new URL("../../src/app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
+const syncView = await readFile(new URL("../../src/app/sync/sync-view.tsx", import.meta.url), "utf8");
+const studyApp = await readFile(new URL("../../src/app/study-app.tsx", import.meta.url), "utf8");
+const hotWindowPanel = await readFile(new URL("../../src/app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../../src/app/styles/sync-events.css", import.meta.url), "utf8");
+const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts", import.meta.url), "utf8");
+const hintSource = await readFile(new URL("../../src/app/ui/hint.tsx", import.meta.url), "utf8");
+const globalsCss = await readFile(new URL("../../src/app/globals.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
 
 assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/sync\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
@@ -83,7 +83,7 @@ assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\
 assert.match(studyApp, /getSyncHotWindowState\(settings\)/, "drawer hot window state is loaded from the cached head");
 // 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
 // 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
-const componentsCss = await readFile(new URL("../../app/styles/components.css", import.meta.url), "utf8");
+const componentsCss = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
 // 热窗口底色必须与 settings-card 同底（--color-surface），不得用 muted 色形成色差。
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-surface\)/, "hot window background matches the settings card surface");

@@ -9,7 +9,7 @@ import {
   type DecodedImage,
   type EncodeImageOptions,
   type ImageAssetAdapter,
-} from "../../lib/io/image-assets";
+} from "../../src/lib/io/image-assets";
 
 function expectThrow(action: () => unknown, pattern: RegExp): void {
   assert.throws(action, pattern);

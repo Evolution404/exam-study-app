@@ -2,24 +2,24 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const portal = read("app/ui/modal-portal.tsx");
-const styles = read("app/styles/components.css");
-const confirmDialog = read("app/ui/confirm-dialog.tsx");
-const studyApp = read("app/study-app.tsx");
-const syncView = read("app/sync/sync-view.tsx");
-const credentials = read("lib/sync/github-credentials.ts");
+const portal = read("src/app/ui/modal-portal.tsx");
+const styles = read("src/app/styles/components.css");
+const confirmDialog = read("src/app/ui/confirm-dialog.tsx");
+const studyApp = read("src/app/study-app.tsx");
+const syncView = read("src/app/sync/sync-view.tsx");
+const credentials = read("src/lib/sync/github-credentials.ts");
 
 assert.match(portal, /createPortal\(children, document\.body\)/, "modal portal must escape the scrollable app shell");
 assert.match(portal, /workspace\.style\.overflow = "hidden"/, "open overlays must lock workspace scrolling");
 
 const overlaySources = [
-  ["app/ui/confirm-dialog.tsx", "simple-dialog-backdrop"],
-  ["app/bank/question-editor.tsx", "editor-backdrop"],
-  ["app/bank/bank-library-view.tsx", "simple-dialog-backdrop"],
-  ["app/bank/question-detail.tsx", "search-detail-backdrop"],
-  ["app/search/search-view.tsx", "search-practice-backdrop"],
-  ["app/search/search-filter-drawer.tsx", "search-filter-backdrop"],
-  ["app/study-app.tsx", "overview-backdrop"],
+  ["src/app/ui/confirm-dialog.tsx", "simple-dialog-backdrop"],
+  ["src/app/bank/question-editor.tsx", "editor-backdrop"],
+  ["src/app/bank/bank-library-view.tsx", "simple-dialog-backdrop"],
+  ["src/app/bank/question-detail.tsx", "search-detail-backdrop"],
+  ["src/app/search/search-view.tsx", "search-practice-backdrop"],
+  ["src/app/search/search-filter-drawer.tsx", "search-filter-backdrop"],
+  ["src/app/study-app.tsx", "overview-backdrop"],
 ] as const;
 
 for (const [path, className] of overlaySources) {

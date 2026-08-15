@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { formatQuestionDisplayText, hasChineseText } from "../../lib/practice/display-typography";
+import { formatQuestionDisplayText, hasChineseText } from "../../src/lib/practice/display-typography";
 
 assert.equal(hasChineseText("Which option is correct?"), false);
 assert.equal(hasChineseText("下列说法正确的是?"), true);

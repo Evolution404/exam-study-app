@@ -8,15 +8,15 @@ import {
   questionExportSheetPlan,
   type ExportImageData,
   type ExportQuestionInput,
-} from "../../lib/question/question-bank-export";
-import { buildStoredZip } from "../../lib/io/xlsx-export";
-import { parseQuestionBankTable } from "../../lib/io/xlsx-import";
-import { parseQuestionBankZip, QuestionBundleError } from "../../lib/question/question-bank-bundle";
-import { importQuestionBankFile } from "../../lib/question/question-bank-file-import";
-import { sniffImageDimensions } from "../../lib/io/image-dimensions";
-import { sha256Bytes } from "../../lib/io/image-assets";
-import { dbV6, importQuestionBankV6, resetV6Database } from "../../lib/db/db-v6";
-import type { ContentBlock, QuestionV6 } from "../../lib/db/v6-types";
+} from "../../src/lib/question/question-bank-export";
+import { buildStoredZip } from "../../src/lib/io/xlsx-export";
+import { parseQuestionBankTable } from "../../src/lib/io/xlsx-import";
+import { parseQuestionBankZip, QuestionBundleError } from "../../src/lib/question/question-bank-bundle";
+import { importQuestionBankFile } from "../../src/lib/question/question-bank-file-import";
+import { sniffImageDimensions } from "../../src/lib/io/image-dimensions";
+import { sha256Bytes } from "../../src/lib/io/image-assets";
+import { dbV6, importQuestionBankV6, resetV6Database } from "../../src/lib/db/db-v6";
+import type { ContentBlock, QuestionV6 } from "../../src/lib/db/v6-types";
 
 // ---------------------------------------------------------------------------
 // Fixture builders

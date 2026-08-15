@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { buildQuestionBankXlsx, questionExportJson, questionExportRows, sanitizeFileName, type ExportQuestionInput } from "../../lib/question/question-bank-export";
-import { parseQuestionBankWorkbook } from "../../lib/io/xlsx-import";
+import { buildQuestionBankXlsx, questionExportJson, questionExportRows, sanitizeFileName, type ExportQuestionInput } from "../../src/lib/question/question-bank-export";
+import { parseQuestionBankWorkbook } from "../../src/lib/io/xlsx-import";
 
 const questions: ExportQuestionInput[] = [
   { id: "q1", type: "单选", stem: "单选题", options: ["选项一", "选项二", "选项三", "选项四"], answer: "B", tags: ["基础", "示例"] },

@@ -3,22 +3,20 @@
 ## 顶层目录
 
 ```text
-app/         # React 页面与组件（按功能域分组）
-lib/         # 数据库、同步协议与领域计算（不依赖 React 页面）
+src/         # 应用源码（app + lib + 入口 + 类型声明）
 proxy/       # GitHub API 转发代理源码（Pages Function + Worker 共用）
 functions/   # 构建生成：Cloudflare Pages Function（由 scripts/tools/emit-pages-relay.mjs 生成）
 scripts/
   tools/     # 构建/检查/生成等工具脚本
   tests/     # node/tsx + playwright-core 测试脚本
-src/         # Vite 入口与构建生成声明
 public/      # 静态资源
 docs/        # 项目文档
 ```
 
-## 应用层 `app/`
+## 应用层 `src/app/`
 
 ```text
-app/
+src/app/
 ├── study-app.tsx          # 应用路由状态与跨页面编排，不承载同步实现和浏览器环境细节
 ├── ui/                    # 通用 UI：app-select, confirm-dialog, hint, modal-portal,
 │                          # scope-summary-chips, shortcut-setting, asset-image, math-text, note-markdown
@@ -32,11 +30,11 @@ app/
 └── styles/                # 全局与组件样式；theme-tokens.css 是日间/夜间唯一的语义颜色来源
 ```
 
-## 领域层 `lib/`
+## 领域层 `src/lib/`
 
 ```text
-lib/
-├── db/        # db-v6, app-data-v6, v6-types, types
+src/lib/
+├── db/        # db-v6, app-data-v6, v6-types
 ├── sync/      # github-sync*, github-v7-remote, github-credentials, sync-v6-*, sync-v7-*,
 │              # change-set-v7*, image-asset-cache, site-data-reset
 ├── question/  # question-content, question-utils, question-overview, question-bank-*
@@ -46,6 +44,22 @@ lib/
 ```
 
 所有领域计算不依赖 React 页面。
+
+## 类型声明 `src/types/`
+
+```text
+src/types/
+├── build-info.d.ts   # Vite 构建注入的全局常量声明（__APP_COMMIT_SHA__ / __APP_COMMIT_TIME__）
+└── types.ts          # 全局共享领域类型（QuestionType, Bank, GitHubSettings 等）
+```
+
+`v6-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v6 数据模型，和 `db-v6.ts`、`app-data-v6.ts` 强耦合。
+
+## 入口 `src/main.tsx`
+
+- 挂载 React 应用 `StudyApp`
+- 引入 `src/app/globals.css` 和 `src/generated/title-font.css`
+- 生产环境注册 `/sw.js`
 
 ## 代理层 `proxy/`
 

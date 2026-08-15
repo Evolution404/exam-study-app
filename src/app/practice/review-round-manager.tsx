@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import type { Bank } from "@/lib/db/types";
+import type { Bank } from "@/types/types";
 import type { ReviewRound, ReviewRoundStatus } from "@/lib/db/v6-types";
 
 export interface ReviewRoundMetrics {

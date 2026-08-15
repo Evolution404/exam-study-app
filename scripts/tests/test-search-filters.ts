@@ -5,12 +5,12 @@ import {
   createDefaultSearchFilters,
   effectiveSearchProgressScope,
   resolveSearchBankIds,
-} from "../../app/search/search-filter-drawer";
-import type { BankV6 } from "../../lib/db/v6-types";
+} from "../../src/app/search/search-filter-drawer";
+import type { BankV6 } from "../../src/lib/db/v6-types";
 
-const searchViewSource = fs.readFileSync(new URL("../../app/search/search-view.tsx", import.meta.url), "utf8");
-const knowledgeViewSource = fs.readFileSync(new URL("../../app/bank/knowledge-view.tsx", import.meta.url), "utf8");
-const studyAppSource = fs.readFileSync(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
+const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
+const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
+const studyAppSource = fs.readFileSync(new URL("../../src/app/study-app.tsx", import.meta.url), "utf8");
 
 const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },

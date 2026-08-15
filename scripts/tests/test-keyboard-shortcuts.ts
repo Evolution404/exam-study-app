@@ -5,8 +5,8 @@ import {
   resolveKeyboardShortcut,
   shortcutConflicts,
   shortcutFromKeyboardEvent,
-} from "../../lib/practice/keyboard-shortcuts";
-import { shouldSubmitOnChoice } from "../../lib/practice/answer-submission";
+} from "../../src/lib/practice/keyboard-shortcuts";
+import { shouldSubmitOnChoice } from "../../src/lib/practice/answer-submission";
 
 function key(key: string, modifiers: Partial<Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">> = {}) {
   return { key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers };

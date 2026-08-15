@@ -38,7 +38,7 @@ function walk(dir, out = []) {
 }
 
 function collectChars() {
-  const files = [...walk(path.join(root, "app")), ...walk(path.join(root, "lib"))];
+  const files = [...walk(path.join(root, "src/app")), ...walk(path.join(root, "src/lib"))];
   const chars = new Set(EXTRA_GLYPHS);
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");

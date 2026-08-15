@@ -1,4 +1,4 @@
-import type { GitHubSettings } from "../db/types";
+import type { GitHubSettings } from "../../types/types";
 
 const settingsKey = "github-settings";
 const tokenKey = "github-token";

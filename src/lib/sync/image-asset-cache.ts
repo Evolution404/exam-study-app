@@ -8,7 +8,7 @@
 import { clearImageCacheV6, dbV6, getImageAssetBlobV6, getImageAssetDescriptorV6, putImageAssetBlobV6 } from "../db/db-v6";
 import { sha256Blob } from "../io/image-assets";
 import { createGitHubV7Remote } from "./github-v7-remote";
-import type { GitHubSettings } from "../db/types";
+import type { GitHubSettings } from "../../types/types";
 
 export { clearImageCacheV6, getImageAssetBlobV6 };
 

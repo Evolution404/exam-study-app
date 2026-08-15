@@ -6,15 +6,15 @@ import {
   insertImageAtSelection,
   moveContentBlock,
   replaceContentBlock,
-} from "../../lib/question/question-content";
-import { performAssetRetry, resolveAssetLoad } from "../../app/ui/asset-image";
-import type { ContentBlock } from "../../lib/db/v6-types";
+} from "../../src/lib/question/question-content";
+import { performAssetRetry, resolveAssetLoad } from "../../src/app/ui/asset-image";
+import type { ContentBlock } from "../../src/lib/db/v6-types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
-const assetImage = read("app/ui/asset-image.tsx");
-const renderer = read("app/bank/content-block-renderer.tsx");
-const editor = read("app/bank/content-block-editor.tsx");
-const styles = read("app/styles/content-blocks.css");
+const assetImage = read("src/app/ui/asset-image.tsx");
+const renderer = read("src/app/bank/content-block-renderer.tsx");
+const editor = read("src/app/bank/content-block-editor.tsx");
+const styles = read("src/app/styles/content-blocks.css");
 
 // Browser lifecycle and security contracts are source-level assertions because
 // this project intentionally has no jsdom/DOM test dependency.

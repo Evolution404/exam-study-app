@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isQuestionDoneInScope, normalizeProgressScope } from "../../lib/practice/progress-scope";
-import { classifyNoticeTone } from "../../lib/practice/notice-tone";
-import { resumeIndexAfterLastAnswer } from "../../lib/practice/practice-resume";
+import { isQuestionDoneInScope, normalizeProgressScope } from "../../src/lib/practice/progress-scope";
+import { classifyNoticeTone } from "../../src/lib/practice/notice-tone";
+import { resumeIndexAfterLastAnswer } from "../../src/lib/practice/practice-resume";
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");
@@ -18,7 +18,7 @@ assert.equal(classifyNoticeTone("同步失败，请检查网络"), "error", "中
 const sharedIds = ["q1", "q1", "q2", "q2", "q3"];
 assert.deepEqual([...new Set(sharedIds)], ["q1", "q2", "q3"], "跨题库共享题按 questionId 去重");
 
-const source = (name: string) => readFileSync(new URL(`../../app/${name}`, import.meta.url), "utf8");
+const source = (name: string) => readFileSync(new URL(`../../src/app/${name}`, import.meta.url), "utf8");
 const editor = source("bank/question-editor.tsx");
 assert.match(editor, /同步修改全部题库/);
 assert.match(editor, /分裂勾选题库/);
@@ -58,7 +58,7 @@ assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口�
 const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
-const componentStyles = readFileSync(new URL("../../app/styles/components.css", import.meta.url), "utf8");
+const componentStyles = readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
 assert.match(componentStyles, /\.question-body h1,\.practice-stem\s*\{[^}]*clamp\(21px,3vw,29px\)/, "富内容题干必须继承原答题页的标准字号");
 assert.match(componentStyles, /font-small[^}]*\.practice-stem[^}]*clamp\(18px,2\.4vw,24px\)/, "较小字号必须作用于富内容题干");
 assert.match(componentStyles, /font-large[^}]*\.practice-stem[^}]*clamp\(25px,3\.4vw,33px\)/, "较大字号必须作用于富内容题干");

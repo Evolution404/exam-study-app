@@ -36,7 +36,7 @@ import { DEFAULT_KEYBOARD_SHORTCUTS, formatKeyboardShortcut, normalizeKeyboardSh
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/practice/press-intent";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
 import { isCalculationAnswerCorrect } from "@/lib/question/question-utils";
-import type { ActivePractice, GitHubSettings } from "@/lib/db/types";
+import type { ActivePractice, GitHubSettings } from "@/types/types";
 import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/db/v6-types";
 import type { V6PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/practice/progress-scope";

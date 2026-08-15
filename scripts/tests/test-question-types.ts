@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../../lib/question/question-utils";
+import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const studyApp = read("app/study-app.tsx");
-const history = read("app/practice/practice-history.tsx");
-const editor = read("app/bank/question-editor.tsx");
-const contentEditor = read("app/bank/content-block-editor.tsx");
-const xlsx = read("lib/io/xlsx-import.ts");
+const studyApp = read("src/app/study-app.tsx");
+const history = read("src/app/practice/practice-history.tsx");
+const editor = read("src/app/bank/question-editor.tsx");
+const contentEditor = read("src/app/bank/content-block-editor.tsx");
+const xlsx = read("src/lib/io/xlsx-import.ts");
 const vite = read("vite.config.ts");
 
 assert.equal(normalizeCalculationAnswer(" 12.50 "), "12.50");

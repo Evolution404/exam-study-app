@@ -8,7 +8,7 @@ import type {
   SyncFile as LegacySyncFile,
   SyncMeta as LegacySyncMeta,
   SyncTombstone as LegacySyncTombstone,
-} from "./types";
+} from "../../types/types";
 
 /**
  * v6 reuses only the bank metadata concepts (name, folder, colour and order);

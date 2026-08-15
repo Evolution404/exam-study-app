@@ -406,5 +406,5 @@ export function importFileName(fileName: string) {
   if (!name) fail("Excel 文件名不能为空，请先为题库文件命名。");
   return `${name}.json`;
 }
-import type { QuestionType } from "../db/types";
+import type { QuestionType } from "../../types/types";
 import { normalizeCalculationAnswer } from "../question/question-utils";

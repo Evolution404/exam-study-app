@@ -20,8 +20,8 @@ import {
   replaySyncV7Segments,
   validateSyncHeadV7,
   validateSyncV7Descriptor,
-} from "../../lib/sync/sync-v7-head";
-import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../../lib/sync/sync-v7-head";
+} from "../../src/lib/sync/sync-v7-head";
+import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../../src/lib/sync/sync-v7-head";
 
 const digest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const sha1 = (digit: string) => digit.repeat(40);

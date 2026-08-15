@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { ContentBlock, QuestionV6, QuestionTypeV6 } from "@/lib/db/v6-types";
-import type { GitHubSettings } from "@/lib/db/types";
+import type { GitHubSettings } from "@/types/types";
 import type { QuestionDraftV6 } from "@/lib/db/db-v6";
 import { dbV6 } from "@/lib/db/db-v6";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { parseNoteMarkdown } from "../../lib/practice/note-markdown";
+import { parseNoteMarkdown } from "../../src/lib/practice/note-markdown";
 
 // 个人解析的 Markdown + LaTeX 渲染：解析器是纯函数（lib/note-markdown.ts），
 // 渲染组件（app/ui/note-markdown.tsx）复用题干的 katex 懒加载。覆盖块级语法、
@@ -114,13 +114,13 @@ import { parseNoteMarkdown } from "../../lib/practice/note-markdown";
 assert.deepEqual(parseNoteMarkdown("  \n "), []);
 
 // --- 接线断言 -------------------------------------------------------------
-const detail = await readFile(new URL("../../app/bank/question-detail.tsx", import.meta.url), "utf8");
-const history = await readFile(new URL("../../app/practice/practice-history.tsx", import.meta.url), "utf8");
-const studyApp = await readFile(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
-const editor = await readFile(new URL("../../app/bank/question-editor.tsx", import.meta.url), "utf8");
-const mathText = await readFile(new URL("../../app/ui/math-text.tsx", import.meta.url), "utf8");
-const styles = await readFile(new URL("../../app/styles/components.css", import.meta.url), "utf8");
-const renderer = await readFile(new URL("../../app/ui/note-markdown.tsx", import.meta.url), "utf8");
+const detail = await readFile(new URL("../../src/app/bank/question-detail.tsx", import.meta.url), "utf8");
+const history = await readFile(new URL("../../src/app/practice/practice-history.tsx", import.meta.url), "utf8");
+const studyApp = await readFile(new URL("../../src/app/study-app.tsx", import.meta.url), "utf8");
+const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
+const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const renderer = await readFile(new URL("../../src/app/ui/note-markdown.tsx", import.meta.url), "utf8");
 
 assert.match(detail, /import \{ NoteMarkdown \} from "@\/app\/ui\/note-markdown"/, "题目详情接入 NoteMarkdown");
 assert.match(detail, /\{note \? <NoteMarkdown text=\{note\} \/> : <p>/, "有解析时渲染 markdown，空态保留原提示");

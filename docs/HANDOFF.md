@@ -10,14 +10,14 @@
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
 - 公开客户端数据层：独立 IndexedDB `shijuan-study-v6`。
-- 公开同步协议：Sync v7，唯一可变入口 `sync/v7/head.json`；UI 只通过 `lib/sync/github-sync.ts` 门面访问同步。
+- 公开同步协议：Sync v7，唯一可变入口 `sync/v7/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
 - Service Worker 缓存版本：`shijuan-v9`。
 - 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
 
 ## 2. 目录结构
 
 ```text
-app/
+src/app/
   ui/          # 通用 UI：app-select, confirm-dialog, hint, modal-portal, scope-summary-chips,
                # shortcut-setting, asset-image, math-text, note-markdown
   practice/    # practice-setup, practice-history, review-round-manager,
@@ -30,13 +30,13 @@ app/
   hooks/       # use-app-environment
   styles/      # theme-tokens.css, components.css, controls.css, content-blocks.css,
                # review-scope.css, sync-events.css, hint.css
-lib/           # 领域逻辑：db / sync / question / io / practice
+src/lib/       # 领域逻辑：db / sync / question / io / practice
 proxy/         # GitHub API 转发代理源码
 functions/     # 构建生成：functions/api-github/[[path]].js（不要手写，由 emit-pages-relay 生成）
 scripts/
   tools/       # 构建/检查/生成工具
   tests/       # 所有测试脚本
-src/           # Vite 入口、build-info、generated/
+src/           # 应用源码：app / lib / types / main.tsx / generated
 public/        # 静态资源与 PWA
 docs/          # 项目文档
 ```
@@ -50,21 +50,21 @@ docs/          # 项目文档
 - 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v7/assets/<sha256>.<ext>`。
 - 同步固定 head：`sync/v7/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
-- `lib/sync/github-sync.ts` 是 UI 唯一公开同步门面，只委托 v7 transport。
+- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面，只委托 v7 transport。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
 ## 4. 关键文件
 
-- 数据模型：`lib/db/v6-types.ts`, `lib/db/db-v6.ts`, `lib/db/app-data-v6.ts`
-- 同步协议：`lib/sync/sync-v7-head.ts`, `lib/sync/sync-v7-codec.ts`, `lib/sync/sync-v7-payload.ts`,
-  `lib/sync/change-set-v7.ts`, `lib/sync/change-set-v7-projection.ts`, `lib/sync/change-set-v7-queue.ts`,
-  `lib/sync/github-v7-remote.ts`, `lib/sync/github-sync-v7.ts`, `lib/sync/github-sync.ts`
-- 进度与轮次：`lib/practice/progress-scope.ts`, `app/practice/progress-scope-setting.tsx`,
-  `app/practice/review-round-manager.tsx`, `app/practice/practice-setup.tsx`
-- 富内容与图片：`lib/io/image-assets.ts`, `lib/sync/image-asset-cache.ts`, `lib/io/image-dimensions.ts`,
-  `app/bank/content-block-editor.tsx`, `app/bank/content-block-renderer.tsx`, `app/ui/asset-image.tsx`
-- 导入导出：`lib/io/xlsx-import.ts`, `lib/io/xlsx-export.ts`, `lib/question/question-bank-file-import.ts`,
-  `lib/question/question-bank-export.ts`, `lib/question/question-bank-bundle.ts`
+- 数据模型：`src/lib/db/v6-types.ts`, `src/lib/db/db-v6.ts`, `src/lib/db/app-data-v6.ts`
+- 同步协议：`src/lib/sync/sync-v7-head.ts`, `src/lib/sync/sync-v7-codec.ts`, `src/lib/sync/sync-v7-payload.ts`,
+  `src/lib/sync/change-set-v7.ts`, `src/lib/sync/change-set-v7-projection.ts`, `src/lib/sync/change-set-v7-queue.ts`,
+  `src/lib/sync/github-v7-remote.ts`, `src/lib/sync/github-sync-v7.ts`, `src/lib/sync/github-sync.ts`
+- 进度与轮次：`src/lib/practice/progress-scope.ts`, `src/app/practice/progress-scope-setting.tsx`,
+  `src/app/practice/review-round-manager.tsx`, `src/app/practice/practice-setup.tsx`
+- 富内容与图片：`src/lib/io/image-assets.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/io/image-dimensions.ts`,
+  `src/app/bank/content-block-editor.tsx`, `src/app/bank/content-block-renderer.tsx`, `src/app/ui/asset-image.tsx`
+- 导入导出：`src/lib/io/xlsx-import.ts`, `src/lib/io/xlsx-export.ts`, `src/lib/question/question-bank-file-import.ts`,
+  `src/lib/question/question-bank-export.ts`, `src/lib/question/question-bank-bundle.ts`
 
 ## 5. 代理与部署
 
@@ -86,7 +86,7 @@ docs/          # 项目文档
 6. `tsconfig.json` 的 unused 检查必须保持开启。
 7. 修改前先看工作区，禁止 reset/checkout 覆盖用户或其他任务的改动。
 
-`scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `app/`、`src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `app/ui/hint.tsx` 的 `Hint` 组件。
+`scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `src/app/ui/hint.tsx` 的 `Hint` 组件。
 
 ## 7. 验证与发布
 

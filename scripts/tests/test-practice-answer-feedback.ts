@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const studyApp = read("app/study-app.tsx");
-const practiceSetup = read("app/practice/practice-setup.tsx");
-const practiceHistory = read("app/practice/practice-history.tsx");
-const styles = read("app/styles/components.css");
-const database = read("lib/db/db-v6.ts");
+const studyApp = read("src/app/study-app.tsx");
+const practiceSetup = read("src/app/practice/practice-setup.tsx");
+const practiceHistory = read("src/app/practice/practice-history.tsx");
+const styles = read("src/app/styles/components.css");
+const database = read("src/lib/db/db-v6.ts");
 
 assert.match(studyApp, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(studyApp, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");

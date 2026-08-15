@@ -12,7 +12,7 @@
  * only way to learn it for objects uploaded before storedSize existed) and
  * CAS-publishes an annotated head.
  */
-import { backfillVaultStoredSizes, migrateVaultToCompressed } from "../../lib/sync/github-sync-v7.ts";
+import { backfillVaultStoredSizes, migrateVaultToCompressed } from "../../src/lib/sync/github-sync-v7.ts";
 
 interface Args {
   owner: string;

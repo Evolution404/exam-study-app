@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { StudyApp } from "../app/study-app";
-import "../app/globals.css";
+import { StudyApp } from "./app/study-app";
+import "./app/globals.css";
 // 标题衬线中文字体：构建时由 scripts/tools/subset-title-font.mjs 扫描静态文案自动子集化，
 // 只打包实际用到的字形（见 src/generated/，prebuild/predev 生成）。
 import "./generated/title-font.css";

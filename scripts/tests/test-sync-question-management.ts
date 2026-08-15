@@ -17,8 +17,8 @@ import {
   saveQuestionGroupV6,
   toggleQuestionFavoriteV6,
   updateQuestionV6,
-} from "../../lib/db/db-v6";
-import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
+} from "../../src/lib/db/db-v6";
+import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Integration tests for question lifecycle (import / edit / delete / membership

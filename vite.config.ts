@@ -19,7 +19,7 @@ export default defineConfig({
     __APP_COMMIT_TIME__: JSON.stringify(commitTime),
   },
   resolve: {
-    alias: { "@": root },
+    alias: { "@": path.join(root, "src") },
   },
   build: {
     outDir: "dist",

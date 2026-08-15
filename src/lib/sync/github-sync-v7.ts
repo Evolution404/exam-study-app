@@ -31,7 +31,7 @@ import {
 import type { TombstoneV6 } from "../db/v6-types";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
 import { hydrateSyncV7Events, offloadSyncV7Events } from "./sync-v7-payload";
-import type { GitHubSettings } from "../db/types";
+import type { GitHubSettings } from "../../types/types";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;

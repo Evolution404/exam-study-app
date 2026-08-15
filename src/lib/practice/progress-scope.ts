@@ -1,4 +1,4 @@
-import type { AttemptStats } from "../db/types";
+import type { AttemptStats } from "../../types/types";
 import type { AttemptV6, ReviewRoundProgress } from "../db/v6-types";
 
 /** Minimal global projection required to decide whether a question is done. */

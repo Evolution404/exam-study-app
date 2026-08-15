@@ -5,7 +5,7 @@ import { dbV6, deleteQuestionGroupV6, saveQuestionGroupV6, updateQuestionV6 } fr
 import { listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import type { QuestionGroupV6 } from "@/lib/db/v6-types";
-import type { QuestionGroupItem } from "@/lib/db/types";
+import type { QuestionGroupItem } from "@/types/types";
 import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { MathText } from "@/app/ui/math-text";
