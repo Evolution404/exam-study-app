@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { testGroups } from "./test-groups.mjs";
 
-const groups = process.argv.slice(2);
+const groups = process.argv.slice(2).flatMap((name) => testGroups[name] ?? [name]);
 if (groups.length === 0) {
   console.error("usage: node scripts/tools/run-test-groups.mjs <script>...");
   process.exit(1);

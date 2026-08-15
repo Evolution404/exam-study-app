@@ -1,0 +1,43 @@
+// 测试分组与 npm script 的唯一映射。新增测试后只需在这里登记，
+// package.json 的 test:unit / test:source / test:integration 不再各自罗列。
+export const testGroups = {
+  unit: [
+    "test:notice-tone",
+    "test:shortcuts",
+    "test:xlsx",
+    "test:note-markdown",
+    "test:press-intent",
+    "test:typography",
+    "test:overview",
+    "test:search-filters",
+    "test:review-scope-ui",
+    "test:change-set-v7",
+    "test:sync-payload",
+    "test:sync-v7-multidevice",
+    "test:sync-v7-protocol",
+    "test:v6-domain",
+    "test:image-assets",
+  ],
+  source: [
+    "test:architecture",
+    "test:pwa",
+    "test:relay",
+    "test:modal",
+    "test:answer-ui",
+    "test:question-types",
+    "test:content-block-ui",
+    "test:sync-event-ui",
+    "test:v6-ui",
+  ],
+  integration: [
+    "test:db-v6",
+    "test:sync-mock",
+    "test:sync-integration",
+    "test:sync-progress",
+    "test:sync-compression",
+    "test:sync-download-concurrency",
+    "test:sync-replay-perf",
+    "test:sync-install-fingerprint",
+    "test:sync-tombstone-gc",
+  ],
+};
