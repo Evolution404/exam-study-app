@@ -1,11 +1,14 @@
 # exam-study-app 常用命令一键入口
 # 用法：make <target>，输入 make 或 make help 查看全部目标。
-# 浏览器测试需要本机装有可见 Chrome（可用 CHROME_PATH 指定），
-# 且会在真实窗口中自动启动 vite dev server。
+# 浏览器测试默认 headless 后台运行（不弹 Chrome 窗口）；需要肉眼观看时
+# 使用 `make test-browser-visible` 或 `make test-browser HEADLESS=0`。
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev mock build preview lint typecheck test test-fast test-unit test-source test-integration test-sync test-browser test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
+# 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
+HEADLESS ?= 1
+
+.PHONY: help install dev mock build preview lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -30,8 +33,10 @@ help: ## 显示本帮助
 	@echo "  make test                   完整 CI 测试（含构建，不含浏览器）"
 	@echo "  make test-full              全量 = test + 浏览器全部场景"
 	@echo ""
-	@echo "浏览器测试（可见 Chrome 场景分组，BROWSER_GROUPS 选择）："
-	@echo "  make test-browser           全部场景分组"
+	@echo "浏览器测试（默认 headless 后台运行；HEADLESS=0 或 make test-browser-visible 开可见 Chrome）："
+	@echo "  make test-browser           全部场景分组（受 HEADLESS 控制）"
+	@echo "  make test-browser-headless  全部场景分组（强制 headless）"
+	@echo "  make test-browser-visible   全部场景分组（强制可见 Chrome）"
 	@echo "  make test-browser-desktop   桌面端（首页/题库/配置/练习/同步）"
 	@echo "  make test-browser-mobile    移动端（含 desktop 数据准备，跨设备验证）"
 	@echo "  make test-browser-management 题库/知识/事件管理"
@@ -64,8 +69,8 @@ typecheck: ## TypeScript 类型检查
 test: ## 完整 CI 测试（含构建，不含浏览器）
 	npm test
 
-test-full: ## 全量测试（含浏览器全部场景）
-	npm run test:full
+test-full: ## 全量测试（含浏览器全部场景，受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:full
 
 test-fast: ## 快测（不含构建与浏览器）
 	npm run test:fast
@@ -82,26 +87,32 @@ test-integration: ## 集成测试
 test-sync: ## 同步模块测试
 	npm run test:sync
 
-test-browser: ## 浏览器全部场景分组
-	npm run test:browser
+test-browser: ## 浏览器全部场景分组（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser
 
-test-browser-desktop: ## 浏览器：桌面端场景
-	npm run test:browser:desktop
+test-browser-headless: ## 浏览器全部场景分组（强制 headless）
+	BROWSER_HEADLESS=1 npm run test:browser
 
-test-browser-mobile: ## 浏览器：移动端场景（自动先跑 desktop 准备数据）
-	npm run test:browser:mobile
+test-browser-visible: ## 浏览器全部场景分组（强制可见 Chrome）
+	BROWSER_HEADLESS=0 npm run test:browser
 
-test-browser-management: ## 浏览器：题库/知识/事件管理场景
-	npm run test:browser:management
+test-browser-desktop: ## 浏览器：桌面端场景（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:desktop
 
-test-browser-review: ## 浏览器：复习轮次场景
-	npm run test:browser:review
+test-browser-mobile: ## 浏览器：移动端场景（受 HEADLESS 控制，自动先跑 desktop 准备数据）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:mobile
 
-test-browser-search: ## 浏览器：搜索与批量操作场景
-	npm run test:browser:search
+test-browser-management: ## 浏览器：题库/知识/事件管理场景（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:management
 
-test-browser-history: ## 浏览器：练习记录与结果场景
-	npm run test:browser:history
+test-browser-review: ## 浏览器：复习轮次场景（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:review
 
-test-browser-inflight: ## 浏览器：练习中删除题目/题库的竞争状态
-	npm run test:browser:inflight
+test-browser-search: ## 浏览器：搜索与批量操作场景（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:search
+
+test-browser-history: ## 浏览器：练习记录与结果场景（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:history
+
+test-browser-inflight: ## 浏览器：练习中删除题目/题库的竞争状态（受 HEADLESS 控制）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:inflight
