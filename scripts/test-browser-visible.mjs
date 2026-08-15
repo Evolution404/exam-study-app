@@ -10,6 +10,9 @@ import { startMockGitHubServer } from "./mock-github-server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// 默认后台 headless 运行，不弹出 Chrome 窗口打断操作；需要肉眼观看时：
+//   BROWSER_HEADLESS=0 node scripts/test-browser-visible.mjs
+const headless = process.env.BROWSER_HEADLESS !== "0" && process.env.BROWSER_HEADLESS !== "false";
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const baseUrl = (configuredBaseUrl || "http://127.0.0.1:5173").replace(/\/$/, "");
 const artifactRoot = path.join(root, "artifacts", "browser-qa");
@@ -73,7 +76,7 @@ function frontmostAppName() {
   }
 }
 
-// 可见浏览器测试会启动真实 Chrome。为了不把 Chrome 弹到最前打断用户操作，
+// BROWSER_HEADLESS=0 时启动可见 Chrome。为了不把 Chrome 弹到最前打断用户操作，
 // 启动/新建页面后把焦点还给启动测试前正在使用的 App，让 Chrome 留在窗口栈下层。
 let lastUserApp = "";
 function keepBrowserInBackground() {
@@ -1691,7 +1694,7 @@ async function main() {
   lastUserApp = frontmostAppName();
   const browser = await chromium.launch({
     executablePath: chromeExecutable,
-    headless: false,
+    headless,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });
   keepBrowserInBackground();
@@ -1742,7 +1745,7 @@ async function main() {
   }
   const manifest = { baseUrl, chromeExecutable, groups: ran, screenshots };
   await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(`Visible browser QA passed: ${ran.map((item) => `${item.key}(${item.screenshots})`).join(", ")} in ${path.relative(root, runRoot)}`);
+  console.log(`Browser QA passed (${headless ? "headless" : "visible"}): ${ran.map((item) => `${item.key}(${item.screenshots})`).join(", ")} in ${path.relative(root, runRoot)}`);
 }
 
 try {
