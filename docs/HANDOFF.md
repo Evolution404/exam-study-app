@@ -26,7 +26,7 @@ src/app/
   bank/        # bank-library-view, question-editor, question-detail,
                # content-block-editor, content-block-renderer, excel-import, knowledge-view
   sync/        # sync-view, sync-event-manager, sync-event-drawer, sync-hot-window
-  study-app.tsx
+  shell/        # 应用外壳：app-shell, helpers, views
   hooks/       # use-app-environment
   styles/      # theme-tokens.css, components.css, controls.css, content-blocks.css,
                # review-scope.css, sync-events.css, hint.css
@@ -36,7 +36,7 @@ functions/     # 构建生成：functions/api-github/[[path]].js（不要手写�
 scripts/
   tools/       # 构建/检查/生成工具
   tests/       # 所有测试脚本
-src/           # 应用源码：app / lib / types / main.tsx / generated
+src/types/      # 全局类型声明
 public/        # 静态资源与 PWA
 docs/          # 项目文档
 ```
@@ -122,7 +122,7 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 
 ## 8. 已知非阻断项
 
-- 构建仍提示主入口约 714 KiB（gzip 约 221 KiB）高于 500 KiB；同步、KaTeX 和大页面已拆包，后续应拆分设置/练习组件，不要只调高阈值。
+- 构建已通过 vendor 分包将主入口降至 352 KiB（gzip 约 110 KiB），当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
 - 自动化覆盖 Chromium 桌面/手机视口；Safari、Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵。
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
