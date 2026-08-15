@@ -53,7 +53,12 @@ assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the m
 assert.match(hotWindowPanel, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>检查点体积<\/dt>[\s\S]*<dt>设备<\/dt>[\s\S]*<dt>上次同步<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segments, checkpoint size, devices, last sync and hot bytes in order");
 assert.match(hotWindowPanel, /checkpointStoredSize[\s\S]{0,120}解压/, "checkpoint volume shows stored bytes plus decompressed size when available");
 assert.match(hotWindowPanel, /deviceCount/, "hot window exposes the device watermark count");
-assert.match(syncView, /<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{lastCache\?\.cachedAt\} \/>/, "sync page renders the shared hot window panel");
+// 上次同步：时间 + 设备短 id 同源（水位表）；本设备也显示 id（前缀「本设备」标记）。
+assert.match(hotWindowPanel, /latestSync\.isSelf \? "本设备 " : ""/, "last sync labels the watermark device; self devices keep their id visible");
+assert.match(hotWindowPanel, /shortDeviceId\(hotWindow\.latestSync\.deviceId\)/, "last sync always shows the device short id");
+assert.match(hotWindowPanel, /dd title=\{hotWindow\.latestSync\?\.deviceId\}/, "last sync cell hints the full device id");
+// 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
+assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
 // 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。
 assert.match(manager, /statusPanel\?: ReactNode;/, "manager offers a status panel slot below the toolbar");
 assert.match(drawer, /statusPanel=\{<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{syncedAt\} \/>/, "drawer feeds the shared panel through the status slot");
@@ -65,6 +70,13 @@ const componentsCss = await readFile(new URL("../app/styles/components.css", imp
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
 // 热窗口底色必须与 settings-card 同底（--color-surface），不得用 muted 色形成色差。
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-surface\)/, "hot window background matches the settings card surface");
+// 进度条单行样式：fill 行横向排布、bar 弹性伸展。
+assert.match(componentsCss, /\.sync-hot-window \.sync-hot-window-fill\{grid-column:1\/-1;flex-direction:row;align-items:center/, "hot window fill row lays out horizontally");
+assert.match(componentsCss, /\.sync-hot-window-fill dd\{flex:1;display:flex;align-items:center/, "fill row dd flexes bar and value inline");
+assert.match(componentsCss, /\.sync-hot-window-fill dd>i\{flex:1;/, "the progress bar itself flexes to fill the row");
+// 同步页状态面板：本页同步由 sync() 直接刷新；外部快速同步只改本地缓存，
+// 面板用固定间隔轮询本地 head 缓存保证及时更新。
+assert.match(syncView, /setInterval\(refresh, 4000\)/, "sync page polls the local head cache so an external quick sync refreshes the panel");
 assert.ok(!/\.sync-hot-window\{[^}]*grid-template-columns:1fr/.test(componentsCss), "任何规则（含媒体查询）不得把热窗口覆盖回单列");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 

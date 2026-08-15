@@ -156,14 +156,15 @@ export function reclaimableTombstonesV7(
  *  cursors on the head so tombstone GC can prove causal stability.  Writes
  *  only when the watermark actually advanced (idle syncs stay zero-write); a
  *  CAS conflict skips silently — the next sync republishes. */
-async function publishDeviceWatermark(client: GitHubV7Remote, deviceId: string, cursors: Record<string, number>): Promise<void> {
+async function publishDeviceWatermark(client: GitHubV7Remote, settings: GitHubSettings, deviceId: string, cursors: Record<string, number>): Promise<void> {
   const read = await client.readHead();
   if (!read.initialized) return;
   const previous = read.head.devices?.[deviceId];
   const advanced = Object.entries(cursors).some(([device, sequence]) => sequence > (previous?.cursors[device] ?? -1));
   if (!advanced) return;
   const nextHead: SyncHeadV7 = { ...read.head, devices: { ...(read.head.devices ?? {}), [deviceId]: { cursors, syncedAt: new Date().toISOString() } } };
-  await client.putHead(nextHead, read.cache); // conflict → throw → caller swallows
+  const result = await client.putHead(nextHead, read.cache); // conflict → throw → caller swallows
+  if (result.ok) await saveHeadCache(settings, { head: nextHead }); // 让本地缓存 head 带上水位（面板「上次同步/设备」据此展示）
 }
 
 /** Content fingerprint of what the installed projection covers: the checkpoint
@@ -631,7 +632,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await saveInstalledCursors(settings, read.head.cursors);
       await pruneCommittedChangeSets(read.head.cursors);
       // H2：游标前进才写设备水位（空闲同步零 head 写入）；冲突静默跳过。
-      try { await publishDeviceWatermark(client, getV6DeviceId(), read.head.cursors); } catch { /* best-effort */ }
+      try { await publishDeviceWatermark(client, settings, getV6DeviceId(), read.head.cursors); } catch { /* best-effort */ }
       return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
@@ -747,7 +748,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           coalesced = true;
         }
       } catch { /* best-effort: a later sync will retry coalescing */ }
-      try { await publishDeviceWatermark(client, getV6DeviceId(), nextHead.cursors); } catch { /* best-effort */ }
+      try { await publishDeviceWatermark(client, settings, getV6DeviceId(), nextHead.cursors); } catch { /* best-effort */ }
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
       return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
@@ -839,6 +840,16 @@ export interface SyncHotWindowState {
   checkpointStoredSize?: number;
   /** Devices known to the head watermark table (因果回收的确认方). */
   deviceCount: number;
+  /** The most recently published watermark: who synced last and when. Null before any device reports. */
+  latestSync?: { deviceId: string; syncedAt: string; isSelf: boolean } | null;
+}
+
+/** Latest watermark entry by syncedAt — who synced last. Best-effort for the status panel. */
+function latestDeviceSync(devices: SyncHeadV7["devices"]): { deviceId: string; syncedAt: string; isSelf: boolean } | null {
+  const entries = Object.entries(devices ?? {});
+  if (!entries.length) return null;
+  const [deviceId, watermark] = entries.reduce((latest, entry) => (entry[1].syncedAt > latest[1].syncedAt ? entry : latest));
+  return { deviceId, syncedAt: watermark.syncedAt, isSelf: deviceId === getV6DeviceId() };
 }
 
 /**
@@ -864,6 +875,7 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
     segmentSizes: head.segments.map((segment) => segment.size),
     ...(head.checkpoint ? { checkpointSize: head.checkpoint.size, ...(head.checkpoint.storedSize !== undefined ? { checkpointStoredSize: head.checkpoint.storedSize } : {}) } : {}),
     deviceCount: Object.keys(head.devices ?? {}).length,
+    latestSync: latestDeviceSync(head.devices),
   };
 }
 

@@ -978,6 +978,49 @@ async function runManagementQA(page, mockServer) {
   await capture(page, contextName, "sync-drawer-search");
   await page.getByRole("button", { name: "关闭同步抽屉" }).click();
   await page.locator(".sync-event-drawer").waitFor({ state: "hidden" });
+
+  // ===== 同步后面板及时更新：同步 → 制造新事件 → 抽屉再同步 → 两处面板立即反映 =====
+  const readPanel = (scope) => page.evaluate((selector) => {
+    const panel = document.querySelector(selector);
+    if (!panel) return null;
+    const cell = (label) => [...panel.querySelectorAll("div")].find((row) => row.querySelector("dt")?.textContent?.trim() === label)?.querySelector("dd")?.textContent?.trim();
+    return { generation: cell("当前头"), lastSync: cell("上次同步") };
+  }, scope);
+  const parseGeneration = (value) => Number.parseInt(/^第 (\d+) 代$/.exec(value ?? "")?.[1] ?? "0", 10);
+  const before = await readPanel(".sync-connection-card .sync-hot-window");
+  assert.ok(before && /^第 \d+ 代$/.test(before.generation ?? ""), `同步页面板应有当前头代数（实际 ${before?.generation}）`);
+  // 通过应用层接口制造 1 条 pending（收藏切换走完整 change-set 入队路径）。
+  await page.evaluate(async () => {
+    const { dbV6, updateQuestionV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const question = await dbV6.questions.orderBy("id").first();
+    if (!question) throw new Error("题库为空，无法制造同步事件");
+    await updateQuestionV6(question.id, { favorite: !question.favorite });
+  });
+  // 抽屉内点「立即同步」（外部同步路径），完成后抽屉面板与同步页面板都必须立即更新。
+  await page.locator(".sync-queue-trigger").click();
+  await page.locator(".sync-event-drawer").waitFor({ state: "visible" });
+  await page.locator(".sync-event-drawer .sync-event-manager-actions button").click();
+  await expectNotice(page, /v7 同步完成/, "drawer quick sync notice");
+  await page.waitForTimeout(600);
+  const drawerPanel = await readPanel(".sync-event-drawer .sync-hot-window");
+  assert.ok(drawerPanel, "抽屉面板应在同步后存在");
+  assert.ok(parseGeneration(drawerPanel.generation) > parseGeneration(before.generation), `抽屉当前头应前进（${before.generation} → ${drawerPanel.generation}）`);
+  assert.match(drawerPanel.lastSync ?? "", / · 本设备 [0-9a-zA-Z_-]{4,}/, `上次同步应显示本设备标记与短 id（实际 ${drawerPanel.lastSync}）`);
+  await page.getByRole("button", { name: "关闭同步抽屉" }).click();
+  await page.locator(".sync-event-drawer").waitFor({ state: "hidden" });
+  // 同步页自己并不发起这次同步，但它必须在队列变化后自己刷新（缺口修复）。
+  await page.waitForFunction((threshold) => {
+    const panel = document.querySelector(".sync-connection-card .sync-hot-window");
+    if (!panel) return false;
+    const row = [...panel.querySelectorAll("div")].find((candidate) => candidate.querySelector("dt")?.textContent?.trim() === "当前头");
+    const value = /^第 (\d+) 代$/.exec(row?.querySelector("dd")?.textContent?.trim() ?? "");
+    return value ? Number.parseInt(value[1], 10) > threshold : false;
+  }, parseGeneration(before.generation), { timeout: 10_000 }).catch(() => {
+    throw new Error("外部快速同步后同步页面板未及时刷新（pending 归零刷新失效）");
+  });
+  const after = await readPanel(".sync-connection-card .sync-hot-window");
+  assert.ok(parseGeneration(after.generation) > parseGeneration(before.generation), `外部快速同步后同步页面板也应及时前进（${before.generation} → ${after.generation}）`);
+  await capture(page, contextName, "sync-panel-fresh");
 }
 
 async function runReviewRounds(page) {

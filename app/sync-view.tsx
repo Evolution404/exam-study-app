@@ -32,13 +32,21 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const changeSetItems: SyncChangeSetItemV7[] = changeSets.map((record) => ({ changeSet: record, state: record.state, blockers: record.blockedReason ? [record.blockedReason] : undefined, dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets), editable: record.state === "pending" || record.state === "blocked", cancellable: record.state === "pending" || record.state === "blocked" }));
   const smoothProgress = useSmoothProgress(operationProgress);
 
+  // 状态面板的「及时性」：本页发起的同步由 sync() 直接刷新；外部快速同步
+  // （顶栏/抽屉 quickSync）只更新本地 head 缓存，本页无法拿到推送信号——
+  // 挂载期间以固定间隔轮询本地缓存（离线 IndexedDB 读，代价可忽略），保证
+  // 外部同步结束后面板尽快反映最新 generation / 设备水位。
   useEffect(() => {
     let active = true;
-    const cache = settings.owner && settings.repo ? getLastRemoteCache(settings) : Promise.resolve(null);
-    void cache.then((value) => { if (active) setLastCache(value); });
-    const hot = settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);
-    void hot.then((value) => { if (active) setHotWindow(value); });
-    return () => { active = false; };
+    const refresh = () => {
+      const cache = settings.owner && settings.repo ? getLastRemoteCache(settings) : Promise.resolve(null);
+      void cache.then((value) => { if (active) setLastCache(value); });
+      const hot = settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);
+      void hot.then((value) => { if (active) setHotWindow(value); });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 4000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [settings]);
 
   async function resolveSettings() {
