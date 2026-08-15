@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const studyApp = read("src/app/study-app.tsx");
+const studyApp = read("src/app/shell/app-shell.tsx");
+const practiceView = read("src/app/shell/views.tsx");
 const history = read("src/app/practice/practice-history.tsx");
 const editor = read("src/app/bank/question-editor.tsx");
 const contentEditor = read("src/app/bank/content-block-editor.tsx");
@@ -24,10 +25,10 @@ assert.match(contentEditor, /insertImageAtSelection/, "rich content editor must 
 assert.doesNotMatch(editor, /题目图片地址|imageUrl/, "question editor must not accept public image URLs");
 assert.match(xlsx, /"题干", "题型", "答案", "标签"/, "Excel parser must use the current text-only project columns");
 assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public image URLs");
-assert.match(studyApp, /aria-label="计算题答案"/, "practice must render a numeric calculation answer input");
-assert.match(studyApp, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
-assert.match(studyApp, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
-assert.match(studyApp, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
+assert.match(practiceView, /aria-label="计算题答案"/, "practice must render a numeric calculation answer input");
+assert.match(practiceView, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
+assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
+assert.match(practiceView, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
 assert.match(studyApp, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");
 assert.match(history, /onClick=\{\(\) => setDetailQuestion\(question\)\}/, "completed result rows must open question details");
 assert.doesNotMatch(history, /disabled=\{!canContinue\}/, "completed result rows must remain interactive");

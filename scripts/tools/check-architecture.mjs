@@ -29,7 +29,7 @@ const darkSelectorCount = components.match(/html\[data-theme="dark"\]/g)?.length
 if (colorCount > legacyColorBudget) fail(`组件层硬编码颜色由 ${legacyColorBudget} 增至 ${colorCount}，只能减少`);
 if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器由 ${legacyDarkSelectorBudget} 增至 ${darkSelectorCount}，只能减少`);
 
-const studyApp = read("src/app/study-app.tsx");
+const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
 const dbV6 = read("src/lib/db/db-v6.ts");

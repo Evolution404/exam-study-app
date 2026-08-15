@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 const manager = await readFile(new URL("../../src/app/sync/sync-event-manager.tsx", import.meta.url), "utf8");
 const drawer = await readFile(new URL("../../src/app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
 const syncView = await readFile(new URL("../../src/app/sync/sync-view.tsx", import.meta.url), "utf8");
-const studyApp = await readFile(new URL("../../src/app/study-app.tsx", import.meta.url), "utf8");
+const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
 const hotWindowPanel = await readFile(new URL("../../src/app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../../src/app/styles/sync-events.css", import.meta.url), "utf8");
 const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts", import.meta.url), "utf8");

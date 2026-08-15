@@ -3,7 +3,9 @@ import fs from "node:fs";
 
 const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 const serviceWorker = read("public/sw.js");
-const studyApp = read("src/app/study-app.tsx");
+const studyApp = read("src/app/shell/app-shell.tsx");
+const shellHelpers = read("src/app/shell/helpers.ts");
+const preferencesView = read("src/app/shell/views.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
 const main = read("src/main.tsx");
@@ -33,8 +35,8 @@ assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=3153600
 // 同源 /api-github 请求必须绕过 Service Worker，避免被缓存或离线回退。
 
 assert.match(main, /updateViaCache: "none"/);
-assert.match(studyApp, /function updateServiceWorkerWithinTimeout/);
-assert.match(studyApp, /await settleWithTimeout\(registration\.update\(\), 700\)/);
+assert.match(shellHelpers, /function updateServiceWorkerWithinTimeout/);
+assert.match(shellHelpers, /await settleWithTimeout\(registration\.update\(\), 700\)/);
 assert.doesNotMatch(studyApp, /onConfirm=\{\(\) => window\.location\.reload\(\)\}/);
 assert.doesNotMatch(syncView, /window\.location\.reload/);
 assert.match(studyApp, /onRestored=\{handleRestoreSuccess\}/);
@@ -44,7 +46,7 @@ assert.match(syncView, /setRestorePrompt\("cache"\)[\s\S]*?"本地恢复"/, "loc
 assert.match(syncView, /setRestorePrompt\("remote"\)[\s\S]*?"远端恢复"/, "remote recovery must use the four-character label");
 assert.match(syncView, /restoreFullHistoryFromGitHub\(resolved, token, setOperationProgress\)/, "remote recovery must include available history archives");
 assert.doesNotMatch(syncView, /快速恢复|完整恢复|remoteFull/, "sync view must not expose obsolete fast/full recovery choices");
-assert.match(studyApp, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
+assert.match(preferencesView, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
 assert.match(syncView, /<h2>清除本机所有数据<\/h2>/, "sync view must expose the site-data reset action");
 assert.match(syncView, /confirmLabel="清除并重新载入"/, "site-data reset must require explicit confirmation");
 assert.match(syncView, /await clearAllSiteData\(\)/, "confirmed reset must clear data before reloading");

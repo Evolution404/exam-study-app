@@ -87,14 +87,16 @@ assert.equal(resumeIndexAfterLastAnswer(resumeIds, answered([0, 4])), 1, "最后
 assert.equal(resumeIndexAfterLastAnswer(resumeIds, {}), 0, "未作答从第一题开始");
 assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 
-const study = source("study-app.tsx");
-assert.match(study, /resumeIndexAfterLastAnswer/);
-assert.match(study, /savePracticeProgressV6/);
-assert.match(study, /recordPracticeAnswerV6/);
-assert.equal((study.match(/recordPracticeAnswerV6\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v6 record API");
-assert.match(study, /progressScope: \{ type: "rolling", days: 90 \}/);
+const study = source("shell/app-shell.tsx");
+const shellHelpers = source("shell/helpers.ts");
+const practiceView = source("shell/views.tsx");
+assert.match(shellHelpers, /resumeIndexAfterLastAnswer/);
+assert.match(shellHelpers, /savePracticeProgressV6/);
+assert.match(shellHelpers, /recordPracticeAnswerV6/);
+assert.equal((shellHelpers.match(/recordPracticeAnswerV6\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v6 record API");
+assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
-assert.match(study, /label=\{`作答（\$\{scopeLabel\}）`\}/);
+assert.match(practiceView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
 assert.match(study, /restoreLastRemoteCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复完成态应留出可见时间");

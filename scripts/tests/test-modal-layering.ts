@@ -5,7 +5,8 @@ const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta
 const portal = read("src/app/ui/modal-portal.tsx");
 const styles = read("src/app/styles/components.css");
 const confirmDialog = read("src/app/ui/confirm-dialog.tsx");
-const studyApp = read("src/app/study-app.tsx");
+const studyApp = read("src/app/shell/app-shell.tsx");
+const practiceView = read("src/app/shell/views.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const credentials = read("src/lib/sync/github-credentials.ts");
 
@@ -19,7 +20,7 @@ const overlaySources = [
   ["src/app/bank/question-detail.tsx", "search-detail-backdrop"],
   ["src/app/search/search-view.tsx", "search-practice-backdrop"],
   ["src/app/search/search-filter-drawer.tsx", "search-filter-backdrop"],
-  ["src/app/study-app.tsx", "overview-backdrop"],
+  ["src/app/shell/views.tsx", "overview-backdrop"],
 ] as const;
 
 for (const [path, className] of overlaySources) {
@@ -37,6 +38,6 @@ assert.ok(syncView.includes("progress={smoothProgress}"), "sync view must show (
 assert.ok(credentials.includes("localStorage.setItem(tokenKey, token)"), "GitHub token must survive a closed mobile tab");
 assert.match(styles, /\.mobile-sync-settings\{display:block/, "mobile configuration must include sync settings");
 assert.match(styles, /\.desktop-shortcut-settings[^}]*display:none!important/, "mobile configuration must hide keyboard shortcuts");
-assert.ok(studyApp.includes('matchMedia("(max-width: 760px)").matches) return'), "mobile practice must disable keyboard shortcut listeners");
+assert.ok(practiceView.includes('matchMedia("(max-width: 760px)").matches) return'), "mobile practice must disable keyboard shortcut listeners");
 
 console.log("modal and mobile UI tests passed: layering, progress, persistent credentials, merged settings and shortcut disabling");

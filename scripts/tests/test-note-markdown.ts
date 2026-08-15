@@ -116,7 +116,8 @@ assert.deepEqual(parseNoteMarkdown("  \n "), []);
 // --- 接线断言 -------------------------------------------------------------
 const detail = await readFile(new URL("../../src/app/bank/question-detail.tsx", import.meta.url), "utf8");
 const history = await readFile(new URL("../../src/app/practice/practice-history.tsx", import.meta.url), "utf8");
-const studyApp = await readFile(new URL("../../src/app/study-app.tsx", import.meta.url), "utf8");
+const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
+const practiceView = await readFile(new URL("../../src/app/shell/views.tsx", import.meta.url), "utf8");
 const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
 const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
@@ -130,11 +131,11 @@ assert.match(renderer, /loadKatex/, "解析渲染复用 katex 懒加载");
 assert.match(renderer, /parseNoteMarkdown/, "渲染组件驱动纯解析器");
 assert.match(renderer, /note-md-display-formula/, "块级公式独立渲染");
 assert.match(renderer, /renderItems/, "嵌套列表递归渲染");
-assert.match(studyApp, /note-panel-view/, "答题面板有渲染态视图");
-assert.match(studyApp, /setNoteEditing\(true\)/, "点击渲染态进入编辑");
-assert.match(studyApp, /onBlur=\{\(\) => \{ if \(effectiveDraft\.trim\(\)\) setNoteEditing\(false\); \}\}/, "失焦且非空时回到渲染态");
-assert.match(studyApp, /lastNoteQuestionId\.current !== question\.id[\s\S]{0,120}setNoteEditing\(false\)/, "换题重置编辑态（渲染期调整，非 effect 内 setState）");
-assert.match(studyApp, /aria-label="编辑解析，支持 Markdown 与 LaTeX"/, "渲染态可聚焦可无障碍进入编辑");
+assert.match(practiceView, /note-panel-view/, "答题面板有渲染态视图");
+assert.match(practiceView, /setNoteEditing\(true\)/, "点击渲染态进入编辑");
+assert.match(practiceView, /onBlur=\{\(\) => \{ if \(effectiveDraft\.trim\(\)\) setNoteEditing\(false\); \}\}/, "失焦且非空时回到渲染态");
+assert.match(practiceView, /lastNoteQuestionId\.current !== question\.id[\s\S]{0,120}setNoteEditing\(false\)/, "换题重置编辑态（渲染期调整，非 effect 内 setState）");
+assert.match(practiceView, /aria-label="编辑解析，支持 Markdown 与 LaTeX"/, "渲染态可聚焦可无障碍进入编辑");
 assert.match(editor, /支持 Markdown 与 LaTeX 公式/, "编辑器提示文案更新");
 assert.match(styles, /\.note-markdown h4\{font-size:13\.5px\}/, "标题层级拉开字号");
 assert.match(styles, /\.note-markdown blockquote\{[^}]*white-space:pre-line/, "引用换行行为与段落一致");
@@ -167,7 +168,7 @@ assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.search-question-deta
 assert.ok(!styles.includes(".search-question-detail>footer>button"), "夜间/样式规则不得用 >footer>button 子选择器漏掉 actions 内按钮");
 
 // --- 防回退：空解析首字退出编辑（bug：渲染条件翻转卸载 textarea） ------------
-assert.match(studyApp, /onFocus=\{\(\) => setNoteEditing\(true\)\}/, "解析 textarea 聚焦即进入编辑态（空解析首字不退出）");
+assert.match(practiceView, /onFocus=\{\(\) => setNoteEditing\(true\)\}/, "解析 textarea 聚焦即进入编辑态（空解析首字不退出）");
 
 // --- 防回退：搜索页吸附设计（顶栏滚走 / 搜索框钉顶 / 批量栏紧贴） ------------
 assert.match(studyApp, /className=\{`workspace \$\{view === "search" \? "view-search" : ""\}`\}/, "搜索视图给 workspace 打 view-search 标记");
