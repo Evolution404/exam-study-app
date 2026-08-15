@@ -1008,7 +1008,7 @@ async function runManagementQA(page, mockServer) {
   assert.match(drawerPanel.lastSync ?? "", / · 本设备 [0-9a-zA-Z_-]{4,}/, `上次同步应显示本设备标记与短 id（实际 ${drawerPanel.lastSync}）`);
   await page.getByRole("button", { name: "关闭同步抽屉" }).click();
   await page.locator(".sync-event-drawer").waitFor({ state: "hidden" });
-  // 同步页自己并不发起这次同步，但它必须在队列变化后自己刷新（缺口修复）。
+  // 同步页自己并不发起这次同步，但面板 live 订阅本地 head 缓存，必须自动刷新。
   await page.waitForFunction((threshold) => {
     const panel = document.querySelector(".sync-connection-card .sync-hot-window");
     if (!panel) return false;

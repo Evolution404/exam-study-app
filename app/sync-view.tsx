@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Cloud, CloudDownload, DatabaseBackup, GitBranch, LoaderCircle, Trash2 } from "lucide-react";
 import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, restoreFullHistoryFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
-import type { SyncHotWindowState, SyncProgress } from "@/lib/github-sync";
+import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings, saveGitHubToken } from "@/lib/github-credentials";
 import { ConfirmDialog } from "@/app/confirm-dialog";
 import { clearAllSiteData, clearSiteDataExceptConfig, reloadAsFreshSite } from "@/lib/site-data-reset";
@@ -20,8 +20,6 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const [syncing, setSyncing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoringCache, setRestoringCache] = useState(false);
-  const [lastCache, setLastCache] = useState<Awaited<ReturnType<typeof getLastRemoteCache>>>(null);
-  const [hotWindow, setHotWindow] = useState<SyncHotWindowState | null>(null);
   const [restorePrompt, setRestorePrompt] = useState<"cache" | "remote">();
   const [operationProgress, setOperationProgress] = useState<SyncProgress>();
   const [clearPrompt, setClearPrompt] = useState(false);
@@ -32,22 +30,12 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const changeSetItems: SyncChangeSetItemV7[] = changeSets.map((record) => ({ changeSet: record, state: record.state, blockers: record.blockedReason ? [record.blockedReason] : undefined, dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets), editable: record.state === "pending" || record.state === "blocked", cancellable: record.state === "pending" || record.state === "blocked" }));
   const smoothProgress = useSmoothProgress(operationProgress);
 
-  // 状态面板的「及时性」：本页发起的同步由 sync() 直接刷新；外部快速同步
-  // （顶栏/抽屉 quickSync）只更新本地 head 缓存，本页无法拿到推送信号——
-  // 挂载期间以固定间隔轮询本地缓存（离线 IndexedDB 读，代价可忽略），保证
-  // 外部同步结束后面板尽快反映最新 generation / 设备水位。
-  useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      const cache = settings.owner && settings.repo ? getLastRemoteCache(settings) : Promise.resolve(null);
-      void cache.then((value) => { if (active) setLastCache(value); });
-      const hot = settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);
-      void hot.then((value) => { if (active) setHotWindow(value); });
-    };
-    refresh();
-    const timer = window.setInterval(refresh, 4000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [settings]);
+  // 状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：本页 sync()
+  // 或外部快速同步（顶栏/抽屉 quickSync）只要把水位/新代数写入本地缓存，
+  // 这两条 live 查询就会自动重跑，面板无需轮询也无需依赖 changeSets 队列
+  // （prune 保留近期 committed 记录，队列不是可靠的「同步完成」信号）。
+  const hotWindow = useLiveQuery(() => (settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null)), [settings]) ?? null;
+  const lastCache = useLiveQuery(() => (settings.owner && settings.repo ? getLastRemoteCache(settings) : Promise.resolve(null)), [settings]) ?? null;
 
   async function resolveSettings() {
     const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
@@ -74,8 +62,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
       setOperationProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       const resolved = await resolveSettings();
       const result = await syncWithGitHub(resolved, token, setOperationProgress);
-      setLastCache(await getLastRemoteCache(resolved));
-      setHotWindow(await getSyncHotWindowState(resolved));
+      // 面板由上方 live 查询驱动，sync 写入本地 head/checkpoint 缓存后自动刷新。
       const received = result.receivedSnapshot
         ? `接收 ${result.receivedSnapshot.questions.toLocaleString("zh-CN")} 道题、${result.receivedSnapshot.totalAttempts.toLocaleString("zh-CN")} 条作答`
         : `接收 ${result.pulled} 组操作`;

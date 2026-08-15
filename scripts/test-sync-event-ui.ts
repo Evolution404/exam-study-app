@@ -7,6 +7,7 @@ const syncView = await readFile(new URL("../app/sync-view.tsx", import.meta.url)
 const studyApp = await readFile(new URL("../app/study-app.tsx", import.meta.url), "utf8");
 const hotWindowPanel = await readFile(new URL("../app/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/sync-events.css", import.meta.url), "utf8");
+const siteReset = await readFile(new URL("../lib/site-data-reset.ts", import.meta.url), "utf8");
 
 assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
 for (const state of ["pending", "claimed", "blocked", "committed"]) {
@@ -56,6 +57,9 @@ assert.match(hotWindowPanel, /deviceCount/, "hot window exposes the device water
 // 上次同步：时间 + 设备短 id 同源（水位表）；本设备也显示 id（前缀「本设备」标记）。
 assert.match(hotWindowPanel, /latestSync\.isSelf \? "本设备 " : ""/, "last sync labels the watermark device; self devices keep their id visible");
 assert.match(hotWindowPanel, /shortDeviceId\(hotWindow\.latestSync\.deviceId\)/, "last sync always shows the device short id");
+// 设备短标识取 device_ 后到第一个 - 前（device_36b8fad0-… → 36b8fad0），3 列格子单行放得下。
+assert.match(hotWindowPanel, /slice\("device_"\.length\)/, "device short id strips the device_ prefix");
+assert.match(hotWindowPanel, /indexOf\("-"\)[\s\S]{0,40}slice\(0, dash\)/, "device short id takes the part before the first dash");
 assert.match(hotWindowPanel, /dd title=\{hotWindow\.latestSync\?\.deviceId\}/, "last sync cell hints the full device id");
 // 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
 assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
@@ -74,9 +78,17 @@ assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-sur
 assert.match(componentsCss, /\.sync-hot-window \.sync-hot-window-fill\{grid-column:1\/-1;flex-direction:row;align-items:center/, "hot window fill row lays out horizontally");
 assert.match(componentsCss, /\.sync-hot-window-fill dd\{flex:1;display:flex;align-items:center/, "fill row dd flexes bar and value inline");
 assert.match(componentsCss, /\.sync-hot-window-fill dd>i\{flex:1;/, "the progress bar itself flexes to fill the row");
-// 同步页状态面板：本页同步由 sync() 直接刷新；外部快速同步只改本地缓存，
-// 面板用固定间隔轮询本地 head 缓存保证及时更新。
-assert.match(syncView, /setInterval\(refresh, 4000\)/, "sync page polls the local head cache so an external quick sync refreshes the panel");
+// 上次同步保持 3 列格子布局（不在全宽行），靠短设备 id 单行放下。
+assert.ok(!/sync-last-sync/.test(componentsCss), "last sync stays in the 3-column grid (no full-width row)");
+// 「清除数据并保留配置」必须保留设备 id（设备身份属配置而非数据）：
+// 否则每次清库都会换一个新设备 id，水位表残留旧条目并虚增设备数。
+assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v6-device-id"/, "clear-data keep-config preserves the device id");
+// 同步页状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：
+// 本页或外部快速同步把水位/新代数写入本地缓存后，live 查询自动重跑，无需
+// 轮询，也无需依赖 changeSets 队列（prune 保留近期 committed 记录，不是可靠信号）。
+assert.match(syncView, /const hotWindow = useLiveQuery\(\(\) => \(settings\.owner && settings\.repo \? getSyncHotWindowState\(settings\)/, "hot window panel is a live query over the local head cache");
+assert.match(syncView, /const lastCache = useLiveQuery\(\(\) => \(settings\.owner && settings\.repo \? getLastRemoteCache\(settings\)/, "last cache panel is a live query over the local checkpoint cache");
+assert.ok(!/setInterval/.test(syncView), "sync page refreshes reactively, not by polling");
 assert.ok(!/\.sync-hot-window\{[^}]*grid-template-columns:1fr/.test(componentsCss), "任何规则（含媒体查询）不得把热窗口覆盖回单列");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
 

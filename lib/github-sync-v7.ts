@@ -630,9 +630,11 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
       await saveInstalledHead(settings, read.cache);
       await saveInstalledCursors(settings, read.head.cursors);
-      await pruneCommittedChangeSets(read.head.cursors);
       // H2：游标前进才写设备水位（空闲同步零 head 写入）；冲突静默跳过。
+      // 必须先于 prune：prune 清空队列会让同步页的 changeSets 查询触发面板刷新，
+      // 此时本地 head 缓存必须已带上最新水位/代数，否则面板读到旧缓存而不过期。
       try { await publishDeviceWatermark(client, settings, getV6DeviceId(), read.head.cursors); } catch { /* best-effort */ }
+      await pruneCommittedChangeSets(read.head.cursors);
       return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 7 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
@@ -735,7 +737,6 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
       await saveInstalledHead(settings, committed.cache);
       await saveInstalledCursors(settings, nextHead.cursors);
-      await pruneCommittedChangeSets(nextHead.cursors);
       // The push is already durable. Coalescing is a best-effort maintenance write
       // (re-packs many small segments into fewer); isolate its failures so a
       // transient error never reverts the committed change-sets above.
@@ -748,7 +749,10 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           coalesced = true;
         }
       } catch { /* best-effort: a later sync will retry coalescing */ }
+      // 同拉取路径：水位（含本地 head 缓存保存）必须先于 prune，否则 changeSets
+      // 查询触发的同步页刷新读到旧缓存。
       try { await publishDeviceWatermark(client, settings, getV6DeviceId(), nextHead.cursors); } catch { /* best-effort */ }
+      await pruneCommittedChangeSets(nextHead.cursors);
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
       return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 7 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };

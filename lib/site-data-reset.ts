@@ -30,11 +30,11 @@ function deleteIndexedDatabase(name: string) {
 
 /**
  * localStorage keys that hold explicit user configuration and must survive a
- * "clear data, keep config" reset: practice preferences/theme, and the GitHub
- * connection (repo + token). Runtime state (selected banks, search history) is
- * treated as data and cleared.
+ * "clear data, keep config" reset: practice preferences/theme, the GitHub
+ * connection (repo + token), and this browser's device identity. Runtime state
+ * (selected banks, search history) is treated as data and cleared.
  */
-const CONFIG_LOCAL_STORAGE_KEYS = ["study-v6-preferences", "github-settings", "github-token"] as const;
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-v6-preferences", "github-settings", "github-token", "shijuan-study-v6-device-id"] as const;
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {

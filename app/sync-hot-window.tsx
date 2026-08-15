@@ -11,8 +11,12 @@ function formatBytes(bytes: number): string {
 const formatSyncedAt = (iso: string) =>
   new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
-/** 与同步事件卡相同的短 id 形态：前 8 位…后 6 位，title 提示完整值。 */
-const shortDeviceId = (deviceId: string) => (deviceId.length <= 18 ? deviceId : `${deviceId.slice(0, 8)}…${deviceId.slice(-6)}`);
+/** 设备短标识：取 device_ 之后、第一个 - 之前的部分（device_36b8fad0-… → 36b8fad0），保证在 3 列格子里单行放得下。 */
+const shortDeviceId = (deviceId: string) => {
+  const core = deviceId.startsWith("device_") ? deviceId.slice("device_".length) : deviceId;
+  const dash = core.indexOf("-");
+  return dash === -1 ? core : core.slice(0, dash);
+};
 
 /**
  * 热窗口状态面板：检查点代数、当前头、分段数、检查点体积（实际/解压）、
