@@ -46,6 +46,7 @@ export const testGroups = {
     "test:sync-attempt-tombstone",
     "test:sync-practice-answer-tombstone",
     "test:sync-restore-cache-cursors",
+    "test:sync-restore-cache-guard",
     "test:sync-claim-order",
     "test:sync-watermark-cache",
     "test:sync-compaction-plan-head",

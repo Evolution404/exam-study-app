@@ -877,6 +877,9 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
   const value = (await dbV6.syncMeta.get(cacheKey(settings, "checkpoint")))?.value as { cachedAt: string; checkpoint: SyncCheckpointV6; head: SyncV7HeadCache } | undefined;
   if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
+  // 与远端恢复相同的守卫：本地缓存恢复也会清空 changeSets，必须先阻止未同步变更被静默丢弃。
+  const unsynced = await listChangeSetsV7(["pending", "blocked", "claimed"]);
+  if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复本地缓存。`);
   report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
   await restoreV6Checkpoint(value.checkpoint.state);
   await dbV6.changeSets.clear();
