@@ -8,7 +8,7 @@ import {
   shortcutFromKeyboardEvent,
   type KeyboardShortcutActionId,
   type KeyboardShortcuts,
-} from "@/lib/keyboard-shortcuts";
+} from "@/lib/practice/keyboard-shortcuts";
 
 export function ShortcutSetting({ value, onChange }: { value: KeyboardShortcuts; onChange: (value: KeyboardShortcuts) => void }) {
   const [capturing, setCapturing] = useState<KeyboardShortcutActionId>();

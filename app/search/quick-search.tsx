@@ -6,9 +6,9 @@ import { ChevronRight, LoaderCircle, Search, X } from "lucide-react";
 import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
-import { dbV6 } from "@/lib/db-v6";
-import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
-import type { BankV6, QuestionTypeV6 } from "@/lib/v6-types";
+import { dbV6 } from "@/lib/db/db-v6";
+import { listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
+import type { BankV6, QuestionTypeV6 } from "@/lib/db/v6-types";
 
 type QuestionType = QuestionTypeV6;
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];

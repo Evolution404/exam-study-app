@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadKatex } from "@/app/ui/math-text";
-import { parseNoteMarkdown, type NoteBlock, type NoteInline, type NoteListItem } from "@/lib/note-markdown";
+import { parseNoteMarkdown, type NoteBlock, type NoteInline, type NoteListItem } from "@/lib/practice/note-markdown";
 
 type KatexRenderer = typeof import("katex")["default"];
 

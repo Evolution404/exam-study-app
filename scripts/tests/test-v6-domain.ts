@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { AttemptStats } from "../../lib/types";
+import type { AttemptStats } from "../../lib/db/types";
 import {
   calculateProgressCompletion,
   buildScopedQuestionStats,
@@ -9,7 +9,7 @@ import {
   progressScopeKey,
   progressScopeLabel,
   summarizeScopedQuestionStats,
-} from "../../lib/progress-scope";
+} from "../../lib/practice/progress-scope";
 import {
   deleteContentBlock,
   deriveContentText,
@@ -21,8 +21,8 @@ import {
   questionContentFingerprint,
   replaceContentBlock,
   summarizeContent,
-} from "../../lib/question-content";
-import type { AttemptV6, ContentBlock, QuestionV6, ReviewRoundProgress } from "../../lib/v6-types";
+} from "../../lib/question/question-content";
+import type { AttemptV6, ContentBlock, QuestionV6, ReviewRoundProgress } from "../../lib/db/v6-types";
 
 const reference = "2026-01-01T00:00:00.000Z";
 const day = 24 * 60 * 60 * 1000;

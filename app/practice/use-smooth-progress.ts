@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SyncProgress } from "@/lib/github-sync";
+import type { SyncProgress } from "@/lib/sync/github-sync";
 
 /**
  * Smooth out the sync progress bar.

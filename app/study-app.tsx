@@ -8,13 +8,13 @@ import {
   LoaderCircle, Menu, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw,
   Settings2, Sparkles, Star, Sun, Target, X,
 } from "lucide-react";
-import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db-v6";
-import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
-import { resumeIndexAfterLastAnswer } from "@/lib/practice-resume";
-import type { SyncProgress, SyncHotWindowState } from "@/lib/github-sync";
-import { getLastRemoteCache, getSyncHotWindowState } from "@/lib/github-sync";
-import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
-import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
+import { archiveReviewRoundV6, clearImageCacheV6, completeReviewRoundV6, createReviewRoundV6, dbV6, deletePracticeRunV6, getImageCacheSizeV6, getV6DeviceId, createPracticeRunV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6, updateReviewRoundV6 } from "@/lib/db/db-v6";
+import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
+import { resumeIndexAfterLastAnswer } from "@/lib/practice/practice-resume";
+import type { SyncProgress, SyncHotWindowState } from "@/lib/sync/github-sync";
+import { getLastRemoteCache, getSyncHotWindowState } from "@/lib/sync/github-sync";
+import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/sync/github-credentials";
+import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { BankQuickMode } from "@/app/bank/bank-library-view";
@@ -32,22 +32,22 @@ import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Hint } from "@/app/ui/hint";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
-import { DEFAULT_KEYBOARD_SHORTCUTS, formatKeyboardShortcut, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
-import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
-import { shouldSubmitOnChoice } from "@/lib/answer-submission";
-import { isCalculationAnswerCorrect } from "@/lib/question-utils";
-import type { ActivePractice, GitHubSettings } from "@/lib/types";
-import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/v6-types";
+import { DEFAULT_KEYBOARD_SHORTCUTS, formatKeyboardShortcut, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
+import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/practice/press-intent";
+import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
+import { isCalculationAnswerCorrect } from "@/lib/question/question-utils";
+import type { ActivePractice, GitHubSettings } from "@/lib/db/types";
+import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/db/v6-types";
 import type { V6PracticeFilter } from "@/app/practice/practice-setup";
-import type { ProgressScope } from "@/lib/progress-scope";
-import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
-import { classifyNoticeTone } from "@/lib/notice-tone";
-import { questionOverviewProgress } from "@/lib/question-overview";
-import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question-bank-file-import";
+import type { ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
+import { classifyNoticeTone } from "@/lib/practice/notice-tone";
+import { questionOverviewProgress } from "@/lib/question/question-overview";
+import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
 import type { SyncChangeSetItemV7 } from "@/app/sync/sync-event-manager";
-import { dependentChangeSetIdsV7 } from "@/lib/change-set-v7";
-import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/change-set-v7-queue";
+import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
+import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/sync/change-set-v7-queue";
 
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV6;
@@ -626,7 +626,7 @@ export function StudyApp() {
         setQuickSyncing(true);
         setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       }
-      const { getGitHubLogin, syncWithGitHub } = await import("@/lib/github-sync");
+      const { getGitHubLogin, syncWithGitHub } = await import("@/lib/sync/github-sync");
       const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
       saveGitHubSettings(resolved);
       const result = await syncWithGitHub(resolved, token, silent ? undefined : setQuickSyncProgress);
@@ -686,7 +686,7 @@ export function StudyApp() {
       periodicPullRunning.current = true;
       syncOperationRunning.current = true;
       try {
-        const { getGitHubLogin, pullFromGitHub } = await import("@/lib/github-sync");
+        const { getGitHubLogin, pullFromGitHub } = await import("@/lib/sync/github-sync");
         const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
         saveGitHubSettings(resolved);
         await pullFromGitHub(resolved, token);
@@ -715,7 +715,7 @@ export function StudyApp() {
       return;
     }
     try {
-      const { getLastRemoteCache } = await import("@/lib/github-sync");
+      const { getLastRemoteCache } = await import("@/lib/sync/github-sync");
       const cached = await getLastRemoteCache(settings);
       if (!cached) {
         setNotice("本机还没有远程缓存，请先成功同步一次");
@@ -732,7 +732,7 @@ export function StudyApp() {
     try {
       setQuickRestoring(true);
       setQuickSyncProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
-      const { restoreLastRemoteCache } = await import("@/lib/github-sync");
+      const { restoreLastRemoteCache } = await import("@/lib/sync/github-sync");
       const result = await restoreLastRemoteCache(quickRestorePrompt.settings, setQuickSyncProgress);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       setQuickRestorePrompt(undefined);
@@ -1336,7 +1336,7 @@ function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }
 
   async function refreshStats() {
     try {
-      const facade = await import("@/lib/github-sync") as unknown as { getImageCacheStats?: () => Promise<unknown> };
+      const facade = await import("@/lib/sync/github-sync") as unknown as { getImageCacheStats?: () => Promise<unknown> };
       const stats = await facade.getImageCacheStats?.();
       if (stats && typeof stats === "object" && "cached" in stats) {
         const count = Number((stats as { cached?: unknown }).cached);
@@ -1352,7 +1352,7 @@ function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }
     if (!settings.repo || !token) { onNotice("请先在同步页面配置 GitHub，才能缓存远程图片"); return; }
     setBusy(true);
     try {
-      const facade = await import("@/lib/github-sync") as unknown as { downloadAllImageAssets?: (settings: GitHubSettings, token: string) => Promise<unknown> };
+      const facade = await import("@/lib/sync/github-sync") as unknown as { downloadAllImageAssets?: (settings: GitHubSettings, token: string) => Promise<unknown> };
       if (!facade.downloadAllImageAssets) { onNotice("当前同步版本暂不支持批量图片缓存"); return; }
       await facade.downloadAllImageAssets(settings, token);
       await refreshStats();
@@ -1365,7 +1365,7 @@ function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }
     if (busy) return;
     setBusy(true);
     try {
-      const facade = await import("@/lib/github-sync") as unknown as { clearImageCache?: () => Promise<unknown> };
+      const facade = await import("@/lib/sync/github-sync") as unknown as { clearImageCache?: () => Promise<unknown> };
       if (facade.clearImageCache) await facade.clearImageCache();
       else await clearImageCacheV6();
       setAssetCount(0);

@@ -32,7 +32,7 @@ if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器
 const studyApp = read("app/study-app.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
-const dbV6 = read("lib/db-v6.ts");
+const dbV6 = read("lib/db/db-v6.ts");
 const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 const versionsAscending = v6DatabaseVersions.every((version, index) => index === 0 || version > v6DatabaseVersions[index - 1]);
 if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
@@ -40,11 +40,11 @@ if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6
   fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
 }
 
-const sync = read("lib/github-sync.ts");
-const syncV6Head = read("lib/sync-v6-head.ts");
-const syncV7 = read("lib/github-sync-v7.ts");
-const syncV7Head = read("lib/sync-v7-head.ts");
-const syncV7Remote = read("lib/github-v7-remote.ts");
+const sync = read("lib/sync/github-sync.ts");
+const syncV6Head = read("lib/sync/sync-v6-head.ts");
+const syncV7 = read("lib/sync/github-sync-v7.ts");
+const syncV7Head = read("lib/sync/sync-v7-head.ts");
+const syncV7Remote = read("lib/sync/github-v7-remote.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");

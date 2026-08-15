@@ -1,5 +1,5 @@
 import { dbV6, getBankQuestionJoinsV6 } from "./db-v6";
-import { deriveContentText, deriveSearchText, summarizeContent } from "./question-content";
+import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
 import type { BankQuestionMembership, BankV6, ContentBlock, QuestionV6 } from "./v6-types";
 
 /**

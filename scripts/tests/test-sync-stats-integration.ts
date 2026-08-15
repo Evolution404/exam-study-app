@@ -17,8 +17,8 @@ import {
   setPracticeRunStatusV6,
   splitQuestionV6,
   toggleQuestionFavoriteV6,
-} from "../../lib/db-v6";
-import { syncWithGitHub } from "../../lib/github-sync-v7";
+} from "../../lib/db/db-v6";
+import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // End-to-end sync integration for the learning-statistics projections. Each

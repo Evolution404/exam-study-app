@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db-v6";
-import { syncWithGitHub } from "../../lib/github-sync-v7";
-import { createGitHubV7Remote } from "../../lib/github-v7-remote";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
+import { createGitHubV7Remote } from "../../lib/sync/github-v7-remote";
 import {
   decodeSyncV7Json,
   encodeSyncV7Json,
   isZlibEnvelope,
   syncV7CompressionEnabled,
-} from "../../lib/sync-v7-codec";
+} from "../../lib/sync/sync-v7-codec";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 传输层压缩（deflate 信封）防回退套件：
@@ -207,7 +207,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
 // --- 5. 远端迁移（Part G）：验证失败中止 / 迁移后拉取等价 / 幂等 -------------
 {
-  const { migrateVaultToCompressed } = await import("../../lib/github-sync-v7");
+  const { migrateVaultToCompressed } = await import("../../lib/sync/github-sync-v7");
   const migrationSettings = { owner: "qa", repo: "migrate-vault", branch: "main", apiBaseUrl: server.url };
   const migrationSync = () => syncWithGitHub(migrationSettings, "qa-token");
 
@@ -268,7 +268,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
 // --- 6. storedSize 补填：剥掉后 backfill 补回，幂等 ---------------------------
 {
-  const { backfillVaultStoredSizes } = await import("../../lib/github-sync-v7");
+  const { backfillVaultStoredSizes } = await import("../../lib/sync/github-sync-v7");
   const backfillSettings = { owner: "qa", repo: "backfill-vault", branch: "main", apiBaseUrl: server.url };
   const backfillSync = () => syncWithGitHub(backfillSettings, "qa-token");
   await freshClient("backfill-a");

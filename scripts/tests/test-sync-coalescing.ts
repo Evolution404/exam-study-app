@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, importQuestionBankV6, resetV6Database } from "../../lib/db-v6";
-import { getSyncHotWindowState, syncWithGitHub } from "../../lib/github-sync-v7";
+import { createBankV6, createQuestionV6, dbV6, importQuestionBankV6, resetV6Database } from "../../lib/db/db-v6";
+import { getSyncHotWindowState, syncWithGitHub } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Exercises the hot-window segment coalescer along two axes the naive

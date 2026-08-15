@@ -20,7 +20,7 @@ import type {
   ReviewRound,
   ReviewRoundProgress,
   TombstoneV6,
-} from "./v6-types";
+} from "../db/v6-types";
 import {
   assertChangeSetV7,
   type ChangeSetMutationV7,

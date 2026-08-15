@@ -6,9 +6,9 @@ import {
   insertImageAtSelection,
   moveContentBlock,
   replaceContentBlock,
-} from "../../lib/question-content";
+} from "../../lib/question/question-content";
 import { performAssetRetry, resolveAssetLoad } from "../../app/ui/asset-image";
-import type { ContentBlock } from "../../lib/v6-types";
+import type { ContentBlock } from "../../lib/db/v6-types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
 const assetImage = read("app/ui/asset-image.tsx");

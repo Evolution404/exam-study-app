@@ -1,5 +1,5 @@
-import type { AttemptStats } from "./types";
-import type { AttemptV6, ReviewRoundProgress } from "./v6-types";
+import type { AttemptStats } from "../db/types";
+import type { AttemptV6, ReviewRoundProgress } from "../db/v6-types";
 
 /** Minimal global projection required to decide whether a question is done. */
 export interface ProgressAttemptStats {

@@ -6,7 +6,7 @@ const studyApp = read("app/study-app.tsx");
 const practiceSetup = read("app/practice/practice-setup.tsx");
 const practiceHistory = read("app/practice/practice-history.tsx");
 const styles = read("app/styles/components.css");
-const database = read("lib/db-v6.ts");
+const database = read("lib/db/db-v6.ts");
 
 assert.match(studyApp, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(studyApp, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");

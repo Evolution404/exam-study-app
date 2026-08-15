@@ -6,7 +6,7 @@ import {
   parseQuestionBankTable,
   parseQuestionBankWorkbook,
   readQuestionWorkbook,
-} from "../../lib/xlsx-import";
+} from "../../lib/io/xlsx-import";
 
 const template = await readFile(new URL("../../public/题库模板.xlsx", import.meta.url));
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;

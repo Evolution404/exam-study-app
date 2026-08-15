@@ -1,9 +1,9 @@
-import { importQuestionBankV6, putImageAssetV6 } from "./db-v6";
-import { importFileName, parseQuestionBankWorkbook, type WorkbookImage } from "./xlsx-import";
+import { importQuestionBankV6, putImageAssetV6 } from "../db/db-v6";
+import { importFileName, parseQuestionBankWorkbook, type WorkbookImage } from "../io/xlsx-import";
 import { parseQuestionBankZip } from "./question-bank-bundle";
-import { sniffImageDimensions } from "./image-dimensions";
-import { sha256Bytes, type ImageMimeType } from "./image-assets";
-import type { BankV6 } from "./v6-types";
+import { sniffImageDimensions } from "../io/image-dimensions";
+import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
+import type { BankV6 } from "../db/v6-types";
 
 export const QUESTION_BANK_FILE_ACCEPT = ".json,.xlsx,.zip,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip";
 

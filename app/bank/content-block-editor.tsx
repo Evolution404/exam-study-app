@@ -6,8 +6,8 @@ import {
   moveContentBlock,
   replaceContentBlock,
   type TextSelection,
-} from "@/lib/question-content";
-import type { ContentBlock, ImageContentBlock, TextContentBlock } from "@/lib/v6-types";
+} from "@/lib/question/question-content";
+import type { ContentBlock, ImageContentBlock, TextContentBlock } from "@/lib/db/v6-types";
 
 export interface PreparedImage {
   assetId: string;

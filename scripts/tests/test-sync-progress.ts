@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, resetV6Database } from "../../lib/db-v6";
-import { restoreFullHistoryFromGitHub, SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../lib/github-sync-v7";
+import { createBankV6, createQuestionV6, resetV6Database } from "../../lib/db/db-v6";
+import { restoreFullHistoryFromGitHub, SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 同步进度报告按当前 v7 协议重新设计后，进度必须是「工作量加权 + 单调不减 +

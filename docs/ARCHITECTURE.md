@@ -34,7 +34,18 @@ app/
 
 ## 领域层 `lib/`
 
-`lib/` 目前保持平铺，后续可按 `db / sync / question / io / practice` 继续分层。所有领域计算不依赖 React 页面。
+```text
+lib/
+├── db/        # db-v6, app-data-v6, v6-types, types
+├── sync/      # github-sync*, github-v7-remote, github-credentials, sync-v6-*, sync-v7-*,
+│              # change-set-v7*, image-asset-cache, site-data-reset
+├── question/  # question-content, question-utils, question-overview, question-bank-*
+├── io/        # xlsx-import, xlsx-export, image-assets, image-dimensions
+└── practice/  # practice-metrics, practice-resume, progress-scope, answer-submission,
+               # keyboard-shortcuts, press-intent, notice-tone, display-typography, note-markdown
+```
+
+所有领域计算不依赖 React 页面。
 
 ## 代理层 `proxy/`
 

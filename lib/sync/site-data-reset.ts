@@ -1,4 +1,4 @@
-import { V6_DATABASE_NAME, dbV6 } from "./db-v6";
+import { V6_DATABASE_NAME, dbV6 } from "../db/db-v6";
 
 function deleteCookie(name: string, path: string, domain?: string) {
   document.cookie = `${name}=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}${domain ? `; domain=${domain}` : ""}; SameSite=Lax`;

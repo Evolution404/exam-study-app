@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../lib/change-set-v7";
-import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../lib/change-set-v7-projection";
-import { replayRemoteResilient } from "../../lib/github-sync-v7";
-import { planSyncV7Compaction, replaySyncV7Segments } from "../../lib/sync-v7-head";
-import type { BankQuestionMembership, BankV6, QuestionV6 } from "../../lib/v6-types";
+import { createChangeSetV7 } from "../../lib/sync/change-set-v7";
+import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../lib/sync/change-set-v7-projection";
+import { replayRemoteResilient } from "../../lib/sync/github-sync-v7";
+import { planSyncV7Compaction, replaySyncV7Segments } from "../../lib/sync/sync-v7-head";
+import type { BankQuestionMembership, BankV6, QuestionV6 } from "../../lib/db/v6-types";
 
 const at = "2026-08-13T00:00:00.000Z";
 const bank: BankV6 = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };

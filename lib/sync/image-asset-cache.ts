@@ -5,10 +5,10 @@
 // same Git blobs (by blobSha) that the legacy v6 transport did.  These helpers
 // live outside the sync modules so the v6 transport can be removed without
 // touching the cache surface the app consumes through the sync facade.
-import { clearImageCacheV6, dbV6, getImageAssetBlobV6, getImageAssetDescriptorV6, putImageAssetBlobV6 } from "./db-v6";
-import { sha256Blob } from "./image-assets";
+import { clearImageCacheV6, dbV6, getImageAssetBlobV6, getImageAssetDescriptorV6, putImageAssetBlobV6 } from "../db/db-v6";
+import { sha256Blob } from "../io/image-assets";
 import { createGitHubV7Remote } from "./github-v7-remote";
-import type { GitHubSettings } from "./types";
+import type { GitHubSettings } from "../db/types";
 
 export { clearImageCacheV6, getImageAssetBlobV6 };
 

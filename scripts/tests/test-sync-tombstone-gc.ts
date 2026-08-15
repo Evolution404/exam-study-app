@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, deleteQuestionsV6, resetV6Database } from "../../lib/db-v6";
+import { createBankV6, createQuestionV6, dbV6, deleteQuestionsV6, resetV6Database } from "../../lib/db/db-v6";
 import {
   SYNC_V7_DEVICE_RETIRE_DAYS,
   reclaimableTombstonesV7,
   syncWithGitHub,
-} from "../../lib/github-sync-v7";
-import { createGitHubV7Remote } from "../../lib/github-v7-remote";
+} from "../../lib/sync/github-sync-v7";
+import { createGitHubV7Remote } from "../../lib/sync/github-v7-remote";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
-import type { TombstoneV6 } from "../../lib/v6-types";
+import type { TombstoneV6 } from "../../lib/db/v6-types";
 
 // 墓碑因果稳定回收套件（Part H）：
 //   1. 判定单元 —— 全确认可回收 / 任一未确认保留 / 未上报保守保留 / 失联退役剔除；
@@ -159,7 +159,7 @@ await freshClient("device-c");
 await sync();
 // C 本地对被删题做一次「编辑」（先恢复旧状态再入队 pending）：
 // 直接注入一条 pending 的 question.upsert（模拟离线编辑）。
-const { createChangeSetV7 } = await import("../../lib/change-set-v7");
+const { createChangeSetV7 } = await import("../../lib/sync/change-set-v7");
 const staleEdit = await createChangeSetV7({
   deviceId: "device-c",
   localSequence: 1,

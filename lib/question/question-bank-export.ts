@@ -7,10 +7,10 @@
  * images as WPS DISPIMG cell images, and the zip bundle carries structured
  * content blocks plus content-addressed image files.
  */
-import type { ContentBlock } from "./v6-types";
-import type { ImageMimeType } from "./image-assets";
-import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
-import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "./xlsx-export";
+import type { ContentBlock } from "../db/v6-types";
+import type { ImageMimeType } from "../io/image-assets";
+import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
+import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
 
 export interface ExportQuestionInput {
   id: string;
@@ -342,7 +342,7 @@ export async function collectExportImages(
   options: { loadAsset?: (assetId: string) => Promise<ExportImageSource | undefined>; convertWebp?: (blob: Blob) => Promise<Blob> } = {},
 ): Promise<CollectedExportImages> {
   const loadAsset = options.loadAsset ?? (async (assetId: string) => {
-    const { dbV6 } = await import("./db-v6");
+    const { dbV6 } = await import("../db/db-v6");
     return dbV6.imageAssets.get(assetId);
   });
   const convertWebp = options.convertWebp ?? browserWebpToPng;

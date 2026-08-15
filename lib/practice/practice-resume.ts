@@ -6,7 +6,7 @@
  * that sync restores can leave stale, since event replay order is not
  * chronological).
  */
-import type { PracticeAnswerState } from "./types";
+import type { PracticeAnswerState } from "../db/types";
 
 export function resumeIndexAfterLastAnswer(
   questionIds: string[],

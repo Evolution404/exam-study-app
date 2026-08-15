@@ -7,7 +7,7 @@ const styles = read("app/styles/components.css");
 const confirmDialog = read("app/ui/confirm-dialog.tsx");
 const studyApp = read("app/study-app.tsx");
 const syncView = read("app/sync/sync-view.tsx");
-const credentials = read("lib/github-credentials.ts");
+const credentials = read("lib/sync/github-credentials.ts");
 
 assert.match(portal, /createPortal\(children, document\.body\)/, "modal portal must escape the scrollable app shell");
 assert.match(portal, /workspace\.style\.overflow = "hidden"/, "open overlays must lock workspace scrolling");

@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Layers3, Merge, Pencil, Play, Plus, Search, Tags, Trash2, X } from "lucide-react";
-import { dbV6, deleteQuestionGroupV6, saveQuestionGroupV6, updateQuestionV6 } from "@/lib/db-v6";
-import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
-import { summarizeAttemptStats } from "@/lib/practice-metrics";
-import type { QuestionGroupV6 } from "@/lib/v6-types";
-import type { QuestionGroupItem } from "@/lib/types";
+import { dbV6, deleteQuestionGroupV6, saveQuestionGroupV6, updateQuestionV6 } from "@/lib/db/db-v6";
+import { listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
+import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
+import type { QuestionGroupV6 } from "@/lib/db/v6-types";
+import type { QuestionGroupItem } from "@/lib/db/types";
 import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { MathText } from "@/app/ui/math-text";

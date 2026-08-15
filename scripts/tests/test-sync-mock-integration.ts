@@ -10,10 +10,10 @@ import {
   saveBankFolderV6,
   saveNoteV6,
   savePracticeRunV6,
-} from "../../lib/db-v6";
-import { syncWithGitHub } from "../../lib/github-sync-v7";
+} from "../../lib/db/db-v6";
+import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
-import type { PracticeRunV6 } from "../../lib/v6-types";
+import type { PracticeRunV6 } from "../../lib/db/v6-types";
 
 // End-to-end sync integration against the in-memory mock GitHub backend.
 // Each scenario simulates a fresh device (reset DB + switch deviceId) pulling

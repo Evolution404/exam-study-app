@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isQuestionDoneInScope, normalizeProgressScope } from "../../lib/progress-scope";
-import { classifyNoticeTone } from "../../lib/notice-tone";
-import { resumeIndexAfterLastAnswer } from "../../lib/practice-resume";
+import { isQuestionDoneInScope, normalizeProgressScope } from "../../lib/practice/progress-scope";
+import { classifyNoticeTone } from "../../lib/practice/notice-tone";
+import { resumeIndexAfterLastAnswer } from "../../lib/practice/practice-resume";
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");

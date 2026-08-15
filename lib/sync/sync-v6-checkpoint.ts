@@ -8,8 +8,8 @@
  * represented by one bounded restore object instead of an unbounded event
  * tail.
  */
-import { dbV6, restoreV6Checkpoint, type V6RestoreState } from "./db-v6";
-import { IMAGE_EXTENSION_BY_MIME } from "./image-assets";
+import { dbV6, restoreV6Checkpoint, type V6RestoreState } from "../db/db-v6";
+import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { SYNC_V6_ARCHIVE_PREFIX, validateSyncV6Descriptor, type SyncV6Descriptor } from "./sync-v6-head";
 import type {
   AttemptDailyStatsV6,
@@ -19,7 +19,7 @@ import type {
   ImageAsset,
   PracticeRunV6,
   QuestionV6,
-} from "./v6-types";
+} from "../db/v6-types";
 
 export const SYNC_V6_CHECKPOINT_FORMAT = 6 as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

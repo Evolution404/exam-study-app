@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db-v6";
-import { downloadRemoteV7, installFingerprint, projectionNeedsInstall, syncWithGitHub } from "../../lib/github-sync-v7";
-import { createGitHubV7Remote } from "../../lib/github-v7-remote";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import { downloadRemoteV7, installFingerprint, projectionNeedsInstall, syncWithGitHub } from "../../lib/sync/github-sync-v7";
+import { createGitHubV7Remote } from "../../lib/sync/github-v7-remote";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 免重装 + 检查点缓存解耦套件（Part D 防回退）：

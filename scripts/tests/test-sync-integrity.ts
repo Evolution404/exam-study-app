@@ -11,8 +11,8 @@ import {
   resetV6Database,
   saveNoteV6,
   saveQuestionGroupV6,
-} from "../../lib/db-v6";
-import { createSyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6 } from "../../lib/sync-v6-checkpoint";
+} from "../../lib/db/db-v6";
+import { createSyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6 } from "../../lib/sync/sync-v6-checkpoint";
 
 // G6 — checkpoint round-trip fidelity. A checkpoint must survive encode → parse
 // without dropping any entity field. We seed a representative slice of every
@@ -57,7 +57,7 @@ try {
   await putImageAssetDescriptorV6({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });
   // H5：创建事件仍在 pending 未推送时，删题会抵消该事件（零墓碑零删除事件）。
   // 本场景要验证「已推送」的删除路径 → 先把创建 change-set 标记为 committed。
-  const { dbV6 } = await import("../../lib/db-v6");
+  const { dbV6 } = await import("../../lib/db/db-v6");
   const publishedRecords = (await dbV6.changeSets.where("state").equals("pending").toArray())
     .filter((record) => record.mutations.some((mutation) => (mutation.kind === "question.upsert" && mutation.question.id === q2.id) || (mutation.kind === "membership.save" && mutation.membership.questionId === q2.id)));
   await dbV6.changeSets.bulkPut(publishedRecords.map((record) => ({ ...record, state: "committed" as const, committedAt: new Date().toISOString() })));

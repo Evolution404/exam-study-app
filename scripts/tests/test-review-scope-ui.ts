@@ -10,8 +10,8 @@ import {
   bankQuestionCount,
   roundSummaryMetrics,
 } from "../../app/practice/review-round-manager";
-import type { Bank } from "../../lib/types";
-import type { ReviewRound } from "../../lib/v6-types";
+import type { Bank } from "../../lib/db/types";
+import type { ReviewRound } from "../../lib/db/v6-types";
 
 const bank = (id: string, questionCount: number): Pick<Bank, "id" | "questionCount"> => ({ id, questionCount });
 const round = (id: string, status: ReviewRound["status"], bankIds: string[], finalQuestionIds?: string[]): ReviewRound => ({

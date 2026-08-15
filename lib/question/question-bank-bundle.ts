@@ -8,8 +8,8 @@
  * the sha256 of its bytes, which is what makes the bundle tamper-evident and
  * naturally deduplicated.
  */
-import { sniffImageDimensions } from "./image-dimensions";
-import { IMAGE_MIME_BY_EXTENSION, sha256Bytes, IMAGE_MIME_TYPES, type ImageMimeType } from "./image-assets";
+import { sniffImageDimensions } from "../io/image-dimensions";
+import { IMAGE_MIME_BY_EXTENSION, sha256Bytes, IMAGE_MIME_TYPES, type ImageMimeType } from "../io/image-assets";
 
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 2048;

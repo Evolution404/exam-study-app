@@ -6,7 +6,7 @@ import {
   effectiveSearchProgressScope,
   resolveSearchBankIds,
 } from "../../app/search/search-filter-drawer";
-import type { BankV6 } from "../../lib/v6-types";
+import type { BankV6 } from "../../lib/db/v6-types";
 
 const searchViewSource = fs.readFileSync(new URL("../../app/search/search-view.tsx", import.meta.url), "utf8");
 const knowledgeViewSource = fs.readFileSync(new URL("../../app/bank/knowledge-view.tsx", import.meta.url), "utf8");

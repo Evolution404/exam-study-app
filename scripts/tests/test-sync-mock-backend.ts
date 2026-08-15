@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import "fake-indexeddb/auto";
-import { createBankV6, dbV6, putImageAssetV6, resetV6Database } from "../../lib/db-v6";
-import { syncWithGitHub } from "../../lib/github-sync-v7";
-import { createGitHubV7Remote } from "../../lib/github-v7-remote";
-import { SYNC_V7_ASSET_PREFIX } from "../../lib/sync-v7-head";
-import { downloadImageAssetV6 } from "../../lib/image-asset-cache";
+import { createBankV6, dbV6, putImageAssetV6, resetV6Database } from "../../lib/db/db-v6";
+import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
+import { createGitHubV7Remote } from "../../lib/sync/github-v7-remote";
+import { SYNC_V7_ASSET_PREFIX } from "../../lib/sync/sync-v7-head";
+import { downloadImageAssetV6 } from "../../lib/sync/image-asset-cache";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // The browser-driven sync test covers the UI; this fast, Chrome-free test pins

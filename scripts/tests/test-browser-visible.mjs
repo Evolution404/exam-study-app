@@ -1057,7 +1057,7 @@ async function runManagementQA(page, mockServer) {
   assert.ok(before && /^第 \d+ 代$/.test(before.generation ?? ""), `同步页面板应有当前头代数（实际 ${before?.generation}）`);
   // 通过应用层接口制造 1 条 pending（收藏切换走完整 change-set 入队路径）。
   await page.evaluate(async () => {
-    const { dbV6, updateQuestionV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { dbV6, updateQuestionV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     const question = await dbV6.questions.orderBy("id").first();
     if (!question) throw new Error("题库为空，无法制造同步事件");
     await updateQuestionV6(question.id, { favorite: !question.favorite });
@@ -1431,14 +1431,14 @@ async function runInFlightDeletionQA(page) {
 
   // S1.1a：删除「当前题」→ 自动跳过到下一道存活题（skip-effect）
   const currentId = await page.evaluate(async (stemText) => {
-    const { dbV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { dbV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     const all = await dbV6.questions.toArray();
     const hit = all.find((q) => q.content.some((b) => b.type === "text" && b.text === stemText));
     return hit ? hit.id : null;
   }, firstStem);
   assert.ok(currentId, "应能定位当前题 id");
   await page.evaluate(async (id) => {
-    const { deleteQuestionsV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { deleteQuestionsV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     await deleteQuestionsV6([id]);
   }, currentId);
   await expectNotice(page, /题目已删除，自动跳过/, "delete-current-question skip notice");
@@ -1449,7 +1449,7 @@ async function runInFlightDeletionQA(page) {
 
   // S1.1b：一次性删除剩余全部题 → 优雅结束进结果页（练习中题目被删光）
   await page.evaluate(async () => {
-    const { dbV6, deleteQuestionsV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { dbV6, deleteQuestionsV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     const all = await dbV6.questions.toArray();
     await deleteQuestionsV6(all.map((q) => q.id));
   });
@@ -1468,13 +1468,13 @@ async function runInFlightDeletionQA(page) {
   await page.locator(".question-card").waitFor({ state: "visible" });
   await page.waitForTimeout(300);
   const bankId = await page.evaluate(async () => {
-    const { dbV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { dbV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     const bank = (await dbV6.banks.toArray())[0];
     return bank?.id;
   });
   assert.ok(bankId, "应能定位练习题库 id");
   await page.evaluate(async (id) => {
-    const { deleteBankV6 } = await import("/exam-study-app/lib/db-v6.ts");
+    const { deleteBankV6 } = await import("/exam-study-app/lib/db/db-v6.ts");
     await deleteBankV6(id);
   }, bankId);
   await expectNotice(page, /题库已被删除|练习已结束/, "bank-deleted-during-practice notice (E3)");

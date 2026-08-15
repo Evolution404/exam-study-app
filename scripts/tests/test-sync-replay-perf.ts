@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db-v6";
-import type { AttemptV6, BankV6, PracticeRunV6, QuestionV6 } from "../../lib/v6-types";
-import { createChangeSetV7, type ChangeSetV7 } from "../../lib/change-set-v7";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import type { AttemptV6, BankV6, PracticeRunV6, QuestionV6 } from "../../lib/db/v6-types";
+import { createChangeSetV7, type ChangeSetV7 } from "../../lib/sync/change-set-v7";
 import {
   reduceChangeSetsV7,
   replayChangeSetBatchV7,
   type ChangeSetProjectionV7,
-} from "../../lib/change-set-v7-projection";
-import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../lib/change-set-v7-queue";
+} from "../../lib/sync/change-set-v7-projection";
+import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../lib/sync/change-set-v7-queue";
 
 // 批量重放提速套件（Part C 防回退）：
 //   1. 等价性 —— 批量重放与逐条 reduce 的最终投影 deepEqual（含 bulk.delete、
@@ -150,7 +150,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 // --- 5. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
 // 队列基线需要先完成一次同步建立（queueBase 要求 v7:queue-base 存在）。
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
-const { syncWithGitHub } = await import("../../lib/github-sync-v7");
+const { syncWithGitHub } = await import("../../lib/sync/github-sync-v7");
 const server = await startMockGitHubServer();
 const settings = { owner: "qa", repo: "replay-perf-vault", branch: "main", apiBaseUrl: server.url };
 await resetV6Database();

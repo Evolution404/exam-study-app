@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db-v6";
-import { discardManagedChangeSetV7 } from "../../lib/change-set-v7-queue";
-import { syncWithGitHub } from "../../lib/github-sync-v7";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import { discardManagedChangeSetV7 } from "../../lib/sync/change-set-v7-queue";
+import { syncWithGitHub } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Integration tests for the sync event manager's delete (discard) flow against

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { PracticeAnswerV6 } from "../../lib/db-v6";
-import type { AttemptV6, BankFolderV6, BankQuestionMembership, BankV6, PracticeRunV6, QuestionV6, ReviewRound } from "../../lib/v6-types";
+import type { PracticeAnswerV6 } from "../../lib/db/db-v6";
+import type { AttemptV6, BankFolderV6, BankQuestionMembership, BankV6, PracticeRunV6, QuestionV6, ReviewRound } from "../../lib/db/v6-types";
 import {
   assertClaimedBatchDigestV7,
   createChangeSetV7,
@@ -11,12 +11,12 @@ import {
   validateChangeSetV7,
   verifyChangeSetDigestV7,
   type ChangeSetV7,
-} from "../../lib/change-set-v7";
+} from "../../lib/sync/change-set-v7";
 import {
   reduceChangeSetV7,
   recomputeChangeSetProjectionV7,
   type ChangeSetProjectionV7,
-} from "../../lib/change-set-v7-projection";
+} from "../../lib/sync/change-set-v7-projection";
 
 const at = "2026-08-01T00:00:00.000Z";
 const deviceId = "device-test";

@@ -5,8 +5,8 @@ import { MathText } from "@/app/ui/math-text";
 import { NoteMarkdown } from "@/app/ui/note-markdown";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { loadImageAssetV6, type QuestionViewModel } from "@/app/bank/question-editor";
-import { difficultyLabel, type AttemptSummary } from "@/lib/practice-metrics";
-import { resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { difficultyLabel, type AttemptSummary } from "@/lib/practice/practice-metrics";
+import { resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 
 /** Render a question's answer as "A. 选项；B. 选项" (calculation answers pass through). */
 export function answerText(question: QuestionViewModel) {

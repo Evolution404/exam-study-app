@@ -6,9 +6,9 @@ import {
   dbV6,
   listChangeSetsV7,
   resetV6Database,
-} from "../../lib/db-v6";
-import { syncWithGitHub, restoreFullHistoryFromGitHub } from "../../lib/github-sync-v7";
-import { createChangeSetV7 } from "../../lib/change-set-v7";
+} from "../../lib/db/db-v6";
+import { syncWithGitHub, restoreFullHistoryFromGitHub } from "../../lib/sync/github-sync-v7";
+import { createChangeSetV7 } from "../../lib/sync/change-set-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Sync fault-tolerance tests: CAS retry, interrupted-claim recovery, partial

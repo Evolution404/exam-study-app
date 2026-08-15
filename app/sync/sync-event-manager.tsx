@@ -16,7 +16,7 @@ import {
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { AppSelect } from "@/app/ui/app-select";
 import { Hint } from "@/app/ui/hint";
-import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/change-set-v7";
+import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/sync/change-set-v7";
 import "@/app/styles/sync-events.css";
 
 export type SyncChangeSetStateV7 = "pending" | "claimed" | "blocked" | "committed";

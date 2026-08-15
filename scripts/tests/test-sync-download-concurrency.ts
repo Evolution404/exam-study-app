@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db-v6";
-import { SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub } from "../../lib/github-sync-v7";
+import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../lib/db/db-v6";
+import { SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub } from "../../lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 并发分段下载防回退套件：热窗口分段曾一度退化为 for...await 串行下载。

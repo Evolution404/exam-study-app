@@ -17,8 +17,8 @@ import type {
   QuestionGroupV6,
   QuestionV6,
   ReviewRound,
-} from "./v6-types";
-import type { PracticeAnswerV6 } from "./db-v6";
+} from "../db/v6-types";
+import type { PracticeAnswerV6 } from "../db/db-v6";
 
 export const CHANGE_SET_V7_FORMAT = 7 as const;
 export const CHANGE_SET_V7_DIGEST_PATTERN = /^[a-f0-9]{64}$/;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { parseNoteMarkdown } from "../../lib/note-markdown";
+import { parseNoteMarkdown } from "../../lib/practice/note-markdown";
 
 // 个人解析的 Markdown + LaTeX 渲染：解析器是纯函数（lib/note-markdown.ts），
 // 渲染组件（app/ui/note-markdown.tsx）复用题干的 katex 懒加载。覆盖块级语法、

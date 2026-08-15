@@ -7,7 +7,7 @@ import {
   claimPendingChangeSetsV7,
   restoreV6Checkpoint,
   type ChangeSetQueueRecordV7,
-} from "./db-v6";
+} from "../db/db-v6";
 import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
 import { assertChangeSetProjectionV7, reduceChangeSetV7, replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { createSyncCheckpointV6, encodeSyncCheckpointV6, parseSyncCheckpointV6, type SyncCheckpointV6 } from "./sync-v6-checkpoint";
@@ -28,10 +28,10 @@ import {
   type SyncV7PublicationFile,
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
-import type { TombstoneV6 } from "./v6-types";
+import type { TombstoneV6 } from "../db/v6-types";
 import { GitHubV7Remote, type SyncV7HeadCache } from "./github-v7-remote";
 import { hydrateSyncV7Events, offloadSyncV7Events } from "./sync-v7-payload";
-import type { GitHubSettings } from "./types";
+import type { GitHubSettings } from "../db/types";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;

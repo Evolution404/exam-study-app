@@ -2,12 +2,12 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Filter, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, Star, Tags } from "lucide-react";
-import { dbV6, getQuestionsForBanksV6 } from "@/lib/db-v6";
-import { isQuestionDoneInScope, normalizeProgressScope, type ProgressScope } from "@/lib/progress-scope";
+import { dbV6, getQuestionsForBanksV6 } from "@/lib/db/db-v6";
+import { isQuestionDoneInScope, normalizeProgressScope, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
-import type { BankV6, QuestionTypeV6, ReviewRound } from "@/lib/v6-types";
+import type { BankV6, QuestionTypeV6, ReviewRound } from "@/lib/db/v6-types";
 
 export type V6PracticeMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 

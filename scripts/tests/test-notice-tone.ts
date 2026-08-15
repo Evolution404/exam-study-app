@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { classifyNoticeTone } from "../../lib/notice-tone";
+import { classifyNoticeTone } from "../../lib/practice/notice-tone";
 
 // Every sync-layer error message (Chinese and English) must classify as "error"
 // so the toast never renders a failure in the success (green) colour. These

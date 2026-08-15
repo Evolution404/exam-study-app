@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { formatQuestionDisplayText, LATEX_PART } from "@/lib/display-typography";
+import { formatQuestionDisplayText, LATEX_PART } from "@/lib/practice/display-typography";
 
 type KatexRenderer = typeof import("katex")["default"];
 

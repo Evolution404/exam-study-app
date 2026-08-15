@@ -7,12 +7,12 @@ const syncView = await readFile(new URL("../../app/sync/sync-view.tsx", import.m
 const studyApp = await readFile(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
 const hotWindowPanel = await readFile(new URL("../../app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../../app/styles/sync-events.css", import.meta.url), "utf8");
-const siteReset = await readFile(new URL("../../lib/site-data-reset.ts", import.meta.url), "utf8");
+const siteReset = await readFile(new URL("../../lib/sync/site-data-reset.ts", import.meta.url), "utf8");
 const hintSource = await readFile(new URL("../../app/ui/hint.tsx", import.meta.url), "utf8");
 const globalsCss = await readFile(new URL("../../app/globals.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
 
-assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
+assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/sync\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
 for (const state of ["pending", "claimed", "blocked", "committed"]) {
   assert.match(manager, new RegExp(`${state}:`), `manager presents ${state} state`);
 }

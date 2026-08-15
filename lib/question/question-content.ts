@@ -1,4 +1,4 @@
-import type { ContentBlock, ImageContentBlock, QuestionV6, TextContentBlock } from "./v6-types";
+import type { ContentBlock, ImageContentBlock, QuestionV6, TextContentBlock } from "../db/v6-types";
 
 export interface TextSelection {
   start: number;

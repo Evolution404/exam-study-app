@@ -1,6 +1,6 @@
 "use client";
 
-import type { SyncHotWindowState } from "@/lib/github-sync";
+import type { SyncHotWindowState } from "@/lib/sync/github-sync";
 import { Hint } from "@/app/ui/hint";
 
 function formatBytes(bytes: number): string {

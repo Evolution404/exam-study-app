@@ -8,8 +8,8 @@
  * continues to use its own database.
  */
 import Dexie, { type EntityTable } from "dexie";
-import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7";
-import { sha256Blob, sha256Bytes } from "./image-assets";
+import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "../sync/change-set-v7";
+import { sha256Blob, sha256Bytes } from "../io/image-assets";
 import {
   blocksFromPlaceholderText,
   deriveContentText,
@@ -17,8 +17,8 @@ import {
   plainTextToContentBlocks,
   questionContentFingerprint,
   stripImagePlaceholders,
-} from "./question-content";
-import { normalizeCalculationAnswer } from "./question-utils";
+} from "../question/question-content";
+import { normalizeCalculationAnswer } from "../question/question-utils";
 import type { PracticeAnswerState, PracticeRunStatus, QuestionType } from "./types";
 import type {
   AttemptDailyStatsV6,
@@ -41,7 +41,7 @@ import type {
   SyncMetaV6,
   TombstoneV6,
 } from "./v6-types";
-import { SYNC_V6_IMMUTABLE_PREFIX } from "./sync-v6-head";
+import { SYNC_V6_IMMUTABLE_PREFIX } from "../sync/sync-v6-head";
 
 export const V6_DATABASE_NAME = "shijuan-study-v6" as const;
 

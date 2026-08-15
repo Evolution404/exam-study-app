@@ -1,6 +1,6 @@
 import { createChangeSetV7, dependentChangeSetIdsV7, type ChangeSetMutationV7 } from "./change-set-v7";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
-import { dbV6, restoreV6Checkpoint, type ChangeSetQueueRecordV7 } from "./db-v6";
+import { dbV6, restoreV6Checkpoint, type ChangeSetQueueRecordV7 } from "../db/db-v6";
 
 async function queueBase(): Promise<ChangeSetProjectionV7> {
   const base = (await dbV6.syncMeta.get("v7:queue-base"))?.value as ChangeSetProjectionV7 | undefined;

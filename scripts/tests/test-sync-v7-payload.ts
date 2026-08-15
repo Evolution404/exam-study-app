@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../lib/change-set-v7";
-import { encodeSyncV7Event, SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../lib/sync-v7-head";
-import { hydrateSyncV7Events, offloadedRefOf, offloadSyncV7Events, SYNC_V7_INLINE_EVENT_BUDGET } from "../../lib/sync-v7-payload";
-import type { BankV6, QuestionV6 } from "../../lib/v6-types";
+import { createChangeSetV7 } from "../../lib/sync/change-set-v7";
+import { encodeSyncV7Event, SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../lib/sync/sync-v7-head";
+import { hydrateSyncV7Events, offloadedRefOf, offloadSyncV7Events, SYNC_V7_INLINE_EVENT_BUDGET } from "../../lib/sync/sync-v7-payload";
+import type { BankV6, QuestionV6 } from "../../lib/db/v6-types";
 
 const at = "2026-08-13T00:00:00.000Z";
 const bank: BankV6 = { id: "bank-1", name: "载荷题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "dev-a" };
