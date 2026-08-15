@@ -8,7 +8,7 @@
 # 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
 HEADLESS ?= 1
 
-.PHONY: help install dev mock build preview lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
+.PHONY: help install dev mock build preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -19,6 +19,7 @@ help: ## 显示本帮助
 	@echo "  make mock                   启动内存 mock GitHub 服务器（手动验证同步中转地址）"
 	@echo "  make build                  构建产物（vite build）"
 	@echo "  make preview               预览构建产物"
+	@echo "  make template-xlsx         重新生成 public/题库模板.xlsx"
 	@echo ""
 	@echo "代码检查："
 	@echo "  make lint                   ESLint"
@@ -59,6 +60,9 @@ build: ## 构建产物
 
 preview: ## 预览构建产物
 	npm run preview
+
+template-xlsx: ## 重新生成 public/题库模板.xlsx
+	npm run template:xlsx
 
 lint: ## ESLint
 	npm run lint
