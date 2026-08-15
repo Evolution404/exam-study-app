@@ -46,6 +46,7 @@ export const testGroups = {
     "test:sync-claim-order",
     "test:sync-watermark-cache",
     "test:sync-compaction-plan-head",
+    "test:sync-tombstone-retired-date",
   ],
 };
 

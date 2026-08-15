@@ -76,7 +76,8 @@
     "test:sync-claim-order": "tsx scripts/tests/test-sync-claim-order.ts",
     "test:sync-watermark-cache": "tsx scripts/tests/test-sync-watermark-cache.ts",
     "test:sync-compaction-plan-head": "tsx scripts/tests/test-sync-compaction-plan-head.ts",
-    "test:sync-fresh-install-contract": "tsx scripts/tests/test-sync-fresh-install-contract.ts"
+    "test:sync-fresh-install-contract": "tsx scripts/tests/test-sync-fresh-install-contract.ts",
+    "test:sync-tombstone-retired-date": "tsx scripts/tests/test-sync-tombstone-retired-date.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

@@ -139,7 +139,8 @@ export function reclaimableTombstonesV7(
     if (device === input.selfDeviceId) return false;
     const watermark = input.devices[device];
     if (!watermark) return true; // never reported: unconfirmed (blocks reclamation)
-    return Date.parse(watermark.syncedAt) >= retireCutoff; // retired devices stop blocking
+    const syncedAt = Date.parse(watermark.syncedAt);
+    return Number.isFinite(syncedAt) ? syncedAt >= retireCutoff : true; // invalid dates stay conservative and block reclamation
   });
   const keep: TombstoneV6[] = [];
   let dropped = 0;
