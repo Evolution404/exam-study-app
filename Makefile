@@ -8,7 +8,7 @@
 # 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
 HEADLESS ?= 1
 
-.PHONY: help install dev mock build preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
+.PHONY: help install dev mock build clean preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -18,6 +18,7 @@ help: ## 显示本帮助
 	@echo "  make dev                    启动开发服务器（vite）"
 	@echo "  make mock                   启动内存 mock GitHub 服务器（手动验证同步中转地址）"
 	@echo "  make build                  构建产物（vite build）"
+	@echo "  make clean                  清理所有本地生成产物与缓存（不删 node_modules）"
 	@echo "  make preview               预览构建产物"
 	@echo "  make template-xlsx         重新生成 public/题库模板.xlsx"
 	@echo ""
@@ -57,6 +58,10 @@ mock: ## 启动内存 mock GitHub 服务器（手动验证）
 
 build: ## 构建产物
 	npm run build
+
+clean: ## 清理所有本地生成产物与缓存（不删 node_modules）
+	rm -rf dist functions src/generated build .next .vinext .wrangler artifacts coverage
+	find . -name .DS_Store -not -path "./node_modules/*" -delete
 
 preview: ## 预览构建产物
 	npm run preview
