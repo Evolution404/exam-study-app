@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { ContentBlock, QuestionV6, QuestionTypeV6 } from "@/lib/db/v6-types";
-import type { GitHubSettings } from "@/types/types";
 import type { QuestionDraftV6 } from "@/lib/db/db-v6";
 import { dbV6 } from "@/lib/db/db-v6";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";
 import { optimizeImageFile } from "@/lib/io/image-assets";
 import { getImageAssetBlobV6, putImageAssetV6, saveNoteV6, splitQuestionV6, updateQuestionV6 } from "@/lib/db/db-v6";
+import { downloadImageAsset } from "@/lib/sync/github-sync";
 import { getQuestionViewV6, type QuestionViewV6 } from "@/lib/db/app-data-v6";
 import { loadGitHubSettings, loadGitHubToken } from "@/lib/sync/github-credentials";
 import { ModalPortal } from "@/app/ui/modal-portal";
@@ -91,9 +91,7 @@ export async function loadImageAssetV6(assetId: string): Promise<Blob | undefine
     const settings = loadGitHubSettings();
     const token = loadGitHubToken();
     if (!settings.repo || !token) return undefined;
-    const facade = await import("@/lib/sync/github-sync") as unknown as { downloadImageAsset?: (settings: GitHubSettings, token: string, assetId: string) => Promise<unknown> };
-    if (!facade.downloadImageAsset) return undefined;
-    await facade.downloadImageAsset(settings, token, assetId);
+    await downloadImageAsset(settings, token, assetId);
     return getImageAssetBlobV6(assetId);
   } catch {
     return undefined;
