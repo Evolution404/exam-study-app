@@ -6,13 +6,13 @@ import {
   ChevronRight, CircleAlert, Filter, GitBranch, History, ListChecks, LoaderCircle,
   Pencil, Play, Search, Star, Tags, X,
 } from "lucide-react";
-import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
-import { MathText } from "@/app/math-text";
-import { QuestionDetail } from "@/app/question-detail";
+import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
+import { MathText } from "@/app/ui/math-text";
+import { QuestionDetail } from "@/app/bank/question-detail";
 import { dbV6, updateQuestionV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, listQuestionViewsForBanksV6, type QuestionViewV6 } from "@/lib/app-data-v6";
-import { ModalPortal } from "@/app/modal-portal";
-import { AppSelect } from "@/app/app-select";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { AppSelect } from "@/app/ui/app-select";
 import {
   SearchFilterDrawer,
   countActiveSearchFilters,
@@ -20,7 +20,7 @@ import {
   effectiveSearchProgressScope,
   resolveSearchBankIds,
   type SearchFilters,
-} from "@/app/search-filter-drawer";
+} from "@/app/search/search-filter-drawer";
 import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from "@/lib/practice-metrics";
 import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/keyboard-shortcuts";

@@ -6,7 +6,7 @@
  * fenced code, dividers, standalone display formulas, and inline emphasis /
  * code / links — with inline LaTeX ($…$, $$…$$) lifted out unchanged for the
  * katex renderer.  Parsing is a pure function returning a block tree; the
- * React renderer lives in `app/note-markdown.tsx`.  Anything the grammar does
+ * React renderer lives in `app/ui/note-markdown.tsx`.  Anything the grammar does
  * not recognise stays literal — a note must never silently lose text.
  */
 import { LATEX_PART } from "./display-typography";

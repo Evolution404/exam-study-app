@@ -1,10 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
-import { MathText } from "@/app/math-text";
-import { NoteMarkdown } from "@/app/note-markdown";
-import { ModalPortal } from "@/app/modal-portal";
-import { loadImageAssetV6, type QuestionViewModel } from "@/app/question-editor";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { MathText } from "@/app/ui/math-text";
+import { NoteMarkdown } from "@/app/ui/note-markdown";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { loadImageAssetV6, type QuestionViewModel } from "@/app/bank/question-editor";
 import { difficultyLabel, type AttemptSummary } from "@/lib/practice-metrics";
 import { resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 

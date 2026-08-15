@@ -1403,7 +1403,7 @@ async function runHistoryResult(page) {
   await page.locator(".history-list article .run-status").filter({ hasText: "已放弃" }).first().waitFor({ state: "visible" });
   await capture(page, contextName, "history-abandoned");
   // 删除按钮平时被 swipe-content 覆盖（需先滑动暴露）——用 dispatchEvent 直接触发其
-  // 点击处理器作为替代（滑动手势见 TESTING.md 已知限制）。
+  // 点击处理器作为替代（滑动手势见 docs/TESTING.md 已知限制）。
   await page.locator(".history-list article .history-delete-action").first().dispatchEvent("click");
   await expectNotice(page, /练习记录已删除，并加入同步队列/, "delete record notice");
   await expectText(page, "这里还没有记录");

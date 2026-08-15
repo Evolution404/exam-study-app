@@ -10,10 +10,10 @@ import { optimizeImageFile } from "@/lib/image-assets";
 import { getImageAssetBlobV6, putImageAssetV6, saveNoteV6, splitQuestionV6, updateQuestionV6 } from "@/lib/db-v6";
 import { getQuestionViewV6, type QuestionViewV6 } from "@/lib/app-data-v6";
 import { loadGitHubSettings, loadGitHubToken } from "@/lib/github-credentials";
-import { ModalPortal } from "@/app/modal-portal";
-import { AppSelect } from "@/app/app-select";
-import { ContentBlockEditor } from "@/app/content-block-editor";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { AppSelect } from "@/app/ui/app-select";
+import { ContentBlockEditor } from "@/app/bank/content-block-editor";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 
 /** Changes accepted by v6 question update/create callers. */
 export type QuestionChanges = QuestionDraftV6;

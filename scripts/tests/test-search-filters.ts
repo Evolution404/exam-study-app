@@ -5,11 +5,11 @@ import {
   createDefaultSearchFilters,
   effectiveSearchProgressScope,
   resolveSearchBankIds,
-} from "../../app/search-filter-drawer";
+} from "../../app/search/search-filter-drawer";
 import type { BankV6 } from "../../lib/v6-types";
 
-const searchViewSource = fs.readFileSync(new URL("../../app/search-view.tsx", import.meta.url), "utf8");
-const knowledgeViewSource = fs.readFileSync(new URL("../../app/knowledge-view.tsx", import.meta.url), "utf8");
+const searchViewSource = fs.readFileSync(new URL("../../app/search/search-view.tsx", import.meta.url), "utf8");
+const knowledgeViewSource = fs.readFileSync(new URL("../../app/bank/knowledge-view.tsx", import.meta.url), "utf8");
 const studyAppSource = fs.readFileSync(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
 
 const banks = [

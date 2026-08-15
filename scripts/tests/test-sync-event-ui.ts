@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const manager = await readFile(new URL("../../app/sync-event-manager.tsx", import.meta.url), "utf8");
-const drawer = await readFile(new URL("../../app/sync-event-drawer.tsx", import.meta.url), "utf8");
-const syncView = await readFile(new URL("../../app/sync-view.tsx", import.meta.url), "utf8");
+const manager = await readFile(new URL("../../app/sync/sync-event-manager.tsx", import.meta.url), "utf8");
+const drawer = await readFile(new URL("../../app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
+const syncView = await readFile(new URL("../../app/sync/sync-view.tsx", import.meta.url), "utf8");
 const studyApp = await readFile(new URL("../../app/study-app.tsx", import.meta.url), "utf8");
-const hotWindowPanel = await readFile(new URL("../../app/sync-hot-window.tsx", import.meta.url), "utf8");
+const hotWindowPanel = await readFile(new URL("../../app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../../app/styles/sync-events.css", import.meta.url), "utf8");
 const siteReset = await readFile(new URL("../../lib/site-data-reset.ts", import.meta.url), "utf8");
-const hintSource = await readFile(new URL("../../app/hint.tsx", import.meta.url), "utf8");
+const hintSource = await readFile(new URL("../../app/ui/hint.tsx", import.meta.url), "utf8");
 const globalsCss = await readFile(new URL("../../app/globals.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
 

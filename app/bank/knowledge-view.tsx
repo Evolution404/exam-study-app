@@ -6,11 +6,11 @@ import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import { summarizeAttemptStats } from "@/lib/practice-metrics";
 import type { QuestionGroupV6 } from "@/lib/v6-types";
 import type { QuestionGroupItem } from "@/lib/types";
-import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
-import { ConfirmDialog } from "@/app/confirm-dialog";
-import { MathText } from "@/app/math-text";
-import { AppSelect } from "@/app/app-select";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
+import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
+import { ConfirmDialog } from "@/app/ui/confirm-dialog";
+import { MathText } from "@/app/ui/math-text";
+import { AppSelect } from "@/app/ui/app-select";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 
 type Question = QuestionViewModel;
 type QuestionGroup = QuestionGroupV6;

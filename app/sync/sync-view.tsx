@@ -4,15 +4,15 @@ import { Cloud, CloudDownload, DatabaseBackup, GitBranch, LoaderCircle, Trash2 }
 import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, restoreFullHistoryFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/github-sync";
 import type { SyncProgress } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings, saveGitHubToken } from "@/lib/github-credentials";
-import { ConfirmDialog } from "@/app/confirm-dialog";
+import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { clearAllSiteData, clearSiteDataExceptConfig, reloadAsFreshSite } from "@/lib/site-data-reset";
 import { dbV6 } from "@/lib/db-v6";
 import { discardManagedChangeSetV7, reviseManagedChangeSetV7 } from "@/lib/change-set-v7-queue";
 import { dependentChangeSetIdsV7 } from "@/lib/change-set-v7";
 import { questionContentFingerprint } from "@/lib/question-content";
-import { SyncEventManager, type SyncChangeSetItemV7, type SyncChangeSetTypedEditV7 } from "@/app/sync-event-manager";
-import { SyncHotWindowPanel } from "@/app/sync-hot-window";
-import { useSmoothProgress } from "@/app/use-smooth-progress";
+import { SyncEventManager, type SyncChangeSetItemV7, type SyncChangeSetTypedEditV7 } from "@/app/sync/sync-event-manager";
+import { SyncHotWindowPanel } from "@/app/sync/sync-hot-window";
+import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
 
 export function SyncView({ pending, onNotice, onRestored }: { pending: number; onNotice: (message: string) => void; onRestored: (message: string) => void }) {
   const [settings, setSettings] = useState(loadGitHubSettings);

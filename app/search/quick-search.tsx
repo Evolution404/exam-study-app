@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, LoaderCircle, Search, X } from "lucide-react";
-import { MathText } from "@/app/math-text";
-import { Hint } from "@/app/hint";
-import { toQuestionViewModel } from "@/app/question-editor";
+import { MathText } from "@/app/ui/math-text";
+import { Hint } from "@/app/ui/hint";
+import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { dbV6 } from "@/lib/db-v6";
 import { listQuestionViewsForBanksV6 } from "@/lib/app-data-v6";
 import type { BankV6, QuestionTypeV6 } from "@/lib/v6-types";

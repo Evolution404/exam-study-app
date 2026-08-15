@@ -2,12 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import { ArrowRightLeft, X } from "lucide-react";
-import { ModalPortal } from "@/app/modal-portal";
-import { SyncHotWindowPanel } from "@/app/sync-hot-window";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { SyncHotWindowPanel } from "@/app/sync/sync-hot-window";
 import {
   SyncEventManager,
   type SyncEventManagerProps,
-} from "@/app/sync-event-manager";
+} from "@/app/sync/sync-event-manager";
 import type { SyncHotWindowState } from "@/lib/github-sync";
 
 export interface SyncEventDrawerProps extends Omit<SyncEventManagerProps, "showBatchSections" | "className" | "statusPanel"> {

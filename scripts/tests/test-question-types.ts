@@ -4,9 +4,9 @@ import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../../li
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const studyApp = read("app/study-app.tsx");
-const history = read("app/practice-history.tsx");
-const editor = read("app/question-editor.tsx");
-const contentEditor = read("app/content-block-editor.tsx");
+const history = read("app/practice/practice-history.tsx");
+const editor = read("app/bank/question-editor.tsx");
+const contentEditor = read("app/bank/content-block-editor.tsx");
 const xlsx = read("lib/xlsx-import.ts");
 const vite = read("vite.config.ts");
 

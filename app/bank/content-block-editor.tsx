@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { AssetImage, type LoadAsset } from "@/app/asset-image";
+import { AssetImage, type LoadAsset } from "@/app/ui/asset-image";
 import {
   deleteContentBlock,
   insertImageAtSelection,

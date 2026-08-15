@@ -3,7 +3,7 @@
 ## Scope and project context
 
 - These instructions apply to this repository and all of its subdirectories.
-- Read `HANDOFF.md` before planning or modifying substantial functionality.
+- Read `docs/HANDOFF.md` before planning or modifying substantial functionality.
 - Preserve unrelated user changes and configuration. Never revert another agent's work to make a patch apply.
 - The main Agent owns task decomposition, cross-module decisions, integration, verification, and final delivery.
 

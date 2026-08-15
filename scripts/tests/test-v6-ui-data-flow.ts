@@ -19,7 +19,7 @@ const sharedIds = ["q1", "q1", "q2", "q2", "q3"];
 assert.deepEqual([...new Set(sharedIds)], ["q1", "q2", "q3"], "跨题库共享题按 questionId 去重");
 
 const source = (name: string) => readFileSync(new URL(`../../app/${name}`, import.meta.url), "utf8");
-const editor = source("question-editor.tsx");
+const editor = source("bank/question-editor.tsx");
 assert.match(editor, /同步修改全部题库/);
 assert.match(editor, /分裂勾选题库/);
 assert.match(editor, /splitQuestionV6/);
@@ -30,7 +30,7 @@ assert.match(editor, /putImageAssetV6/);
 assert.match(editor, /个人解析/, "题目编辑器应提供个人解析编辑位置");
 assert.match(editor, /onSave: \(changes: QuestionChanges, note\?: string\)/, "编辑器保存应回传个人解析");
 
-const bank = source("bank-library-view.tsx");
+const bank = source("bank/bank-library-view.tsx");
 assert.match(bank, /仅从当前题库移除/);
 assert.match(bank, /全局删除题目及学习记录/);
 assert.match(bank, /listUnfiledQuestionsV6/);
@@ -50,12 +50,12 @@ assert.match(bank, /<button onClick=\{\(\) => setViewing\(question\)\}/, "题目
 assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");
 assert.match(bank, /<QuestionDetail/, "试题管理应复用共享 QuestionDetail");
 
-const detail = source("question-detail.tsx");
+const detail = source("bank/question-detail.tsx");
 assert.match(detail, /export function QuestionDetail/, "题目详情应抽出为共享组件");
 assert.match(detail, /作答（\{scopeLabel\}）/, "题目详情指标应按区间口径显示");
 assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口径");
 
-const renderer = source("content-block-renderer.tsx");
+const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
 const componentStyles = readFileSync(new URL("../../app/styles/components.css", import.meta.url), "utf8");
@@ -65,7 +65,7 @@ assert.match(componentStyles, /font-large[^}]*\.practice-stem[^}]*clamp\(25px,3\
 assert.match(componentStyles, /font-xlarge[^}]*\.practice-stem[^}]*clamp\(29px,4vw,38px\)/, "特大字号必须作用于富内容题干");
 assert.match(componentStyles, /\.practice-option-content\{[^}]*font-size:15px/, "富内容选项必须恢复标准阅读字号");
 
-const history = source("practice-history.tsx");
+const history = source("practice/practice-history.tsx");
 assert.match(history, /练习结果详情/);
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
@@ -102,7 +102,7 @@ assert.match(study, /restoreLastRemoteCache[\s\S]*setTimeout\(resolve, 300\)/, "
 assert.match(componentStyles, /\.delete-choice-list>button span\{[^}]*font-size:14px/, "删除题库选项标题应保持可读字号");
 assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hover/, "删除题库选项应提供悬浮反馈");
 
-const search = source("search-view.tsx");
+const search = source("search/search-view.tsx");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
 assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
 assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
@@ -110,14 +110,14 @@ assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} �
 assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
 assert.match(search, /<SearchFilterDrawer/, "搜索页应使用桌面/手机共用的筛选抽屉");
 
-const searchFilters = source("search-filter-drawer.tsx");
+const searchFilters = source("search/search-filter-drawer.tsx");
 assert.match(searchFilters, /"current" \| "all" \| "custom"/, "搜索范围应包含已选、全部和指定题库三个并列模式");
 assert.match(searchFilters, /role="checkbox"/, "指定题库应支持多选");
 assert.match(searchFilters, /progressScopeOverride/, "学习状态应支持临时覆盖设置页统计范围");
 assert.doesNotMatch(searchFilters, /previewCount|查看 \{previewCount|search-filter-apply/, "筛选抽屉不应保留重复的底部应用操作");
 assert.match(searchFilters, /event\.target === event\.currentTarget/, "点击筛选抽屉外的遮罩应关闭抽屉");
 
-const quick = source("quick-search.tsx");
+const quick = source("search/quick-search.tsx");
 assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独立组件");
 assert.match(quick, /useState\(""\)/, "QuickSearch 应在内部管理草稿状态而非 StudyApp 顶层 query");
 assert.match(quick, /onOpenSearch\(draft\.trim\(\), questionId\)/, "QuickSearch 应在打开时提交草稿关键词");

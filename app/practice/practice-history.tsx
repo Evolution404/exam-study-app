@@ -2,12 +2,12 @@ import { useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, BookOpenCheck, Check, CheckCircle2, ChevronRight, Clock3, History, Play, RotateCcw, Trash2, X, XCircle } from "lucide-react";
 import { dbV6 } from "@/lib/db-v6";
-import { MathText } from "@/app/math-text";
-import { NoteMarkdown } from "@/app/note-markdown";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
-import { ModalPortal } from "@/app/modal-portal";
-import { Hint } from "@/app/hint";
-import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
+import { MathText } from "@/app/ui/math-text";
+import { NoteMarkdown } from "@/app/ui/note-markdown";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { Hint } from "@/app/ui/hint";
+import { loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import type { PracticeRunV6, QuestionTypeV6 } from "@/lib/v6-types";
 
 const TYPE_ORDER: QuestionTypeV6[] = ["单选", "多选", "判断", "计算"];

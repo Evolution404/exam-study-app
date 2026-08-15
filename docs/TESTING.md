@@ -1,6 +1,6 @@
 # 测试体系与功能覆盖矩阵
 
-本文件梳理系统所有功能对应的测试，作为「每个界面操作都有测试可循」的可审计清单。测试不使用框架，全部为 `node/tsx + assert`（浏览器 e2e 用 `playwright-core` 驱动可见 Chrome）。
+本文件梳理系统所有功能对应的测试，作为「每个界面操作都有测试可循」的可审计清单。测试不使用框架，全部为 `node/tsx + assert`（浏览器 e2e 用 `playwright-core` 驱动 Chrome，默认 headless；`BROWSER_HEADLESS=0` 或 `make test-browser-visible` 可开可见 Chrome）。
 
 ## 1. 测试层级总览
 

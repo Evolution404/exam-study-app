@@ -8,12 +8,12 @@ import {
   FolderOpen, FolderPlus, Gauge, GripVertical, History, Library, NotebookPen, Pencil,
   Plus, Search, Tag, Target, Trash2, X,
 } from "lucide-react";
-import { loadImageAssetV6, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/question-editor";
-import { QuestionDetail } from "@/app/question-detail";
-import { ExcelTemplateAction } from "@/app/excel-import";
-import { AppSelect } from "@/app/app-select";
-import { ConfirmDialog } from "@/app/confirm-dialog";
-import { ModalPortal } from "@/app/modal-portal";
+import { loadImageAssetV6, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/bank/question-editor";
+import { QuestionDetail } from "@/app/bank/question-detail";
+import { ExcelTemplateAction } from "@/app/bank/excel-import";
+import { AppSelect } from "@/app/ui/app-select";
+import { ConfirmDialog } from "@/app/ui/confirm-dialog";
+import { ModalPortal } from "@/app/ui/modal-portal";
 import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteBankWithExclusiveQuestionsV6, deleteQuestionsV6, deleteQuestionV6, removeMembershipsV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db-v6";
 import { buildQuestionBankXlsx, buildQuestionBankZip, collectExportImages, downloadExport, questionExportJson, sanitizeFileName } from "@/lib/question-bank-export";
 import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/app-data-v6";
@@ -21,7 +21,7 @@ import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, Quest
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/progress-scope";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 type Bank = BankV6;
 type BankFolder = BankFolderV6;
 type Question = QuestionViewModel;

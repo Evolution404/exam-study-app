@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, ChevronRight, RotateCcw, Search, X } from "lucide-react";
-import { AppSelect } from "@/app/app-select";
-import { ModalPortal } from "@/app/modal-portal";
+import { AppSelect } from "@/app/ui/app-select";
+import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/progress-scope";
 import type { BankV6 } from "@/lib/v6-types";
 

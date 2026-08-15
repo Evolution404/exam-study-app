@@ -1,7 +1,7 @@
 "use client";
 
 import type { SyncHotWindowState } from "@/lib/github-sync";
-import { Hint } from "@/app/hint";
+import { Hint } from "@/app/ui/hint";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -13,9 +13,9 @@ import {
   ShieldAlert,
   Trash2,
 } from "lucide-react";
-import { ConfirmDialog } from "@/app/confirm-dialog";
-import { AppSelect } from "@/app/app-select";
-import { Hint } from "@/app/hint";
+import { ConfirmDialog } from "@/app/ui/confirm-dialog";
+import { AppSelect } from "@/app/ui/app-select";
+import { Hint } from "@/app/ui/hint";
 import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/change-set-v7";
 import "@/app/styles/sync-events.css";
 

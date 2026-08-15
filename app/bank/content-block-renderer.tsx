@@ -1,6 +1,6 @@
-import { MathText } from "@/app/math-text";
+import { MathText } from "@/app/ui/math-text";
 import type { ContentBlock } from "@/lib/v6-types";
-import { AssetImage, type LoadAsset, type RetryAsset } from "@/app/asset-image";
+import { AssetImage, type LoadAsset, type RetryAsset } from "@/app/ui/asset-image";
 
 export interface ContentBlockRendererProps {
   blocks: readonly ContentBlock[];

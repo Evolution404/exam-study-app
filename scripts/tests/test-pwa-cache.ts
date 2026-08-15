@@ -4,7 +4,7 @@ import fs from "node:fs";
 const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 const serviceWorker = read("public/sw.js");
 const studyApp = read("app/study-app.tsx");
-const syncView = read("app/sync-view.tsx");
+const syncView = read("app/sync/sync-view.tsx");
 const siteDataReset = read("lib/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");

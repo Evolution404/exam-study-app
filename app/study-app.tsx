@@ -15,22 +15,22 @@ import type { SyncProgress, SyncHotWindowState } from "@/lib/github-sync";
 import { getLastRemoteCache, getSyncHotWindowState } from "@/lib/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/github-credentials";
 import { calendarDate, difficultyLabel, difficultyTone, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice-metrics";
-import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/question-editor";
-import type { SearchPracticeOptions } from "@/app/search-view";
-import type { BankQuickMode } from "@/app/bank-library-view";
-import { useSmoothProgress } from "@/app/use-smooth-progress";
-import { NoteMarkdown } from "@/app/note-markdown";
-import { QuickSearch } from "@/app/quick-search";
-import { ContentBlockRenderer } from "@/app/content-block-renderer";
-import { ProgressScopeSetting } from "@/app/progress-scope-setting";
-import { ReviewRoundManager } from "@/app/review-round-manager";
-import { ShortcutSetting } from "@/app/shortcut-setting";
-import { ConfirmDialog } from "@/app/confirm-dialog";
-import { ModalPortal } from "@/app/modal-portal";
-import { AppSelect } from "@/app/app-select";
-import { ScopeSummaryChips } from "@/app/scope-summary-chips";
+import { SharedQuestionEditor, loadImageAssetV6, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
+import type { SearchPracticeOptions } from "@/app/search/search-view";
+import type { BankQuickMode } from "@/app/bank/bank-library-view";
+import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
+import { NoteMarkdown } from "@/app/ui/note-markdown";
+import { QuickSearch } from "@/app/search/quick-search";
+import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
+import { ReviewRoundManager } from "@/app/practice/review-round-manager";
+import { ShortcutSetting } from "@/app/ui/shortcut-setting";
+import { ConfirmDialog } from "@/app/ui/confirm-dialog";
+import { ModalPortal } from "@/app/ui/modal-portal";
+import { AppSelect } from "@/app/ui/app-select";
+import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Hint } from "@/app/hint";
+import { Hint } from "@/app/ui/hint";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { DEFAULT_KEYBOARD_SHORTCUTS, formatKeyboardShortcut, normalizeKeyboardShortcuts, resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/press-intent";
@@ -38,14 +38,14 @@ import { shouldSubmitOnChoice } from "@/lib/answer-submission";
 import { isCalculationAnswerCorrect } from "@/lib/question-utils";
 import type { ActivePractice, GitHubSettings } from "@/lib/types";
 import type { AttemptStatsV6, BankV6, PracticeRunV6, QuestionTypeV6, ReviewRound } from "@/lib/v6-types";
-import type { V6PracticeFilter } from "@/app/practice-setup";
+import type { V6PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/progress-scope";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/progress-scope";
 import { classifyNoticeTone } from "@/lib/notice-tone";
 import { questionOverviewProgress } from "@/lib/question-overview";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question-bank-file-import";
-import { SyncEventDrawer } from "@/app/sync-event-drawer";
-import type { SyncChangeSetItemV7 } from "@/app/sync-event-manager";
+import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
+import type { SyncChangeSetItemV7 } from "@/app/sync/sync-event-manager";
 import { dependentChangeSetIdsV7 } from "@/lib/change-set-v7";
 import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/change-set-v7-queue";
 
@@ -71,14 +71,14 @@ async function savePracticeProgress(session: ActivePractice) { const current = a
 async function setPracticeRunStatus(runId: string, status: PracticeRunV6["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV6(runId, status, answers); }
 async function deletePracticeRun(runId: string) { return deletePracticeRunV6(runId); }
 
-const PracticeSetupView = lazy(() => import("@/app/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
-const SearchView = lazy(() => import("@/app/search-view").then((module) => ({ default: module.SearchView })));
-const BankLibraryView = lazy(() => import("@/app/bank-library-view").then((module) => ({ default: module.BankLibraryView })));
-const KnowledgeView = lazy(() => import("@/app/knowledge-view").then((module) => ({ default: module.KnowledgeView })));
-const SyncView = lazy(() => import("@/app/sync-view").then((module) => ({ default: module.SyncView })));
-const LatestPracticeBanner = lazy(() => import("@/app/practice-history").then((module) => ({ default: module.LatestPracticeBanner })));
-const PracticeHistory = lazy(() => import("@/app/practice-history").then((module) => ({ default: module.PracticeHistory })));
-const PracticeRunResult = lazy(() => import("@/app/practice-history").then((module) => ({ default: module.PracticeRunResult })));
+const PracticeSetupView = lazy(() => import("@/app/practice/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
+const SearchView = lazy(() => import("@/app/search/search-view").then((module) => ({ default: module.SearchView })));
+const BankLibraryView = lazy(() => import("@/app/bank/bank-library-view").then((module) => ({ default: module.BankLibraryView })));
+const KnowledgeView = lazy(() => import("@/app/bank/knowledge-view").then((module) => ({ default: module.KnowledgeView })));
+const SyncView = lazy(() => import("@/app/sync/sync-view").then((module) => ({ default: module.SyncView })));
+const LatestPracticeBanner = lazy(() => import("@/app/practice/practice-history").then((module) => ({ default: module.LatestPracticeBanner })));
+const PracticeHistory = lazy(() => import("@/app/practice/practice-history").then((module) => ({ default: module.PracticeHistory })));
+const PracticeRunResult = lazy(() => import("@/app/practice/practice-history").then((module) => ({ default: module.PracticeRunResult })));
 
 type View = "home" | "banks" | "relations" | "practiceSetup" | "preferences" | "settings" | "search" | "practice" | "practiceResult";
 

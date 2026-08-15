@@ -7,13 +7,13 @@ import {
   moveContentBlock,
   replaceContentBlock,
 } from "../../lib/question-content";
-import { performAssetRetry, resolveAssetLoad } from "../../app/asset-image";
+import { performAssetRetry, resolveAssetLoad } from "../../app/ui/asset-image";
 import type { ContentBlock } from "../../lib/v6-types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
-const assetImage = read("app/asset-image.tsx");
-const renderer = read("app/content-block-renderer.tsx");
-const editor = read("app/content-block-editor.tsx");
+const assetImage = read("app/ui/asset-image.tsx");
+const renderer = read("app/bank/content-block-renderer.tsx");
+const editor = read("app/bank/content-block-editor.tsx");
 const styles = read("app/styles/content-blocks.css");
 
 // Browser lifecycle and security contracts are source-level assertions because

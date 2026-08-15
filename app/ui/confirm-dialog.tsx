@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, LoaderCircle, X } from "lucide-react";
-import { ModalPortal } from "@/app/modal-portal";
+import { ModalPortal } from "@/app/ui/modal-portal";
 
 export function ConfirmDialog({
   open,

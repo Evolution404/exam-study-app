@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const studyApp = read("app/study-app.tsx");
-const practiceSetup = read("app/practice-setup.tsx");
-const practiceHistory = read("app/practice-history.tsx");
+const practiceSetup = read("app/practice/practice-setup.tsx");
+const practiceHistory = read("app/practice/practice-history.tsx");
 const styles = read("app/styles/components.css");
 const database = read("lib/db-v6.ts");
 

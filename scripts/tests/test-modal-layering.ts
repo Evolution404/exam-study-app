@@ -2,23 +2,23 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const portal = read("app/modal-portal.tsx");
+const portal = read("app/ui/modal-portal.tsx");
 const styles = read("app/styles/components.css");
-const confirmDialog = read("app/confirm-dialog.tsx");
+const confirmDialog = read("app/ui/confirm-dialog.tsx");
 const studyApp = read("app/study-app.tsx");
-const syncView = read("app/sync-view.tsx");
+const syncView = read("app/sync/sync-view.tsx");
 const credentials = read("lib/github-credentials.ts");
 
 assert.match(portal, /createPortal\(children, document\.body\)/, "modal portal must escape the scrollable app shell");
 assert.match(portal, /workspace\.style\.overflow = "hidden"/, "open overlays must lock workspace scrolling");
 
 const overlaySources = [
-  ["app/confirm-dialog.tsx", "simple-dialog-backdrop"],
-  ["app/question-editor.tsx", "editor-backdrop"],
-  ["app/bank-library-view.tsx", "simple-dialog-backdrop"],
-  ["app/question-detail.tsx", "search-detail-backdrop"],
-  ["app/search-view.tsx", "search-practice-backdrop"],
-  ["app/search-filter-drawer.tsx", "search-filter-backdrop"],
+  ["app/ui/confirm-dialog.tsx", "simple-dialog-backdrop"],
+  ["app/bank/question-editor.tsx", "editor-backdrop"],
+  ["app/bank/bank-library-view.tsx", "simple-dialog-backdrop"],
+  ["app/bank/question-detail.tsx", "search-detail-backdrop"],
+  ["app/search/search-view.tsx", "search-practice-backdrop"],
+  ["app/search/search-filter-drawer.tsx", "search-filter-backdrop"],
   ["app/study-app.tsx", "overview-backdrop"],
 ] as const;
 

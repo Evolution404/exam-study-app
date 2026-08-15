@@ -4,12 +4,12 @@ import {
   PROGRESS_SCOPE_EXPLANATION,
   progressScopeChoiceKey,
   selectableProgressRounds,
-} from "../../app/progress-scope-setting";
+} from "../../app/practice/progress-scope-setting";
 import {
   activeReviewRounds,
   bankQuestionCount,
   roundSummaryMetrics,
-} from "../../app/review-round-manager";
+} from "../../app/practice/review-round-manager";
 import type { Bank } from "../../lib/types";
 import type { ReviewRound } from "../../lib/v6-types";
 
