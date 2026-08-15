@@ -842,18 +842,8 @@ export interface SyncHotWindowState {
   checkpointSize?: number;
   /** Actual stored (compressed) bytes of the checkpoint blob, when the descriptor carries it. */
   checkpointStoredSize?: number;
-  /** Devices known to the head watermark table (因果回收的确认方). */
-  deviceCount: number;
-  /** The most recently published watermark: who synced last and when. Null before any device reports. */
-  latestSync?: { deviceId: string; syncedAt: string; isSelf: boolean } | null;
-}
-
-/** Latest watermark entry by syncedAt — who synced last. Best-effort for the status panel. */
-function latestDeviceSync(devices: SyncHeadV7["devices"]): { deviceId: string; syncedAt: string; isSelf: boolean } | null {
-  const entries = Object.entries(devices ?? {});
-  if (!entries.length) return null;
-  const [deviceId, watermark] = entries.reduce((latest, entry) => (entry[1].syncedAt > latest[1].syncedAt ? entry : latest));
-  return { deviceId, syncedAt: watermark.syncedAt, isSelf: deviceId === getV6DeviceId() };
+  /** Change events held in the hot-window segments (sum of per-segment counts). */
+  segmentEvents: number;
 }
 
 /**
@@ -878,8 +868,7 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
     hasCheckpoint: Boolean(head.checkpoint),
     segmentSizes: head.segments.map((segment) => segment.size),
     ...(head.checkpoint ? { checkpointSize: head.checkpoint.size, ...(head.checkpoint.storedSize !== undefined ? { checkpointStoredSize: head.checkpoint.storedSize } : {}) } : {}),
-    deviceCount: Object.keys(head.devices ?? {}).length,
-    latestSync: latestDeviceSync(head.devices),
+    segmentEvents: head.segments.reduce((sum, segment) => sum + segment.count, 0),
   };
 }
 

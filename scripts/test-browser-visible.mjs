@@ -602,11 +602,11 @@ async function runDesktop(page, mockServer) {
   await hotWindow.waitFor({ state: "visible" });
   const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
   assert.ok(hotLabels.includes("检查点") && hotLabels.includes("当前头") && hotLabels.includes("分段") && hotLabels.includes("热窗口"), "hot window must expose checkpoint, head, segment count and hot bytes");
-  assert.ok(hotLabels.includes("检查点体积") && hotLabels.includes("设备") && hotLabels.includes("上次同步"), "hot window must expose checkpoint size, device count and last sync time");
+  assert.ok(hotLabels.includes("检查点体积") && hotLabels.includes("热窗口事件") && hotLabels.includes("上次同步"), "hot window must expose checkpoint size, hot-window events and last sync time");
   const hotValues = (await hotWindow.locator("dd").allInnerTexts()).map((text) => text.trim());
   assert.ok(hotValues.some((text) => /^第 \d+ 代$/.test(text)), "checkpoint generation must be shown after a real sync");
   assert.ok(hotValues.some((text) => /\d+ (B|KB|MB)/.test(text)), "checkpoint volume must be shown after a real sync");
-  assert.ok(hotValues.some((text) => /^\d+ 台$/.test(text)), "device count must be shown after a real sync");
+  assert.ok(hotValues.some((text) => /^\d+$/.test(text)), "hot-window event count must be shown after a real sync");
   assert.ok(hotValues.some((text) => /\d{2}\/\d{2} \d{2}:\d{2}/.test(text)), "last sync time must be shown after a real sync");
   await capture(page, contextName, "sync-hot-window");
   assert.ok(mockServer.contentPaths().includes("sync/v7/head.json"), "mock backend must hold the v7 head after a real sync");
@@ -957,7 +957,7 @@ async function runManagementQA(page, mockServer) {
   const drawerHotLabels = (await page.locator(".sync-event-drawer .sync-hot-window dt").allInnerTexts()).map((text) => text.trim());
   assert.ok(
     drawerHotLabels.includes("检查点") && drawerHotLabels.includes("当前头") && drawerHotLabels.includes("分段")
-      && drawerHotLabels.includes("检查点体积") && drawerHotLabels.includes("设备") && drawerHotLabels.includes("上次同步") && drawerHotLabels.includes("热窗口"),
+      && drawerHotLabels.includes("检查点体积") && drawerHotLabels.includes("热窗口事件") && drawerHotLabels.includes("上次同步") && drawerHotLabels.includes("热窗口"),
     "drawer hot window panel must show the same fields as the sync page",
   );
   const drawerSearchInput = page.locator(".sync-event-drawer .sync-event-search input").first();
@@ -1005,7 +1005,7 @@ async function runManagementQA(page, mockServer) {
   const drawerPanel = await readPanel(".sync-event-drawer .sync-hot-window");
   assert.ok(drawerPanel, "抽屉面板应在同步后存在");
   assert.ok(parseGeneration(drawerPanel.generation) > parseGeneration(before.generation), `抽屉当前头应前进（${before.generation} → ${drawerPanel.generation}）`);
-  assert.match(drawerPanel.lastSync ?? "", / · 本设备 [0-9a-zA-Z_-]{4,}/, `上次同步应显示本设备标记与短 id（实际 ${drawerPanel.lastSync}）`);
+  assert.match(drawerPanel.lastSync ?? "", /^\d{2}\/\d{2} \d{2}:\d{2}$/, `上次同步应显示本地上次成功同步时间（实际 ${drawerPanel.lastSync}）`);
   await page.getByRole("button", { name: "关闭同步抽屉" }).click();
   await page.locator(".sync-event-drawer").waitFor({ state: "hidden" });
   // 同步页自己并不发起这次同步，但面板 live 订阅本地 head 缓存，必须自动刷新。

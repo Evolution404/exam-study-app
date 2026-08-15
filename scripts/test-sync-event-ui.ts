@@ -51,16 +51,16 @@ assert.match(drawer, /previouslyFocused\?\.focus\(\)/, "drawer restores focus wh
 assert.match(drawer, /showBatchSections/, "top drawer enables current/next batch grouping");
 assert.match(syncView, /showBatchSections/, "sync page groups events into sections like the top drawer (已同步 collapsed by default)");
 assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the misleading '新建业务操作' button (it only jumped to banks)");
-assert.match(hotWindowPanel, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>检查点体积<\/dt>[\s\S]*<dt>设备<\/dt>[\s\S]*<dt>上次同步<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segments, checkpoint size, devices, last sync and hot bytes in order");
-assert.match(hotWindowPanel, /checkpointStoredSize[\s\S]{0,120}解压/, "checkpoint volume shows stored bytes plus decompressed size when available");
-assert.match(hotWindowPanel, /deviceCount/, "hot window exposes the device watermark count");
-// 上次同步：时间 + 设备短 id 同源（水位表）；本设备也显示 id（前缀「本设备」标记）。
-assert.match(hotWindowPanel, /latestSync\.isSelf \? "本设备 " : ""/, "last sync labels the watermark device; self devices keep their id visible");
-assert.match(hotWindowPanel, /shortDeviceId\(hotWindow\.latestSync\.deviceId\)/, "last sync always shows the device short id");
-// 设备短标识取 device_ 后到第一个 - 前（device_36b8fad0-… → 36b8fad0），3 列格子单行放得下。
-assert.match(hotWindowPanel, /slice\("device_"\.length\)/, "device short id strips the device_ prefix");
-assert.match(hotWindowPanel, /indexOf\("-"\)[\s\S]{0,40}slice\(0, dash\)/, "device short id takes the part before the first dash");
-assert.match(hotWindowPanel, /dd title=\{hotWindow\.latestSync\?\.deviceId\}/, "last sync cell hints the full device id");
+assert.match(hotWindowPanel, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>检查点体积<\/dt>[\s\S]*<dt>热窗口事件<\/dt>[\s\S]*<dt>上次同步<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segments, checkpoint size, hot-window events, last sync and hot bytes in order");
+assert.match(hotWindowPanel, /segmentEvents/, "hot window exposes the pending event count (sum of segment counts)");
+assert.match(hotWindowPanel, /<dt>热窗口事件<\/dt><dd>\{hotWindow\.segmentEvents\}<\/dd>/, "hot window events cell renders the segment-event sum");
+// 上次同步只显示本地上次成功同步时间（语义明确，不再显示设备/水位信息）。
+assert.match(hotWindowPanel, /<dt>上次同步<\/dt><dd>\{syncedAt \? formatSyncedAt\(syncedAt\) : "—"\}<\/dd>/, "last sync shows only the local sync time");
+assert.ok(!/latestSync|本设备|shortDeviceId|deviceCount/.test(hotWindowPanel), "panel carries no device-watermark display");
+// 检查点体积格内简洁（无「解压」文字），完整信息放悬浮 title。
+assert.match(hotWindowPanel, /checkpointStoredSize \?\? hotWindow\.checkpointSize/, "checkpoint volume cell shows a single value (stored size preferred)");
+assert.match(hotWindowPanel, /title=\{checkpointTitle\(hotWindow\)\}/, "checkpoint volume full detail moves to a hover title");
+assert.match(hotWindowPanel, /实际 \$\{formatBytes\(state\.checkpointStoredSize\)\} · 解压/, "hover title explains actual vs decompressed bytes");
 // 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
 assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
 // 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。
