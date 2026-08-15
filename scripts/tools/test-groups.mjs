@@ -44,6 +44,7 @@ export const testGroups = {
     "test:sync-note-tombstone",
     "test:sync-membership-tombstone",
     "test:sync-attempt-tombstone",
+    "test:sync-practice-answer-tombstone",
     "test:sync-claim-order",
     "test:sync-watermark-cache",
     "test:sync-compaction-plan-head",

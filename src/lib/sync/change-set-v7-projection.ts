@@ -451,6 +451,7 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
       if (attempt.runId !== mutation.runId || attempt.questionId !== mutation.questionId) fail("答案删除目标不一致");
       removeById(projection.attempts, mutation.attemptId, "作答");
       removeAttemptRound(projection, mutation.attemptId);
+      putTombstone(projection, "attempt", mutation.attemptId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       const answers = { ...run.answers };
       delete answers[mutation.questionId];
       setById(projection.practiceRuns, { ...run, answers, updatedAt: mutation.deletedAt ?? context.createdAt }, false);
