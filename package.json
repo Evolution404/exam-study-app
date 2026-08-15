@@ -62,14 +62,15 @@
     "test:sync-tombstone-gc": "tsx scripts/tests/test-sync-tombstone-gc.ts",
     "migrate:vault": "tsx scripts/tools/migrate-vault-compressed.mts",
     "lint": "eslint . --ignore-pattern dist",
-    "test:unit": "node scripts/tools/run-test-groups.mjs unit",
-    "test:source": "node scripts/tools/run-test-groups.mjs source",
-    "test:integration": "node scripts/tools/run-test-groups.mjs integration",
-    "test:fast": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint",
+    "test:unit": "node scripts/tools/run-test-groups.mjs unit --concurrency 6",
+    "test:source": "node scripts/tools/run-test-groups.mjs source --concurrency 6",
+    "test:integration": "node scripts/tools/run-test-groups.mjs integration --concurrency 2",
+    "test:fast": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --concurrency 4",
     "test:ci": "npm run test",
-    "test:full": "npm run test && npm run test:browser",
+    "test:full": "node scripts/tools/run-test-full.mjs",
     "template:xlsx": "node scripts/tools/generate-xlsx-template.mjs",
-    "test:sync-multidevice-checkpoints": "tsx scripts/tests/test-sync-multidevice-checkpoints.ts"
+    "test:sync-multidevice-checkpoints": "tsx scripts/tests/test-sync-multidevice-checkpoints.ts",
+    "test:fast:serial": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --serial"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",

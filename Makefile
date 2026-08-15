@@ -8,7 +8,7 @@
 # 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
 HEADLESS ?= 1
 
-.PHONY: help install dev mock build clean preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-browser-inflight
+.PHONY: help install dev mock build clean preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -31,6 +31,7 @@ help: ## 显示本帮助
 	@echo "  make test-source            源码断言（架构门、PWA、UI 行为、v6 数据流等）"
 	@echo "  make test-integration       集成测试（fake-indexeddb + mock 后端）"
 	@echo "  make test-fast              快测 = unit + source + integration + typecheck + lint（不含构建）"
+	@echo "  make test-fast-serial       串行快测（排查偶发失败用）"
 	@echo "  make test-sync              同步模块测试"
 	@echo "  make test                   完整 CI 测试（含构建，不含浏览器）"
 	@echo "  make test-full              全量 = test + 浏览器全部场景"

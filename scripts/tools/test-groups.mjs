@@ -42,3 +42,9 @@ export const testGroups = {
     "test:sync-multidevice-checkpoints",
   ],
 };
+
+export const groupConcurrency = {
+  unit: 6,
+  source: 6,
+  integration: 2,
+};
