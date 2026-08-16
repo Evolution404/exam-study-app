@@ -606,8 +606,15 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 /* Currently-open question detail in a navigable list */
 .search-result-list article.detail-current,
 .managed-question-list article.detail-current,
-.group-items article.detail-current,
-.result-question-groups>section>div>button.detail-current {
+.group-items article.detail-current {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+/* 结果页按钮基础 border:0（无四周边框），共享规则的 border-color 只作用在底部
+   分隔线上，选中只有浅色描边非常弱。这里补主色软背景 + inset 1px 主色内框
+   （不占布局不跳版），与搜索结果选中视觉对齐且更明显；全部用 token 夜间自动适配。 */
+.result-question-groups>section>div>button.detail-current {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--color-primary), 0 0 0 3px var(--color-primary-soft);
 }

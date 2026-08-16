@@ -1363,20 +1363,31 @@ async function runHistoryResult(page) {
   const detailHighlight = await firstResultQuestion.evaluate((button) => {
     const style = getComputedStyle(button);
     const root = getComputedStyle(document.documentElement);
-    const resolveToken = (token) => {
+    const resolveColor = (value, property) => {
       const probe = document.createElement("span");
-      probe.style.borderColor = token;
+      probe.style[property] = value;
       document.body.append(probe);
-      const resolved = getComputedStyle(probe).borderTopColor;
+      const resolved = getComputedStyle(probe)[property];
       probe.remove();
       return resolved;
     };
-    const primary = resolveToken(root.getPropertyValue("--color-primary").trim());
-    const primarySoft = resolveToken(root.getPropertyValue("--color-primary-soft").trim());
-    return { border: style.borderTopColor, boxShadow: style.boxShadow, expectPrimary: primary, expectSoft: primarySoft };
+    const primary = resolveColor(root.getPropertyValue("--color-primary").trim(), "borderTopColor");
+    const primarySoft = resolveColor(root.getPropertyValue("--color-primary-soft").trim(), "borderTopColor");
+    const primarySoftBg = resolveColor(root.getPropertyValue("--color-primary-soft").trim(), "backgroundColor");
+    return {
+      border: style.borderTopColor,
+      background: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      expectPrimary: primary,
+      expectSoft: primarySoft,
+      expectSoftBg: primarySoftBg,
+    };
   });
   assert.equal(detailHighlight.border, detailHighlight.expectPrimary, "结果页选中题目边框必须用主色（与搜索结果选中一致）");
   assert.ok(detailHighlight.boxShadow.includes(detailHighlight.expectSoft), "结果页选中题目须有主色柔和描边（与搜索结果选中一致）");
+  // 结果页按钮基础 border:0 无四周边框，需补主色软背景 + inset 1px 主色内框才明显。
+  assert.equal(detailHighlight.background, detailHighlight.expectSoftBg, "结果页选中题目须有主色软背景（明显选中反馈）");
+  assert.ok(detailHighlight.boxShadow.includes("inset") && detailHighlight.boxShadow.includes(detailHighlight.expectPrimary), "结果页选中题目须有 inset 1px 主色内框（模拟实边框，布局不跳动）");
   await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
   await capture(page, contextName, "result-question-selected");
