@@ -40,23 +40,23 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   }
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over || active.id === over.id) {
+    // onDragOver 已经实时更新过 preview。dnd-kit 在预览更新后，over 可能已经回到
+    // active 自身；此时仍必须提交预览顺序，不能当成 no-op 丢掉。
+    const previewChanged = banks.some((bank, index) => ordered[index]?.id !== bank.id);
+    if (!previewChanged && (!over || active.id === over.id)) {
       console.log("[drag-debug] drag-end no-op", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewIds: ordered.map((bank) => bank.id) });
       onDrag(undefined);
       return;
     }
-    // onDragOver 已经实时更新过 preview，此时 ordered 就是用户看到的最终顺序。
-    // 只有从未触发 onDragOver 时才需要按 over 兜底重排一次，否则会重复移动导致回退。
-    const previewChanged = banks.some((bank, index) => ordered[index]?.id !== bank.id);
     let next = ordered;
     if (!previewChanged) {
       const from = ordered.findIndex((bank) => bank.id === active.id);
-      const to = ordered.findIndex((bank) => bank.id === over.id);
+      const to = over ? ordered.findIndex((bank) => bank.id === over.id) : -1;
       if (from >= 0 && to >= 0 && from !== to) next = arrayMove(ordered, from, to);
     }
     const movedIndex = next.findIndex((bank) => bank.id === active.id);
     const beforeId = movedIndex >= 0 && movedIndex + 1 < next.length ? next[movedIndex + 1].id : undefined;
-    console.log("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
+    console.log("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
     onDrop(beforeId);
     onDrag(undefined);
   }
