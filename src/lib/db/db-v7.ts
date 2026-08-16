@@ -498,6 +498,10 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
   const values = typeof input === "string" ? { name: input } : input;
   const name = values.name.trim();
   if (!name) throw new Error("题库名称不能为空。");
+  if (values.folderId) {
+    const folder = await dbV7.bankFolders.get(values.folderId);
+    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+  }
   const timestamp = values.importedAt ?? nowIso();
   const bank: BankV7 = {
     id: values.id ?? makeV7Id("bank"),
@@ -522,6 +526,10 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
 export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>): Promise<BankV7> {
   const current = await dbV7.banks.get(bankId);
   if (!current) throw new Error("题库不存在或已被删除。");
+  if (changes.folderId) {
+    const folder = await dbV7.bankFolders.get(changes.folderId);
+    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+  }
   const updated: BankV7 = {
     ...current,
     ...changes,
@@ -541,6 +549,10 @@ export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7,
 export async function reorderBanksV7(bankIds: readonly string[], folderId?: string): Promise<BankV7[]> {
   const banks = (await dbV7.banks.bulkGet(uniqueStrings(bankIds))).filter(Boolean) as BankV7[];
   if (!banks.length) return [];
+  if (folderId) {
+    const folder = await dbV7.bankFolders.get(folderId);
+    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+  }
   const updatedAt = nowIso();
   const deviceId = getV7DeviceId();
   const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
@@ -1710,15 +1722,17 @@ export async function putImageAssetV7(asset: ImageAsset): Promise<ImageAsset> {
   }
   const previous = await dbV7.imageAssets.get(asset.id);
   const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...asset, blob: undefined });
+  // 保留已缓存的 blob：调用方只写 descriptor 时不应清掉本地图片缓存。
+  const stored = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
   await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.changeSets], async () => {
-    await dbV7.imageAssets.put(asset);
+    await dbV7.imageAssets.put(stored ? { ...asset, blob: stored } : asset);
     if (asset.remote && descriptorChanged) {
       const createdAt = nowIso();
       const descriptor = { ...asset, blob: undefined };
       await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
     }
   });
-  return asset;
+  return stored ? { ...asset, blob: stored } : asset;
 }
 
 export async function putImageAssetDescriptorV7(asset: Omit<ImageAsset, "blob">): Promise<ImageAsset> {
