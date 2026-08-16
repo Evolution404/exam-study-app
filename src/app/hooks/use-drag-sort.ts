@@ -85,19 +85,40 @@ export function useDragSort<T>({ items, onReorder, onCommit, commitOnDrop = fals
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   }
 
-  function overDrag(index: number, event: DragEvent<HTMLElement>) {
-    event.preventDefault();
-    if (draggedIndexRef.current === undefined || draggedIndexRef.current === index) return;
-    movePreview(draggedIndexRef.current, index);
-    draggedIndexRef.current = index;
-    setDraggedIndex(index);
+  function computeTarget(event: DragEvent<HTMLElement>): number {
+    const container = containerRef.current;
+    const from = draggedIndexRef.current;
+    if (!container || from === undefined) return from ?? 0;
+    const dragged = container.querySelector<HTMLElement>(`[data-drag-index="${from}"]`);
+    let target = 0;
+    for (const element of [...container.querySelectorAll<HTMLElement>("[data-drag-index]")]) {
+      if (element === dragged) continue;
+      const rect = element.getBoundingClientRect();
+      if (event.clientY > rect.top + rect.height / 2) target += 1;
+    }
+    return target;
   }
 
-  function dropDrag(index: number, event: DragEvent<HTMLElement>) {
+  function overDrag(_index: number, event: DragEvent<HTMLElement>) {
     event.preventDefault();
-    if (draggedIndexRef.current !== undefined && draggedIndexRef.current !== index) {
-      movePreview(draggedIndexRef.current, index);
-      draggedIndexRef.current = index;
+    const from = draggedIndexRef.current;
+    if (from === undefined) return;
+    const target = computeTarget(event);
+    if (target === from) return;
+    movePreview(from, target);
+    draggedIndexRef.current = target;
+    setDraggedIndex(target);
+  }
+
+  function dropDrag(_index: number, event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    const from = draggedIndexRef.current;
+    if (from !== undefined) {
+      const target = computeTarget(event);
+      if (target !== from) {
+        movePreview(from, target);
+        draggedIndexRef.current = target;
+      }
     }
     finishDrag();
   }
