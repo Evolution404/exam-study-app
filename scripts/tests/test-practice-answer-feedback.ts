@@ -8,6 +8,7 @@ const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const practiceHistory = read("src/app/practice/practice-history.tsx");
 const styles = read("src/app/styles/components.css");
 const database = read("src/lib/db/db-v7.ts");
+const practiceDatabase = read("src/lib/db/db-v7-practice.ts");
 
 assert.match(practiceView, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(practiceView, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");
@@ -20,10 +21,11 @@ assert.doesNotMatch(practiceView, /你的选择[^\n]*<MathText/, "answer feedbac
 assert.doesNotMatch(practiceView, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
+assert.doesNotMatch(practiceDatabase, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
 assert.match(practiceView, /await recordPracticeAnswer\(/, "answer submission must use the single domain-event writer");
 assert.doesNotMatch(practiceView, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
-assert.match(database, /export async function recordPracticeAnswerV7/, "answer submission must remain the single domain writer");
-assert.doesNotMatch(database, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
+assert.match(practiceDatabase, /export async function recordPracticeAnswerV7/, "answer submission must remain the single domain writer");
+assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
 assert.match(studyApp, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
 assert.match(studyApp, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");

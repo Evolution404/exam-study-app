@@ -32,10 +32,12 @@ if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器
 const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
-const dbV7 = read("src/lib/db/db-v7.ts");
-const v7DatabaseVersions = [...dbV7.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
+// The v7 schema lives in db-v7-core.ts; db-v7.ts is only a barrel that
+// re-exports that module's public surface.
+const dbV7Core = read("src/lib/db/db-v7-core.ts");
+const v7DatabaseVersions = [...dbV7Core.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 const versionsAscending = v7DatabaseVersions.every((version, index) => index === 0 || version > v7DatabaseVersions[index - 1]);
-if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study-v7["']/.test(dbV7) || !/super\(V7_DATABASE_NAME\)/.test(dbV7)
+if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study-v7["']/.test(dbV7Core) || !/super\(V7_DATABASE_NAME\)/.test(dbV7Core)
   || !v7DatabaseVersions.includes(1) || !v7DatabaseVersions.includes(2) || !versionsAscending) {
   fail("公开客户端必须只使用独立 shijuan-study-v7 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
 }
