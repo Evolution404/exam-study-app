@@ -1,38 +1,38 @@
 "use client";
 import { lazy } from "react";
-import { dbV6, deletePracticeRunV6, recordPracticeAnswerV6, saveNoteV6, savePracticeProgressV6, setPracticeRunStatusV6, toggleQuestionFavoriteV6 } from "@/lib/db/db-v6";
+import { dbV7, deletePracticeRunV7, recordPracticeAnswerV7, saveNoteV7, savePracticeProgressV7, setPracticeRunStatusV7, toggleQuestionFavoriteV7 } from "@/lib/db/db-v7";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice/practice-resume";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { type QuestionViewModel } from "@/app/bank/question-editor";
 import type { BankQuickMode } from "@/app/bank/bank-library-view";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { ActivePractice } from "@/types/types";
-import type { AttemptStatsV6, PracticeRunV6, QuestionTypeV6 } from "@/lib/db/v6-types";
-import type { V6PracticeFilter } from "@/app/practice/practice-setup";
+import type { AttemptStatsV7, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { V7PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
 
 export type Question = QuestionViewModel;
-export type QuestionType = QuestionTypeV6;
-export type PracticeFilter = V6PracticeFilter;
-export type PracticeRun = PracticeRunV6;
-export type PracticeAnswerState = PracticeRunV6["answers"][string];
-export type AttemptStats = AttemptStatsV6 & { bankId: string };
+export type QuestionType = QuestionTypeV7;
+export type PracticeFilter = V7PracticeFilter;
+export type PracticeRun = PracticeRunV7;
+export type PracticeAnswerState = PracticeRunV7["answers"][string];
+export type AttemptStats = AttemptStatsV7 & { bankId: string };
 
-export function toLegacyAttemptStats(stats?: AttemptStatsV6, bankId = ""): AttemptStats | undefined {
+export function toLegacyAttemptStats(stats?: AttemptStatsV7, bankId = ""): AttemptStats | undefined {
   return stats ? { ...stats, bankId } : undefined;
 }
 
-export function summarizeV6AttemptStats(stats?: AttemptStatsV6) {
+export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
   return summarizeAttemptStats(toLegacyAttemptStats(stats));
 }
 
-export async function saveNote(questionId: string, content: string) { return saveNoteV6(questionId, content); }
-export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV6(questionId); }
-export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string }) { return recordPracticeAnswerV6({ ...input, sourceBankId: input.bankId }); }
-export async function savePracticeProgress(session: ActivePractice) { const current = await dbV6.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV6({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
-export async function setPracticeRunStatus(runId: string, status: PracticeRunV6["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV6(runId, status, answers); }
-export async function deletePracticeRun(runId: string) { return deletePracticeRunV6(runId); }
+export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
+export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV7(questionId); }
+export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
+export async function savePracticeProgress(session: ActivePractice) { const current = await dbV7.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
+export async function setPracticeRunStatus(runId: string, status: PracticeRunV7["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV7(runId, status, answers); }
+export async function deletePracticeRun(runId: string) { return deletePracticeRunV7(runId); }
 
 export const PracticeSetupView = lazy(() => import("@/app/practice/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
 export const SearchView = lazy(() => import("@/app/search/search-view").then((module) => ({ default: module.SearchView })));
@@ -110,7 +110,7 @@ export const DEFAULT_PREFERENCES: PracticePreferences = {
 export function loadPreferences(): PracticePreferences {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
-    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-v6-preferences") ?? "{}") } as PracticePreferences;
+    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}") } as PracticePreferences;
     return {
       ...saved,
       groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))),

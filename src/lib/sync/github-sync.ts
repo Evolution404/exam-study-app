@@ -19,13 +19,13 @@ export type { SyncHotWindowState, SyncProgress, SyncProgressCallback } from "./g
 // implementation remains valid because v7 keeps the same content-addressed
 // image descriptors and never emits an event for a blob-only cache write.
 export {
-  clearImageCacheV6,
+  clearImageCacheV7,
   clearImageCache,
-  downloadAllImageAssetsV6,
+  downloadAllImageAssetsV7,
   downloadAllImageAssets,
-  downloadImageAssetV6,
+  downloadImageAssetV7,
   downloadImageAsset,
-  getImageAssetBlobV6,
-  getImageCacheStatsV6,
+  getImageAssetBlobV7,
+  getImageCacheStatsV7,
   getImageCacheStats,
 } from "./image-asset-cache";

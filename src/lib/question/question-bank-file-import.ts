@@ -1,9 +1,9 @@
-import { importQuestionBankV6, putImageAssetV6 } from "../db/db-v6";
+import { importQuestionBankV7, putImageAssetV7 } from "../db/db-v7";
 import { importFileName, parseQuestionBankWorkbook, type WorkbookImage } from "../io/xlsx-import";
 import { parseQuestionBankZip } from "./question-bank-bundle";
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
-import type { BankV6 } from "../db/v6-types";
+import type { BankV7 } from "../db/v7-types";
 
 export const QUESTION_BANK_FILE_ACCEPT = ".json,.xlsx,.zip,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip";
 
@@ -22,11 +22,11 @@ export function detectQuestionBankFileType(file: Pick<File, "name" | "type">): Q
 async function storeImageAsset(bytes: Uint8Array, mimeType: ImageMimeType, width: number, height: number): Promise<string> {
   const assetId = await sha256Bytes(bytes);
   const blob = new Blob([bytes.slice()], { type: mimeType });
-  await putImageAssetV6({ id: assetId, blob, mimeType, size: bytes.byteLength, width, height });
+  await putImageAssetV7({ id: assetId, blob, mimeType, size: bytes.byteLength, width, height });
   return assetId;
 }
 
-/** Materialise every workbook cell image (DISPIMG id → media bytes) as a v6
+/** Materialise every workbook cell image (DISPIMG id → media bytes) as a v7
  *  asset and return the DISPIMG id → asset id mapping for row remapping. */
 async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookImage>): Promise<Map<string, string>> {
   const mapping = new Map<string, string>();
@@ -38,7 +38,7 @@ async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookIma
   return mapping;
 }
 
-export async function importQuestionBankFile(file: File): Promise<{ bank: BankV6; type: QuestionBankFileType }> {
+export async function importQuestionBankFile(file: File): Promise<{ bank: BankV7; type: QuestionBankFileType }> {
   const type = detectQuestionBankFileType(file);
   if (type === "xlsx") {
     const { rows, images } = await parseQuestionBankWorkbook(await file.arrayBuffer());
@@ -46,13 +46,13 @@ export async function importQuestionBankFile(file: File): Promise<{ bank: BankV6
     for (const row of rows) {
       if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
     }
-    const bank = await importQuestionBankV6(importFileName(file.name), rows);
+    const bank = await importQuestionBankV7(importFileName(file.name), rows);
     return { bank, type };
   }
   if (type === "zip") {
     const bundle = await parseQuestionBankZip(await file.arrayBuffer());
     for (const image of bundle.images) await storeImageAsset(image.bytes, image.mimeType, image.width, image.height);
-    const bank = await importQuestionBankV6(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions });
+    const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions });
     return { bank, type };
   }
   let raw: unknown;
@@ -61,5 +61,5 @@ export async function importQuestionBankFile(file: File): Promise<{ bank: BankV6
   } catch {
     throw new Error("JSON 文件内容无法解析，请检查文件格式。");
   }
-  return { bank: await importQuestionBankV6(file.name, raw), type };
+  return { bank: await importQuestionBankV7(file.name, raw), type };
 }

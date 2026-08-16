@@ -5,22 +5,22 @@
  * returned, so a change-set is atomic even when it contains many mutations.
  */
 import type {
-  AttemptDailyStatsV6,
-  AttemptStatsV6,
-  AttemptV6,
-  BankFolderV6,
+  AttemptDailyStatsV7,
+  AttemptStatsV7,
+  AttemptV7,
+  BankFolderV7,
   BankQuestionMembership,
-  BankV6,
+  BankV7,
   ImageAsset,
-  NoteV6,
-  PracticeRunStatsV6,
-  PracticeRunV6,
-  QuestionGroupV6,
-  QuestionV6,
+  NoteV7,
+  PracticeRunStatsV7,
+  PracticeRunV7,
+  QuestionGroupV7,
+  QuestionV7,
   ReviewRound,
   ReviewRoundProgress,
-  TombstoneV6,
-} from "../db/v6-types";
+  TombstoneV7,
+} from "../db/v7-types";
 import {
   assertChangeSetV7,
   type ChangeSetMutationV7,
@@ -28,24 +28,24 @@ import {
 } from "./change-set-v7";
 
 export interface ChangeSetProjectionV7 {
-  banks: BankV6[];
-  bankFolders: BankFolderV6[];
-  questions: QuestionV6[];
+  banks: BankV7[];
+  bankFolders: BankFolderV7[];
+  questions: QuestionV7[];
   memberships: BankQuestionMembership[];
-  /** Alias retained for callers using the v6 table name. */
+  /** Alias retained for callers using the v7 table name. */
   bankQuestionMemberships?: BankQuestionMembership[];
   imageAssets: ImageAsset[];
-  attempts: AttemptV6[];
-  attemptStats: AttemptStatsV6[];
-  attemptDailyStats: AttemptDailyStatsV6[];
-  notes: NoteV6[];
-  practiceRuns: PracticeRunV6[];
-  practiceRunStats: PracticeRunStatsV6[];
-  questionGroups: QuestionGroupV6[];
+  attempts: AttemptV7[];
+  attemptStats: AttemptStatsV7[];
+  attemptDailyStats: AttemptDailyStatsV7[];
+  notes: NoteV7[];
+  practiceRuns: PracticeRunV7[];
+  practiceRunStats: PracticeRunStatsV7[];
+  questionGroups: QuestionGroupV7[];
   reviewRounds: ReviewRound[];
   reviewRoundProgress: ReviewRoundProgress[];
-  tombstones: TombstoneV6[];
-  /** Attempt-to-round provenance is needed because AttemptV6 is round-neutral. */
+  tombstones: TombstoneV7[];
+  /** Attempt-to-round provenance is needed because AttemptV7 is round-neutral. */
   attemptRoundIds?: Record<string, string[]>;
 }
 
@@ -152,15 +152,15 @@ function membershipKey(bankId: string, questionId: string): string {
   return `${bankId}:${questionId}`;
 }
 
-function ensureQuestion(projection: ChangeSetProjectionV7, questionId: string): QuestionV6 {
+function ensureQuestion(projection: ChangeSetProjectionV7, questionId: string): QuestionV7 {
   return requireById(projection.questions, questionId, "题目");
 }
 
-function ensureBank(projection: ChangeSetProjectionV7, bankId: string): BankV6 {
+function ensureBank(projection: ChangeSetProjectionV7, bankId: string): BankV7 {
   return requireById(projection.banks, bankId, "题库");
 }
 
-function ensureRun(projection: ChangeSetProjectionV7, runId: string): PracticeRunV6 {
+function ensureRun(projection: ChangeSetProjectionV7, runId: string): PracticeRunV7 {
   return requireById(projection.practiceRuns, runId, "练习");
 }
 
@@ -175,10 +175,10 @@ function removeAttemptRound(projection: ChangeSetProjectionV7, attemptId: string
   if (projection.attemptRoundIds) delete projection.attemptRoundIds[attemptId];
 }
 
-function putTombstone(projection: ChangeSetProjectionV7, entityType: TombstoneV6["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+function putTombstone(projection: ChangeSetProjectionV7, entityType: TombstoneV7["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   const key = `${entityType}:${entityId}`;
   const old = projection.tombstones.find((item) => item.key === key);
-  const next: TombstoneV6 = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
+  const next: TombstoneV7 = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
   if (!old) projection.tombstones.push(next);
   else if (compareClock(next, old) > 0) projection.tombstones[projection.tombstones.indexOf(old)] = next;
 }
@@ -518,13 +518,13 @@ function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert 
   } else values[index] = clone(value);
 }
 
-function setByQuestionId(values: NoteV6[], value: NoteV6): void {
+function setByQuestionId(values: NoteV7[], value: NoteV7): void {
   const index = values.findIndex((item) => item.questionId === value.questionId);
   if (index < 0) values.push(clone(value));
   else values[index] = clone(value);
 }
 
-function ensureFolder(projection: ChangeSetProjectionV7, folderId: string): BankFolderV6 {
+function ensureFolder(projection: ChangeSetProjectionV7, folderId: string): BankFolderV7 {
   return requireById(projection.bankFolders, folderId, "题库文件夹");
 }
 
@@ -538,14 +538,14 @@ function ensureRound(projection: ChangeSetProjectionV7, roundId: string): Review
   return requireById(projection.reviewRounds, roundId, "复习轮次");
 }
 
-function runBankIds(run: Pick<PracticeRunV6, "bankId" | "bankIds">): string[] {
+function runBankIds(run: Pick<PracticeRunV7, "bankId" | "bankIds">): string[] {
   return uniqueStrings(run.bankIds?.length ? run.bankIds : [run.bankId]);
 }
 
 /** Copy-on-write answer update: returns a NEW run object.  In-place mutation
  *  would leak into the base projection shared with a shallow replay envelope,
  *  breaking per-record rollback. */
-function runWithAnswer(run: PracticeRunV6, questionId: string, answer: PracticeRunV6["answers"][string]): PracticeRunV6 {
+function runWithAnswer(run: PracticeRunV7, questionId: string, answer: PracticeRunV7["answers"][string]): PracticeRunV7 {
   const answers = { ...run.answers, [questionId]: clone(answer) };
   const updatedAt = answer.updatedAt ?? run.updatedAt;
   const revision = run.revision + 1;
@@ -553,14 +553,14 @@ function runWithAnswer(run: PracticeRunV6, questionId: string, answer: PracticeR
   return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
 }
 
-function sortAttempts(attempts: readonly AttemptV6[]): AttemptV6[] {
+function sortAttempts(attempts: readonly AttemptV7[]): AttemptV7[] {
   return [...attempts].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
-function deriveAttemptStats(attempts: readonly AttemptV6[]): AttemptStatsV6[] {
+function deriveAttemptStats(attempts: readonly AttemptV7[]): AttemptStatsV7[] {
   // Group by direct push (the old `[...grouped.get(k) ?? [], a]` spread was
   // O(k²) copies for a question answered k times).
-  const grouped = new Map<string, AttemptV6[]>();
+  const grouped = new Map<string, AttemptV7[]>();
   for (const attempt of sortAttempts(attempts)) {
     const bucket = grouped.get(attempt.questionId);
     if (bucket) bucket.push(attempt);
@@ -589,12 +589,12 @@ function deriveAttemptStats(attempts: readonly AttemptV6[]): AttemptStatsV6[] {
       correctStreakAfterWrong,
       currentCorrectStreak,
       recentOutcomes: ordered.slice(-32).map((attempt) => ({ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct })),
-    } satisfies AttemptStatsV6;
+    } satisfies AttemptStatsV7;
   });
 }
 
-function deriveDailyStats(attempts: readonly AttemptV6[]): AttemptDailyStatsV6[] {
-  const grouped = new Map<string, AttemptDailyStatsV6>();
+function deriveDailyStats(attempts: readonly AttemptV7[]): AttemptDailyStatsV7[] {
+  const grouped = new Map<string, AttemptDailyStatsV7>();
   for (const attempt of sortAttempts(attempts)) {
     const key = dailyKey(attempt.createdAt, attempt.questionId);
     const current = grouped.get(key) ?? { key, date: datePart(attempt.createdAt), questionId: attempt.questionId, total: 0, correct: 0, wrong: 0, giveUps: 0, totalElapsedMs: 0 };
@@ -607,8 +607,8 @@ function deriveDailyStats(attempts: readonly AttemptV6[]): AttemptDailyStatsV6[]
   return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function deriveRunStats(runs: readonly PracticeRunV6[]): PracticeRunStatsV6[] {
-  const grouped = new Map<string, PracticeRunStatsV6>();
+function deriveRunStats(runs: readonly PracticeRunV7[]): PracticeRunStatsV7[] {
+  const grouped = new Map<string, PracticeRunStatsV7>();
   for (const run of [...runs].sort((a, b) => a.id.localeCompare(b.id))) {
     for (const bankId of runBankIds(run)) {
       const current = grouped.get(bankId) ?? { key: bankId, bankId, total: 0, completed: 0, inProgress: 0, abandoned: 0, latestUpdatedAt: "" };
@@ -645,7 +645,7 @@ function deriveRoundProgress(projection: ChangeSetProjectionV7): ReviewRoundProg
   return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** Rebuild every derived v6 table from the durable entity/attempt projections. */
+/** Rebuild every derived v7 table from the durable entity/attempt projections. */
 export function recomputeChangeSetProjectionV7(input: ChangeSetProjectionInputV7): ChangeSetProjectionV7 {
   return recomputeProjectionInPlace(normalizeProjection(input));
 }

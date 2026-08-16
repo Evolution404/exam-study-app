@@ -7,18 +7,18 @@
  * is never included in `digest`.
  */
 import type {
-  AttemptV6,
-  BankFolderV6,
+  AttemptV7,
+  BankFolderV7,
   BankQuestionMembership,
-  BankV6,
+  BankV7,
   ImageAsset,
-  NoteV6,
-  PracticeRunV6,
-  QuestionGroupV6,
-  QuestionV6,
+  NoteV7,
+  PracticeRunV7,
+  QuestionGroupV7,
+  QuestionV7,
   ReviewRound,
-} from "../db/v6-types";
-import type { PracticeAnswerV6 } from "../db/db-v6";
+} from "../db/v7-types";
+import type { PracticeAnswerV7 } from "../db/db-v7";
 
 export const CHANGE_SET_V7_FORMAT = 7 as const;
 export const CHANGE_SET_V7_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -47,33 +47,33 @@ export interface ChangeSetEntityRefV7 {
 }
 
 export type ChangeSetMutationV7 =
-  | { kind: "bank.create"; bank: BankV6 }
-  | { kind: "bank.update"; bank: BankV6; previous?: BankV6 }
+  | { kind: "bank.create"; bank: BankV7 }
+  | { kind: "bank.update"; bank: BankV7; previous?: BankV7 }
   | { kind: "bank.reorder"; bankIds: string[]; folderId?: string; updatedAt?: string }
   | { kind: "bank.delete"; bankId: string; deletedAt?: string; cascade?: boolean }
   | { kind: "bank.delete.cascade"; bankId: string; deletedAt?: string; questionIds?: string[] }
-  | { kind: "bankFolder.save"; folder: BankFolderV6 }
+  | { kind: "bankFolder.save"; folder: BankFolderV7 }
   | { kind: "bankFolder.delete"; folderId: string; deletedAt?: string }
-  | { kind: "question.upsert"; question: QuestionV6 }
+  | { kind: "question.upsert"; question: QuestionV7 }
   | { kind: "question.delete"; questionId: string; deletedAt?: string; cascade?: boolean }
   | { kind: "question.delete.cascade"; questionId: string; deletedAt?: string }
   | {
       kind: "question.split";
       originalQuestionId: string;
-      clone: QuestionV6;
+      clone: QuestionV7;
       memberships: BankQuestionMembership[];
       deletedMembershipKeys?: string[];
-      note?: NoteV6;
+      note?: NoteV7;
     }
   | {
       kind: "question.import";
-      bank: BankV6;
-      questions: QuestionV6[];
+      bank: BankV7;
+      questions: QuestionV7[];
       memberships: BankQuestionMembership[];
       images?: ImageAsset[];
       dedupeFingerprints?: string[];
     }
-  | { kind: "question.bulk.upsert"; questions: QuestionV6[] }
+  | { kind: "question.bulk.upsert"; questions: QuestionV7[] }
   | { kind: "question.bulk.delete"; questionIds: string[]; deletedAt?: string; cascade?: boolean }
   | { kind: "membership.save"; membership: BankQuestionMembership }
   | { kind: "membership.remove"; bankId: string; questionId: string; key?: string; removedAt?: string }
@@ -81,32 +81,32 @@ export type ChangeSetMutationV7 =
   | { kind: "membership.bulk.remove"; keys: string[]; bankId?: string; removedAt?: string }
   | { kind: "image.asset.save"; asset: Omit<ImageAsset, "blob"> }
   | { kind: "image.asset.delete"; assetId: string; deletedAt?: string }
-  | { kind: "attempt.create"; attempt: AttemptV6; reviewRoundId?: string }
-  | { kind: "attempt.update"; attempt: AttemptV6; reviewRoundId?: string }
+  | { kind: "attempt.create"; attempt: AttemptV7; reviewRoundId?: string }
+  | { kind: "attempt.update"; attempt: AttemptV7; reviewRoundId?: string }
   | { kind: "attempt.delete"; attemptId: string; questionId?: string; deletedAt?: string }
   | {
       kind: "practice.answer.submitted";
-      attempt: AttemptV6;
-      answer: PracticeAnswerV6;
+      attempt: AttemptV7;
+      answer: PracticeAnswerV7;
       runId: string;
       questionId: string;
       reviewRoundId?: string;
     }
   | {
       kind: "practice.answer.updated";
-      attempt: AttemptV6;
-      answer: PracticeAnswerV6;
+      attempt: AttemptV7;
+      answer: PracticeAnswerV7;
       runId: string;
       questionId: string;
       reviewRoundId?: string;
     }
   | { kind: "practice.answer.deleted"; attemptId: string; runId: string; questionId: string; reviewRoundId?: string; deletedAt?: string }
-  | { kind: "practice.run.saved"; run: PracticeRunV6; definition?: ImmutablePayloadRefV7 }
-  | { kind: "practice.run.status.changed"; run: PracticeRunV6; definition?: ImmutablePayloadRefV7 }
+  | { kind: "practice.run.saved"; run: PracticeRunV7; definition?: ImmutablePayloadRefV7 }
+  | { kind: "practice.run.status.changed"; run: PracticeRunV7; definition?: ImmutablePayloadRefV7 }
   | { kind: "practice.run.deleted"; runId: string; deletedAt?: string }
-  | { kind: "note.upserted"; note: NoteV6 }
+  | { kind: "note.upserted"; note: NoteV7 }
   | { kind: "note.deleted"; questionId: string; deletedAt?: string }
-  | { kind: "questionGroup.saved"; group: QuestionGroupV6 }
+  | { kind: "questionGroup.saved"; group: QuestionGroupV7 }
   | { kind: "questionGroup.deleted"; groupId: string; deletedAt?: string }
   | { kind: "review.round.saved"; round: ReviewRound }
   | { kind: "review.round.completed"; round: ReviewRound }
@@ -293,7 +293,7 @@ function mutationEntityRefs(mutation: ChangeSetMutationV7): ChangeSetEntityRefV7
   }
 }
 
-function runRefs(run: PracticeRunV6): ChangeSetEntityRefV7[] {
+function runRefs(run: PracticeRunV7): ChangeSetEntityRefV7[] {
   return [...new Set([...(run.bankIds ?? []), run.bankId])].filter(Boolean).map((id) => ({ type: "bank", id }))
     .concat(run.questionIds.map((id) => ({ type: "question", id })));
 }

@@ -2,12 +2,12 @@
  * Export a question bank as an Excel workbook, a JSON file, or — when the bank
  * contains images — a zip bundle (bank.json + images/).
  *
- * Both formats round-trip through the v6 import path: Excel uses the app's own
+ * Both formats round-trip through the v7 import path: Excel uses the app's own
  * template columns (题干 / 题型 / 答案 / 标签 / 解析 / 选项A… / 图片1…), embedding
  * images as WPS DISPIMG cell images, and the zip bundle carries structured
  * content blocks plus content-addressed image files.
  */
-import type { ContentBlock } from "../db/v6-types";
+import type { ContentBlock } from "../db/v7-types";
 import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
@@ -342,8 +342,8 @@ export async function collectExportImages(
   options: { loadAsset?: (assetId: string) => Promise<ExportImageSource | undefined>; convertWebp?: (blob: Blob) => Promise<Blob> } = {},
 ): Promise<CollectedExportImages> {
   const loadAsset = options.loadAsset ?? (async (assetId: string) => {
-    const { dbV6 } = await import("../db/db-v6");
-    return dbV6.imageAssets.get(assetId);
+    const { dbV7 } = await import("../db/db-v7");
+    return dbV7.imageAssets.get(assetId);
   });
   const convertWebp = options.convertWebp ?? browserWebpToPng;
   const images = new Map<string, ExportImageData>();

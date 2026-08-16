@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
-import type { ReviewRound } from "@/lib/db/v6-types";
+import type { ReviewRound } from "@/lib/db/v7-types";
 
 export const PROGRESS_SCOPE_MIN_DAYS = 1;
 export const PROGRESS_SCOPE_MAX_DAYS = 36_500;

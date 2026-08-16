@@ -6,11 +6,11 @@ import { ChevronRight, LoaderCircle, Search, X } from "lucide-react";
 import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
-import { dbV6 } from "@/lib/db/db-v6";
-import { listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
-import type { BankV6, QuestionTypeV6 } from "@/lib/db/v6-types";
+import { dbV7 } from "@/lib/db/db-v7";
+import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
+import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 
-type QuestionType = QuestionTypeV6;
+type QuestionType = QuestionTypeV7;
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
 
 /**
@@ -19,7 +19,7 @@ const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
  * draft query and open flag; only the final keyword is forwarded on open.
  */
 export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
-  banks: BankV6[];
+  banks: BankV7[];
   activeBankIds: string[];
   onOpenSearch: (keyword: string, questionId?: string) => void;
 }) {
@@ -58,8 +58,8 @@ function QuickSearchResults({ query, bankIds, onChoose, onViewAll }: { query: st
   const data = useLiveQuery(async () => {
     if (!bankIds.length) return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
     const [views, notes] = await Promise.all([
-      listQuestionViewsForBanksV6(bankIds),
-      dbV6.notes.toArray(),
+      listQuestionViewsForBanksV7(bankIds),
+      dbV7.notes.toArray(),
     ]);
     const questions = views.map((view) => {
       const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];

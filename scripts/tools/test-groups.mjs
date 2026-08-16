@@ -15,7 +15,7 @@ export const testGroups = {
     "test:sync-payload",
     "test:sync-v7-multidevice",
     "test:sync-v7-protocol",
-    "test:v6-domain",
+    "test:v7-domain",
     "test:image-assets",
   ],
   source: [
@@ -27,10 +27,10 @@ export const testGroups = {
     "test:question-types",
     "test:content-block-ui",
     "test:sync-event-ui",
-    "test:v6-ui",
+    "test:v7-ui",
   ],
   integration: [
-    "test:db-v6",
+    "test:db-v7",
     "test:sync-mock",
     "test:sync-integration",
     "test:sync-progress",

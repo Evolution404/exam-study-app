@@ -8,32 +8,32 @@ import {
   FolderOpen, FolderPlus, Gauge, GripVertical, History, Library, NotebookPen, Pencil,
   Plus, Search, Tag, Target, Trash2, X,
 } from "lucide-react";
-import { loadImageAssetV6, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/bank/question-editor";
+import { loadImageAssetV7, QuestionEditor, SharedQuestionEditor, toQuestionViewModel, type QuestionChanges, type QuestionViewModel } from "@/app/bank/question-editor";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { ExcelTemplateAction } from "@/app/bank/excel-import";
 import { AppSelect } from "@/app/ui/app-select";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { ModalPortal } from "@/app/ui/modal-portal";
-import { createBankV6, createQuestionV6, dbV6, deleteBankFolderV6, deleteBankV6, deleteBankWithExclusiveQuestionsV6, deleteQuestionsV6, deleteQuestionV6, removeMembershipsV6, removeMembershipV6, reorderBanksV6, saveBankFolderV6, saveNoteV6, updateBankV6 } from "@/lib/db/db-v6";
+import { createBankV7, createQuestionV7, dbV7, deleteBankFolderV7, deleteBankV7, deleteBankWithExclusiveQuestionsV7, deleteQuestionsV7, deleteQuestionV7, removeMembershipsV7, removeMembershipV7, reorderBanksV7, saveBankFolderV7, saveNoteV7, updateBankV7 } from "@/lib/db/db-v7";
 import { buildQuestionBankXlsx, buildQuestionBankZip, collectExportImages, downloadExport, questionExportJson, sanitizeFileName } from "@/lib/question/question-bank-export";
-import { listQuestionViewsForBankV6, listUnfiledQuestionsV6 } from "@/lib/db/app-data-v6";
-import type { AttemptStatsV6, BankFolderV6, BankV6, NoteV6, PracticeRunV6, QuestionV6, QuestionTypeV6 } from "@/lib/db/v6-types";
+import { listQuestionViewsForBankV7, listUnfiledQuestionsV7 } from "@/lib/db/app-data-v7";
+import type { AttemptStatsV7, BankFolderV7, BankV7, NoteV7, PracticeRunV7, QuestionV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
-type Bank = BankV6;
-type BankFolder = BankFolderV6;
+type Bank = BankV7;
+type BankFolder = BankFolderV7;
 type Question = QuestionViewModel;
-type QuestionType = QuestionTypeV6;
-type Note = NoteV6;
-type PracticeRun = PracticeRunV6;
-type AttemptStats = AttemptStatsV6 & { bankId: string };
+type QuestionType = QuestionTypeV7;
+type Note = NoteV7;
+type PracticeRun = PracticeRunV7;
+type AttemptStats = AttemptStatsV7 & { bankId: string };
 
-async function reorderBanks(ids: string[], folderId?: string) { await reorderBanksV6(ids, folderId); }
-async function saveBank(id: string, changes: Partial<Pick<BankV6, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>) { return updateBankV6(id, changes); }
-async function saveBankFolder(input: Partial<BankFolder>): Promise<BankFolder> { return saveBankFolderV6({ id: input.id, name: input.name?.trim() || "未命名文件夹", description: input.description ?? "" }); }
-async function deleteBankFolder(id: string): Promise<void> { await deleteBankFolderV6(id); }
+async function reorderBanks(ids: string[], folderId?: string) { await reorderBanksV7(ids, folderId); }
+async function saveBank(id: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>) { return updateBankV7(id, changes); }
+async function saveBankFolder(input: Partial<BankFolder>): Promise<BankFolder> { return saveBankFolderV7({ id: input.id, name: input.name?.trim() || "未命名文件夹", description: input.description ?? "" }); }
+async function deleteBankFolder(id: string): Promise<void> { await deleteBankFolderV7(id); }
 
 export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
@@ -68,7 +68,7 @@ function runAccuracy(run: PracticeRun) {
 }
 
 export function BankLibraryView({ banks, progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", wrongRemovalStreak, onImport, onOpenRun, onNotice }: { banks: Bank[]; progressScope?: ProgressScope; progressScopeLabel?: string; wrongRemovalStreak: number; onImport: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
-  const folders = useLiveQuery(() => dbV6.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
+  const folders = useLiveQuery(() => dbV7.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
   const [activeBankId, setActiveBankId] = useState<string>();
   const [tab, setTab] = useState<"overview" | "questions">("overview");
   const [editingBank, setEditingBank] = useState<Bank>();
@@ -81,7 +81,7 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
   const [showUnfiled, setShowUnfiled] = useState(false);
   const ordered = sortedBanks(banks);
   const activeBank = banks.find((bank) => bank.id === activeBankId);
-  const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestionsV6() : Promise.resolve([]), [showUnfiled]) ?? [];
+  const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestionsV7() : Promise.resolve([]), [showUnfiled]) ?? [];
 
   async function placeBank(bankId: string, folderId: string | undefined, beforeId?: string) {
     const members = sortedBanks(banks.filter((bank) => bank.folderId === folderId && bank.id !== bankId));
@@ -118,9 +118,9 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
 
 function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNotice }: { bank: Bank; busy: boolean; onBusy: (value: boolean) => void; onClose: () => void; onDeleted: (message: string) => void; onNotice: (message: string) => void }) {
   const exclusiveCount = useLiveQuery(async () => {
-    const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).toArray();
+    const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray();
     if (!memberships.length) return 0;
-    const all = await dbV6.bankQuestionMemberships.where("questionId").anyOf(memberships.map((membership) => membership.questionId)).toArray();
+    const all = await dbV7.bankQuestionMemberships.where("questionId").anyOf(memberships.map((membership) => membership.questionId)).toArray();
     const counts = new Map<string, number>();
     for (const membership of all) counts.set(membership.questionId, (counts.get(membership.questionId) ?? 0) + 1);
     return memberships.filter((membership) => counts.get(membership.questionId) === 1).length;
@@ -130,10 +130,10 @@ function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNotice }: 
     try {
       onBusy(true);
       if (alsoDeleteQuestions) {
-        const result = await deleteBankWithExclusiveQuestionsV6(bank.id);
+        const result = await deleteBankWithExclusiveQuestionsV7(bank.id);
         onDeleted(`题库“${bankTitle(bank)}”已删除，同时清理 ${result.deletedQuestions} 道独占题目`);
       } else {
-        await deleteBankV6(bank.id);
+        await deleteBankV7(bank.id);
         onDeleted(`题库“${bankTitle(bank)}”已删除，题目已保留`);
       }
     } catch (error) {
@@ -146,8 +146,8 @@ function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNotice }: 
   return <ModalPortal><div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="simple-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-delete-title"><header><div><span className="section-kicker">题库管理</span><h2 id="bank-delete-title">删除题库时如何处理题目？</h2></div><button className="icon-button" disabled={busy} onClick={onClose} aria-label="取消删除题库"><X size={17} /></button></header><p className="delete-dialog-summary"><strong>{bankTitle(bank)}</strong><span>该题库共 {bank.questionCount.toLocaleString()} 道题，其中 {exclusiveCount === undefined ? "正在统计" : `${exclusiveCount.toLocaleString()} 道`}只属于这个题库。</span></p><div className="delete-choice-list"><button disabled={busy} onClick={() => void removeBank(false)}><span>只删除题库，保留题目</span><small>题目与学习记录继续保留；没有其他归属的题会进入“未归档题目”。</small></button><button className="danger-button" disabled={busy || exclusiveCount === undefined} onClick={() => void removeBank(true)}><span>删除题库和独占题目</span><small>永久删除只属于这个题库的 {exclusiveCount ?? 0} 道题及其学习记录；其他题库共用的题不会删除。</small></button></div>{busy && <p className="delete-dialog-progress">正在处理，请勿关闭…</p>}<footer><button disabled={busy} onClick={onClose}>取消</button></footer></section></div></ModalPortal>;
 }
 
-function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV6[]; onNotice: (message: string) => void }) {
-  const [editing, setEditing] = useState<QuestionV6>();
+function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV7[]; onNotice: (message: string) => void }) {
+  const [editing, setEditing] = useState<QuestionV7>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -157,7 +157,7 @@ function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV6
   async function deleteSelected() {
     try {
       setDeleting(true);
-      const count = await deleteQuestionsV6(selectedIds);
+      const count = await deleteQuestionsV7(selectedIds);
       setSelectedIds([]);
       setConfirmingDelete(false);
       onNotice(`已永久删除 ${count} 道未归档题目及其学习记录`);
@@ -168,7 +168,7 @@ function UnfiledQuestionSection({ questions, onNotice }: { questions: QuestionV6
     }
   }
 
-  return <section className="unfiled-question-section"><header><div><span className="section-kicker">全局题目仍保留</span><h2>未归档题目</h2><p>这些题目暂时没有任何题库归属，可批量清理或重新编辑。</p></div><strong>{questions.length} 道题</strong></header>{models.length ? <><div className="question-bulk-bar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : models.map((question) => question.id))} />全选 {models.length} 道</label><span>已选 {selectedIds.length} 道</span><button className="danger-button" disabled={!selectedIds.length} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} />批量删除</button></div><div className="managed-question-list selectable">{models.map((question) => <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择未归档题目 ${question.stem}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setEditing(question.canonical)}><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>{question.type} · {question.tags.join("、") || "无标签"}</small></button></article>)}</div></> : <p className="question-manager-empty">暂无未归档题目。</p>}{editing && <SharedQuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("未归档题目已保存"); }} />}<ConfirmDialog open={confirmingDelete} eyebrow="未归档题目" title={`永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel="永久删除" onCancel={() => setConfirmingDelete(false)} onConfirm={() => void deleteSelected()} description={<><strong>所选题目没有任何题库归属</strong><span>题目、作答记录、统计、解析、题组和练习引用都会永久删除，此操作不可撤销。</span></>} /></section>;
+  return <section className="unfiled-question-section"><header><div><span className="section-kicker">全局题目仍保留</span><h2>未归档题目</h2><p>这些题目暂时没有任何题库归属，可批量清理或重新编辑。</p></div><strong>{questions.length} 道题</strong></header>{models.length ? <><div className="question-bulk-bar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : models.map((question) => question.id))} />全选 {models.length} 道</label><span>已选 {selectedIds.length} 道</span><button className="danger-button" disabled={!selectedIds.length} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} />批量删除</button></div><div className="managed-question-list selectable">{models.map((question) => <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择未归档题目 ${question.stem}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setEditing(question.canonical)}><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} /><small>{question.type} · {question.tags.join("、") || "无标签"}</small></button></article>)}</div></> : <p className="question-manager-empty">暂无未归档题目。</p>}{editing && <SharedQuestionEditor question={editing} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("未归档题目已保存"); }} />}<ConfirmDialog open={confirmingDelete} eyebrow="未归档题目" title={`永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel="永久删除" onCancel={() => setConfirmingDelete(false)} onConfirm={() => void deleteSelected()} description={<><strong>所选题目没有任何题库归属</strong><span>题目、作答记录、统计、解析、题组和练习引用都会永久删除，此操作不可撤销。</span></>} /></section>;
 }
 
 function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
@@ -184,16 +184,16 @@ function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wro
   defaultCustomFrom.setDate(defaultCustomFrom.getDate() - 6);
   const [customActivityRange, setCustomActivityRange] = useState({ from: calendarDate(defaultCustomFrom), to: calendarDate(new Date(referenceTime)) });
   const dataset = useLiveQuery(async () => {
-    const views = await listQuestionViewsForBankV6(bank.id);
+    const views = await listQuestionViewsForBankV7(bank.id);
     const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
     const questionIds = new Set(questions.map((question) => question.id));
     const [rawStats, rawAttempts, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
-      dbV6.attemptStats.toArray(),
-      dbV6.attempts.toArray(),
-      dbV6.notes.toArray(),
-      dbV6.practiceRuns.toArray(),
-      dbV6.practiceRunStats.get(bank.id),
-      dbV6.reviewRoundProgress.toArray(),
+      dbV7.attemptStats.toArray(),
+      dbV7.attempts.toArray(),
+      dbV7.notes.toArray(),
+      dbV7.practiceRuns.toArray(),
+      dbV7.practiceRunStats.get(bank.id),
+      dbV7.reviewRoundProgress.toArray(),
     ]);
     const attemptStats = rawStats.filter((stats) => questionIds.has(stats.questionId)).map((stats) => ({ ...stats, bankId: bank.id }));
     return { questions, lifetimeAttemptStats: attemptStats, attempts: rawAttempts.filter((attempt) => questionIds.has(attempt.questionId)), notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress: roundProgress.filter((row) => questionIds.has(row.questionId)) };
@@ -400,7 +400,7 @@ function QuestionManager({ bank, questions, attemptStats, notes, roundProgress =
   const noteIds = useMemo(() => new Set(notes.filter((note) => note.content.trim()).map((note) => note.questionId)), [notes]);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v6-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };
@@ -433,8 +433,8 @@ function QuestionManager({ bank, questions, attemptStats, notes, roundProgress =
     try {
       setDeleting(true);
       const count = bulkAction === "remove"
-        ? await removeMembershipsV6(bank.id, selectedIds)
-        : await deleteQuestionsV6(selectedIds);
+        ? await removeMembershipsV7(bank.id, selectedIds)
+        : await deleteQuestionsV7(selectedIds);
       setSelectedIds([]);
       setBulkAction(undefined);
       onNotice(bulkAction === "remove" ? `已从「${bankTitle(bank)}」移除 ${count} 道题` : `已永久删除 ${count} 道题及其学习记录`);
@@ -445,20 +445,20 @@ function QuestionManager({ bank, questions, attemptStats, notes, roundProgress =
     }
   }
 
-  const blankCanonical: QuestionV6 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), answer: "A", tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };
-  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p>{filtered.length > 0 && <div className="question-bulk-bar"><label><input type="checkbox" checked={allFilteredSelected} onChange={() => setSelectedIds(allFilteredSelected ? [] : filtered.map((question) => question.id))} />选择当前筛选 {filtered.length} 道</label><span>已选 {selectedIds.length} 道</span><div><button disabled={!selectedIds.length} onClick={() => setBulkAction("remove")}>从题库移除</button><button className="danger-button" disabled={!selectedIds.length} onClick={() => setBulkAction("delete")}><Trash2 size={15} />永久删除</button></div></div>}<div className="managed-question-list selectable">{visibleQuestions.map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择题目 ${index + 1}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setViewing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} /><small>答案 {question.answer} · 作答 {summary.total} 次（{progressScopeLabel}） · 正确 {summary.correct} 次 · 错误 {summary.wrong} 次</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <SharedQuestionEditor question={editing.canonical} preferredBankId={bank.id} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("题目已保存"); }} />}{viewing && <QuestionDetail question={viewing} metric={summarizeAttemptStats(statsByQuestion.get(viewing.id))} scopeLabel={progressScopeLabel} note={notes.find((item) => item.questionId === viewing.id)?.content} onClose={() => setViewing(undefined)} footer={<><button onClick={() => { setEditing(viewing); setViewing(undefined); }}><Pencil size={16} />编辑题目</button><button onClick={() => { setPendingDelete(viewing); setViewing(undefined); }}><Trash2 size={16} />删除题目</button></>} nav={viewingIndex >= 0 ? { index: viewingIndex, total: filtered.length, onPrevious: () => { if (viewingIndex > 0) setViewing(filtered[viewingIndex - 1]); }, onNext: () => { if (viewingIndex < filtered.length - 1) setViewing(filtered[viewingIndex + 1]); }, keyboardShortcuts: navPrefs.keyboardShortcuts, swipeNavigation: navPrefs.swipeNavigation, center: <span className="search-detail-count">{viewingIndex + 1} / {filtered.length}</span> } : undefined} />}{adding && <QuestionEditor question={blankCanonical} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges, note?: string) => { const created = await createQuestionV6(bank.id, changes); if (note) await saveNoteV6(created.id, note); setAdding(false); onNotice("新题目已添加"); }} />}<BankQuestionDeleteDialog question={pendingDelete} bank={bank} busy={deleting} onClose={() => setPendingDelete(undefined)} onBusy={setDeleting} onNotice={onNotice} /><ConfirmDialog open={Boolean(bulkAction)} eyebrow="批量处理题目" title={bulkAction === "remove" ? `从题库移除 ${selectedIds.length} 道题？` : `永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel={bulkAction === "remove" ? "批量移除" : "永久删除"} onCancel={() => setBulkAction(undefined)} onConfirm={() => void performBulkAction()} description={bulkAction === "remove" ? <><strong>题目会从“{bankTitle(bank)}”移除</strong><span>题目与学习记录仍保留；没有其他归属的题会进入“未归档题目”。</span></> : <><strong>所选题目将从所有题库永久删除</strong><span>相关作答、统计、解析、题组和练习引用也会删除，此操作不可撤销。</span></>} /></section>;
+  const blankCanonical: QuestionV7 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), answer: "A", tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };
+  return <section className="question-manager"><header><div className="question-manager-search"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisible(80); }} placeholder="搜索题干、选项或标签" /></div><AppSelect ariaLabel="统计条件筛选" value={preset} onValueChange={(value) => { onPresetChange(value as QuestionPreset); setVisible(80); }} options={(Object.keys(PRESET_LABELS) as QuestionPreset[]).map((value) => ({ value, label: PRESET_LABELS[value] }))} /><AppSelect ariaLabel="筛选题型" value={type} onValueChange={(value) => { setType(value as "全部" | QuestionType); setVisible(80); }} options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))} /><button className="primary" onClick={() => setAdding(true)}><Plus size={16} />新增题目</button></header><p className="question-manager-count">当前条件：{PRESET_LABELS[preset]} · 找到 {filtered.length} 道题，当前显示 {Math.min(visible, filtered.length)} 道</p>{filtered.length > 0 && <div className="question-bulk-bar"><label><input type="checkbox" checked={allFilteredSelected} onChange={() => setSelectedIds(allFilteredSelected ? [] : filtered.map((question) => question.id))} />选择当前筛选 {filtered.length} 道</label><span>已选 {selectedIds.length} 道</span><div><button disabled={!selectedIds.length} onClick={() => setBulkAction("remove")}>从题库移除</button><button className="danger-button" disabled={!selectedIds.length} onClick={() => setBulkAction("delete")}><Trash2 size={15} />永久删除</button></div></div>}<div className="managed-question-list selectable">{visibleQuestions.map((question, index) => { const summary = summarizeAttemptStats(statsByQuestion.get(question.id)); return <article key={question.id} className={selectedIds.includes(question.id) ? "selected" : ""}><label className="managed-question-check"><input type="checkbox" aria-label={`选择题目 ${index + 1}`} checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /></label><button onClick={() => setViewing(question)}><div><em>{question.type}</em>{question.tags.map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} /><small>答案 {question.answer} · 作答 {summary.total} 次（{progressScopeLabel}） · 正确 {summary.correct} 次 · 错误 {summary.wrong} 次</small></button><div><button aria-label="编辑题目" onClick={() => setEditing(question)}><Pencil size={15} /></button><button aria-label="删除题目" onClick={() => setPendingDelete(question)}><Trash2 size={15} /></button></div></article>; })}</div>{visible < filtered.length && <button className="search-load-more" onClick={() => setVisible(visible + 80)}>继续加载（{visible} / {filtered.length}）</button>}{!filtered.length && <div className="question-manager-empty"><Search /><h3>没有符合条件的题目</h3><p>可以切换统计条件、题型或清空关键词。</p></div>}{editing && <SharedQuestionEditor question={editing.canonical} preferredBankId={bank.id} onCancel={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); onNotice("题目已保存"); }} />}{viewing && <QuestionDetail question={viewing} metric={summarizeAttemptStats(statsByQuestion.get(viewing.id))} scopeLabel={progressScopeLabel} note={notes.find((item) => item.questionId === viewing.id)?.content} onClose={() => setViewing(undefined)} footer={<><button onClick={() => { setEditing(viewing); setViewing(undefined); }}><Pencil size={16} />编辑题目</button><button onClick={() => { setPendingDelete(viewing); setViewing(undefined); }}><Trash2 size={16} />删除题目</button></>} nav={viewingIndex >= 0 ? { index: viewingIndex, total: filtered.length, onPrevious: () => { if (viewingIndex > 0) setViewing(filtered[viewingIndex - 1]); }, onNext: () => { if (viewingIndex < filtered.length - 1) setViewing(filtered[viewingIndex + 1]); }, keyboardShortcuts: navPrefs.keyboardShortcuts, swipeNavigation: navPrefs.swipeNavigation, center: <span className="search-detail-count">{viewingIndex + 1} / {filtered.length}</span> } : undefined} />}{adding && <QuestionEditor question={blankCanonical} title="新增题目" eyebrow={`添加到 ${bankTitle(bank)}`} submitLabel="添加题目" onCancel={() => setAdding(false)} onSave={async (changes: QuestionChanges, note?: string) => { const created = await createQuestionV7(bank.id, changes); if (note) await saveNoteV7(created.id, note); setAdding(false); onNotice("新题目已添加"); }} />}<BankQuestionDeleteDialog question={pendingDelete} bank={bank} busy={deleting} onClose={() => setPendingDelete(undefined)} onBusy={setDeleting} onNotice={onNotice} /><ConfirmDialog open={Boolean(bulkAction)} eyebrow="批量处理题目" title={bulkAction === "remove" ? `从题库移除 ${selectedIds.length} 道题？` : `永久删除 ${selectedIds.length} 道题？`} tone="danger" busy={deleting} confirmLabel={bulkAction === "remove" ? "批量移除" : "永久删除"} onCancel={() => setBulkAction(undefined)} onConfirm={() => void performBulkAction()} description={bulkAction === "remove" ? <><strong>题目会从“{bankTitle(bank)}”移除</strong><span>题目与学习记录仍保留；没有其他归属的题会进入“未归档题目”。</span></> : <><strong>所选题目将从所有题库永久删除</strong><span>相关作答、统计、解析、题组和练习引用也会删除，此操作不可撤销。</span></>} /></section>;
 }
 
 function BankQuestionDeleteDialog({ question, bank, busy, onClose, onBusy, onNotice }: { question?: Question; bank: Bank; busy: boolean; onClose: () => void; onBusy: (value: boolean) => void; onNotice: (message: string) => void }) {
   if (!question) return null;
   const target = question;
   async function removeFromBank() {
-    try { onBusy(true); await removeMembershipV6(bank.id, target.id); onClose(); onNotice(`题目已从「${bankTitle(bank)}」移除，可在未归档题目中找回`); }
+    try { onBusy(true); await removeMembershipV7(bank.id, target.id); onClose(); onNotice(`题目已从「${bankTitle(bank)}」移除，可在未归档题目中找回`); }
     catch (error) { onNotice(error instanceof Error ? error.message : "移除题目失败"); }
     finally { onBusy(false); }
   }
   async function deleteGlobally() {
-    try { onBusy(true); await deleteQuestionV6(target.id); onClose(); onNotice("题目及全部学习记录已删除"); }
+    try { onBusy(true); await deleteQuestionV7(target.id); onClose(); onNotice("题目及全部学习记录已删除"); }
     catch (error) { onNotice(error instanceof Error ? error.message : "删除题目失败"); }
     finally { onBusy(false); }
   }
@@ -478,7 +478,7 @@ function BankCreateDialog({ folders, onClose, onCreated }: { folders: BankFolder
     try {
       setBusy(true);
       setError("");
-      const bank = await createBankV6({
+      const bank = await createBankV7({
         name: name.trim(),
         description,
         folderId: folderId === "unfiled" ? undefined : folderId,

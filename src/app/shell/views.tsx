@@ -2,11 +2,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { BookOpen, Brain, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Cloud, Copy, BadgeInfo, CircleHelp, FileUp, Grid3X3, ListFilter, Monitor, Moon, NotebookPen, Pencil, Play, RefreshCw, Settings2, Star, Sun, Target, X } from "lucide-react";
-import { archiveReviewRoundV6, completeReviewRoundV6, createReviewRoundV6, dbV6, getImageCacheSizeV6, updateReviewRoundV6 } from "@/lib/db/db-v6";
+import { archiveReviewRoundV7, completeReviewRoundV7, createReviewRoundV7, dbV7, getImageCacheSizeV7, updateReviewRoundV7 } from "@/lib/db/db-v7";
 import { loadGitHubSettings, loadGitHubToken } from "@/lib/sync/github-credentials";
 import { clearImageCache, downloadAllImageAssets, getImageCacheStats } from "@/lib/sync/github-sync";
 import { difficultyLabel, difficultyTone } from "@/lib/practice/practice-metrics";
-import { SharedQuestionEditor, loadImageAssetV6 } from "@/app/bank/question-editor";
+import { SharedQuestionEditor, loadImageAssetV7 } from "@/app/bank/question-editor";
 import { NoteMarkdown } from "@/app/ui/note-markdown";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
@@ -19,9 +19,9 @@ import { Hint } from "@/app/ui/hint";
 import { formatKeyboardShortcut, resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
 import { isCalculationAnswerCorrect } from "@/lib/question/question-utils";
-import type { BankV6, ReviewRound } from "@/lib/db/v6-types";
+import type { BankV7, ReviewRound } from "@/lib/db/v7-types";
 import { questionOverviewProgress } from "@/lib/question/question-overview";
-import { SyncView, TYPE_ORDER, answerText, displayedAnswer, formatBuildTimestamp, formatDate, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV6AttemptStats, updateServiceWorkerWithinTimeout, type PracticeAnswerState, type PracticePreferences, type PracticeRun, type Question, type QuestionType } from "./helpers";
+import { SyncView, TYPE_ORDER, answerText, displayedAnswer, formatBuildTimestamp, formatDate, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, updateServiceWorkerWithinTimeout, type PracticeAnswerState, type PracticePreferences, type PracticeRun, type Question, type QuestionType } from "./helpers";
 
 export function PullToRefresh() {
   const [distance, setDistance] = useState(0);
@@ -142,7 +142,7 @@ export function EmptyImport({ onImport }: { onImport: () => void }) {
   return <button className="empty-import" onClick={onImport}><span><FileUp size={22} /></span><div><strong>导入题库</strong><small>支持 JSON / XLSX，数据只写入本机</small></div><ChevronRight size={18} /></button>;
 }
 
-export function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV6[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
+export function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV7[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
   const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
@@ -181,10 +181,10 @@ export function PreferencesView({ preferences, rounds, banks, pendingSync, onNot
     <ReviewRoundManager
       rounds={rounds}
       banks={banks}
-      onCreate={async (name, bankIds) => { await createReviewRoundV6({ name, bankIds }); onNotice(`已创建复习轮次「${name}」`); }}
-      onUpdate={async (roundId, name, bankIds) => { await updateReviewRoundV6(roundId, { name, bankIds }); onNotice("复习轮次已更新"); }}
-      onComplete={async (roundId) => { await completeReviewRoundV6(roundId); onNotice("复习轮次已完成并保存最终快照"); }}
-      onArchive={async (roundId) => { await archiveReviewRoundV6(roundId); onNotice("复习轮次已归档"); }}
+      onCreate={async (name, bankIds) => { await createReviewRoundV7({ name, bankIds }); onNotice(`已创建复习轮次「${name}」`); }}
+      onUpdate={async (roundId, name, bankIds) => { await updateReviewRoundV7(roundId, { name, bankIds }); onNotice("复习轮次已更新"); }}
+      onComplete={async (roundId) => { await completeReviewRoundV7(roundId); onNotice("复习轮次已完成并保存最终快照"); }}
+      onArchive={async (roundId) => { await archiveReviewRoundV7(roundId); onNotice("复习轮次已归档"); }}
     />
     <ImageCacheSetting onNotice={onNotice} />
     <section className="preference-card"><div className="settings-title"><span><Target /></span><div><h2>阅读、反馈与目标</h2><p>调整显示密度，设置每天的练习目标。</p></div></div><div className="preference-list">
@@ -199,7 +199,7 @@ export function PreferencesView({ preferences, rounds, banks, pendingSync, onNot
 }
 
 export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }) {
-  const cachedBytes = useLiveQuery(() => getImageCacheSizeV6(), []) ?? 0;
+  const cachedBytes = useLiveQuery(() => getImageCacheSizeV7(), []) ?? 0;
   const [busy, setBusy] = useState(false);
   const [assetCount, setAssetCount] = useState<number | undefined>();
 
@@ -313,8 +313,8 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [startedAt] = useState(() => Date.now());
-  const note = useLiveQuery(() => dbV6.notes.get(question.id), [question.id]);
-  const attemptSummary = useLiveQuery(async () => summarizeV6AttemptStats(await dbV6.attemptStats.get(question.id)), [question.id]) ?? summarizeV6AttemptStats();
+  const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
+  const attemptSummary = useLiveQuery(async () => summarizeV7AttemptStats(await dbV7.attemptStats.get(question.id)), [question.id]) ?? summarizeV7AttemptStats();
   const [draft, setDraft] = useState<string | null>(null);
   const [noteEditing, setNoteEditing] = useState(false);
   // 换题时退出编辑态（React 官方「渲染期间调整状态」模式，替代 effect 内 setState）。
@@ -582,7 +582,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   }
 
   return <><div className="practice-layout"><section ref={questionCardRef} className="question-card" data-no-pull-refresh><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV6} className="practice-stem" />{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}{question.type === "计算" ? <div className={`calculation-answer ${submitted ? correct ? "correct" : "wrong" : ""}`}><label htmlFor={`calculation-answer-${question.id}`}>输入计算结果</label><input id={`calculation-answer-${question.id}`} aria-label="计算题答案" type="number" inputMode="decimal" value={submitted ? selectedCanonical : calculationDraft} disabled={submitted} onChange={(event) => setCalculationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder={`允许误差 ${preferences.calculationTolerancePercent}%`} /><small>按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定</small></div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV6} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem" />{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}{question.type === "计算" ? <div className={`calculation-answer ${submitted ? correct ? "correct" : "wrong" : ""}`}><label htmlFor={`calculation-answer-${question.id}`}>输入计算结果</label><input id={`calculation-answer-${question.id}`} aria-label="计算题答案" type="number" inputMode="decimal" value={submitted ? selectedCanonical : calculationDraft} disabled={submitted} onChange={(event) => setCalculationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder={`允许误差 ${preferences.calculationTolerancePercent}%`} /><small>按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定</small></div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
       {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：确认 <kbd>{preferences.keyboardShortcuts.bindings.confirm.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.bindings.previous.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.bindings.next.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd></div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}

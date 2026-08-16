@@ -1,5 +1,5 @@
 import type { AttemptStats } from "../../types/types";
-import type { AttemptV6, ReviewRoundProgress } from "../db/v6-types";
+import type { AttemptV7, ReviewRoundProgress } from "../db/v7-types";
 
 /** Minimal global projection required to decide whether a question is done. */
 export interface ProgressAttemptStats {
@@ -186,7 +186,7 @@ export function calculateProgressCompletion(
 export function buildScopedQuestionStats(
   questionIds: readonly string[],
   scope: ProgressScope,
-  attempts: readonly AttemptV6[],
+  attempts: readonly AttemptV7[],
   roundProgress: readonly ReviewRoundProgress[],
   referenceTime: ReferenceTime,
 ): Map<string, ScopedQuestionStats> {
@@ -210,7 +210,7 @@ export function buildScopedQuestionStats(
 
   const referenceMs = epochMs(referenceTime);
   const cutoff = normalized.type === "rolling" ? referenceMs - normalized.days * DAY_MS : null;
-  const grouped = new Map<string, AttemptV6[]>();
+  const grouped = new Map<string, AttemptV7[]>();
   for (const attempt of attempts) {
     if (!ids.has(attempt.questionId)) continue;
     const createdAt = new Date(attempt.createdAt).getTime();

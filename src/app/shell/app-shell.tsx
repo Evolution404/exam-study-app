@@ -2,8 +2,8 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, ClipboardCheck, Cloud, Home, Library, Link2, ListFilter, LoaderCircle, Menu, Play, RefreshCw, Settings2, Sparkles, X } from "lucide-react";
-import { dbV6, getV6DeviceId, createPracticeRunV6 } from "@/lib/db/db-v6";
-import { getQuestionViewV6, listQuestionViewsForBanksV6 } from "@/lib/db/app-data-v6";
+import { dbV7, getV7DeviceId, createPracticeRunV7 } from "@/lib/db/db-v7";
+import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { SyncProgress, SyncHotWindowState } from "@/lib/sync/github-sync";
 import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, pullFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/sync/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/sync/github-credentials";
@@ -24,7 +24,7 @@ import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
 import type { SyncChangeSetItemV7 } from "@/app/sync/sync-event-manager";
 import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
 import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/sync/change-set-v7-queue";
-import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV6AttemptStats, toLegacyAttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
+import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toLegacyAttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
 import { Dashboard, Practice, PreferencesView, PullToRefresh } from "./views";
 
 export function AppShell() {
@@ -121,16 +121,16 @@ export function AppShell() {
   }
 
 
-  const banks = useLiveQuery(async () => (await dbV6.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
+  const banks = useLiveQuery(async () => (await dbV7.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)), []) ?? [];
   const validSelectedBankIds = selectedBankIds.filter((id) => banks.some((bank) => bank.id === id));
   const activeBankIds = validSelectedBankIds;
   const latestPracticeRun = useLiveQuery(async () => {
-    return dbV6.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1));
+    return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1));
   }, []);
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
   const activeQuestion = useLiveQuery(async () => {
     if (!activeQuestionId) return undefined;
-    const view = await getQuestionViewV6(activeQuestionId, practiceSession?.bankId);
+    const view = await getQuestionViewV7(activeQuestionId, practiceSession?.bankId);
     // null = 已解析但题目不存在（本机或后台同步删除），区别于加载中的 undefined，
     // 供下方「跳过已删题」effect 判定当前题已消失。
     if (!view) return null;
@@ -150,7 +150,7 @@ export function AppShell() {
     // 避免把「liveQuery 尚未刷新」误判为删除，导致连环跳过把整组题清空。
     let cancelled = false;
     void (async () => {
-      const stillExists = await getQuestionViewV6(deletedId, practiceSession.bankId);
+      const stillExists = await getQuestionViewV7(deletedId, practiceSession.bankId);
       if (cancelled || stillExists) return; // 题目还在，只是 liveQuery 没刷新，不跳过
       if (!survivors.length) {
         setNotice("练习中的题目已被删除，本次练习结束");
@@ -191,7 +191,7 @@ export function AppShell() {
   // 「已解析且不存在」与加载中的 undefined。
   const activeRunExists = useLiveQuery(async () => {
     if (!practiceSession) return undefined;
-    return Boolean(await dbV6.practiceRuns.get(practiceSession.runId));
+    return Boolean(await dbV7.practiceRuns.get(practiceSession.runId));
   }, [practiceSession?.runId]);
   useEffect(() => {
     if (view !== "practice" || !practiceSession || activeRunExists !== false) return;
@@ -204,8 +204,8 @@ export function AppShell() {
   const stats = useLiveQuery(async () => {
     const today = calendarDate(new Date());
     const [questions, attemptStats, todayRows, pending, notes] = await Promise.all([
-      dbV6.questions.count(), dbV6.attemptStats.toArray(), dbV6.attemptDailyStats.where("date").equals(today).toArray(),
-      dbV6.changeSets.where("state").anyOf(["pending", "blocked"]).count(), dbV6.notes.count(),
+      dbV7.questions.count(), dbV7.attemptStats.toArray(), dbV7.attemptDailyStats.where("date").equals(today).toArray(),
+      dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), dbV7.notes.count(),
     ]);
     const totals = attemptStats.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
     const todayTotals = todayRows.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
@@ -223,7 +223,7 @@ export function AppShell() {
   }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
   // The `?? []` fallback must be memoised too, otherwise its fresh array on
   // every render would defeat the dependency check below.
-  const syncChangeSetsRaw = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []);
+  const syncChangeSetsRaw = useLiveQuery(() => dbV7.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []);
   const syncChangeSets = useMemo(() => syncChangeSetsRaw ?? [], [syncChangeSetsRaw]);
   // Dependency resolution is only needed when the change-set list actually
   // changes; memoising it keeps every answer submission (which re-renders the
@@ -239,7 +239,7 @@ export function AppShell() {
       cancellable: record.state === "pending" || record.state === "blocked",
     }));
   }, [syncChangeSets]);
-  const reviewRounds = useLiveQuery(() => dbV6.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
+  const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
     ? reviewRounds.find((round) => round.id === normalizedProgressScope.roundId)?.name || "当前复习轮次"
@@ -247,17 +247,17 @@ export function AppShell() {
   const activeBankKey = activeBankIds.join("|");
   const scopeProgress = useLiveQuery(async () => {
     if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const [questions, stats, roundProgress] = await Promise.all([listQuestionViewsForBanksV6(activeBankIds), dbV6.attemptStats.toArray(), dbV6.reviewRoundProgress.toArray()]);
+    const [questions, stats, roundProgress] = await Promise.all([listQuestionViewsForBanksV7(activeBankIds), dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray()]);
     const ids = [...new Set(questions.map((view) => view.question.id))];
     const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), stats, roundProgress, Date.now());
     return { completed: completion.completed, total: completion.total };
   }, [activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
   const scopeStats = useLiveQuery(async () => {
     const questionIds = activeBankIds.length
-      ? [...new Set((await dbV6.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
-      : await dbV6.questions.toCollection().primaryKeys();
+      ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
+      : await dbV7.questions.toCollection().primaryKeys();
     const [attempts, roundProgress, notes] = await Promise.all([
-      dbV6.attempts.toArray(), dbV6.reviewRoundProgress.toArray(), dbV6.notes.toArray(),
+      dbV7.attempts.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.notes.toArray(),
     ]);
     const questionIdSet = new Set(questionIds);
     const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, Date.now()));
@@ -297,7 +297,7 @@ export function AppShell() {
   }
 
   async function discardSavedPractice(runId: string) {
-    const run = await dbV6.practiceRuns.get(runId);
+    const run = await dbV7.practiceRuns.get(runId);
     if (!run || run.status !== "in_progress") return;
     setDiscardedRun(run);
     await setPracticeRunStatus(run.id, "abandoned", run.answers);
@@ -314,7 +314,7 @@ export function AppShell() {
 
   function updatePreferences(value: PracticePreferences) {
     setPreferences(value);
-    localStorage.setItem("study-v6-preferences", JSON.stringify(value));
+    localStorage.setItem("study-v7-preferences", JSON.stringify(value));
   }
 
   async function quickSync({ silent = false }: { silent?: boolean } = {}) {
@@ -501,7 +501,7 @@ export function AppShell() {
   async function startPractice(filter: PracticeFilter) {
     let requestedBankIds = [...new Set(filter.bankIds)];
     if (filter.reviewRoundId) {
-      const round = await dbV6.reviewRounds.get(filter.reviewRoundId);
+      const round = await dbV7.reviewRounds.get(filter.reviewRoundId);
       if (!round || round.status !== "active") {
         setNotice("这条复习轮次已不存在或已结束，请重新选择。");
         return;
@@ -515,9 +515,9 @@ export function AppShell() {
       setNotice("请先选择一个题库");
       return;
     }
-    // app-data-v6 joins memberships and deliberately de-duplicates shared
+    // app-data-v7 joins memberships and deliberately de-duplicates shared
     // global questions across the selected banks.
-    let questions = (await listQuestionViewsForBanksV6(requestedBankIds)).map((view) => {
+    let questions = (await listQuestionViewsForBanksV7(requestedBankIds)).map((view) => {
       const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
       const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
       return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
@@ -537,15 +537,15 @@ export function AppShell() {
         return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
       });
     }
-    const [statsRows, roundProgress] = await Promise.all([dbV6.attemptStats.toArray(), dbV6.reviewRoundProgress.toArray()]);
+    const [statsRows, roundProgress] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray()]);
     const statsByQuestion = new Map(statsRows.map((stats) => [stats.questionId, stats]));
-    const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV6AttemptStats(stats)]));
+    const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)]));
     const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
     const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
     const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
     questions = questions.filter((question) => {
       const stats = statsByQuestion.get(question.id);
-      const metric = attemptMetrics.get(question.id) ?? summarizeV6AttemptStats();
+      const metric = attemptMetrics.get(question.id) ?? summarizeV7AttemptStats();
       const doneInScope = isQuestionDoneInScope(question.id, progressScope, statsRows, roundProgress, Date.now());
       if (filter.status === "unanswered" && doneInScope) return false;
       if (filter.status === "wrong" && !statsNeedWrongReview(toLegacyAttemptStats(stats), preferences.wrongRemovalStreak)) return false;
@@ -582,7 +582,7 @@ export function AppShell() {
       return;
     }
     const now = new Date().toISOString();
-    const run = await createPracticeRunV6({
+    const run = await createPracticeRunV7({
       bankId: practiceBanks[0].id,
       bankIds: requestedBankIds,
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
@@ -607,7 +607,7 @@ export function AppShell() {
     const practiceBanks = banks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));
     if (!orderedQuestions.length || !practiceBanks.length) return;
     const now = new Date().toISOString();
-    const run = await createPracticeRunV6({
+    const run = await createPracticeRunV7({
       bankId: practiceBanks[0].id,
       bankIds: practiceBanks.map((bank) => bank.id),
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
@@ -654,14 +654,14 @@ export function AppShell() {
   }
 
   async function resumePractice(runId?: string, preferredIndex?: number) {
-    const run = runId ? await dbV6.practiceRuns.get(runId) : latestPracticeRun;
+    const run = runId ? await dbV7.practiceRuns.get(runId) : latestPracticeRun;
     if (!run || run.status !== "in_progress" || !run.questionIds.length) {
       setNotice("没有可以继续的练习记录");
       return;
     }
     let session = activePracticeFromRun(run, preferredIndex);
     if (!session.questionTypes || Object.keys(session.questionTypes).length !== session.questionIds.length) {
-      const questions = await dbV6.questions.bulkGet(session.questionIds);
+      const questions = await dbV7.questions.bulkGet(session.questionIds);
       session = {
         ...session,
         questionTypes: Object.fromEntries(questions.filter(Boolean).map((question) => [question!.id, question!.type])),
@@ -676,7 +676,7 @@ export function AppShell() {
   }
 
   async function abandonHistoryRun(runId: string) {
-    const run = await dbV6.practiceRuns.get(runId);
+    const run = await dbV7.practiceRuns.get(runId);
     if (!run || run.status !== "in_progress") return;
     await setPracticeRunStatus(runId, "abandoned", run.answers);
     if (practiceSession?.runId === runId) setPracticeSession(null);
@@ -729,7 +729,7 @@ export function AppShell() {
   }
 
   function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
-    const stamped = { ...answerState, updatedAt: new Date().toISOString(), deviceId: getV6DeviceId(), eventId: crypto.randomUUID() };
+    const stamped = { ...answerState, updatedAt: new Date().toISOString(), deviceId: getV7DeviceId(), eventId: crypto.randomUUID() };
     changeSession((session) => ({
       ...session,
       answers: { ...session.answers, [questionId]: stamped },

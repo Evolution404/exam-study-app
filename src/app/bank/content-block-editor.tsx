@@ -7,7 +7,7 @@ import {
   replaceContentBlock,
   type TextSelection,
 } from "@/lib/question/question-content";
-import type { ContentBlock, ImageContentBlock, TextContentBlock } from "@/lib/db/v6-types";
+import type { ContentBlock, ImageContentBlock, TextContentBlock } from "@/lib/db/v7-types";
 
 export interface PreparedImage {
   assetId: string;
@@ -59,7 +59,7 @@ function imageIdFor(blocks: readonly ContentBlock[], counter: { current: number 
 }
 
 /**
- * Controlled paragraph-level editor for the v6 ContentBlock model.
+ * Controlled paragraph-level editor for the v7 ContentBlock model.
  * Text is kept verbatim in textareas, so formulas and authored whitespace are
  * not normalised while inserting or moving images.
  */

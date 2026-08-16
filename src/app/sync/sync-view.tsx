@@ -6,7 +6,7 @@ import type { SyncProgress } from "@/lib/sync/github-sync";
 import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings, saveGitHubToken } from "@/lib/sync/github-credentials";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { clearAllSiteData, clearSiteDataExceptConfig, reloadAsFreshSite } from "@/lib/sync/site-data-reset";
-import { dbV6 } from "@/lib/db/db-v6";
+import { dbV7 } from "@/lib/db/db-v7";
 import { discardManagedChangeSetV7, reviseManagedChangeSetV7 } from "@/lib/sync/change-set-v7-queue";
 import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
 import { questionContentFingerprint } from "@/lib/question/question-content";
@@ -25,7 +25,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const [clearPrompt, setClearPrompt] = useState(false);
   const [clearing, setClearing] = useState(false);
   const ready = Boolean(settings.repo && token);
-  const changeSets = useLiveQuery(() => dbV6.changeSets.orderBy("createdAt").reverse().limit(500).toArray(), []) ?? [];
+  const changeSets = useLiveQuery(() => dbV7.changeSets.orderBy("createdAt").reverse().limit(500).toArray(), []) ?? [];
   const manageableChangeSets = changeSets.filter((record) => record.state === "pending" || record.state === "blocked");
   const changeSetItems: SyncChangeSetItemV7[] = changeSets.map((record) => ({ changeSet: record, state: record.state, blockers: record.blockedReason ? [record.blockedReason] : undefined, dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets), editable: record.state === "pending" || record.state === "blocked", cancellable: record.state === "pending" || record.state === "blocked" }));
   const smoothProgress = useSmoothProgress(operationProgress);
@@ -73,7 +73,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   }
 
   async function editChangeSet(id: string, edit: SyncChangeSetTypedEditV7) {
-    const current = await dbV6.changeSets.get(id);
+    const current = await dbV7.changeSets.get(id);
     if (!current || (current.state !== "pending" && current.state !== "blocked")) throw new Error("该变更已进入同步流程，不能继续修改。");
     const mutations = current.mutations.map((mutation, index) => {
       if (index !== edit.mutationIndex || mutation.kind !== edit.kind) return mutation;

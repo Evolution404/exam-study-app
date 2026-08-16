@@ -5,7 +5,7 @@ import { ArrowLeft, Check, ChevronRight, RotateCcw, Search, X } from "lucide-rea
 import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/practice/progress-scope";
-import type { BankV6 } from "@/lib/db/v6-types";
+import type { BankV7 } from "@/lib/db/v7-types";
 
 export type SearchBankScope = "current" | "all" | "custom";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
@@ -49,7 +49,7 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[]): S
   };
 }
 
-export function resolveSearchBankIds(filters: SearchFilters, banks: readonly BankV6[], currentBankIds: readonly string[]): string[] {
+export function resolveSearchBankIds(filters: SearchFilters, banks: readonly BankV7[], currentBankIds: readonly string[]): string[] {
   const available = new Set(banks.map((bank) => bank.id));
   const source = filters.bankScope === "all"
     ? banks.map((bank) => bank.id)
@@ -107,7 +107,7 @@ export function SearchFilterDrawer({
   open: boolean;
   filters: SearchFilters;
   settingsProgressScope: ProgressScope;
-  banks: BankV6[];
+  banks: BankV7[];
   currentBankIds: string[];
   tags: string[];
   onChange: (filters: SearchFilters) => void;

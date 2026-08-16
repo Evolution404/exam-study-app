@@ -1,4 +1,4 @@
-import { V6_DATABASE_NAME, dbV6 } from "../db/db-v6";
+import { V7_DATABASE_NAME, dbV7 } from "../db/db-v7";
 
 function deleteCookie(name: string, path: string, domain?: string) {
   document.cookie = `${name}=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}${domain ? `; domain=${domain}` : ""}; SameSite=Lax`;
@@ -34,7 +34,7 @@ function deleteIndexedDatabase(name: string) {
  * connection (repo + token), and this browser's device identity. Runtime state
  * (selected banks, search history) is treated as data and cleared.
  */
-const CONFIG_LOCAL_STORAGE_KEYS = ["study-v6-preferences", "github-settings", "github-token", "shijuan-study-v6-device-id"] as const;
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "study-v6-preferences", "github-settings", "github-token", "shijuan-study-v7-device-id", "shijuan-study-v6-device-id"] as const;
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {
@@ -42,11 +42,11 @@ async function wipeServiceWorkersCachesDatabasesAndCookies() {
   await Promise.all(registrations.map((registration) => registration.unregister()));
   if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
 
-  dbV6.close();
+  dbV7.close();
   const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
-  // The reset action is deliberately broader than normal v6 startup: it is
+  // The reset action is deliberately broader than normal v7 startup: it is
   // the one user-authorised path that also removes an abandoned legacy DB.
-  const names = new Set([V6_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
+  const names = new Set([V7_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
   clearSiteCookies();

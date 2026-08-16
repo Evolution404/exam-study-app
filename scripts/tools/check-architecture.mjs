@@ -32,33 +32,38 @@ if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器
 const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
-const dbV6 = read("src/lib/db/db-v6.ts");
-const v6DatabaseVersions = [...dbV6.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-const versionsAscending = v6DatabaseVersions.every((version, index) => index === 0 || version > v6DatabaseVersions[index - 1]);
-if (!/V6_DATABASE_NAME\s*=\s*["']shijuan-study-v6["']/.test(dbV6) || !/super\(V6_DATABASE_NAME\)/.test(dbV6)
-  || !v6DatabaseVersions.includes(1) || !v6DatabaseVersions.includes(2) || !versionsAscending) {
-  fail("公开客户端必须只使用独立 shijuan-study-v6 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
+const dbV7 = read("src/lib/db/db-v7.ts");
+const v7DatabaseVersions = [...dbV7.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
+const versionsAscending = v7DatabaseVersions.every((version, index) => index === 0 || version > v7DatabaseVersions[index - 1]);
+if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study-v7["']/.test(dbV7) || !/super\(V7_DATABASE_NAME\)/.test(dbV7)
+  || !v7DatabaseVersions.includes(1) || !v7DatabaseVersions.includes(2) || !versionsAscending) {
+  fail("公开客户端必须只使用独立 shijuan-study-v7 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
 }
 
 const sync = read("src/lib/sync/github-sync.ts");
-const syncV6Head = read("src/lib/sync/sync-v6-head.ts");
 const syncV7 = read("src/lib/sync/github-sync-v7.ts");
 const syncV7Head = read("src/lib/sync/sync-v7-head.ts");
 const syncV7Remote = read("src/lib/sync/github-v7-remote.ts");
+const syncV7Checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+if (fs.existsSync(path.join(root, "src/lib/sync/sync-v6-head.ts")) || fs.existsSync(path.join(root, "src/lib/sync/sync-v6-checkpoint.ts"))) {
+  fail("sync-v6 head/checkpoint 文件必须删除，统一使用 sync-v7-checkpoint");
+}
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
 if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
 if (/github-sync-v5|github-v5-remote|sync-v5|from ["']\.\/db["']/.test(sync)) fail("公开同步门面不得导入 v5 或旧 DB");
-if (/github-sync-v6|github-v6-remote/.test(sync)) fail("公开同步门面不得依赖已移除的 v6 transport");
-if (/encodeSyncV6Event|paginateSyncV6Events|planSyncV6HotTail|mergeSyncV6EventPages|SyncV6HotWindowError|SyncHeadV6/.test(syncV6Head)) fail("v6 事件页/热窗口/发布计划代码必须随 v6 transport 一起移除");
+if (/github-sync-v6|github-v6-remote|sync-v6-head|sync-v6-checkpoint/.test(sync)) fail("公开同步门面不得依赖已移除的 v6 transport");
+if (/sync\/v6\//.test(syncV7) || /sync\/v6\//.test(syncV7Head) || /sync\/v6\//.test(syncV7Remote)) fail("v7 同步模块不得写入 v6 namespace");
 if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync)) fail("公开 syncWithGitHub 必须委托 v7");
 if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
   fail("公开恢复入口必须委托 v7");
 }
 if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
-  || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)) {
-  fail("公开同步入口必须使用 v7 固定 head、严格热窗口和 GitHub v7 transport");
+  || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
+  || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
+  || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
+  fail("公开同步入口必须使用 v7 固定 head、v7 checkpoint 格式、严格热窗口和 GitHub v7 transport");
 }
 
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
@@ -69,4 +74,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：独立数据库 v2 队列、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head。`);
+console.log(`架构检查通过：独立数据库 v7 命名空间、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);
