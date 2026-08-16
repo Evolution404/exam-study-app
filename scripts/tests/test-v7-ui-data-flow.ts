@@ -82,6 +82,8 @@ const history = source("practice/practice-history.tsx");
 assert.match(history, /<QuestionDetail/, "练习结果详情应复用共享 QuestionDetail");
 assert.match(history, /data-question-id=/, "结果列表应带 question id 供详情跟随定位");
 assert.match(history, /scrollIntoView\(/, "结果详情切换时应滚动到当前题目");
+assert.match(history, /buildScopedQuestionStats/, "练习结果详情应按全局口径统计题目数据");
+assert.match(history, /progressScope/, "练习结果详情应使用全局进度口径");
 assert.match(history, /activeResultQuestionId/, "结果详情关闭后应保留当前题目高亮");
 assert.match(history, /加入题组/, "练习结果详情应保留加入题组入口");
 assert.match(history, /编辑题目/, "练习结果详情应保留编辑题目入口");
