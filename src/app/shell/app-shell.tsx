@@ -62,6 +62,10 @@ export function AppShell() {
   const periodicPullRunning = useRef(false);
   const quickSyncAction = useRef<(options?: { silent?: boolean }) => Promise<void>>(async () => undefined);
   const lastAutomaticSyncAt = useRef(0);
+  // 同步是异步操作，await 期间 practiceSession 闭包会过期（用户可能正好提交了答案）。
+  // 渲染期镜像到 ref，同步结束后读最新快照（同 Practice 组件的 lastNoteQuestionId 模式）。
+  const practiceSessionRef = useRef(practiceSession);
+  practiceSessionRef.current = practiceSession;
 
   useAppViewport();
   useAppTheme(preferences.themeMode);
@@ -317,6 +321,40 @@ export function AppShell() {
     localStorage.setItem("study-v7-preferences", JSON.stringify(value));
   }
 
+  // 同步拉取后刷新进行中的练习：另一设备对同一 run 的作答已合并进 DB，但
+  // practiceSession 是打开练习时的内存快照，不刷新就看不到新进度。有新作答时
+  // 切到最后一道做完的题；没有新作答则只静默对齐数据（题干等可能被远端编辑），
+  // 不打断当前答题。
+  async function refreshActivePracticeAfterSync() {
+    const session = practiceSessionRef.current;
+    if (!session) return;
+    const run = await dbV7.practiceRuns.get(session.runId);
+    if (!run) return; // run 行消失（题库被删）交给 E3 守卫处理
+    if (run.status !== "in_progress") {
+      // run 已被另一设备结束/放弃，本机快照成幽灵会话，直接收尾。
+      setPracticeSession(null);
+      if (run.status === "completed") {
+        setResultRunId(run.id);
+        setView("practiceResult");
+        setNotice("本次练习已在其他设备完成，已切换到结果页");
+      } else {
+        setView("home");
+        setNotice("本次练习已在其他设备被放弃，练习已结束");
+      }
+      return;
+    }
+    const incoming = run.questionIds.filter((id) => run.answers[id]?.submitted && !session.answers[id]?.submitted);
+    if (!incoming.length) {
+      setPracticeSession(activePracticeFromRun(run, session.currentIndex));
+      return;
+    }
+    let lastAnsweredIndex = -1;
+    run.questionIds.forEach((id, index) => { if (run.answers[id]?.submitted) lastAnsweredIndex = index; });
+    setPracticeTransitionDirection(lastAnsweredIndex >= session.currentIndex ? 1 : -1);
+    setPracticeSession(activePracticeFromRun(run, Math.max(0, lastAnsweredIndex)));
+    setNotice(`已同步本练习 ${incoming.length} 道新作答，切换到最后一道做完的题`);
+  }
+
   async function quickSync({ silent = false }: { silent?: boolean } = {}) {
     if (syncOperationRunning.current || quickRestoring) return;
     const token = loadGitHubToken();
@@ -343,6 +381,9 @@ export function AppShell() {
           : `接收 ${result.pulled} 组操作`;
         setNotice(`同步完成：上传 ${result.pushed} 组操作，${received}${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 组操作` : ""}`);
       }
+      // 刷新练习必须在「同步完成」提示之后执行，避免 refresh 的
+      // 「已同步本练习 N 道新作答」被后置的 setNotice 覆盖。
+      if (result.pulled || result.receivedSnapshot) await refreshActivePracticeAfterSync();
     } catch (error) {
       if (!silent) setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
@@ -395,7 +436,8 @@ export function AppShell() {
       try {
         const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
         saveGitHubSettings(resolved);
-        await pullFromGitHub(resolved, token);
+        const pullResult = await pullFromGitHub(resolved, token);
+        if (pullResult.pulled || pullResult.receivedSnapshot) await refreshActivePracticeAfterSync();
       } catch (error) {
         setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败");
       } finally {
