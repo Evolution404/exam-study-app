@@ -3,6 +3,8 @@
  */
 import Dexie from "dexie";
 import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "../sync/change-set-v7";
+
+export type { ChangeSetMutationV7 } from "../sync/change-set-v7";
 import { dbV7, getV7DeviceId, makeV7Id, nextV7Sequence, nowIso } from "./db-v7-core";
 
 export type ChangeSetQueueStateV7 = "pending" | "claimed" | "blocked" | "committed";
@@ -56,6 +58,12 @@ export async function commitChangeSetClaimV7(claimId: string, digests: ReadonlyM
     if (exact.length) await dbV7.changeSets.bulkPut(exact.map((record) => ({ ...record, state: "committed" as const, committedAt })));
     return exact.length;
   });
+}
+
+/** internal：用裁剪后的 mutations 重建同一 change-set（保持 id/序号/时间不变）。 */
+export async function rewriteChangeSetMutationsV7(record: ChangeSetQueueRecordV7, mutations: readonly ChangeSetMutationV7[]): Promise<ChangeSetQueueRecordV7> {
+  const rebuilt = await Dexie.waitFor(createChangeSetV7({ id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, mutations }));
+  return { ...record, ...rebuilt, state: "pending", claimId: undefined, claimedAt: undefined, blockedReason: undefined };
 }
 
 export async function discardPendingChangeSetV7(id: string): Promise<boolean> {

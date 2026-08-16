@@ -1,7 +1,6 @@
 /**
  * v7 question content, imports, question groups, notes and cascade deletes.
  */
-import Dexie from "dexie";
 import {
   dbV7,
   getV7DeviceId,
@@ -12,7 +11,7 @@ import {
   uniqueStrings,
 } from "./db-v7-core";
 import type { QuestionDraftV7 } from "./db-v7-core";
-import { enqueueChangeSetV7, type ChangeSetQueueRecordV7 } from "./db-v7-change-sets";
+import { enqueueChangeSetV7, rewriteChangeSetMutationsV7, type ChangeSetMutationV7, type ChangeSetQueueRecordV7 } from "./db-v7-change-sets";
 import {
   deleteBankV7,
   getBankQuestionMembershipsV7,
@@ -21,7 +20,6 @@ import {
   saveMembershipInTx,
   sha256Text,
 } from "./db-v7-bank";
-import { createChangeSetV7, type ChangeSetMutationV7 } from "../sync/change-set-v7";
 import {
   blocksFromPlaceholderText,
   deriveContentText,
@@ -331,8 +329,8 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
     for (const id of cancellableIds) await dbV7.changeSets.delete(id);
     for (const { record, mutations } of rewritable) {
       // 重写 digest 承载的 change-set：同 id/序号/时间，只裁剪 mutation。
-      const rebuilt = await Dexie.waitFor(createChangeSetV7({ id: record.id, deviceId: record.deviceId, localSequence: record.localSequence, createdAt: record.createdAt, mutations }));
-      await dbV7.changeSets.put({ ...record, ...rebuilt, state: "pending", claimId: undefined, claimedAt: undefined, blockedReason: undefined });
+      const rebuilt = await rewriteChangeSetMutationsV7(record, mutations);
+      await dbV7.changeSets.put(rebuilt);
     }
     await dbV7.questions.bulkDelete(existingIds);
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
