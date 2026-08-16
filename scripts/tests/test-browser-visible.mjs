@@ -366,6 +366,10 @@ async function createBlankBank(page, name) {
   await clickTextButton(page, "新建题库");
   const dialog = page.getByRole("dialog", { name: "新建空白题库" });
   await dialog.waitFor({ state: "visible" });
+  // simple-dialog footer 的按钮规则（color:var(--ink)）特异性高于全局 .primary 的
+  // 白字，曾把「创建并添加题目」压成绿底黑字；主按钮必须保持白字。
+  const primaryTone = await dialog.locator("footer .primary").evaluate((button) => getComputedStyle(button).color);
+  assert.equal(primaryTone, "rgb(255, 255, 255)", "新建题库主按钮文字必须为白色（绿底白字）");
   await dialog.getByLabel("题库名称").fill(name);
   await dialog.getByLabel("题库说明").fill("通过可见浏览器测试手动创建");
   await dialog.getByRole("button", { name: "创建并添加题目" }).click();
