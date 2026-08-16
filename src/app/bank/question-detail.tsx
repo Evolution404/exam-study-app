@@ -48,6 +48,18 @@ export function QuestionDetail({ question, metric, scopeLabel, note, onClose, fo
   const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")) return;
+      event.preventDefault();
+      onClose();
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
+  useEffect(() => {
     if (!nav) return;
     const n = nav;
     if (window.matchMedia("(max-width: 760px)").matches) return;

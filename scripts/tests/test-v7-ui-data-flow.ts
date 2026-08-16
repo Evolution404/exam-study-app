@@ -54,7 +54,7 @@ assert.match(bank, /deleteQuestionsV7/, "试题管理与未归档区应支持批
 assert.match(bank, /选择当前筛选/, "试题管理应支持按当前筛选结果全选");
 assert.match(bank, /批量删除/, "未归档题目应支持批量删除");
 // 试题管理：点题目卡片看详情（setViewing），铅笔才编辑；行内统计按区间口径。
-assert.match(bank, /<button onClick=\{\(\) => setViewing\(question\)\}/, "题目卡片点击应打开详情而非直接编辑");
+assert.match(bank, /setViewing\(question\)/, "题目卡片点击应打开详情而非直接编辑");
 assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");
 assert.match(bank, /<QuestionDetail/, "试题管理应复用共享 QuestionDetail");
 assert.match(bank, /@dnd-kit\/sortable/, "题库拖动必须使用成熟拖拽组件 dnd-kit");
@@ -63,6 +63,7 @@ assert.match(bank, /useSortable/, "题库拖动卡片必须通过 useSortable �
 
 const detail = source("bank/question-detail.tsx");
 assert.match(detail, /export function QuestionDetail/, "题目详情应抽出为共享组件");
+assert.match(detail, /event\.key !== "Escape"/, "题目详情应支持 ESC 关闭");
 assert.match(detail, /作答（\{scopeLabel\}）/, "题目详情指标应按区间口径显示");
 assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口径");
 
@@ -118,7 +119,8 @@ assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hove
 
 const search = source("search/search-view.tsx");
 assert.match(search, /detail-current/, "搜索列表应为当前详情题目标记样式");
-assert.match(search, /detailQuestionId === question\.id/, "搜索列表应知道当前详情题目");
+assert.match(search, /\(detailQuestionId \?\? activeQuestionId\) === question\.id/, "搜索列表应知道当前详情题目");
+assert.match(search, /setActiveQuestionId\(detailQuestionId\)/, "搜索详情关闭后应保留当前题目高亮");
 assert.match(search, /data-question-id=/, "搜索结果列表应带 question id 供详情跟随定位");
 assert.match(search, /scrollIntoView\(/, "搜索详情切换时应滚动到当前题目");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
@@ -137,7 +139,8 @@ assert.match(searchFilters, /event\.target === event\.currentTarget/, "点击筛
 
 const group = source("bank/knowledge-view.tsx");
 assert.match(group, /detail-current/, "题组编辑列表应为当前详情题目标记样式");
-assert.match(group, /detailQuestionId === question\.id/, "题组编辑列表应知道当前详情题目");
+assert.match(group, /\(detailQuestionId \?\? activeQuestionId\) === question\.id/, "题组编辑列表应知道当前详情题目");
+assert.match(group, /activeQuestionId/, "题组编辑详情关闭后应保留当前题目高亮");
 assert.match(group, /group-question-open/, "题组编辑中的题目应可点击打开详情");
 assert.match(group, /@dnd-kit\/sortable/, "题组拖动必须使用成熟拖拽组件 dnd-kit");
 assert.match(group, /useSortable/, "题组题目必须通过 useSortable 接入 dnd-kit");
@@ -147,7 +150,8 @@ assert.match(group, /data-question-id=/, "题组列表应带 question id 供详�
 assert.match(group, /scrollIntoView\(/, "题组详情切换时应滚动到当前题目");
 
 assert.match(bank, /detail-current/, "题库管理列表应为当前详情题目标记样式");
-assert.match(bank, /viewing\?\.id === question\.id/, "题库管理列表应知道当前详情题目");
+assert.match(bank, /\(viewing\?\.id \?\? activeQuestionId\) === question\.id/, "题库管理列表应知道当前详情题目");
+assert.match(bank, /activeQuestionId/, "题库管理详情关闭后应保留当前题目高亮");
 assert.match(bank, /data-question-id=/, "题库管理列表应带 question id 供详情跟随定位");
 assert.match(bank, /scrollIntoView\(/, "题库管理详情切换时应滚动到当前题目");
 
