@@ -9,6 +9,8 @@ export const testGroups = {
     "test:press-intent",
     "test:typography",
     "test:overview",
+    "test:progress-boundaries",
+    "test:projection-edge",
     "test:search-filters",
     "test:review-scope-ui",
     "test:change-set-v7",
@@ -31,6 +33,7 @@ export const testGroups = {
   ],
   integration: [
     "test:db-v7",
+    "test:checkpoint-extra",
     "test:sync-mock",
     "test:sync-integration",
     "test:sync-progress",
