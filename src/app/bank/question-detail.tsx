@@ -6,6 +6,7 @@ import { NoteMarkdown } from "@/app/ui/note-markdown";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { loadImageAssetV7, type QuestionViewModel } from "@/app/bank/question-editor";
 import { difficultyLabel, type AttemptSummary } from "@/lib/practice/practice-metrics";
+import type { PracticeRunV7 } from "@/lib/db/v7-types";
 import { resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 
 /** Render a question's answer as "A. 选项；B. 选项" (calculation answers pass through). */
@@ -28,13 +29,15 @@ export function answerText(question: QuestionViewModel) {
  * the practice surface): a keyboard shortcut on desktop and a horizontal swipe
  * on mobile, plus a bottom nav row next to the caller's actions.
  */
-export function QuestionDetail({ question, metric, scopeLabel, note, onClose, footer, nav }: {
+export function QuestionDetail({ question, metric, scopeLabel, note, onClose, footer, nav, answer, answerLabel = "你的答案" }: {
   question: QuestionViewModel;
   metric: AttemptSummary;
   scopeLabel: string;
   note?: string;
   onClose: () => void;
   footer?: ReactNode;
+  answer?: PracticeRunV7["answers"][string];
+  answerLabel?: string;
   nav?: {
     index: number;
     total: number;
@@ -128,5 +131,5 @@ export function QuestionDetail({ question, metric, scopeLabel, note, onClose, fo
     };
   }, [nav]);
 
-  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={panelRef} className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} />{question.type !== "计算" && <ol>{question.canonical.options.map((option, index) => <li className={question.answer.includes(String.fromCharCode(65 + index)) ? "answer" : ""} key={`${question.id}-${index}`}><span>{String.fromCharCode(65 + index)}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} />{question.answer.includes(String.fromCharCode(65 + index)) && <Check size={16} />}</li>)}</ol>}<section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p><MathText text={answerText(question)} languageText={question.stem} /></p></section><div className="search-detail-metrics"><span><strong>{metric.total}</strong>作答（{scopeLabel}）</span><span><strong>{metric.correct}</strong>正确</span><span><strong>{metric.wrong}</strong>错误</span><span><strong>{metric.difficulty}</strong>难度 · {difficultyLabel(metric.difficulty)}</span></div><section className="search-detail-note"><strong>个人解析</strong>{note ? <NoteMarkdown text={note} /> : <p>还没有个人解析，可以通过编辑题目或练习页面继续整理。</p>}</section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div>{footer && <footer>{nav?.center && <div className="search-detail-position">{nav.center}</div>}<div className="search-detail-actions">{footer}</div>{nav && <div className="search-detail-nav"><button type="button" className="secondary-action" disabled={nav.index === 0} onClick={nav.onPrevious}><ChevronLeft size={17} />上一题</button><button type="button" className="secondary-action" disabled={nav.index >= nav.total - 1} onClick={nav.onNext}>下一题<ChevronRight size={17} /></button></div>}</footer>}</aside></div></ModalPortal>;
+  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={panelRef} className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="search-detail-body"><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} />{question.type !== "计算" && <ol>{question.canonical.options.map((option, index) => <li className={question.answer.includes(String.fromCharCode(65 + index)) ? "answer" : ""} key={`${question.id}-${index}`}><span>{String.fromCharCode(65 + index)}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} />{question.answer.includes(String.fromCharCode(65 + index)) && <Check size={16} />}</li>)}</ol>}<section className="search-answer-card"><strong>正确答案：{question.answer}</strong><p><MathText text={answerText(question)} languageText={question.stem} /></p>{answer && <p>{answerLabel}：{answer.submitted ? answer.selected.length ? question.type === "计算" ? answer.selected[0] : [...answer.selected].sort().join("") : "不会" : "未作答"}</p>}</section><div className="search-detail-metrics"><span><strong>{metric.total}</strong>作答（{scopeLabel}）</span><span><strong>{metric.correct}</strong>正确</span><span><strong>{metric.wrong}</strong>错误</span><span><strong>{metric.difficulty}</strong>难度 · {difficultyLabel(metric.difficulty)}</span></div><section className="search-detail-note"><strong>个人解析</strong>{note ? <NoteMarkdown text={note} /> : <p>还没有个人解析，可以通过编辑题目或练习页面继续整理。</p>}</section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div>{footer && <footer>{nav?.center && <div className="search-detail-position">{nav.center}</div>}<div className="search-detail-actions">{footer}</div>{nav && <div className="search-detail-nav"><button type="button" className="secondary-action" disabled={nav.index === 0} onClick={nav.onPrevious}><ChevronLeft size={17} />上一题</button><button type="button" className="secondary-action" disabled={nav.index >= nav.total - 1} onClick={nav.onNext}>下一题<ChevronRight size={17} /></button></div>}</footer>}</aside></div></ModalPortal>;
 }

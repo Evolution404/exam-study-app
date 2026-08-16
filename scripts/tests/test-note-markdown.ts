@@ -125,7 +125,7 @@ const renderer = await readFile(new URL("../../src/app/ui/note-markdown.tsx", im
 
 assert.match(detail, /import \{ NoteMarkdown \} from "@\/app\/ui\/note-markdown"/, "题目详情接入 NoteMarkdown");
 assert.match(detail, /\{note \? <NoteMarkdown text=\{note\} \/> : <p>/, "有解析时渲染 markdown，空态保留原提示");
-assert.match(history, /import \{ NoteMarkdown \} from "@\/app\/ui\/note-markdown"/, "练习结果详情接入 NoteMarkdown");
+assert.match(history, /import \{ QuestionDetail \} from "@\/app\/bank\/question-detail"/, "练习结果详情复用题目详情组件（内含 NoteMarkdown）");
 assert.match(mathText, /export \{ loadKatex \}/, "math-text 导出懒加载供解析渲染复用");
 assert.match(renderer, /loadKatex/, "解析渲染复用 katex 懒加载");
 assert.match(renderer, /parseNoteMarkdown/, "渲染组件驱动纯解析器");

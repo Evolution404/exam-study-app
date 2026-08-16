@@ -30,7 +30,7 @@ assert.match(practiceView, /calculationTolerancePercent/, "calculation grading m
 assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
 assert.match(practiceView, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
 assert.match(studyApp, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");
-assert.match(history, /onClick=\{\(\) => setDetailQuestion\(question\)\}/, "completed result rows must open question details");
+assert.match(history, /setDetailQuestion\(question\)/, "completed result rows must open question details");
 assert.doesNotMatch(history, /disabled=\{!canContinue\}/, "completed result rows must remain interactive");
 assert.match(vite, /__APP_COMMIT_SHA__/, "build must inject its commit hash");
 assert.match(vite, /__APP_COMMIT_TIME__/, "build must inject its commit timestamp");

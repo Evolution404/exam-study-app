@@ -79,7 +79,11 @@ assert.match(componentStyles, /font-xlarge[^}]*\.practice-stem[^}]*clamp\(29px,4
 assert.match(componentStyles, /\.practice-option-content\{[^}]*font-size:15px/, "富内容选项必须恢复标准阅读字号");
 
 const history = source("practice/practice-history.tsx");
-assert.match(history, /练习结果详情/);
+assert.match(history, /<QuestionDetail/, "练习结果详情应复用共享 QuestionDetail");
+assert.match(history, /data-question-id=/, "结果列表应带 question id 供详情跟随定位");
+assert.match(history, /scrollIntoView\(/, "结果详情切换时应滚动到当前题目");
+assert.match(history, /activeResultQuestionId/, "结果详情关闭后应保留当前题目高亮");
+assert.doesNotMatch(history, /只练这一题/, "全项目不应再保留只练这一题入口");
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
 

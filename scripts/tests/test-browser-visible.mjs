@@ -1211,8 +1211,7 @@ async function runSearchBatch(page) {
   assert.equal(await page.locator(".search-result-list article").count(), 1, "single-choice tab must narrow the results");
   await page.locator(".search-type-tabs button").filter({ hasText: "全部" }).click();
 
-  // 题目详情：下一题 / 上一题 / 收藏 / 只练这一题
-  // 结果按题型分组排序（单选在前）：第一条是“发现异常”，之后是多选“哪些做法”、判断“巡视前”。
+  // 题目详情：下一题 / 上一题 / 收藏 / ESC 关闭
   await page.locator(".search-result-list article").first().locator(".search-result-main").click();
   const detail = page.getByRole("dialog", { name: "题目详情" });
   await detail.waitFor({ state: "visible" });
@@ -1225,16 +1224,9 @@ async function runSearchBatch(page) {
   await detail.getByText(/哪些做法有助于安全巡视/).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: /^收藏/ }).click();
   await expectNotice(page, /已收藏这道题/, "detail favorite notice");
-  await detail.getByRole("button", { name: /只练这一题/ }).click();
-  const practiceDialog = page.getByRole("dialog", { name: "搜索练习配置" });
-  await practiceDialog.waitFor({ state: "visible" });
-  await practiceDialog.getByRole("button", { name: /开始练习/ }).click();
-  await page.locator(".question-card").waitFor({ state: "visible" });
-  await answerCurrentQuestion(page, [0, 1], true);
-  await expectText(page, "回答正确");
-  await capture(page, contextName, "search-single-practice");
-  await clickButton(page, "暂停并返回首页");
-  await expectText(page, "继续上次练习");
+  await page.keyboard.press("Escape");
+  await detail.waitFor({ state: "hidden" });
+  await capture(page, contextName, "search-detail-esc");
 
   // 批量：收藏所选 + 批量添加标签
   await clickButton(page, "进入搜索主页");
@@ -1255,6 +1247,7 @@ async function runSearchBatch(page) {
   await capture(page, contextName, "search-batch-ops");
 
   // 练习已选 → 起手 2 题
+  const practiceDialog = page.getByRole("dialog", { name: "搜索练习配置" });
   await clickTextButton(page, "练习已选");
   await practiceDialog.waitFor({ state: "visible" });
   await expectText(page, /共有 \d+ 道可练题目/);
