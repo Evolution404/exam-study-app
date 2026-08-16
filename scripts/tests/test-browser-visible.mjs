@@ -1355,6 +1355,32 @@ async function runHistoryResult(page) {
   assert.match(await page.locator(".result-score strong").innerText(), /^80/, "four correct of five answered must show 80% accuracy");
   await capture(page, contextName, "result-page");
 
+  // 结果页选中题目必须与搜索结果选中题目一致高亮（共享 .detail-current 规则块：
+  // 主色边框 + 主色柔和 3px 描边，夜间随 token 自动适配）。
+  const firstResultQuestion = page.locator(".result-question-groups button").first();
+  await firstResultQuestion.click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
+  const detailHighlight = await firstResultQuestion.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const root = getComputedStyle(document.documentElement);
+    const resolveToken = (token) => {
+      const probe = document.createElement("span");
+      probe.style.borderColor = token;
+      document.body.append(probe);
+      const resolved = getComputedStyle(probe).borderTopColor;
+      probe.remove();
+      return resolved;
+    };
+    const primary = resolveToken(root.getPropertyValue("--color-primary").trim());
+    const primarySoft = resolveToken(root.getPropertyValue("--color-primary-soft").trim());
+    return { border: style.borderTopColor, boxShadow: style.boxShadow, expectPrimary: primary, expectSoft: primarySoft };
+  });
+  assert.equal(detailHighlight.border, detailHighlight.expectPrimary, "结果页选中题目边框必须用主色（与搜索结果选中一致）");
+  assert.ok(detailHighlight.boxShadow.includes(detailHighlight.expectSoft), "结果页选中题目须有主色柔和描边（与搜索结果选中一致）");
+  await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
+  await capture(page, contextName, "result-question-selected");
+
   // 结果筛选 + 只练本次错题
   await clickTextButton(page, "只看错题");
   assert.equal(await page.locator(".result-question-groups button[aria-label^='查看第']").count(), 1, "wrong filter must narrow to the one wrong question");

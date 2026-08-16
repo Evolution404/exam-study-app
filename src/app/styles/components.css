@@ -606,7 +606,8 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 /* Currently-open question detail in a navigable list */
 .search-result-list article.detail-current,
 .managed-question-list article.detail-current,
-.group-items article.detail-current {
+.group-items article.detail-current,
+.result-question-groups>section>div>button.detail-current {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
