@@ -112,6 +112,8 @@ assert.match(componentStyles, /\.delete-choice-list>button span\{[^}]*font-size:
 assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hover/, "删除题库选项应提供悬浮反馈");
 
 const search = source("search/search-view.tsx");
+assert.match(search, /detail-current/, "搜索列表应为当前详情题目标记样式");
+assert.match(search, /detailQuestionId === question\.id/, "搜索列表应知道当前详情题目");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
 assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
 assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
@@ -125,6 +127,18 @@ assert.match(searchFilters, /role="checkbox"/, "指定题库应支持多选");
 assert.match(searchFilters, /progressScopeOverride/, "学习状态应支持临时覆盖设置页统计范围");
 assert.doesNotMatch(searchFilters, /previewCount|查看 \{previewCount|search-filter-apply/, "筛选抽屉不应保留重复的底部应用操作");
 assert.match(searchFilters, /event\.target === event\.currentTarget/, "点击筛选抽屉外的遮罩应关闭抽屉");
+
+const group = source("bank/knowledge-view.tsx");
+assert.match(group, /detail-current/, "题组编辑列表应为当前详情题目标记样式");
+assert.match(group, /detailQuestionId === question\.id/, "题组编辑列表应知道当前详情题目");
+assert.match(group, /group-question-open/, "题组编辑中的题目应可点击打开详情");
+
+assert.match(bank, /detail-current/, "题库管理列表应为当前详情题目标记样式");
+assert.match(bank, /viewing\?\.id === question\.id/, "题库管理列表应知道当前详情题目");
+
+assert.match(componentStyles, /\.search-result-list article\.detail-current/, "搜索当前题目样式应存在");
+assert.match(componentStyles, /\.managed-question-list article\.detail-current/, "题库管理当前题目样式应存在");
+assert.match(componentStyles, /\.group-items article\.detail-current/, "题组编辑当前题目样式应存在");
 
 const quick = source("search/quick-search.tsx");
 assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独立组件");
