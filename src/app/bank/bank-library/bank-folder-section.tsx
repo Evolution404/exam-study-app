@@ -32,9 +32,15 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) { onDrag(undefined); return; }
-    const from = ordered.findIndex((bank) => bank.id === active.id);
-    const to = ordered.findIndex((bank) => bank.id === over.id);
-    const next = from >= 0 && to >= 0 && from !== to ? arrayMove(ordered, from, to) : ordered;
+    // onDragOver 已经实时更新过 preview，此时 ordered 就是用户看到的最终顺序。
+    // 只有从未触发 onDragOver 时才需要按 over 兜底重排一次，否则会重复移动导致回退。
+    const previewChanged = banks.some((bank, index) => ordered[index]?.id !== bank.id);
+    let next = ordered;
+    if (!previewChanged) {
+      const from = ordered.findIndex((bank) => bank.id === active.id);
+      const to = ordered.findIndex((bank) => bank.id === over.id);
+      if (from >= 0 && to >= 0 && from !== to) next = arrayMove(ordered, from, to);
+    }
     const movedIndex = next.findIndex((bank) => bank.id === active.id);
     const beforeId = movedIndex >= 0 && movedIndex + 1 < next.length ? next[movedIndex + 1].id : undefined;
     onDrop(beforeId);
