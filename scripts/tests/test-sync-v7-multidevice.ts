@@ -3,13 +3,13 @@ import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
 import { replayRemoteResilient } from "../../src/lib/sync/github-sync-v7";
 import { planSyncV7Compaction, replaySyncV7Segments } from "../../src/lib/sync/sync-v7-head";
-import type { BankQuestionMembership, BankV6, QuestionV6 } from "../../src/lib/db/v6-types";
+import type { BankQuestionMembership, BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 
 const at = "2026-08-13T00:00:00.000Z";
-const bank: BankV6 = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
+const bank: BankV7 = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 const empty: ChangeSetProjectionV7 = { banks: [bank], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [], practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [] };
 
-function question(id: string, deviceId: string): QuestionV6 {
+function question(id: string, deviceId: string): QuestionV7 {
   return { id, type: "单选", content: [{ id: "stem-0", type: "text", text: `题目 ${id}` }], options: [[{ id: "a", type: "text", text: "A" }], [{ id: "b", type: "text", text: "B" }]], answer: "A", tags: [], contentFingerprint: `fingerprint-${id}`, updatedAt: at, deviceId };
 }
 

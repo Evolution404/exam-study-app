@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import { encodeSyncV7Event, SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../src/lib/sync/sync-v7-head";
 import { hydrateSyncV7Events, offloadedRefOf, offloadSyncV7Events, SYNC_V7_INLINE_EVENT_BUDGET } from "../../src/lib/sync/sync-v7-payload";
-import type { BankV6, QuestionV6 } from "../../src/lib/db/v6-types";
+import type { BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 
 const at = "2026-08-13T00:00:00.000Z";
-const bank: BankV6 = { id: "bank-1", name: "载荷题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "dev-a" };
+const bank: BankV7 = { id: "bank-1", name: "载荷题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "dev-a" };
 
 // A change-set body of ~300 KiB — comfortably above both the 128 KiB inline
 // budget and the 256 KiB hard event ceiling. This is the exact shape that used
 // to throw "v7 event exceeds 262144 UTF-8 bytes".
-function bigQuestion(): QuestionV6 {
+function bigQuestion(): QuestionV7 {
   return { id: "q-big", type: "单选", content: [{ id: "stem-0", type: "text", text: "考点".repeat(150000) }], options: [[{ id: "a", type: "text", text: "A" }], [{ id: "b", type: "text", text: "B" }]], answer: "A", tags: [], contentFingerprint: "fp-big", updatedAt: at, deviceId: "dev-a" };
 }
 

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { reclaimableTombstonesV7 } from "../../src/lib/sync/github-sync-v7";
-import type { TombstoneV6 } from "../../src/lib/db/v6-types";
+import type { TombstoneV7 } from "../../src/lib/db/v7-types";
 
-const tombstone: TombstoneV6 = { key: "question:q1", entityType: "question", entityId: "q1", deletedAt: "2026-08-13T00:00:00.000Z", deviceId: "deleter", eventId: "evt", sequence: 1 };
+const tombstone: TombstoneV7 = { key: "question:q1", entityType: "question", entityId: "q1", deletedAt: "2026-08-13T00:00:00.000Z", deviceId: "deleter", eventId: "evt", sequence: 1 };
 
 // 水位 syncedAt 非法时，应保守处理：不允许回收墓碑。
 const result = reclaimableTombstonesV7([tombstone], {

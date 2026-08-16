@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
-import type { BankV6 } from "../../src/lib/db/v6-types";
+import type { BankV7 } from "../../src/lib/db/v7-types";
 
 const at = "2026-08-13T00:00:00.000Z";
-const bank: BankV6 = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
+const bank: BankV7 = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 const run = {
   id: "run-1", bankId: bank.id, bankIds: [bank.id], bankName: bank.name, mode: "sequential" as const, modeLabel: "全量顺序练习",
   questionIds: [], questionTypes: {}, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress" as const, revision: 1,

@@ -15,8 +15,8 @@ import { parseQuestionBankZip, QuestionBundleError } from "../../src/lib/questio
 import { importQuestionBankFile } from "../../src/lib/question/question-bank-file-import";
 import { sniffImageDimensions } from "../../src/lib/io/image-dimensions";
 import { sha256Bytes } from "../../src/lib/io/image-assets";
-import { dbV6, importQuestionBankV6, resetV6Database } from "../../src/lib/db/db-v6";
-import type { ContentBlock, QuestionV6 } from "../../src/lib/db/v6-types";
+import { dbV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
+import type { ContentBlock, QuestionV7 } from "../../src/lib/db/v7-types";
 
 // ---------------------------------------------------------------------------
 // Fixture builders
@@ -140,13 +140,13 @@ function zipEntryNames(bytes: Uint8Array): string[] {
   return names;
 }
 
-async function bankQuestions(bankId: string): Promise<QuestionV6[]> {
-  const memberships = await dbV6.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  const questions = await dbV6.questions.bulkGet(memberships.map((membership) => membership.questionId));
-  return questions.filter((question): question is QuestionV6 => Boolean(question));
+async function bankQuestions(bankId: string): Promise<QuestionV7[]> {
+  const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
+  const questions = await dbV7.questions.bulkGet(memberships.map((membership) => membership.questionId));
+  return questions.filter((question): question is QuestionV7 => Boolean(question));
 }
 
-await resetV6Database();
+await resetV7Database();
 
 // ---------------------------------------------------------------------------
 // 1. Excel 导出：占位符、动态图片列、cellimages 部件
@@ -194,8 +194,8 @@ await resetV6Database();
   assert.equal(bank.questionCount, 3, "三道题全部导入");
 
   const questions = await bankQuestions(bank.id);
-  const byOrder = (await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
-  const ordered = await dbV6.questions.bulkGet(byOrder.map((membership) => membership.questionId));
+  const byOrder = (await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = await dbV7.questions.bulkGet(byOrder.map((membership) => membership.questionId));
 
   const q1 = ordered[0]!;
   assert.deepEqual(
@@ -216,7 +216,7 @@ await resetV6Database();
     "选项内的占位符还原为选项图片块",
   );
 
-  const assets = await dbV6.imageAssets.toArray();
+  const assets = await dbV7.imageAssets.toArray();
   assert.equal(assets.length, 3, "三张图片全部物化为资产");
   const assetA = assets.find((asset) => asset.id === idA)!;
   assert.equal(assetA.width, 640);
@@ -228,8 +228,8 @@ await resetV6Database();
   // 重复导入同一文件：内容寻址去重，题数不变、资产不重复。
   const again = await importQuestionBankFile(new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: file.type }));
   assert.equal(again.bank.questionCount, 3, "重复导入不应增加题目");
-  assert.equal((await dbV6.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
-  assert.equal(await dbV6.questions.count(), 3, "全局题目按指纹去重");
+  assert.equal((await dbV7.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
+  assert.equal(await dbV7.questions.count(), 3, "全局题目按指纹去重");
   console.log("2. Excel 导入闭环（DISPIMG 读回 / 资产物化 / 选项图片 / 去重）通过");
 }
 
@@ -250,14 +250,14 @@ await resetV6Database();
   assert.equal(type, "zip");
   assert.equal(bank.name, "压缩包题库", "题库名取自 bank.json 而非文件名");
   assert.equal(bank.questionCount, 3);
-  const memberships = (await dbV6.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
-  const ordered = await dbV6.questions.bulkGet(memberships.map((membership) => membership.questionId));
+  const memberships = (await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = await dbV7.questions.bulkGet(memberships.map((membership) => membership.questionId));
   assert.deepEqual(
     ordered[0]!.content.map((block) => block.type === "text" ? `text:${block.text}` : `image:${block.assetId.slice(0, 8)}`),
     ["text:图中①处部件是", `image:${idA.slice(0, 8)}`, "text:？"],
     "zip 内容块结构精确还原",
   );
-  const note = await dbV6.notes.get(ordered[0]!.id);
+  const note = await dbV7.notes.get(ordered[0]!.id);
   assert.equal(note?.content, "看绝缘子串的位置", "解析随压缩包往返");
   console.log("3. zip 导出与导入闭环（内容块 / 资产 / 解析）通过");
 }
@@ -297,10 +297,10 @@ await resetV6Database();
 // 5. 占位符边界：悬空占位符剥离、无图纯 JSON 回归
 // ---------------------------------------------------------------------------
 {
-  await importQuestionBankV6("悬空占位符.json", [
+  await importQuestionBankV7("悬空占位符.json", [
     { q: "题干【图1】中间【图2】结尾", a: ["甲", "乙"], ans: "A", type: "单选" },
   ]);
-  const all = await dbV6.questions.toArray();
+  const all = await dbV7.questions.toArray();
   const dangling = all.find((question) => question.content.some((block) => block.type === "text" && block.text.includes("题干")));
   assert.ok(dangling, "悬空占位符题应导入");
   assert.equal(dangling!.content.filter((block) => block.type === "image").length, 0, "无图片数据时不产生图片块");

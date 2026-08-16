@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { PracticeAnswerV6 } from "../../src/lib/db/db-v6";
-import type { AttemptV6, BankFolderV6, BankQuestionMembership, BankV6, PracticeRunV6, QuestionV6, ReviewRound } from "../../src/lib/db/v6-types";
+import type { PracticeAnswerV7 } from "../../src/lib/db/db-v7";
+import type { AttemptV7, BankFolderV7, BankQuestionMembership, BankV7, PracticeRunV7, QuestionV7, ReviewRound } from "../../src/lib/db/v7-types";
 import {
   assertClaimedBatchDigestV7,
   createChangeSetV7,
@@ -20,12 +20,12 @@ import {
 
 const at = "2026-08-01T00:00:00.000Z";
 const deviceId = "device-test";
-const bank = (id: string, name = id): BankV6 => ({ id, name, sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId });
-const question = (id: string): QuestionV6 => ({
+const bank = (id: string, name = id): BankV7 => ({ id, name, sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId });
+const question = (id: string): QuestionV7 => ({
   id, type: "单选", content: [{ id: `${id}-stem`, type: "text", text: `题目 ${id}` }], options: [[{ id: `${id}-a`, type: "text", text: "A" }]], answer: "A", tags: [], favorite: false, contentFingerprint: id, updatedAt: at, deviceId,
 });
 const membership = (bankId: string, questionId: string): BankQuestionMembership => ({ key: `${bankId}:${questionId}`, bankId, questionId, sortOrder: 0, addedAt: at, updatedAt: at, deviceId });
-const folder: BankFolderV6 = { id: "folder-1", name: "文件夹", description: "", sortOrder: 0, createdAt: at, updatedAt: at, deviceId };
+const folder: BankFolderV7 = { id: "folder-1", name: "文件夹", description: "", sortOrder: 0, createdAt: at, updatedAt: at, deviceId };
 const emptyProjection = (): ChangeSetProjectionV7 => ({ banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [], practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [] });
 let sequence = 0;
 async function cs(mutations: Parameters<typeof createChangeSetV7>[0]["mutations"]): Promise<ChangeSetV7> {
@@ -64,10 +64,10 @@ projection = reduceChangeSetV7(projection, await cs([
   { kind: "questionGroup.saved", group: { id: "group-1", name: "组", type: "专题", description: "", items: [{ questionId: "question-1", note: "" }], createdAt: at, updatedAt: at, deviceId } },
 ]));
 const round: ReviewRound = { id: "round-1", name: "第一轮", bankIds: ["bank-1"], startedAt: at, status: "active", createdAt: at, updatedAt: at, deviceId };
-const run: PracticeRunV6 = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "题库", mode: "sequential", modeLabel: "练习", questionIds: ["question-1"], questionTypes: { "question-1": "单选" }, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress", revision: 0, reviewRoundId: round.id };
+const run: PracticeRunV7 = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "题库", mode: "sequential", modeLabel: "练习", questionIds: ["question-1"], questionTypes: { "question-1": "单选" }, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress", revision: 0, reviewRoundId: round.id };
 projection = reduceChangeSetV7(projection, await cs([{ kind: "review.round.saved", round }, { kind: "practice.run.saved", run }]));
-const attempt = (id: string, correct: boolean): AttemptV6 => ({ id, runId: run.id, questionId: "question-1", selected: correct ? "A" : "B", correct, elapsedMs: 10, createdAt: at, deviceId });
-const answer = (eventId: string, correct: boolean): PracticeAnswerV6 => ({ selected: [correct ? "A" : "B"], submitted: true, correct, updatedAt: at, deviceId, eventId });
+const attempt = (id: string, correct: boolean): AttemptV7 => ({ id, runId: run.id, questionId: "question-1", selected: correct ? "A" : "B", correct, elapsedMs: 10, createdAt: at, deviceId });
+const answer = (eventId: string, correct: boolean): PracticeAnswerV7 => ({ selected: [correct ? "A" : "B"], submitted: true, correct, updatedAt: at, deviceId, eventId });
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-1", false), answer: answer("event-1", false), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
 assert.deepEqual(projection.attemptStats[0], { questionId: "question-1", total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 10, firstAttemptAt: at, firstAttemptCorrect: false, latestAttemptAt: at, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: "attempt-1", createdAt: at, correct: false }] });
 assert.equal(projection.reviewRoundProgress[0].wrong, 1);

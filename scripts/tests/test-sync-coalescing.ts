@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, importQuestionBankV6, resetV6Database } from "../../src/lib/db/db-v6";
+import { createBankV7, createQuestionV7, dbV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { getSyncHotWindowState, syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
@@ -18,9 +18,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
@@ -31,12 +31,12 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV6Database();
+  await resetV7Database();
 }
 
 const LONG_STEM_BODY = "这是一道用于考察热窗口大小段混合合并能力的长题干题目，题干包含较多上下文与细节描述，目的是在一次同步中产生一个明显大于普通单题分段的大段，从而验证合并器在重新分组时不会丢失或损坏其中任何事件。";
 
-function shortChoice(stem: string): Parameters<typeof createQuestionV6>[1] {
+function shortChoice(stem: string): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -48,7 +48,7 @@ function shortChoice(stem: string): Parameters<typeof createQuestionV6>[1] {
 
 // A long-stem single choice: each serialized event is ~2 KB, so staging 100 of
 // them and pushing in one sync yields ONE large segment instead of 100 tiny ones.
-function longChoice(stem: string): Parameters<typeof createQuestionV6>[1] {
+function longChoice(stem: string): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -61,7 +61,7 @@ function longChoice(stem: string): Parameters<typeof createQuestionV6>[1] {
 // A heavy but still INLINE single choice (~78 KB text, under the 128 KB offload
 // budget). Staging ~55 and pushing in one sync drives the hot window past the
 // 4 MiB byte compaction threshold without offloading any of them.
-function bigInlineChoice(index: number): Parameters<typeof createQuestionV6>[1] {
+function bigInlineChoice(index: number): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: `压缩触发第 ${index} 题：` + "考".repeat(26000) }],
@@ -97,13 +97,13 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   server.reset();
   await freshClient("device-a");
   await sync(); // initialise an empty vault (creates a checkpoint, 0 segments)
-  const bank = await createBankV6("反复合并题库");
+  const bank = await createBankV7("反复合并题库");
   await sync();
 
   const count = 70;
   const traces: Trace[] = [];
   for (let index = 0; index < count; index += 1) {
-    await createQuestionV6(bank.id, shortChoice(`反复合并第 ${index + 1} 题：考点 ${index} 的正确选项是？`));
+    await createQuestionV7(bank.id, shortChoice(`反复合并第 ${index + 1} 题：考点 ${index} 的正确选项是？`));
     traces.push(await syncAndTrace(index + 1));
   }
   const { coalescePoints, peak, final } = summarize(traces);
@@ -121,7 +121,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
 
   await freshClient("device-b");
   await sync();
-  const pulled = await dbV6.questions.count();
+  const pulled = await dbV7.questions.count();
   assert.equal(pulled, count, `新设备拉取的题数应与源设备一致（期望 ${count}，实际 ${pulled}）`);
 
   console.log("scenario 1 passed: 反复合并稳定，每次到阈值即合并、段数始终低于阈值、跨设备数据完整");
@@ -137,12 +137,12 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   server.reset();
   await freshClient("device-a");
   await sync();
-  const bank = await createBankV6("混合合并题库");
+  const bank = await createBankV7("混合合并题库");
   await sync();
 
   const smallBefore = 15;
   for (let index = 0; index < smallBefore; index += 1) {
-    await createQuestionV6(bank.id, shortChoice(`混合·前置小同步第 ${index + 1} 题`));
+    await createQuestionV7(bank.id, shortChoice(`混合·前置小同步第 ${index + 1} 题`));
     await sync();
   }
   const beforeBig = await getSyncHotWindowState(settings);
@@ -152,7 +152,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   // they paginate into one large segment (~200 KB), not 100 tiny ones.
   const bigBatch = 100;
   for (let index = 0; index < bigBatch; index += 1) {
-    await createQuestionV6(bank.id, longChoice(`${LONG_STEM_BODY}（批次 ${index + 1}）`));
+    await createQuestionV7(bank.id, longChoice(`${LONG_STEM_BODY}（批次 ${index + 1}）`));
   }
   const bigResult = await sync();
   const afterBig = await getSyncHotWindowState(settings);
@@ -167,7 +167,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   let preCoalesceBytes = 0;
   for (let guard = 0; guard < SEGMENT_THRESHOLD + 4; guard += 1) {
     const preState = await getSyncHotWindowState(settings);
-    await createQuestionV6(bank.id, shortChoice(`混合·后置小同步第 ${guard + 1} 题`));
+    await createQuestionV7(bank.id, shortChoice(`混合·后置小同步第 ${guard + 1} 题`));
     const trace = await syncAndTrace(guard + 1);
     smallAfter += 1;
     if (trace.coalesced) { coalescedTrace = trace; preCoalesceBytes = preState?.hotBytes ?? 0; break; }
@@ -182,7 +182,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   const expectedTotal = smallBefore + bigBatch + smallAfter;
   await freshClient("device-b");
   await sync();
-  const pulledMixed = await dbV6.questions.count();
+  const pulledMixed = await dbV7.questions.count();
   assert.equal(pulledMixed, expectedTotal, `混合场景新设备拉取题数应一致（期望 ${expectedTotal}，实际 ${pulledMixed}）`);
 
   console.log("scenario 2 passed: 大段+小段混合，合并正确重排、负载不丢、跨设备数据完整");
@@ -198,36 +198,36 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   server.reset();
   await freshClient("device-a");
   await sync();
-  const bankA = await createBankV6("多设备合并题库");
+  const bankA = await createBankV7("多设备合并题库");
   await sync();
 
   // A drives the window to the threshold and coalesces.
   const aSmall = 23;
   let aCoalesced = 0;
   for (let index = 0; index < aSmall; index += 1) {
-    await createQuestionV6(bankA.id, shortChoice(`多设备·A 第 ${index + 1} 题`));
+    await createQuestionV7(bankA.id, shortChoice(`多设备·A 第 ${index + 1} 题`));
     if ((await sync()).coalesced) aCoalesced += 1;
   }
   assert.ok(aCoalesced >= 1, `设备 A 应在积累到阈值后完成合并（实际 ${aCoalesced} 次）`);
-  const aQuestionCount = await dbV6.questions.count();
+  const aQuestionCount = await dbV7.questions.count();
 
   // B is a brand-new device that stages edits locally BEFORE syncing — exactly
   // the "another device edited some events while one already coalesced" case.
   await freshClient("device-b");
-  const bankB = await createBankV6("设备B本地题库");
+  const bankB = await createBankV7("设备B本地题库");
   const bLocal = 3;
   for (let index = 0; index < bLocal; index += 1) {
-    await createQuestionV6(bankB.id, shortChoice(`多设备·B 本地第 ${index + 1} 题`));
+    await createQuestionV7(bankB.id, shortChoice(`多设备·B 本地第 ${index + 1} 题`));
   }
   const bResult = await sync(); // pulls A's coalesced head, then pushes B's edits
   assert.ok(bResult.pushed >= bLocal, `设备 B 应把本地 ${bLocal} 组编辑推送上去（实际 ${bResult.pushed}）`);
-  const bQuestionCount = await dbV6.questions.count();
+  const bQuestionCount = await dbV7.questions.count();
   assert.equal(bQuestionCount, aQuestionCount + bLocal, `设备 B 应同时拥有 A 的数据与自己的本地编辑（期望 ${aQuestionCount + bLocal}，实际 ${bQuestionCount}）`);
 
   // A re-syncs from scratch and must converge to the merged state.
   await freshClient("device-a");
   await sync();
-  const aResynced = await dbV6.questions.count();
+  const aResynced = await dbV7.questions.count();
   assert.equal(aResynced, aQuestionCount + bLocal, `设备 A 重新同步后应收敛到合并状态（期望 ${aQuestionCount + bLocal}，实际 ${aResynced}）`);
 
   console.log("scenario 3 passed: 一设备已合并、另一设备带本地编辑同步，CAS 与双向合并正确，两设备收敛");
@@ -243,14 +243,14 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   server.reset();
   await freshClient("device-a");
   await sync();
-  const bank = await createBankV6("合并后压缩题库");
+  const bank = await createBankV7("合并后压缩题库");
   await sync();
 
   // Phase 1: small syncs to the count threshold -> coalesce (no checkpoint).
   const smallBeforeCompact = 23;
   let coalescedBeforeCompact = 0;
   for (let index = 0; index < smallBeforeCompact; index += 1) {
-    await createQuestionV6(bank.id, shortChoice(`压缩·前置小同步第 ${index + 1} 题`));
+    await createQuestionV7(bank.id, shortChoice(`压缩·前置小同步第 ${index + 1} 题`));
     if ((await sync()).coalesced) coalescedBeforeCompact += 1;
   }
   assert.ok(coalescedBeforeCompact >= 1, "压缩前应先触发过至少一次合并");
@@ -258,7 +258,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   // Phase 2: one big sync of heavy INLINE events drives hot bytes > 4 MiB.
   const bigBatch = 55;
   for (let index = 0; index < bigBatch; index += 1) {
-    await createQuestionV6(bank.id, bigInlineChoice(index));
+    await createQuestionV7(bank.id, bigInlineChoice(index));
   }
   const compactResult = await sync();
   assert.equal(compactResult.compacted, true, "热窗口超过 4 MiB 应触发检查点压缩");
@@ -271,7 +271,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   // A fresh device restores entirely from the new checkpoint + any segments.
   await freshClient("device-b");
   await sync();
-  const pulled = await dbV6.questions.count();
+  const pulled = await dbV7.questions.count();
   assert.equal(pulled, smallBeforeCompact + bigBatch, `压缩后新设备应完整恢复全部题目（期望 ${smallBeforeCompact + bigBatch}，实际 ${pulled}）`);
 
   console.log("scenario 4 passed: 先合并再触发 4 MiB 检查点压缩，新检查点完整覆盖合并前后的全部事件");
@@ -291,7 +291,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   // One large import (>128 KB) becomes a single offloaded change-set: its
   // segment carries only a stub pointing at sync/v7/objects/<sha>.json.
   const rows = Array.from({ length: 600 }, (_, index) => ({ q: `卸载合并第 ${index + 1} 题：考点 ${index} 的详细描述与选项辨析。`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
-  const bank = await importQuestionBankV6("offload-coalesce.json", rows);
+  const bank = await importQuestionBankV7("offload-coalesce.json", rows);
   await sync();
   assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v7/objects/")), "大导入应卸载为不可变对象");
   const afterImport = await getSyncHotWindowState(settings);
@@ -301,7 +301,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   const smallAfterImport = 23;
   let coalescedWithStub = false;
   for (let index = 0; index < smallAfterImport; index += 1) {
-    await createQuestionV6(bank.id, shortChoice(`卸载合并·小同步第 ${index + 1} 题`));
+    await createQuestionV7(bank.id, shortChoice(`卸载合并·小同步第 ${index + 1} 题`));
     if ((await sync()).coalesced) coalescedWithStub = true;
   }
   assert.ok(coalescedWithStub, "带 stub 的热窗口到达阈值应触发合并");
@@ -310,7 +310,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   // The fresh device pulls the coalesced segments and must hydrate the stub.
   await freshClient("device-b");
   await sync();
-  const pulled = await dbV6.questions.count();
+  const pulled = await dbV7.questions.count();
   assert.equal(pulled, 600 + smallAfterImport, `合并后新设备应能从 stub 水合出全部题目（期望 ${600 + smallAfterImport}，实际 ${pulled}）`);
 
   console.log("scenario 5 passed: 含卸载对象 stub 的分段经合并后仍可被新设备水合，数据完整");
@@ -326,14 +326,14 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   server.reset();
   await freshClient("device-a");
   await sync();
-  const bank = await createBankV6("大段保留题库");
+  const bank = await createBankV7("大段保留题库");
   await sync();
 
   // One big sync: 11 heavy inline questions pack into a single ~858 KiB segment
   // (≥ SYNC_V7_COALESCE_LEAVE_BYTES = 512 KiB, so it is classified "large").
   const bigBatch = 11;
   for (let index = 0; index < bigBatch; index += 1) {
-    await createQuestionV6(bank.id, bigInlineChoice(index));
+    await createQuestionV7(bank.id, bigInlineChoice(index));
   }
   await sync();
   const beforeSmall = await getSyncHotWindowState(settings);
@@ -344,7 +344,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   let coalescedTrace: Trace | undefined;
   let smallCount = 0;
   for (let guard = 0; guard < SEGMENT_THRESHOLD + 4; guard += 1) {
-    await createQuestionV6(bank.id, shortChoice(`大段保留·后置小同步第 ${guard + 1} 题`));
+    await createQuestionV7(bank.id, shortChoice(`大段保留·后置小同步第 ${guard + 1} 题`));
     smallCount += 1;
     const trace = await syncAndTrace(guard + 1);
     if (trace.coalesced) { coalescedTrace = trace; break; }
@@ -359,7 +359,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
 
   await freshClient("device-b");
   await sync();
-  const pulled = await dbV6.questions.count();
+  const pulled = await dbV7.questions.count();
   assert.equal(pulled, bigBatch + smallCount, `新设备应完整恢复（期望 ${bigBatch + smallCount}，实际 ${pulled}）`);
 
   console.log("scenario 6 passed: 大段原样保留、仅合并其后的小段，跨设备数据完整");

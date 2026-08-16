@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import {
-  completeReviewRoundV6,
-  createBankV6,
-  createPracticeRunV6,
-  createQuestionV6,
-  createReviewRoundV6,
-  dbV6,
-  deleteBankWithExclusiveQuestionsV6,
-  deletePracticeRunV6,
-  recordPracticeAnswerV6,
-  resetV6Database,
-  saveBankFolderV6,
-  saveNoteV6,
-  saveQuestionGroupV6,
-  setPracticeRunStatusV6,
-  splitQuestionV6,
-  toggleQuestionFavoriteV6,
-} from "../../src/lib/db/db-v6";
+  completeReviewRoundV7,
+  createBankV7,
+  createPracticeRunV7,
+  createQuestionV7,
+  createReviewRoundV7,
+  dbV7,
+  deleteBankWithExclusiveQuestionsV7,
+  deletePracticeRunV7,
+  recordPracticeAnswerV7,
+  resetV7Database,
+  saveBankFolderV7,
+  saveNoteV7,
+  saveQuestionGroupV7,
+  setPracticeRunStatusV7,
+  splitQuestionV7,
+  toggleQuestionFavoriteV7,
+} from "../../src/lib/db/db-v7";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
@@ -31,9 +31,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
@@ -44,10 +44,10 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV6Database();
+  await resetV7Database();
 }
 
-function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV6>[1] {
+function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -69,7 +69,7 @@ const DAY_3 = dateAfter(3);
 
 /** A single answer submission. Empty `selected` records a give-up. */
 async function answer(runId: string, questionId: string, correct: boolean, selected: string | string[], createdAt?: string, elapsedMs = 120): Promise<void> {
-  await recordPracticeAnswerV6({ runId, questionId, selected, correct, elapsedMs, ...(createdAt ? { createdAt } : {}) });
+  await recordPracticeAnswerV7({ runId, questionId, selected, correct, elapsedMs, ...(createdAt ? { createdAt } : {}) });
 }
 
 /** Run a device's pending edits up to the mock and pull them into a fresh device. */
@@ -86,17 +86,17 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("统计基础题库");
-    const q1 = await createQuestionV6(bank.id, singleChoice("一加一等于几？", "B", ["1", "2", "3"]));
-    const q2 = await createQuestionV6(bank.id, singleChoice("地球是圆的吗？", "A", ["是", "否"]));
-    const q3 = await createQuestionV6(bank.id, singleChoice("放弃的题目", "A", ["对", "错"]));
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q1.id, q2.id, q3.id] });
+    const bank = await createBankV7("统计基础题库");
+    const q1 = await createQuestionV7(bank.id, singleChoice("一加一等于几？", "B", ["1", "2", "3"]));
+    const q2 = await createQuestionV7(bank.id, singleChoice("地球是圆的吗？", "A", ["是", "否"]));
+    const q3 = await createQuestionV7(bank.id, singleChoice("放弃的题目", "A", ["对", "错"]));
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q1.id, q2.id, q3.id] });
     await answer(run.id, q1.id, true, "B", DAY_1);
     await answer(run.id, q2.id, false, "B", DAY_1);
     await answer(run.id, q3.id, false, "", DAY_1); // give-up
 
     await pushThenVerify("device-b", async () => {
-      const stats = await dbV6.attemptStats.toArray();
+      const stats = await dbV7.attemptStats.toArray();
       const byQuestion = new Map(stats.map((row) => [row.questionId, row]));
       assert.equal(stats.length, 3, "三道题应各有一条统计");
       assert.deepEqual(
@@ -114,8 +114,8 @@ try {
         { total: 1, correct: 0, wrong: 1, giveUps: 1 },
         "放弃一题：同时计入 wrong 与 giveUps",
       );
-      assert.equal(await dbV6.attempts.count(), 3, "三条作答记录应完整同步");
-      const daily = await dbV6.attemptDailyStats.toArray();
+      assert.equal(await dbV7.attempts.count(), 3, "三条作答记录应完整同步");
+      const daily = await dbV7.attemptDailyStats.toArray();
       assert.equal(daily.length, 3, "同一天的三题各自一条每日统计");
       assert.ok(daily.every((row) => row.date === DAY_1.slice(0, 10)), "每日统计应落在作答当天");
       assert.equal(daily.reduce((sum, row) => sum + row.total, 0), 3, "当天作答总量为 3");
@@ -128,15 +128,15 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("连续作答题库");
-    const q = await createQuestionV6(bank.id, singleChoice("连续练习", "A", ["对", "错"]));
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const bank = await createBankV7("连续作答题库");
+    const q = await createQuestionV7(bank.id, singleChoice("连续练习", "A", ["对", "错"]));
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(run.id, q.id, true, "A", DAY_1);
     await answer(run.id, q.id, false, "B", DAY_2);
     await answer(run.id, q.id, true, "A", DAY_3, 200);
 
     await pushThenVerify("device-b", async () => {
-      const stat = await dbV6.attemptStats.get(q.id);
+      const stat = await dbV7.attemptStats.get(q.id);
       assert.ok(stat, "应存在该题统计");
       assert.equal(stat.total, 3, "三次作答应累加");
       assert.equal(stat.correct, 2);
@@ -148,7 +148,7 @@ try {
       assert.equal(stat.recentOutcomes.length, 3, "最近作答轨迹保留");
       assert.equal(stat.recentOutcomes[2].correct, true, "轨迹按时间升序");
       // Daily stats split across three distinct dates.
-      const daily = await dbV6.attemptDailyStats.where("questionId").equals(q.id).toArray();
+      const daily = await dbV7.attemptDailyStats.where("questionId").equals(q.id).toArray();
       assert.equal(daily.length, 3, "跨三天应产生三条每日统计");
       const dates = daily.map((row) => row.date).sort();
       assert.deepEqual(dates, [DAY_1.slice(0, 10), DAY_2.slice(0, 10), DAY_3.slice(0, 10)].sort(), "每日统计分别落在作答当天");
@@ -161,26 +161,26 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("并发作答题库");
-    const q = await createQuestionV6(bank.id, singleChoice("并发题", "A", ["对", "错"]));
-    const runA = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const bank = await createBankV7("并发作答题库");
+    const q = await createQuestionV7(bank.id, singleChoice("并发题", "A", ["对", "错"]));
+    const runA = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(runA.id, q.id, true, "A", DAY_1);
     await sync();
 
     await freshClient("device-b");
     await sync();
-    const runB = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const runB = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(runB.id, q.id, false, "B", DAY_2);
     await sync();
 
     await freshClient("device-a");
     await sync();
-    const stat = await dbV6.attemptStats.get(q.id);
+    const stat = await dbV7.attemptStats.get(q.id);
     assert.ok(stat);
     assert.equal(stat.total, 2, "两台设备各自一次作答应合并");
     assert.equal(stat.correct, 1);
     assert.equal(stat.wrong, 1);
-    const daily = await dbV6.attemptDailyStats.where("questionId").equals(q.id).toArray();
+    const daily = await dbV7.attemptDailyStats.where("questionId").equals(q.id).toArray();
     assert.equal(daily.length, 2, "两个不同日期的每日统计各一条");
     console.log("scenario 3 passed: 多设备并发作答双向合并（含不同日期）");
   }
@@ -190,17 +190,17 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("练习统计题库");
-    const q = await createQuestionV6(bank.id, singleChoice("练习状态题", "A", ["对", "错"]));
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const bank = await createBankV7("练习统计题库");
+    const q = await createQuestionV7(bank.id, singleChoice("练习状态题", "A", ["对", "错"]));
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(run.id, q.id, true, "A", DAY_1);
-    await setPracticeRunStatusV6(run.id, "completed");
+    await setPracticeRunStatusV7(run.id, "completed");
 
     await pushThenVerify("device-b", async () => {
-      const pulledRun = await dbV6.practiceRuns.get(run.id);
+      const pulledRun = await dbV7.practiceRuns.get(run.id);
       assert.equal(pulledRun?.status, "completed", "练习完成状态应同步");
       assert.equal(Object.keys(pulledRun!.answers).length, 1, "作答应随练习同步");
-      const runStats = await dbV6.practiceRunStats.get(bank.id);
+      const runStats = await dbV7.practiceRunStats.get(bank.id);
       assert.ok(runStats);
       assert.deepEqual(
         { total: runStats.total, completed: runStats.completed, inProgress: runStats.inProgress },
@@ -216,18 +216,18 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("删除练习题库");
-    const q = await createQuestionV6(bank.id, singleChoice("删除练习题", "A", ["对", "错"]));
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const bank = await createBankV7("删除练习题库");
+    const q = await createQuestionV7(bank.id, singleChoice("删除练习题", "A", ["对", "错"]));
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(run.id, q.id, true, "A");
-    await deletePracticeRunV6(run.id);
+    await deletePracticeRunV7(run.id);
 
     await pushThenVerify("device-b", async () => {
-      assert.equal(await dbV6.practiceRuns.get(run.id), undefined, "练习记录应被删除");
-      const stat = await dbV6.attemptStats.get(q.id);
+      assert.equal(await dbV7.practiceRuns.get(run.id), undefined, "练习记录应被删除");
+      const stat = await dbV7.attemptStats.get(q.id);
       assert.ok(stat, "删除练习不应回退全局作答统计");
       assert.equal(stat.total, 1);
-      assert.equal(await dbV6.attempts.count(), 1, "作答记录保留为全局学习历史");
+      assert.equal(await dbV7.attempts.count(), 1, "作答记录保留为全局学习历史");
     });
     console.log("scenario 5 passed: 删除练习保留全局统计、仅删除练习投影");
   }
@@ -237,17 +237,17 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("级联删除统计题库");
-    const q = await createQuestionV6(bank.id, singleChoice("将被级联删除", "A", ["对", "错"]));
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q.id] });
+    const bank = await createBankV7("级联删除统计题库");
+    const q = await createQuestionV7(bank.id, singleChoice("将被级联删除", "A", ["对", "错"]));
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
     await answer(run.id, q.id, true, "A");
-    await deleteBankWithExclusiveQuestionsV6(bank.id);
+    await deleteBankWithExclusiveQuestionsV7(bank.id);
 
     await pushThenVerify("device-b", async () => {
-      assert.equal(await dbV6.questions.get(q.id), undefined, "级联删除应移除题目");
-      assert.equal(await dbV6.attempts.count(), 0, "级联删除应移除作答");
-      assert.equal(await dbV6.attemptStats.get(q.id), undefined, "级联删除应移除全局统计");
-      assert.equal(await dbV6.attemptDailyStats.where("questionId").equals(q.id).count(), 0, "级联删除应移除每日统计");
+      assert.equal(await dbV7.questions.get(q.id), undefined, "级联删除应移除题目");
+      assert.equal(await dbV7.attempts.count(), 0, "级联删除应移除作答");
+      assert.equal(await dbV7.attemptStats.get(q.id), undefined, "级联删除应移除全局统计");
+      assert.equal(await dbV7.attemptDailyStats.where("questionId").equals(q.id).count(), 0, "级联删除应移除每日统计");
     });
     console.log("scenario 6 passed: 题库级联删除同步清理作答与全部统计");
   }
@@ -257,19 +257,19 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("复习轮次题库");
-    const q1 = await createQuestionV6(bank.id, singleChoice("复习题 1", "A", ["对", "错"]));
-    const q2 = await createQuestionV6(bank.id, singleChoice("复习题 2", "B", ["对", "错"]));
-    const round = await createReviewRoundV6({ name: "错题复习", bankIds: [bank.id] });
-    const run = await createPracticeRunV6({ bankId: bank.id, questionIds: [q1.id, q2.id], reviewRoundId: round.id });
+    const bank = await createBankV7("复习轮次题库");
+    const q1 = await createQuestionV7(bank.id, singleChoice("复习题 1", "A", ["对", "错"]));
+    const q2 = await createQuestionV7(bank.id, singleChoice("复习题 2", "B", ["对", "错"]));
+    const round = await createReviewRoundV7({ name: "错题复习", bankIds: [bank.id] });
+    const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q1.id, q2.id], reviewRoundId: round.id });
     await answer(run.id, q1.id, true, "A");
     await answer(run.id, q2.id, false, "A");
-    await completeReviewRoundV6(round.id);
+    await completeReviewRoundV7(round.id);
 
     await pushThenVerify("device-b", async () => {
-      const pulledRound = await dbV6.reviewRounds.get(round.id);
+      const pulledRound = await dbV7.reviewRounds.get(round.id);
       assert.equal(pulledRound?.status, "completed", "轮次完成状态应同步");
-      const progress = await dbV6.reviewRoundProgress.where("roundId").equals(round.id).toArray();
+      const progress = await dbV7.reviewRoundProgress.where("roundId").equals(round.id).toArray();
       assert.equal(progress.length, 2, "两道题的轮次进度应同步");
       const byQuestion = new Map(progress.map((row) => [row.questionId, row]));
       assert.deepEqual(
@@ -286,21 +286,21 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("杂项操作题库");
-    const folder = await saveBankFolderV6({ name: "同步文件夹", description: "验证" });
-    const q1 = await createQuestionV6(bank.id, singleChoice("收藏题", "A", ["对", "错"]));
-    const q2 = await createQuestionV6(bank.id, singleChoice("解析题", "A", ["对", "错"]));
-    await saveNoteV6(q2.id, "这是一条个人解析。");
-    await saveQuestionGroupV6({ name: "题组 A", type: "错题", description: "同步验证", items: [{ questionId: q1.id, note: "重点" }, { questionId: q2.id, note: "" }] });
-    await toggleQuestionFavoriteV6(q1.id);
-    await saveBankFolderV6({ id: folder.id, name: "同步文件夹", description: "更新后的描述" });
+    const bank = await createBankV7("杂项操作题库");
+    const folder = await saveBankFolderV7({ name: "同步文件夹", description: "验证" });
+    const q1 = await createQuestionV7(bank.id, singleChoice("收藏题", "A", ["对", "错"]));
+    const q2 = await createQuestionV7(bank.id, singleChoice("解析题", "A", ["对", "错"]));
+    await saveNoteV7(q2.id, "这是一条个人解析。");
+    await saveQuestionGroupV7({ name: "题组 A", type: "错题", description: "同步验证", items: [{ questionId: q1.id, note: "重点" }, { questionId: q2.id, note: "" }] });
+    await toggleQuestionFavoriteV7(q1.id);
+    await saveBankFolderV7({ id: folder.id, name: "同步文件夹", description: "更新后的描述" });
 
     await pushThenVerify("device-b", async () => {
-      assert.ok(await dbV6.bankFolders.get(folder.id), "文件夹应同步");
-      assert.equal((await dbV6.questions.get(q1.id))?.favorite, true, "收藏状态应同步");
-      const note = await dbV6.notes.get(q2.id);
+      assert.ok(await dbV7.bankFolders.get(folder.id), "文件夹应同步");
+      assert.equal((await dbV7.questions.get(q1.id))?.favorite, true, "收藏状态应同步");
+      const note = await dbV7.notes.get(q2.id);
       assert.equal(note?.content, "这是一条个人解析。", "解析应同步");
-      const group = (await dbV6.questionGroups.toArray())[0];
+      const group = (await dbV7.questionGroups.toArray())[0];
       assert.ok(group, "题组应同步");
       assert.equal(group.items.length, 2, "题组成员应完整");
     });
@@ -312,15 +312,15 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const bank = await createBankV6("拆分题库");
-    const original = await createQuestionV6(bank.id, singleChoice("待拆分题", "A", ["对", "错"]));
-    const { clones } = await splitQuestionV6(original.id, [bank.id]);
+    const bank = await createBankV7("拆分题库");
+    const original = await createQuestionV7(bank.id, singleChoice("待拆分题", "A", ["对", "错"]));
+    const { clones } = await splitQuestionV7(original.id, [bank.id]);
     assert.equal(clones.length, 1, "拆分应产生一个 clone");
 
     await pushThenVerify("device-b", async () => {
-      assert.ok(await dbV6.questions.get(original.id), "原题应保留");
-      assert.ok(await dbV6.questions.get(clones[0].id), "clone 应同步到新设备");
-      assert.equal(await dbV6.questions.count(), 2, "拆分后应有两道题");
+      assert.ok(await dbV7.questions.get(original.id), "原题应保留");
+      assert.ok(await dbV7.questions.get(clones[0].id), "clone 应同步到新设备");
+      assert.equal(await dbV7.questions.count(), 2, "拆分后应有两道题");
     });
     console.log("scenario 9 passed: 题目拆分跨设备传播 clone");
   }
@@ -328,5 +328,5 @@ try {
   console.log("sync stats integration tests passed");
 } finally {
   await server.close();
-  dbV6.close();
+  dbV7.close();
 }

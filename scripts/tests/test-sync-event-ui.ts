@@ -95,7 +95,7 @@ assert.match(componentsCss, /\.sync-hot-window-fill dd>i\{flex:1;/, "the progres
 assert.ok(!/sync-last-sync/.test(componentsCss), "last sync stays in the 3-column grid (no full-width row)");
 // 「清除数据并保留配置」必须保留设备 id（设备身份属配置而非数据）：
 // 否则每次清库都会换一个新设备 id，水位表残留旧条目并虚增设备数。
-assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v6-device-id"/, "clear-data keep-config preserves the device id");
+assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v7-device-id"/, "clear-data keep-config preserves the device id");
 // 同步页状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：
 // 本页或外部快速同步把水位/新代数写入本地缓存后，live 查询自动重跑，无需
 // 轮询，也无需依赖 changeSets 队列（prune 保留近期 committed 记录，不是可靠信号）。

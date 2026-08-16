@@ -19,7 +19,7 @@ assert.equal(isCalculationAnswerCorrect("0.005", "0", 1), true);
 assert.equal(isCalculationAnswerCorrect("0.02", "0", 1), false);
 assert.match(editor, /questionTypes[^\n]*"计算"/, "question editor must expose calculation questions");
 assert.match(editor, /optimizeImageFile/, "question editor must optimize selected local images");
-assert.match(editor, /putImageAssetV6/, "question editor must store content-addressed image assets");
+assert.match(editor, /putImageAssetV7/, "question editor must store content-addressed image assets");
 assert.match(contentEditor, /accept="image\/\*"/, "rich content editor must select a local image file");
 assert.match(contentEditor, /insertImageAtSelection/, "rich content editor must insert images at the current text selection");
 assert.doesNotMatch(editor, /题目图片地址|imageUrl/, "question editor must not accept public image URLs");

@@ -9,7 +9,7 @@
 - 分支：`main`；远端：`https://github.com/Evolution404/exam-study-app.git`
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
-- 公开客户端数据层：独立 IndexedDB `shijuan-study-v6`。
+- 公开客户端数据层：独立 IndexedDB `shijuan-study-v7`（首次启动自动从旧 `shijuan-study-v6` 迁移）。
 - 公开同步协议：Sync v7，唯一可变入口 `sync/v7/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
 - Service Worker 缓存版本：`shijuan-v9`。
 - 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
@@ -43,7 +43,7 @@ docs/          # 项目文档
 
 ## 3. 数据模型与同步边界
 
-- `QuestionV6` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
+- `QuestionV7` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
 - 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
 - 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
 - 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。
@@ -55,7 +55,7 @@ docs/          # 项目文档
 
 ## 4. 关键文件
 
-- 数据模型：`src/lib/db/v6-types.ts`, `src/lib/db/db-v6.ts`, `src/lib/db/app-data-v6.ts`
+- 数据模型：`src/lib/db/v7-types.ts`, `src/lib/db/db-v7.ts`, `src/lib/db/app-data-v7.ts`
 - 同步协议：`src/lib/sync/sync-v7-head.ts`, `src/lib/sync/sync-v7-codec.ts`, `src/lib/sync/sync-v7-payload.ts`,
   `src/lib/sync/change-set-v7.ts`, `src/lib/sync/change-set-v7-projection.ts`, `src/lib/sync/change-set-v7-queue.ts`,
   `src/lib/sync/github-v7-remote.ts`, `src/lib/sync/github-sync-v7.ts`, `src/lib/sync/github-sync.ts`
@@ -78,7 +78,7 @@ docs/          # 项目文档
 
 `scripts/tools/check-architecture.mjs` 会检查：
 
-1. 公开页面只使用 `shijuan-study-v6`，不导入旧 `lib/db.ts`。
+1. 公开页面只使用 `shijuan-study-v7`，不导入旧 `lib/db.ts`。
 2. 公开同步只写 `sync/v7/head.json`，不保留 v1/v2/v5/v6 传输回退。
 3. 页面不得重新使用 `Question.imageUrl` 或“图片地址”导入列。
 4. `practiceRuns` 是唯一持久化练习进度；不得恢复 active session 双写。
@@ -129,4 +129,4 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 
 ## 9. 新任务第一步
 
-> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v6 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。
+> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v7 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。

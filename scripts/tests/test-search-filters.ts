@@ -6,7 +6,7 @@ import {
   effectiveSearchProgressScope,
   resolveSearchBankIds,
 } from "../../src/app/search/search-filter-drawer";
-import type { BankV6 } from "../../src/lib/db/v6-types";
+import type { BankV7 } from "../../src/lib/db/v7-types";
 
 const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
@@ -16,7 +16,7 @@ const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },
   { id: "b", name: "乙题库", displayName: "乙题库" },
   { id: "c", name: "丙题库", displayName: "丙题库" },
-] as BankV6[];
+] as BankV7[];
 
 const defaults = createDefaultSearchFilters(["a", "b"]);
 assert.equal(defaults.bankScope, "current", "有首页已选题库时默认使用已选题库");
@@ -39,6 +39,6 @@ assert.match(searchViewSource, /aria-label="搜索" className="search-trigger-bu
 assert.match(searchViewSource, /aria-label=\{activeFilterCount \? `筛选，已设置 \$\{activeFilterCount\} 项` : "筛选"\}/, "手机图标筛选按钮必须说明已设置条件数");
 assert.match(knowledgeViewSource, /aria-label="关闭标签详情"/, "标签详情关闭按钮不能成为无名称图标按钮");
 assert.match(preferencesViewSource, /v7 变更集和热窗口增量同步/, "配置页必须描述当前 v7 同步机制");
-assert.doesNotMatch(preferencesViewSource, /开启后使用 v6 事件/, "配置页不得残留旧 v6 同步文案");
+assert.doesNotMatch(preferencesViewSource, /开启后使用 v7 事件/, "配置页不得残留旧 v7 同步文案");
 
 console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and progress overrides");

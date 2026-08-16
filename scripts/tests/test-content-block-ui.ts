@@ -8,7 +8,7 @@ import {
   replaceContentBlock,
 } from "../../src/lib/question/question-content";
 import { performAssetRetry, resolveAssetLoad } from "../../src/app/ui/asset-image";
-import type { ContentBlock } from "../../src/lib/db/v6-types";
+import type { ContentBlock } from "../../src/lib/db/v7-types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
 const assetImage = read("src/app/ui/asset-image.tsx");

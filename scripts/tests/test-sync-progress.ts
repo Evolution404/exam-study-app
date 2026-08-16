@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, resetV6Database } from "../../src/lib/db/db-v6";
+import { createBankV7, createQuestionV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { restoreFullHistoryFromGitHub, SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
@@ -12,9 +12,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
@@ -24,7 +24,7 @@ const settings = { owner: "qa", repo: "progress-vault", branch: "main", apiBaseU
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV6Database();
+  await resetV7Database();
 }
 
 function collector() {
@@ -32,7 +32,7 @@ function collector() {
   return { reports, callback: (progress: SyncProgress) => reports.push({ ...progress }) };
 }
 
-function choice(stem: string): Parameters<typeof createQuestionV6>[1] {
+function choice(stem: string): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -67,9 +67,9 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   await syncWithGitHub(settings, "qa-token", init.callback);
   assertWellFormed(init.reports, "初始化", 3);
 
-  const bank = await createBankV6("进度题库");
-  await createQuestionV6(bank.id, choice("进度测试第 1 题"));
-  await createQuestionV6(bank.id, choice("进度测试第 2 题"));
+  const bank = await createBankV7("进度题库");
+  await createQuestionV7(bank.id, choice("进度测试第 1 题"));
+  await createQuestionV7(bank.id, choice("进度测试第 2 题"));
   const push = collector();
   await syncWithGitHub(settings, "qa-token", push.callback);
   assertWellFormed(push.reports, "推送", 6);
@@ -83,10 +83,10 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
 // Scenario 2: 多分段拉取 — 新设备一次拉下多个热窗口分段
 // ---------------------------------------------------------------------------
 {
-  const bankId = (await createBankV6("多段题库")).id;
+  const bankId = (await createBankV7("多段题库")).id;
   const smallSyncs = 5;
   for (let index = 0; index < smallSyncs; index += 1) {
-    await createQuestionV6(bankId, choice(`多段拉取第 ${index + 1} 题`));
+    await createQuestionV7(bankId, choice(`多段拉取第 ${index + 1} 题`));
     await syncWithGitHub(settings, "qa-token");
   }
   await freshClient("device-b");

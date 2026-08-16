@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../src/lib/db/db-v6";
+import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
@@ -17,9 +17,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
@@ -27,7 +27,7 @@ Object.defineProperty(globalThis, "localStorage", {
 const server = await startMockGitHubServer();
 const settings = { owner: "qa", repo: "concurrency-vault", branch: "main", apiBaseUrl: server.url };
 
-function question(stem: string): Parameters<typeof createQuestionV6>[1] {
+function question(stem: string): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -39,17 +39,17 @@ function question(stem: string): Parameters<typeof createQuestionV6>[1] {
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV6Database();
+  await resetV7Database();
 }
 
 // --- 阶段一：device-a 建立多分段热窗口 -------------------------------------
 await freshClient("device-a");
 await syncWithGitHub(settings, "qa-token");
-const bank = await createBankV6("并发下载题库");
+const bank = await createBankV7("并发下载题库");
 // 多次小同步各产生独立分段（合并阈值 24 段远未触达）。
 for (let round = 0; round < 8; round += 1) {
   for (let index = 0; index < 3; index += 1) {
-    await createQuestionV6(bank.id, question(`并发下载第 ${round * 3 + index} 题：` + "弧垂增大时安全距离随之调整。".repeat(30)));
+    await createQuestionV7(bank.id, question(`并发下载第 ${round * 3 + index} 题：` + "弧垂增大时安全距离随之调整。".repeat(30)));
   }
   await syncWithGitHub(settings, "qa-token");
 }
@@ -86,7 +86,7 @@ const segmentStepCount = progressLabels.filter((label) => label.includes("热窗
 assert.ok(segmentStepCount >= head.segments.length, `分段级进度报告数（${segmentStepCount}）应不少于分段数（${head.segments.length}）`);
 
 // 跨设备一致性：24 题全部到达，题干序号连续无丢失。
-const stems = (await dbV6.questions.toArray())
+const stems = (await dbV7.questions.toArray())
   .map((row) => row.content.map((block) => block.type === "text" ? block.text : "").join(""))
   .filter((text) => text.includes("并发下载第"));
 assert.equal(stems.length, 24, "应完整拉取全部 24 题");
@@ -96,7 +96,7 @@ assert.deepEqual(numbers, Array.from({ length: 24 }, (_, index) => index), "题�
 // --- 阶段三：重放顺序 —— 事件按 localSequence 严格递增 ----------------------
 // downloadRemote 按段序展平；每段内事件保持写入序。用同步事件的 deviceId 序列
 // 验证跨段顺序：device-a 的 localSequence 必须单调递增。
-const records = await dbV6.changeSets.toArray();
+const records = await dbV7.changeSets.toArray();
 const deviceASequence = records
   .filter((record) => record.deviceId === "device-a")
   .map((record) => record.localSequence)
@@ -110,8 +110,8 @@ server.stats.blobReads = 0;
 server.stats.maxConcurrentBlobReads = 0;
 await freshClient("device-c");
 await syncWithGitHub(settings, "qa-token");
-assert.equal(await dbV6.questions.count(), 24, "第三台设备完整拉取（重复验证正确性）");
+assert.equal(await dbV7.questions.count(), 24, "第三台设备完整拉取（重复验证正确性）");
 
 await server.close();
-dbV6.close();
+dbV7.close();
 console.log(`sync download concurrency tests passed: 并发峰值 ${observedPeak}（≤${SYNC_V7_DOWNLOAD_CONCURRENCY}）、顺序保真、进度单调（${segmentStepCount} 段级报告）`);

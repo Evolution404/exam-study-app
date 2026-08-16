@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../src/lib/db/db-v6";
+import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import {
@@ -23,19 +23,19 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV6Database();
+  await resetV7Database();
 }
 
-function question(stem: string): Parameters<typeof createQuestionV6>[1] {
+function question(stem: string): Parameters<typeof createQuestionV7>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -107,10 +107,10 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
   await freshClient("device-a");
   await sync();
-  const bank = await createBankV6("压缩题库");
+  const bank = await createBankV7("压缩题库");
   // 体积可观的题干让压缩收益可观测（真实数据里中文 JSON 压缩比 ~5-10×）。
   for (let index = 0; index < 6; index += 1) {
-    await createQuestionV6(bank.id, question(`压缩信封第 ${index} 题：` + "弧垂增大时安全距离随之调整。".repeat(120)));
+    await createQuestionV7(bank.id, question(`压缩信封第 ${index} 题：` + "弧垂增大时安全距离随之调整。".repeat(120)));
   }
   putBodies.length = 0;
   await syncWithGitHub(settings, "qa-token", undefined, { fetch: spyFetch });
@@ -146,8 +146,8 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   await freshClient("legacy-a");
   const legacySync = () => syncWithGitHub(mixedSettings, "qa-token");
   await legacySync();
-  const legacyBank = await createBankV6("存量纯 JSON 题库");
-  await createQuestionV6(legacyBank.id, question("旧设备写入的题目"));
+  const legacyBank = await createBankV7("存量纯 JSON 题库");
+  await createQuestionV7(legacyBank.id, question("旧设备写入的题目"));
   await legacySync();
   Object.defineProperty(globalThis, "CompressionStream", compressionDescriptor!);
   Object.defineProperty(globalThis, "DecompressionStream", decompressionDescriptor!);
@@ -164,21 +164,21 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   await freshClient("modern-b");
   const mixedSync = () => syncWithGitHub(mixedSettings, "qa-token");
   await mixedSync();
-  assert.ok(await dbV6.questions.count() >= 1, "新设备应拉到旧设备的题目");
-  const modernBank = await createBankV6("新设备压缩题库");
-  await createQuestionV6(modernBank.id, question("新设备写入的题目：".concat("混合格式验证。".repeat(200))));
+  assert.ok(await dbV7.questions.count() >= 1, "新设备应拉到旧设备的题目");
+  const modernBank = await createBankV7("新设备压缩题库");
+  await createQuestionV7(modernBank.id, question("新设备写入的题目：".concat("混合格式验证。".repeat(200))));
   await mixedSync();
 
   // 旧设备再次上线（恢复压缩能力后）也能读到新设备写入的压缩对象。
   await freshClient("legacy-a");
   await legacySync();
-  const stems = (await dbV6.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
+  const stems = (await dbV7.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
   assert.ok(stems.includes("新设备写入的题目"), "旧设备应能读到压缩格式的新数据");
 
   // 再来一台全新设备：一次性拉取混合格式 vault，全部题目齐备。
   await freshClient("fresh-c");
   await mixedSync();
-  const allStems = (await dbV6.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
+  const allStems = (await dbV7.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
   assert.ok(allStems.includes("旧设备写入的题目") && allStems.includes("新设备写入的题目"), "全新设备应能同时读取纯 JSON 与压缩两种格式的对象");
 }
 
@@ -214,10 +214,10 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   // 建立含热事件的 vault：A 推送若干题（分segment仍在热窗口）。
   await freshClient("migrate-a");
   await migrationSync();
-  const migrateBank = await createBankV6("迁移题库");
+  const migrateBank = await createBankV7("迁移题库");
   for (let round = 0; round < 3; round += 1) {
     for (let index = 0; index < 3; index += 1) {
-      await createQuestionV6(migrateBank.id, question(`迁移第 ${round * 3 + index} 题：` + "压缩迁移正文。".repeat(40)));
+      await createQuestionV7(migrateBank.id, question(`迁移第 ${round * 3 + index} 题：` + "压缩迁移正文。".repeat(40)));
     }
     await migrationSync();
   }
@@ -235,8 +235,8 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   // 5b. 迁移前基线：全新设备拉取的投影（除墓碑外）。
   await freshClient("baseline-x");
   await migrationSync();
-  const baselineQuestions = (await dbV6.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
-  const baselineBanks = (await dbV6.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
+  const baselineQuestions = (await dbV7.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
+  const baselineBanks = (await dbV7.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
 
   const migrated = await migrateVaultToCompressed(migrationSettings, "qa-token", () => undefined);
   assert.equal(migrated.migrated, true, "迁移应成功");
@@ -252,11 +252,11 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   // 5c. 迁移后新设备拉取：投影与迁移前一致（除按前提丢弃的墓碑）。
   await freshClient("post-migrate-y");
   await migrationSync();
-  const postQuestions = (await dbV6.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
-  const postBanks = (await dbV6.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
+  const postQuestions = (await dbV7.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
+  const postBanks = (await dbV7.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
   assert.deepEqual(postQuestions, baselineQuestions, "迁移后拉取的题目与迁移前一致");
   assert.deepEqual(postBanks, baselineBanks, "迁移后拉取的题库与迁移前一致");
-  assert.equal(await dbV6.tombstones.count(), 0, "存量墓碑按迁移前提清零");
+  assert.equal(await dbV7.tombstones.count(), 0, "存量墓碑按迁移前提清零");
 
   // 5d. 幂等：热窗口已空 → 无需迁移。
   const again = await migrateVaultToCompressed(migrationSettings, "qa-token", () => undefined);
@@ -273,8 +273,8 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   const backfillSync = () => syncWithGitHub(backfillSettings, "qa-token");
   await freshClient("backfill-a");
   await backfillSync();
-  const bank6 = await createBankV6("补填题库");
-  for (let index = 0; index < 4; index += 1) await createQuestionV6(bank6.id, question(`补填第 ${index} 题：` + "压缩正文。".repeat(60)));
+  const bank6 = await createBankV7("补填题库");
+  for (let index = 0; index < 4; index += 1) await createQuestionV7(bank6.id, question(`补填第 ${index} 题：` + "压缩正文。".repeat(60)));
   await backfillSync();
   const backfillRemote = createGitHubV7Remote({ owner: "qa", repo: "backfill-vault", token: "t", apiBaseUrl: server.url });
   const annotated = await backfillRemote.readHead();
@@ -306,5 +306,5 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 }
 
 await server.close();
-dbV6.close();
+dbV7.close();
 console.log("sync compression tests passed: codec 单元/回退、线上压缩信封与体积、混合格式共存、幂等读回、head 保持纯 JSON、迁移三场景");

@@ -6,9 +6,9 @@
 
 | 层级 | 命令 | 包含内容 | 耗时量级 | 是否含构建 |
 |---|---|---|---|---|
-| 逻辑 `unit` | `npm run test:unit` / `make test-unit` | 纯计算：快捷键、Excel 导入、错题口径、题型展示、同步 payload、v6 领域 | 秒级 | 否 |
-| 源码断言 `source` | `npm run test:source` / `make test-source` | 源码/静态断言：架构门、PWA 缓存、GitHub 代理一致性、弹窗层级、作答反馈 UI、内容块 UI、v6 数据流 | 秒级 | 否 |
-| 集成 `integration` | `npm run test:integration` / `make test-integration` | fake-indexeddb + mock 后端：db-v6、同步 mock、同步集成（事件/试题管理/合并） | 秒级 | 否 |
+| 逻辑 `unit` | `npm run test:unit` / `make test-unit` | 纯计算：快捷键、Excel 导入、错题口径、题型展示、同步 payload、v7 领域 | 秒级 | 否 |
+| 源码断言 `source` | `npm run test:source` / `make test-source` | 源码/静态断言：架构门、PWA 缓存、GitHub 代理一致性、弹窗层级、作答反馈 UI、内容块 UI、v7 数据流 | 秒级 | 否 |
+| 集成 `integration` | `npm run test:integration` / `make test-integration` | fake-indexeddb + mock 后端：db-v7、同步 mock、同步集成（事件/试题管理/合并） | 秒级 | 否 |
 | 快测 `fast` | `npm run test:fast` / `make test-fast` | 并行执行 unit + source + integration，再执行 typecheck + lint | 数秒–数十秒 | 否 |
 | 完整 CI `test` | `npm test` / `make test` | architecture → typecheck → build → 全部逻辑/源码/集成脚本 | 数十秒 | 是 |
 | 全量 `full` | `npm run test:full` / `make test-full` | 完整 CI + 浏览器全部场景（默认 headless，可用 `make test-browser-visible` 看可见浏览器） | 数分钟 | 是（+真实浏览器） |
@@ -144,15 +144,15 @@
 |---|---|---|
 | 练习中删当前题 → 自动跳过；删光全部 → 优雅结束 | browser-inflight | 自动 |
 | 练习中删题库 → 置空会话、不静默丢答案（E3） | browser-inflight | 自动 |
-| `savePracticeProgress` 与删题读后写竞争 → 不复活已删题（R4） | test-db-v6（S1.2） | 自动 |
-| 删题级联清空跨全部历史 run 的 attempts（E5） | test-db-v6（S1.4） | 自动 |
-| 删活动复习轮次中的题 → 该题作答被拒（E4） | test-db-v6（S2.5） | 自动 |
+| `savePracticeProgress` 与删题读后写竞争 → 不复活已删题（R4） | test-db-v7（S1.2） | 自动 |
+| 删题级联清空跨全部历史 run 的 attempts（E5） | test-db-v7（S1.4） | 自动 |
+| 删活动复习轮次中的题 → 该题作答被拒（E4） | test-db-v7（S2.5） | 自动 |
 | 跨设备删题裁剪对方活动 run（行保留） | test-sync-question-management（S14） | 自动 |
 | 删题把题组裁空 → 写墓碑，阻止陈旧组编辑跨设备复活（E6） | test-sync-question-management（S13） | 自动 |
 | 离线编辑遇远端墓碑 → blocked（local-pending 安全路径） | test-sync-question-management（S12） | 自动 |
 | 远端毒记录（与压实墓碑冲突）→ 跳过而非杀同步（Hazard） | test-sync-v7-multidevice | 自动 |
 | 删独占题库级联：独占题删/共享题存活/靶向 run 墓碑（S3.1） | test-sync-question-management（S15） | 自动 |
-| `deleteBankV6` 总墓碑靶向 run vs `deletePracticeRunV6` 条件墓碑（E7） | test-sync-question-management（S16） | 自动 |
+| `deleteBankV7` 总墓碑靶向 run vs `deletePracticeRunV7` 条件墓碑（E7） | test-sync-question-management（S16） | 自动 |
 
 #### 同步故障面与完整性（CAS + 故障注入）
 

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
-import type { BankV6 } from "../../src/lib/db/v6-types";
+import type { BankV7 } from "../../src/lib/db/v7-types";
 
 const at = "2026-08-13T00:00:00.000Z";
-const bankA: BankV6 = { id: "bank-a", name: "题库 A", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
-const bankB: BankV6 = { id: "bank-b", name: "题库 B", sortOrder: 1, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
+const bankA: BankV7 = { id: "bank-a", name: "题库 A", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
+const bankB: BankV7 = { id: "bank-b", name: "题库 B", sortOrder: 1, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 
 const base: ChangeSetProjectionV7 = {
   banks: [bankA, bankB],

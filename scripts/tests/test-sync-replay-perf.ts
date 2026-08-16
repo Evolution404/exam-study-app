@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV6, createQuestionV6, dbV6, resetV6Database } from "../../src/lib/db/db-v6";
-import type { AttemptV6, BankV6, PracticeRunV6, QuestionV6 } from "../../src/lib/db/v6-types";
+import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
+import type { AttemptV7, BankV7, PracticeRunV7, QuestionV7 } from "../../src/lib/db/v7-types";
 import { createChangeSetV7, type ChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import {
   reduceChangeSetsV7,
@@ -23,9 +23,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v6-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v6-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });
@@ -45,7 +45,7 @@ function emptyProjection(): ChangeSetProjectionV7 {
 // 构造一个有分量的投影：500 题 + 一个进行中的 run（答案逐题提交会触发 copy-on-write）。
 function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   const projection = emptyProjection();
-  const bank: BankV6 = { id: "bank-1", name: "性能题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId };
+  const bank: BankV7 = { id: "bank-1", name: "性能题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId };
   projection.banks.push(bank);
   const questionIds: string[] = [];
   for (let index = 0; index < seedQuestions; index += 1) {
@@ -56,15 +56,15 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
       content: [{ id: `${id}-stem`, type: "text" as const, text: `性能题 ${index}：`.padEnd(64, "细节") }],
       options: ["甲", "乙", "丙", "丁"].map((text, optionIndex) => [{ id: `${id}-${optionIndex}`, type: "text" as const, text }]),
       answer: "A", tags: ["性能"], favorite: false, contentFingerprint: `fp-${index}`, updatedAt: at, deviceId,
-    } satisfies QuestionV6;
+    } satisfies QuestionV7;
     projection.questions.push(question);
     projection.memberships.push({ key: `bank-1:${id}`, bankId: "bank-1", questionId: id, sortOrder: 0, addedAt: at, updatedAt: at, deviceId });
   }
   const questionTypes = Object.fromEntries(questionIds.map((id) => [id, "单选"]));
-  const run = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "性能题库", mode: "sequential" as const, modeLabel: "练习", questionIds, questionTypes, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress" as const, revision: 0 } satisfies PracticeRunV6;
+  const run = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "性能题库", mode: "sequential" as const, modeLabel: "练习", questionIds, questionTypes, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress" as const, revision: 0 } satisfies PracticeRunV7;
   projection.practiceRuns.push(run);
   for (const [index, questionId] of questionIds.entries()) {
-    const attempt = { id: `a-${index}`, runId: "run-1", questionId, selected: "A", correct: index % 3 !== 0, elapsedMs: 100, createdAt: at, deviceId } satisfies AttemptV6;
+    const attempt = { id: `a-${index}`, runId: "run-1", questionId, selected: "A", correct: index % 3 !== 0, elapsedMs: 100, createdAt: at, deviceId } satisfies AttemptV7;
     projection.attempts.push(attempt);
   }
   return projection;
@@ -153,23 +153,23 @@ const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs"
 const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-v7");
 const server = await startMockGitHubServer();
 const settings = { owner: "qa", repo: "replay-perf-vault", branch: "main", apiBaseUrl: server.url };
-await resetV6Database();
+await resetV7Database();
 currentDeviceId = "device-a";
 await syncWithGitHub(settings, "qa-token");
-const queueBank = await createBankV6("队列删除题库");
+const queueBank = await createBankV7("队列删除题库");
 for (let index = 0; index < 60; index += 1) {
-  await createQuestionV6(queueBank.id, { type: "单选", content: [{ id: `s-${index}`, type: "text", text: `队列题 ${index}` }], options: [[{ id: "o1", type: "text", text: "甲" }], [{ id: "o2", type: "text", text: "乙" }]], answer: "A", tags: [] });
+  await createQuestionV7(queueBank.id, { type: "单选", content: [{ id: `s-${index}`, type: "text", text: `队列题 ${index}` }], options: [[{ id: "o1", type: "text", text: "甲" }], [{ id: "o2", type: "text", text: "乙" }]], answer: "A", tags: [] });
 }
 await ensureChangeSetQueueBaseV7();
-const beforeCount = await dbV6.changeSets.count();
+const beforeCount = await dbV7.changeSets.count();
 assert.ok(beforeCount >= 60, `应积累至少 60 条 pending（实际 ${beforeCount}，含建库事件）`);
-const records = await dbV6.changeSets.toArray();
+const records = await dbV7.changeSets.toArray();
 const discardTarget = records[30]!;
 await discardManagedChangeSetV7(discardTarget.id, { cascadeDependents: true });
-assert.equal(await dbV6.changeSets.count(), beforeCount - 1, "删除一条后队列恰好少一条");
-const remaining = await dbV6.changeSets.toArray();
+assert.equal(await dbV7.changeSets.count(), beforeCount - 1, "删除一条后队列恰好少一条");
+const remaining = await dbV7.changeSets.toArray();
 assert.ok(!remaining.some((record) => record.id === discardTarget.id), "目标记录已移除");
 await server.close();
-dbV6.close();
+dbV7.close();
 
 console.log("sync replay perf tests passed: 批量/逐条 deepEqual、poison-skip 回滚安全、strict 模式、60 条队列删除");

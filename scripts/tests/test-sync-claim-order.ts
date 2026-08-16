@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { claimPendingChangeSetsV7, dbV6, enqueueChangeSetV7, resetV6Database } from "../../src/lib/db/db-v6";
+import { claimPendingChangeSetsV7, dbV7, enqueueChangeSetV7, resetV7Database } from "../../src/lib/db/db-v7";
 
 const memoryLocalStorage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -12,7 +12,7 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-await resetV6Database();
+await resetV7Database();
 // createdAt 故意乱序：最早创建的事件后写入，主键 id 顺序与时间顺序不一致。
 await enqueueChangeSetV7([{ kind: "bank.create", bank: { id: "bank-3", name: "第三个", sortOrder: 0, questionCount: 0, importedAt: "2026-08-13T00:00:00.000Z", updatedAt: "2026-08-13T00:00:00.000Z", deviceId: "device-a" } }], "2026-08-13T00:00:03.000Z", { localSequence: 10 });
 await enqueueChangeSetV7([{ kind: "bank.create", bank: { id: "bank-1", name: "第一个", sortOrder: 0, questionCount: 0, importedAt: "2026-08-13T00:00:00.000Z", updatedAt: "2026-08-13T00:00:00.000Z", deviceId: "device-a" } }], "2026-08-13T00:00:01.000Z", { localSequence: 9 });
@@ -22,5 +22,5 @@ const claim = await claimPendingChangeSetsV7();
 const order = claim.records.map((record) => record.localSequence);
 assert.deepEqual(order, [9, 11, 10], "claim 应按 createdAt/deviceId/localSequence 的确定顺序返回待同步变更");
 
-await dbV6.close();
+await dbV7.close();
 console.log("sync claim order tests passed");

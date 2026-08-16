@@ -248,8 +248,8 @@ async function setPracticePreferences(page, patch) {
   // autoNextCorrect=true 会在答对后自动前进并显示“回答正确，即将进入下一题”，
   // 两者都会让确定性作答断言不可靠。
   await page.evaluate((values) => {
-    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
-    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, ...values }));
+    const raw = JSON.parse(window.localStorage.getItem("study-v7-preferences") ?? "{}");
+    window.localStorage.setItem("study-v7-preferences", JSON.stringify({ ...raw, ...values }));
   }, patch);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -288,10 +288,10 @@ async function answerCurrentQuestion(page, optionIndexes, confirm = false) {
 }
 
 async function pendingEventCount(page) {
-  // Pending change-sets (state pending|blocked) are the new sync queue; the v6
+  // Pending change-sets (state pending|blocked) are the new sync queue; the v7
   // event log no longer exists.
   return page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open("shijuan-study-v6");
+    const request = indexedDB.open("shijuan-study-v7");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;
@@ -466,8 +466,8 @@ async function runDesktop(page, mockServer) {
   await expectText(page, "答题配置");
   await expectText(page, "客户端版本");
   await page.evaluate(() => {
-    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
-    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
+    const raw = JSON.parse(window.localStorage.getItem("study-v7-preferences") ?? "{}");
+    window.localStorage.setItem("study-v7-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -602,7 +602,7 @@ async function runDesktop(page, mockServer) {
   await autoThreshold.fill("1");
   await autoThreshold.blur();
   await page.waitForFunction(() => {
-    const raw = window.localStorage.getItem("study-v6-preferences");
+    const raw = window.localStorage.getItem("study-v7-preferences");
     if (!raw) return false;
     try { return Number(JSON.parse(raw).autoSyncEventThreshold) === 1; } catch { return false; }
   });
@@ -1057,10 +1057,10 @@ async function runManagementQA(page, mockServer) {
   assert.ok(before && /^第 \d+ 代$/.test(before.generation ?? ""), `同步页面板应有当前头代数（实际 ${before?.generation}）`);
   // 通过应用层接口制造 1 条 pending（收藏切换走完整 change-set 入队路径）。
   await page.evaluate(async () => {
-    const { dbV6, updateQuestionV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    const question = await dbV6.questions.orderBy("id").first();
+    const { dbV7, updateQuestionV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    const question = await dbV7.questions.orderBy("id").first();
     if (!question) throw new Error("题库为空，无法制造同步事件");
-    await updateQuestionV6(question.id, { favorite: !question.favorite });
+    await updateQuestionV7(question.id, { favorite: !question.favorite });
   });
   // 抽屉内点「立即同步」（外部同步路径），完成后抽屉面板与同步页面板都必须立即更新。
   await page.locator(".sync-queue-trigger").click();
@@ -1431,15 +1431,15 @@ async function runInFlightDeletionQA(page) {
 
   // S1.1a：删除「当前题」→ 自动跳过到下一道存活题（skip-effect）
   const currentId = await page.evaluate(async (stemText) => {
-    const { dbV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    const all = await dbV6.questions.toArray();
+    const { dbV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    const all = await dbV7.questions.toArray();
     const hit = all.find((q) => q.content.some((b) => b.type === "text" && b.text === stemText));
     return hit ? hit.id : null;
   }, firstStem);
   assert.ok(currentId, "应能定位当前题 id");
   await page.evaluate(async (id) => {
-    const { deleteQuestionsV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    await deleteQuestionsV6([id]);
+    const { deleteQuestionsV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    await deleteQuestionsV7([id]);
   }, currentId);
   await expectNotice(page, /题目已删除，自动跳过/, "delete-current-question skip notice");
   await page.waitForTimeout(400);
@@ -1449,9 +1449,9 @@ async function runInFlightDeletionQA(page) {
 
   // S1.1b：一次性删除剩余全部题 → 优雅结束进结果页（练习中题目被删光）
   await page.evaluate(async () => {
-    const { dbV6, deleteQuestionsV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    const all = await dbV6.questions.toArray();
-    await deleteQuestionsV6(all.map((q) => q.id));
+    const { dbV7, deleteQuestionsV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    const all = await dbV7.questions.toArray();
+    await deleteQuestionsV7(all.map((q) => q.id));
   });
   await expectNotice(page, /练习中的题目已被删除，本次练习结束/, "all-questions-deleted end notice");
   await page.locator(".run-result").waitFor({ state: "visible" });
@@ -1468,14 +1468,14 @@ async function runInFlightDeletionQA(page) {
   await page.locator(".question-card").waitFor({ state: "visible" });
   await page.waitForTimeout(300);
   const bankId = await page.evaluate(async () => {
-    const { dbV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    const bank = (await dbV6.banks.toArray())[0];
+    const { dbV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    const bank = (await dbV7.banks.toArray())[0];
     return bank?.id;
   });
   assert.ok(bankId, "应能定位练习题库 id");
   await page.evaluate(async (id) => {
-    const { deleteBankV6 } = await import("/exam-study-app/src/lib/db/db-v6.ts");
-    await deleteBankV6(id);
+    const { deleteBankV7 } = await import("/exam-study-app/src/lib/db/db-v7.ts");
+    await deleteBankV7(id);
   }, bankId);
   await expectNotice(page, /题库已被删除|练习已结束/, "bank-deleted-during-practice notice (E3)");
   await page.waitForTimeout(400);
@@ -1628,8 +1628,8 @@ async function runDarkModeAudit(page) {
   await page.locator(".app-shell").waitFor({ state: "visible" });
   await importFixture(page);
   await page.evaluate(() => {
-    const raw = JSON.parse(window.localStorage.getItem("study-v6-preferences") ?? "{}");
-    window.localStorage.setItem("study-v6-preferences", JSON.stringify({ ...raw, themeMode: "dark" }));
+    const raw = JSON.parse(window.localStorage.getItem("study-v7-preferences") ?? "{}");
+    window.localStorage.setItem("study-v7-preferences", JSON.stringify({ ...raw, themeMode: "dark" }));
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });

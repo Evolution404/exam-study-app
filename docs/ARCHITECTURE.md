@@ -34,8 +34,8 @@ src/app/
 
 ```text
 src/lib/
-├── db/        # db-v6, app-data-v6, v6-types
-├── sync/      # github-sync*, github-v7-remote, github-credentials, sync-v6-*, sync-v7-*,
+├── db/        # db-v7, app-data-v7, v7-types
+├── sync/      # github-sync*, github-v7-remote, github-credentials, sync-v7-*,
 │              # change-set-v7*, image-asset-cache, site-data-reset
 ├── question/  # question-content, question-utils, question-overview, question-bank-*
 ├── io/        # xlsx-import, xlsx-export, image-assets, image-dimensions
@@ -53,7 +53,7 @@ src/types/
 └── types.ts          # 全局共享领域类型（QuestionType, Bank, GitHubSettings 等）
 ```
 
-`v6-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v6 数据模型，和 `db-v6.ts`、`app-data-v6.ts` 强耦合。
+`v7-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v7 数据模型，和 `db-v7.ts`、`app-data-v7.ts` 强耦合。
 
 ## 入口 `src/main.tsx`
 
@@ -87,9 +87,10 @@ scripts/
 
 ## 当前数据与同步格式
 
-- 客户端只使用 IndexedDB v6（`shijuan-study-v6`）。
+- 客户端只使用 IndexedDB v7（`shijuan-study-v7`）。
 - 公开同步协议为 Sync v7：head 固定为 `sync/v7/head.json`，不可变对象走内容寻址，GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
 - 不保留 v1/v2/v5/v6 传输回退和旧迁移链。
+- 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；旧远程 v6 检查点只读兼容，新检查点一律写 v7。
 
 ## 主题规则
 
