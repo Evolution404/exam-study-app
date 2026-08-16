@@ -555,7 +555,7 @@ async function runDesktop(page, mockServer) {
   await expectText(page, "本次正确率");
   await capture(page, contextName, "practice-result");
   await page.locator('button[aria-label^="查看第"]').first().click();
-  await page.getByRole("dialog", { name: "练习结果题目详情" }).waitFor({ state: "visible" });
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
   await capture(page, contextName, "practice-result-detail");
   await clickButton(page, "关闭题目详情");
 

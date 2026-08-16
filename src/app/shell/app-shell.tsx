@@ -321,10 +321,10 @@ export function AppShell() {
     localStorage.setItem("study-v7-preferences", JSON.stringify(value));
   }
 
-  // 同步拉取后刷新进行中的练习：另一设备对同一 run 的作答已合并进 DB，但
-  // practiceSession 是打开练习时的内存快照，不刷新就看不到新进度。有新作答时
-  // 切到最后一道做完的题；没有新作答则只静默对齐数据（题干等可能被远端编辑），
-  // 不打断当前答题。
+  // 用户显式点同步拉取后刷新进行中的练习：另一设备对同一 run 的作答已合并进
+  // DB，但 practiceSession 是打开练习时的内存快照，不刷新就看不到新进度。有新
+  // 作答时切到最后一道做完的题；没有新作答则只静默对齐数据（题干等可能被远端
+  // 编辑），不打断当前答题。后台定期拉取不调用它（避免打扰正在答题的用户）。
   async function refreshActivePracticeAfterSync() {
     const session = practiceSessionRef.current;
     if (!session) return;
@@ -436,8 +436,9 @@ export function AppShell() {
       try {
         const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
         saveGitHubSettings(resolved);
-        const pullResult = await pullFromGitHub(resolved, token);
-        if (pullResult.pulled || pullResult.receivedSnapshot) await refreshActivePracticeAfterSync();
+        // 后台定期拉取不刷新可见练习会话：静默重建/跳题会打扰正在答题的用户。
+        // 只有用户显式点同步（quickSync）才会刷新会话对齐远端合并的作答。
+        await pullFromGitHub(resolved, token);
       } catch (error) {
         setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败");
       } finally {

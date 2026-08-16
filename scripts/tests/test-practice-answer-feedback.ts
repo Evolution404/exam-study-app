@@ -47,8 +47,13 @@ assert.match(practiceSetup, /mode === "randomCustom" \? requestedRandomCount/, "
 assert.match(practiceSetup, /不修改全局配置/, "custom random mode must remain independent from global preferences");
 
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
-assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session");
-assert.doesNotMatch(studyApp, /practiceSessionRef/, "periodic pull must not retain and replace the visible practice session");
+// 用户显式点同步后刷新可见练习会话（对齐远端合并作答、跳到最后一题）是产品需求；
+// 但后台定期拉取不得静默重建/跳题打扰答题，且无新作答时不得偏离当前题。
+assert.match(studyApp, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSync/, "quick sync must refresh the visible practice session after a pull");
+assert.doesNotMatch(studyApp, /pullResult/, "periodic pull must not replace the visible practice session");
+assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
+assert.match(studyApp, /activePracticeFromRun\(run, session\.currentIndex\)/, "no new answers: keep the current question");
+assert.match(studyApp, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
 assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
 assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 
