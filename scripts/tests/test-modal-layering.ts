@@ -6,7 +6,7 @@ const portal = read("src/app/ui/modal-portal.tsx");
 const styles = read("src/app/styles/components.css");
 const confirmDialog = read("src/app/ui/confirm-dialog.tsx");
 const studyApp = read("src/app/shell/app-shell.tsx");
-const practiceView = read("src/app/shell/views.tsx");
+const practiceView = read("src/app/shell/views/practice.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const credentials = read("src/lib/sync/github-credentials.ts");
 
@@ -16,11 +16,11 @@ assert.match(portal, /workspace\.style\.overflow = "hidden"/, "open overlays mus
 const overlaySources = [
   ["src/app/ui/confirm-dialog.tsx", "simple-dialog-backdrop"],
   ["src/app/bank/question-editor.tsx", "editor-backdrop"],
-  ["src/app/bank/bank-library-view.tsx", "simple-dialog-backdrop"],
+  ["src/app/bank/bank-library/bank-dialogs.tsx", "simple-dialog-backdrop"],
   ["src/app/bank/question-detail.tsx", "search-detail-backdrop"],
   ["src/app/search/search-view.tsx", "search-practice-backdrop"],
   ["src/app/search/search-filter-drawer.tsx", "search-filter-backdrop"],
-  ["src/app/shell/views.tsx", "overview-backdrop"],
+  ["src/app/shell/views/question-overview.tsx", "overview-backdrop"],
 ] as const;
 
 for (const [path, className] of overlaySources) {

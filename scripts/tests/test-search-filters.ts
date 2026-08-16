@@ -10,7 +10,10 @@ import type { BankV7 } from "../../src/lib/db/v7-types";
 
 const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
-const preferencesViewSource = fs.readFileSync(new URL("../../src/app/shell/views.tsx", import.meta.url), "utf8");
+const preferencesViewSource = [
+  fs.readFileSync(new URL("../../src/app/shell/views/preferences-view.tsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../../src/app/shell/views/sync-automation-setting.tsx", import.meta.url), "utf8"),
+].join("\n");
 
 const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },

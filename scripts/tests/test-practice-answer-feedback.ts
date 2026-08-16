@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const studyApp = read("src/app/shell/app-shell.tsx");
-const practiceView = read("src/app/shell/views.tsx");
+const practiceView = read("src/app/shell/views/practice.tsx");
+const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const practiceHistory = read("src/app/practice/practice-history.tsx");
 const styles = read("src/app/styles/components.css");
@@ -29,9 +30,9 @@ assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must
 assert.match(studyApp, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
 assert.match(studyApp, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
 assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
-assert.match(practiceView, /<span><b>\{answeredInRun\}<\/b> \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/span>/, "home must use the same answered/total metric as practice history");
-assert.doesNotMatch(practiceView, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
-assert.ok(practiceView.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < practiceView.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
+assert.match(dashboardView, /<span><b>\{answeredInRun\}<\/b> \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/span>/, "home must use the same answered/total metric as practice history");
+assert.doesNotMatch(dashboardView, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
+assert.ok(dashboardView.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < dashboardView.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
 assert.match(practiceHistory, /onAbandon: \(runId: string\) => void/, "latest practice banner needs an abandon action");
 assert.match(practiceHistory, /className="latest-practice-abandon"/, "latest practice abandon action needs its compact button");
 assert.doesNotMatch(practiceHistory, /inProgress \?\? latest/, "practice center must hide the latest banner when no run is in progress");

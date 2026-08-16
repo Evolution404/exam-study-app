@@ -5,7 +5,7 @@ const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.m
 const serviceWorker = read("public/sw.js");
 const studyApp = read("src/app/shell/app-shell.tsx");
 const shellHelpers = read("src/app/shell/helpers.ts");
-const preferencesView = read("src/app/shell/views.tsx");
+const preferencesView = read("src/app/shell/views/preferences-view.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
 const main = read("src/main.tsx");

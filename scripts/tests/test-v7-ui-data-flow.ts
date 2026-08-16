@@ -30,7 +30,14 @@ assert.match(editor, /putImageAssetV7/);
 assert.match(editor, /个人解析/, "题目编辑器应提供个人解析编辑位置");
 assert.match(editor, /onSave: \(changes: QuestionChanges, note\?: string\)/, "编辑器保存应回传个人解析");
 
-const bank = source("bank/bank-library-view.tsx");
+const bank = [
+  "bank/bank-library-view.tsx",
+  "bank/bank-library/bank-detail.tsx",
+  "bank/bank-library/question-manager.tsx",
+  "bank/bank-library/unfiled-question-section.tsx",
+  "bank/bank-library/bank-delete-dialog.tsx",
+  "bank/bank-library/bank-question-delete-dialog.tsx",
+].map(source).join("\n");
 assert.match(bank, /仅从当前题库移除/);
 assert.match(bank, /全局删除题目及学习记录/);
 assert.match(bank, /listUnfiledQuestionsV7/);
@@ -89,14 +96,14 @@ assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 
 const study = source("shell/app-shell.tsx");
 const shellHelpers = source("shell/helpers.ts");
-const practiceView = source("shell/views.tsx");
+const dashboardView = source("shell/views/dashboard.tsx");
 assert.match(shellHelpers, /resumeIndexAfterLastAnswer/);
 assert.match(shellHelpers, /savePracticeProgressV7/);
 assert.match(shellHelpers, /recordPracticeAnswerV7/);
 assert.equal((shellHelpers.match(/recordPracticeAnswerV7\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v7 record API");
 assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
-assert.match(practiceView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
+assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
 assert.match(study, /restoreLastRemoteCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复完成态应留出可见时间");

@@ -4,7 +4,7 @@ import { isCalculationAnswerCorrect, normalizeCalculationAnswer } from "../../sr
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const studyApp = read("src/app/shell/app-shell.tsx");
-const practiceView = read("src/app/shell/views.tsx");
+const practiceView = read("src/app/shell/views/practice.tsx");
 const history = read("src/app/practice/practice-history.tsx");
 const editor = read("src/app/bank/question-editor.tsx");
 const contentEditor = read("src/app/bank/content-block-editor.tsx");
