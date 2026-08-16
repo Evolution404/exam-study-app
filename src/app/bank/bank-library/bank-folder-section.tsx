@@ -57,8 +57,9 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     const movedIndex = next.findIndex((bank) => bank.id === active.id);
     const beforeId = movedIndex >= 0 && movedIndex + 1 < next.length ? next[movedIndex + 1].id : undefined;
     console.log("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
+    // 提交期间保持 dragging 状态，等 placeBank 持久化后由父级清除；
+    // 立即 onDrag(undefined) 会让 props 先回到旧顺序，导致其它卡片闪烁。
     onDrop(beforeId);
-    onDrag(undefined);
   }
 
   return <section className={`bank-folder ${draggedBankId ? "drag-active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onDrop(); }}><header><span className="folder-icon">{folder ? <FolderOpen size={18} /> : <Library size={18} />}</span><div><h2>{folder?.name ?? "未分组"}</h2><p>{folder?.description || `${banks.length} 个题库`}</p></div><strong>{banks.length}</strong>{folder && <div className="folder-actions"><button aria-label={`编辑文件夹${folder.name}`} onClick={onEditFolder}><Pencil size={15} /></button><button aria-label={`删除文件夹${folder.name}`} onClick={onDeleteFolder}><Trash2 size={15} /></button></div>}</header><DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}><SortableContext items={ordered.map((bank) => bank.id)} strategy={verticalListSortingStrategy}><div className="bank-management-grid">{ordered.map((bank, index) => <SortableBankItem key={bank.id} bank={bank} index={index} total={ordered.length} onOpen={onOpen} onMove={onMove} />)}</div></SortableContext></DndContext>{!ordered.length && <div className="folder-drop-empty"><Folder size={20} />将题库拖到这里</div>}</section>;
