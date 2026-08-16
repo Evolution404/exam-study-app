@@ -20,7 +20,7 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
 
   function reorder(from: number, to: number) {
     if (from < 0 || to < 0 || from >= ordered.length || to >= ordered.length || from === to) return;
-    setPreview({ source: ordered, value: arrayMove(ordered, from, to) });
+    setPreview({ source: preview.source, value: arrayMove(ordered, from, to) });
   }
 
   function handleDragStart(event: DragStartEvent) { onDrag(String(event.active.id)); }
