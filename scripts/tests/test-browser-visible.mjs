@@ -1298,10 +1298,15 @@ async function runSearchBatch(page) {
   const groupItems = page.locator(".group-items article");
   assert.equal(await groupItems.count(), 2, "加入题组 must prefill the two selected questions");
   const firstStem = await groupItems.first().innerText();
-  await groupItems.first().dispatchEvent("dragstart");
-  await groupItems.nth(1).dispatchEvent("dragover", { clientY: 9999 });
-  await groupItems.nth(1).dispatchEvent("drop", { clientY: 9999 });
-  await groupItems.first().dispatchEvent("dragend");
+  const firstHandle = groupItems.first().locator(".group-drag");
+  const secondHandle = groupItems.nth(1).locator(".group-drag");
+  const firstBox = await firstHandle.boundingBox();
+  const secondBox = await secondHandle.boundingBox();
+  assert.ok(firstBox && secondBox, "拖动前两个题组项应可见");
+  await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, { steps: 12 });
+  await page.mouse.up();
   await page.waitForFunction((previous) => {
     const first = document.querySelector(".group-items article")?.innerText ?? "";
     return first.trim() !== previous;

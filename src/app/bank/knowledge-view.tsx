@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Check, ChevronRight, FolderPlus, GripVertical, Layers3, Merge, Pencil, Play, Plus, Search, Star, Tags, Trash2, X } from "lucide-react";
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { dbV7, deleteQuestionGroupV7, saveQuestionGroupV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
@@ -8,7 +11,6 @@ import type { QuestionGroupV7 } from "@/lib/db/v7-types";
 import type { QuestionGroupItem } from "@/types/types";
 import { loadImageAssetV7, SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
-import { useDragSort } from "@/app/hooks/use-drag-sort";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { MathText } from "@/app/ui/math-text";
@@ -91,7 +93,28 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   const byId = new Map(questions.map((question) => [question.id, question]));
   const detailEntries = items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question));
   const results = query.trim() ? questions.filter((question) => !items.some((item) => item.questionId === question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
-  const { ordered: dragOrdered, containerRef: groupItemsRef, draggedIndex, dragHandlers } = useDragSort({ items, onReorder: setItems });
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  function reorderItems(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
+    setItems(arrayMove(items, from, to));
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = items.findIndex((item) => item.questionId === active.id);
+    const to = items.findIndex((item) => item.questionId === over.id);
+    if (from >= 0 && to >= 0) reorderItems(from, to);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = items.findIndex((item) => item.questionId === active.id);
+    const to = items.findIndex((item) => item.questionId === over.id);
+    if (from >= 0 && to >= 0) reorderItems(from, to);
+  }
 
   useEffect(() => {
     if (!detailQuestionId) return;
@@ -108,12 +131,29 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   return <div className="group-workspace">
     <section className="group-editor"><header><FolderPlus size={20} /><div><strong>{editingId ? "编辑题组" : "新建题组"}</strong><p>可加入任意数量题目、调整顺序，并为每道题写组内提示。</p></div></header><footer>{editingId && <button onClick={reset}>取消编辑</button>}<button className="primary" disabled={!name.trim() || !items.length} onClick={() => void save()}><Check size={16} />保存题组</button></footer><div className="group-fields"><label>题组名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：弧垂计算易混题" /></label><label htmlFor="question-group-type-select">题组类型<AppSelect id="question-group-type-select" ariaLabel="题组类型" value={type} onValueChange={(value) => setType(value as QuestionGroupType)} options={GROUP_TYPES.map((item) => ({ value: item, label: item }))} /></label><label className="group-description">题组说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="记录这些题为什么要放在一起" /></label></div>
       <div className="group-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索题干、题库或标签，连续添加多道题" /></div>{results.length > 0 && <div className="group-search-results">{results.map((question) => <button key={question.id} onClick={() => { setItems([...items, { questionId: question.id, note: "" }]); setQuery(""); }}><Plus size={15} /><span><strong><MathText text={question.stem} /></strong><small>{question.type} · {question.bankName}</small></span></button>)}</div>}
-      <div className="group-items" ref={groupItemsRef}>{dragOrdered.length ? dragOrdered.map((item, index) => { const question = byId.get(item.questionId); if (!question) return null; const handlers = dragHandlers(index); return <article key={item.questionId} data-drag-id={question.id} data-drag-index={index} data-question-id={question.id} className={`${detailQuestionId === question.id ? "detail-current" : ""} ${draggedIndex === index ? "drag-active" : ""}`} {...handlers}><span className="group-drag" aria-label={`拖动第 ${index + 1} 题排序`}><GripVertical size={16} /></span><span className="group-order">{index + 1}</span><div><button className="group-question-open" aria-label={`查看第 ${index + 1} 题详情`} onClick={() => setDetailQuestionId(question.id)}><strong><MathText text={question.stem} /></strong><small>{question.type} · {question.bankName}</small></button><input value={item.note} onChange={(event) => setItems(dragOrdered.map((row, rowIndex) => rowIndex === index ? { ...row, note: event.target.value } : row))} placeholder="这道题在本组中的区分点（可选）" /></div><button className="group-remove" aria-label={`移除第 ${index + 1} 题`} onClick={() => setItems(dragOrdered.filter((_, rowIndex) => rowIndex !== index))}><X size={15} /></button></article>; }) : <div className="group-items-empty">还没有题目。搜索后可连续添加，至少添加一道。</div>}</div>
+      <DndContext sensors={sensors} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+        <SortableContext items={items.map((item) => item.questionId)} strategy={verticalListSortingStrategy}>
+          <div className="group-items">{items.length ? items.map((item, index) => { const question = byId.get(item.questionId); if (!question) return null; return <SortableGroupItem key={item.questionId} item={item} question={question} index={index} detailQuestionId={detailQuestionId} onOpen={setDetailQuestionId} onNote={(value) => setItems(items.map((row, rowIndex) => rowIndex === index ? { ...row, note: value } : row))} onRemove={() => setItems(items.filter((_, rowIndex) => rowIndex !== index))} />; }) : <div className="group-items-empty">还没有题目。搜索后可连续添加，至少添加一道。</div>}</div>
+        </SortableContext>
+      </DndContext>
     </section>
     <section className="group-list"><header><div><span className="section-kicker">独立于标签的精细整理</span><h2>{data?.groups.length ?? 0} 个题组</h2></div></header>{data?.groups.length ? <div>{data.groups.map((group) => { const groupQuestions = group.items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question)); return <article key={group.id}><header><span className="group-type">{group.type}</span><div><h3>{group.name}</h3><p>{group.description || "未填写题组说明"}</p></div><strong>{groupQuestions.length} 题</strong></header><ol>{groupQuestions.slice(0, 4).map((question, index) => <li key={question.id}><span>{index + 1}</span><MathText text={question.stem} /></li>)}</ol>{groupQuestions.length > 4 && <small>还有 {groupQuestions.length - 4} 道题</small>}<footer><button onClick={() => edit(group)}><Pencil size={15} />编辑</button><button onClick={() => onStart(groupQuestions, `题组 · ${group.name}`)}><Play size={15} />练习题组</button><button className="danger-button" onClick={() => setDeleteGroupPrompt(group)}><Trash2 size={15} />删除</button></footer></article>; })}</div> : <div className="knowledge-empty"><Layers3 /><h2>还没有题组</h2><p>在上方搜索并添加若干题目，建立第一组易混题、专题题或自定义题组。</p></div>}</section>
     <ConfirmDialog open={Boolean(deleteGroupPrompt)} eyebrow="题组管理" title="删除这个题组？" tone="danger" confirmLabel="删除题组" onCancel={() => setDeleteGroupPrompt(undefined)} onConfirm={() => { if (deleteGroupPrompt) void deleteQuestionGroupV7(deleteGroupPrompt.id).then(() => onNotice(`题组“${deleteGroupPrompt.name}”已删除`)); setDeleteGroupPrompt(undefined); }} description={<><strong>题组“{deleteGroupPrompt?.name}”将被删除</strong><span>题组内的题目和标签会保留，此操作会加入同步队列。</span></>} />
     {detailQuestionId && <GroupQuestionDetail questionId={detailQuestionId} entries={detailEntries} onClose={() => setDetailQuestionId(undefined)} onNavigate={setDetailQuestionId} onStart={onStart} onNotice={onNotice} />}
   </div>;
+}
+
+function SortableGroupItem({ item, question, index, detailQuestionId, onOpen, onNote, onRemove }: {
+  item: QuestionGroupItem;
+  question: Question;
+  index: number;
+  detailQuestionId?: string;
+  onOpen: (id: string) => void;
+  onNote: (value: string) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: question.id });
+  return <article ref={setNodeRef} data-question-id={question.id} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined }} className={`${detailQuestionId === question.id ? "detail-current" : ""} ${isDragging ? "drag-active" : ""}`}><span className="group-drag" aria-label={`拖动第 ${index + 1} 题排序`} {...attributes} {...listeners}><GripVertical size={16} /></span><span className="group-order">{index + 1}</span><div><button className="group-question-open" aria-label={`查看第 ${index + 1} 题详情`} onClick={() => onOpen(question.id)}><strong><MathText text={question.stem} /></strong><small>{question.type} · {question.bankName}</small></button><input value={item.note} onChange={(event) => onNote(event.target.value)} placeholder="这道题在本组中的区分点（可选）" /></div><button className="group-remove" aria-label={`移除第 ${index + 1} 题`} onClick={onRemove}><X size={15} /></button></article>;
 }
 
 function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onStart, onNotice }: {
