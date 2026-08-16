@@ -1646,6 +1646,27 @@ async function runDarkModeAudit(page) {
     await page.waitForTimeout(450);
     await auditVisibleButtons(page, nav, offenders);
   }
+  // 题组编辑器编辑态（历史漏检点）：取消编辑的叉按钮与条目移除按钮只在编辑
+  // 已有题组时渲染，常规视图巡检看不到，曾在夜间保持白底。必须进入编辑态审计。
+  await clickButton(page, "知识整理");
+  await expectText(page, "标签");
+  await clickTextButton(page, "题组");
+  await page.getByLabel("题组名称").fill("夜间审计题组");
+  const groupSearch = page.locator(".group-search input");
+  await groupSearch.fill("巡视");
+  await page.waitForTimeout(600);
+  const firstGroupResult = page.locator(".group-search-results button").first();
+  await firstGroupResult.waitFor({ state: "visible" });
+  await firstGroupResult.click();
+  await page.getByRole("button", { name: "保存题组" }).click();
+  await expectNotice(page, /题组“夜间审计题组”已保存/, "dark audit group save");
+  const groupCard = page.locator(".group-list article").filter({ hasText: "夜间审计题组" }).first();
+  await groupCard.waitFor({ state: "visible" });
+  await groupCard.getByRole("button", { name: "编辑" }).click();
+  await page.getByRole("button", { name: "取消编辑" }).waitFor({ state: "visible" });
+  await auditVisibleButtons(page, "题组编辑器编辑态", offenders);
+  await capture(page, contextName, "group-editor-edit-dark");
+  await page.getByRole("button", { name: "取消编辑" }).click();
   // 搜索视图：透明输入框审计（顶栏 + 搜索页两个搜索框）。
   await clickButton(page, "今日");
   await clickButton(page, "进入搜索主页");

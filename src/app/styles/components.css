@@ -395,6 +395,11 @@ html[data-theme="dark"] :is(.setup-bank,.advanced-grid>label,.metric-grid label,
 html[data-theme="dark"] :is(.editor-options button,.group-search,.group-search-results,.group-search-results button,.group-items article,.relation-picker>div:first-of-type,.relation-picker-results,.relation-picker-results button,.knowledge-search){border-color:#39473f;color:var(--ink);background:#111813}
 html[data-theme="dark"] :is(.group-type,.result-type,.search-result-main em){color:#b7d7c3;background:#253a2e}
 html[data-theme="dark"] .group-list article>footer{border-color:#35423a}
+/* 题组编辑器头部操作按钮（取消编辑叉按钮/保存）与条目移除按钮只在编辑态出现，
+   知识整理的常规夜间巡检看不到，曾漏配保持白底。 */
+html[data-theme="dark"] .group-editor-actions button{border-color:#3a493f;color:#b8c3bc;background:#141c17}
+html[data-theme="dark"] .group-editor-actions button.primary{border:0;color:#fff;background:var(--green)}
+html[data-theme="dark"] .group-remove{border-color:#3a493f;color:#b8c3bc;background:#141c17}
 
 html[data-theme="dark"] :is(.search-view-all,.search-load-more){border-color:#3b4b41;color:#a9d0b8;background:#1c2b22}
 html[data-theme="dark"] .search-toolbar{border-color:#35423a}
