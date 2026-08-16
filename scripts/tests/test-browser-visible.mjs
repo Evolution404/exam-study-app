@@ -909,7 +909,7 @@ async function runManagementQA(page, mockServer) {
   await firstResult.waitFor({ state: "visible" });
   await firstResult.click();
   await page.locator(".group-items input").first().fill("区分：弧垂增大时安全距离减小");
-  await clickTextButton(page, "保存题组");
+  await page.getByRole("button", { name: "保存题组" }).click();
   await expectNotice(page, /题组“弧垂易混题组”已保存，共 1 道题/, "group save notice");
   let groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组" }).first();
   await groupCard.waitFor({ state: "visible" });
@@ -918,7 +918,7 @@ async function runManagementQA(page, mockServer) {
   // 编辑题组：改名 + 删除单题
   await groupCard.getByRole("button", { name: "编辑" }).click();
   await page.getByLabel("题组名称").fill("弧垂易混题组-改");
-  await clickTextButton(page, "保存题组");
+  await page.getByRole("button", { name: "保存题组" }).click();
   await expectNotice(page, /题组“弧垂易混题组-改”已保存/, "group rename notice");
   groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组-改" }).first();
   await groupCard.waitFor({ state: "visible" });
