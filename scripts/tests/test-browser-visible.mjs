@@ -1355,8 +1355,9 @@ async function runHistoryResult(page) {
   assert.match(await page.locator(".result-score strong").innerText(), /^80/, "four correct of five answered must show 80% accuracy");
   await capture(page, contextName, "result-page");
 
-  // 结果页选中题目必须与搜索结果选中题目一致高亮（共享 .detail-current 规则块：
-  // 主色边框 + 主色柔和 3px 描边，夜间随 token 自动适配）。
+  // 结果页选中题目以主色软背景作唯一反馈：按钮基础 border:0 无四周边框，边框/描边
+  // 方案会同时改动顶边（inset 线）与底部分隔线成上下等宽绿边（用户否决），因此选中
+  // 不得叠加边框或描边，且底部分隔线必须保持浅灰。
   const firstResultQuestion = page.locator(".result-question-groups button").first();
   await firstResultQuestion.click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
@@ -1371,23 +1372,13 @@ async function runHistoryResult(page) {
       probe.remove();
       return resolved;
     };
-    const primary = resolveColor(root.getPropertyValue("--color-primary").trim(), "borderTopColor");
-    const primarySoft = resolveColor(root.getPropertyValue("--color-primary-soft").trim(), "borderTopColor");
     const primarySoftBg = resolveColor(root.getPropertyValue("--color-primary-soft").trim(), "backgroundColor");
-    return {
-      border: style.borderTopColor,
-      background: style.backgroundColor,
-      boxShadow: style.boxShadow,
-      expectPrimary: primary,
-      expectSoft: primarySoft,
-      expectSoftBg: primarySoftBg,
-    };
+    const separator = resolveColor("#e7e4dd", "borderTopColor");
+    return { background: style.backgroundColor, boxShadow: style.boxShadow, borderBottom: style.borderBottomColor, expectSoftBg: primarySoftBg, expectSeparator: separator };
   });
-  assert.equal(detailHighlight.border, detailHighlight.expectPrimary, "结果页选中题目边框必须用主色（与搜索结果选中一致）");
-  assert.ok(detailHighlight.boxShadow.includes(detailHighlight.expectSoft), "结果页选中题目须有主色柔和描边（与搜索结果选中一致）");
-  // 结果页按钮基础 border:0 无四周边框，需补主色软背景 + inset 1px 主色内框才明显。
-  assert.equal(detailHighlight.background, detailHighlight.expectSoftBg, "结果页选中题目须有主色软背景（明显选中反馈）");
-  assert.ok(detailHighlight.boxShadow.includes("inset") && detailHighlight.boxShadow.includes(detailHighlight.expectPrimary), "结果页选中题目须有 inset 1px 主色内框（模拟实边框，布局不跳动）");
+  assert.equal(detailHighlight.background, detailHighlight.expectSoftBg, "结果页选中题目用主色软背景作选中反馈");
+  assert.equal(detailHighlight.boxShadow, "none", "结果页选中不叠加边框/描边（底色已足够明显）");
+  assert.equal(detailHighlight.borderBottom, detailHighlight.expectSeparator, "结果页选中不得改动底部分隔线颜色（防止上下等宽绿边）");
   await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
   await capture(page, contextName, "result-question-selected");
