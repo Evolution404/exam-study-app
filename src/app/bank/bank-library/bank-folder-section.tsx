@@ -13,9 +13,12 @@ function SortableBankItem({ bank, index, total, onOpen, onMove }: { bank: Bank; 
 
 export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
   const [preview, setPreview] = useState<{ source: Bank[]; value: Bank[] }>(() => ({ source: banks, value: banks }));
-  // 同步父级顺序：仅在父级数据变化时重置预览，不在 effect 中 setState。
-  if (preview.source !== banks) setPreview({ source: banks, value: banks });
   const ordered = preview.value;
+  // 同步父级顺序：仅在父级数据变化时重置预览，不在 effect 中 setState。
+  if (preview.source !== banks) {
+    console.debug("[drag-debug] reset preview from props", { folderId: folder?.id, propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
+    setPreview({ source: banks, value: banks });
+  }
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function reorder(from: number, to: number) {
@@ -23,15 +26,25 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     setPreview({ source: preview.source, value: arrayMove(ordered, from, to) });
   }
 
-  function handleDragStart(event: DragStartEvent) { onDrag(String(event.active.id)); }
+  function handleDragStart(event: DragStartEvent) {
+    console.debug("[drag-debug] drag-start", { folderId: folder?.id, activeId: String(event.active.id), propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
+    onDrag(String(event.active.id));
+  }
   function handleDragOver(event: DragOverEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    reorder(ordered.findIndex((bank) => bank.id === active.id), ordered.findIndex((bank) => bank.id === over.id));
+    const from = ordered.findIndex((bank) => bank.id === active.id);
+    const to = ordered.findIndex((bank) => bank.id === over.id);
+    console.debug("[drag-debug] drag-over", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), from, to, previewIds: ordered.map((bank) => bank.id) });
+    reorder(from, to);
   }
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over || active.id === over.id) { onDrag(undefined); return; }
+    if (!over || active.id === over.id) {
+      console.debug("[drag-debug] drag-end no-op", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewIds: ordered.map((bank) => bank.id) });
+      onDrag(undefined);
+      return;
+    }
     // onDragOver 已经实时更新过 preview，此时 ordered 就是用户看到的最终顺序。
     // 只有从未触发 onDragOver 时才需要按 over 兜底重排一次，否则会重复移动导致回退。
     const previewChanged = banks.some((bank, index) => ordered[index]?.id !== bank.id);
@@ -43,6 +56,7 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     }
     const movedIndex = next.findIndex((bank) => bank.id === active.id);
     const beforeId = movedIndex >= 0 && movedIndex + 1 < next.length ? next[movedIndex + 1].id : undefined;
+    console.debug("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
     onDrop(beforeId);
     onDrag(undefined);
   }
