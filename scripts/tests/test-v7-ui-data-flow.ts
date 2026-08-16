@@ -37,6 +37,7 @@ const bank = [
   "bank/bank-library/unfiled-question-section.tsx",
   "bank/bank-library/bank-delete-dialog.tsx",
   "bank/bank-library/bank-question-delete-dialog.tsx",
+  "bank/bank-library/bank-folder-section.tsx",
 ].map(source).join("\n");
 assert.match(bank, /仅从当前题库移除/);
 assert.match(bank, /全局删除题目及学习记录/);
@@ -56,6 +57,12 @@ assert.match(bank, /批量删除/, "未归档题目应支持批量删除");
 assert.match(bank, /<button onClick=\{\(\) => setViewing\(question\)\}/, "题目卡片点击应打开详情而非直接编辑");
 assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");
 assert.match(bank, /<QuestionDetail/, "试题管理应复用共享 QuestionDetail");
+assert.match(bank, /useDragSort/, "题库拖动必须复用共享 useDragSort 逻辑");
+
+const dragSortHook = source("hooks/use-drag-sort.ts");
+assert.match(dragSortHook, /function useDragSort/, "拖动排序必须抽为共享 hook");
+assert.match(dragSortHook, /draggable: true/, "共享拖动 hook 必须输出可拖动元素");
+assert.match(dragSortHook, /element\.animate/, "共享拖动逻辑必须包含移动动画");
 
 const detail = source("bank/question-detail.tsx");
 assert.match(detail, /export function QuestionDetail/, "题目详情应抽出为共享组件");
@@ -66,6 +73,7 @@ const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
 const componentStyles = readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+assert.match(componentStyles, /\.bank-management-grid article[^}]*transition/, "题库拖动卡片应保留移动过渡动画");
 assert.match(componentStyles, /\.question-body h1,\.practice-stem\s*\{[^}]*clamp\(21px,3vw,29px\)/, "富内容题干必须继承原答题页的标准字号");
 assert.match(componentStyles, /font-small[^}]*\.practice-stem[^}]*clamp\(18px,2\.4vw,24px\)/, "较小字号必须作用于富内容题干");
 assert.match(componentStyles, /font-large[^}]*\.practice-stem[^}]*clamp\(25px,3\.4vw,33px\)/, "较大字号必须作用于富内容题干");
@@ -134,7 +142,8 @@ const group = source("bank/knowledge-view.tsx");
 assert.match(group, /detail-current/, "题组编辑列表应为当前详情题目标记样式");
 assert.match(group, /detailQuestionId === question\.id/, "题组编辑列表应知道当前详情题目");
 assert.match(group, /group-question-open/, "题组编辑中的题目应可点击打开详情");
-assert.match(group, /draggable/, "题组题目应支持拖动排序");
+assert.match(group, /useDragSort/, "题组拖动必须复用共享 useDragSort 逻辑");
+assert.match(group, /dragHandlers/, "题组题目应通过共享 hook 获得拖动能力");
 assert.doesNotMatch(group, /ArrowUp|ArrowDown/, "题组编辑不应保留上下箭头排序按钮");
 assert.match(group, /data-question-id=/, "题组列表应带 question id 供详情跟随定位");
 assert.match(group, /scrollIntoView\(/, "题组详情切换时应滚动到当前题目");
