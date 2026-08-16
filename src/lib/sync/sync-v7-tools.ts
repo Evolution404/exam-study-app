@@ -84,9 +84,9 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
   const value = await loadRemoteCache(settings);
   if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
-  // 与远端恢复相同的守卫：本地缓存恢复也会清空 changeSets，必须先阻止未同步变更被静默丢弃。
-  const unsynced = await listChangeSetsV7(["pending", "blocked", "claimed"]);
-  if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复本地缓存。`);
+  // 注意：这里刻意不做「未同步变更」守卫。本地恢复的用途就是丢弃待同步事件、
+  // 回滚到最后一次成功同步的状态；两个入口（同步胶囊长按、设置页恢复）都先经
+  // 危险色确认弹窗明示「此时间之后的编辑将被放弃」，再走到这里清空 changeSets。
   report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
   await restoreV7Checkpoint(value.checkpoint.state);
   await dbV7.changeSets.clear();
