@@ -35,11 +35,11 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
   const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestionsV7() : Promise.resolve([]), [showUnfiled]) ?? [];
 
   async function placeBank(bankId: string, folderId: string | undefined, beforeId?: string) {
-    console.debug("[drag-debug] place-bank start", { bankId, folderId, beforeId, allBanks: banks.map((bank) => `${bank.id}:${bank.folderId ?? "none"}`) });
+    console.log("[drag-debug] place-bank start", { bankId, folderId, beforeId, allBanks: banks.map((bank) => `${bank.id}:${bank.folderId ?? "none"}`) });
     const members = sortedBanks(banks.filter((bank) => bank.folderId === folderId && bank.id !== bankId));
     const index = beforeId ? Math.max(0, members.findIndex((bank) => bank.id === beforeId)) : members.length;
     members.splice(index < 0 ? members.length : index, 0, banks.find((bank) => bank.id === bankId)!);
-    console.debug("[drag-debug] place-bank persist", { bankId, folderId, beforeId, nextIds: members.map((bank) => bank.id) });
+    console.log("[drag-debug] place-bank persist", { bankId, folderId, beforeId, nextIds: members.map((bank) => bank.id) });
     await reorderBanks(members.map((bank) => bank.id), folderId);
     setDraggedBankId(undefined);
   }

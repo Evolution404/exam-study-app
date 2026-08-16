@@ -16,7 +16,7 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   const ordered = preview.value;
   // 同步父级顺序：仅在父级数据变化时重置预览，不在 effect 中 setState。
   if (preview.source !== banks) {
-    console.debug("[drag-debug] reset preview from props", { folderId: folder?.id, propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
+    console.log("[drag-debug] reset preview from props", { folderId: folder?.id, propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
     setPreview({ source: banks, value: banks });
   }
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -27,7 +27,7 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   }
 
   function handleDragStart(event: DragStartEvent) {
-    console.debug("[drag-debug] drag-start", { folderId: folder?.id, activeId: String(event.active.id), propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
+    console.log("[drag-debug] drag-start", { folderId: folder?.id, activeId: String(event.active.id), propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
     onDrag(String(event.active.id));
   }
   function handleDragOver(event: DragOverEvent) {
@@ -35,13 +35,13 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     if (!over || active.id === over.id) return;
     const from = ordered.findIndex((bank) => bank.id === active.id);
     const to = ordered.findIndex((bank) => bank.id === over.id);
-    console.debug("[drag-debug] drag-over", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), from, to, previewIds: ordered.map((bank) => bank.id) });
+    console.log("[drag-debug] drag-over", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), from, to, previewIds: ordered.map((bank) => bank.id) });
     reorder(from, to);
   }
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) {
-      console.debug("[drag-debug] drag-end no-op", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewIds: ordered.map((bank) => bank.id) });
+      console.log("[drag-debug] drag-end no-op", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewIds: ordered.map((bank) => bank.id) });
       onDrag(undefined);
       return;
     }
@@ -56,7 +56,7 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     }
     const movedIndex = next.findIndex((bank) => bank.id === active.id);
     const beforeId = movedIndex >= 0 && movedIndex + 1 < next.length ? next[movedIndex + 1].id : undefined;
-    console.debug("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
+    console.log("[drag-debug] drag-end commit", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), previewChanged, previewIds: ordered.map((bank) => bank.id), nextIds: next.map((bank) => bank.id), beforeId });
     onDrop(beforeId);
     onDrag(undefined);
   }
