@@ -34,9 +34,13 @@ src/app/
 
 ```text
 src/lib/
-├── db/        # db-v7, app-data-v7, v7-types
-├── sync/      # github-sync*, github-v7-remote, github-credentials, sync-v7-*,
-│              # change-set-v7*, image-asset-cache, site-data-reset
+├── db/        # db-v7（barrel）+ db-v7-core/change-sets/bank/question/
+│              # practice/practice-stats/images/restore + app-data-v7 + v7-types
+├── sync/      # github-sync（门面）+ github-sync-v7（barrel）+
+│              # sync-v7-context/cache/checkpoint-bridge/download/upload/
+│              # coalesce/watermark/orchestrator/tools +
+│              # sync-v7-head/codec/payload/checkpoint + change-set-v7 及
+│              # change-set-v7-projection（barrel）/core/cascade/derived/reducer
 ├── question/  # question-content, question-utils, question-overview, question-bank-*
 ├── io/        # xlsx-import, xlsx-export, image-assets, image-dimensions
 └── practice/  # practice-metrics, practice-resume, progress-scope, answer-submission,
@@ -53,7 +57,7 @@ src/types/
 └── types.ts          # 全局共享领域类型（QuestionType, Bank, GitHubSettings 等）
 ```
 
-`v7-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v7 数据模型，和 `db-v7.ts`、`app-data-v7.ts` 强耦合。
+`v7-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v7 数据模型；`db-v7.ts` 现在只是 barrel，实现分布在 `db-v7-*` 子模块中。
 
 ## 入口 `src/main.tsx`
 
