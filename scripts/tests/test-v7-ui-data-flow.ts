@@ -114,6 +114,8 @@ assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hove
 const search = source("search/search-view.tsx");
 assert.match(search, /detail-current/, "搜索列表应为当前详情题目标记样式");
 assert.match(search, /detailQuestionId === question\.id/, "搜索列表应知道当前详情题目");
+assert.match(search, /data-question-id=/, "搜索结果列表应带 question id 供详情跟随定位");
+assert.match(search, /scrollIntoView\(/, "搜索详情切换时应滚动到当前题目");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
 assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
 assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
@@ -132,9 +134,15 @@ const group = source("bank/knowledge-view.tsx");
 assert.match(group, /detail-current/, "题组编辑列表应为当前详情题目标记样式");
 assert.match(group, /detailQuestionId === question\.id/, "题组编辑列表应知道当前详情题目");
 assert.match(group, /group-question-open/, "题组编辑中的题目应可点击打开详情");
+assert.match(group, /draggable/, "题组题目应支持拖动排序");
+assert.doesNotMatch(group, /ArrowUp|ArrowDown/, "题组编辑不应保留上下箭头排序按钮");
+assert.match(group, /data-question-id=/, "题组列表应带 question id 供详情跟随定位");
+assert.match(group, /scrollIntoView\(/, "题组详情切换时应滚动到当前题目");
 
 assert.match(bank, /detail-current/, "题库管理列表应为当前详情题目标记样式");
 assert.match(bank, /viewing\?\.id === question\.id/, "题库管理列表应知道当前详情题目");
+assert.match(bank, /data-question-id=/, "题库管理列表应带 question id 供详情跟随定位");
+assert.match(bank, /scrollIntoView\(/, "题库管理详情切换时应滚动到当前题目");
 
 assert.match(componentStyles, /\.search-result-list article\.detail-current/, "搜索当前题目样式应存在");
 assert.match(componentStyles, /\.managed-question-list article\.detail-current/, "题库管理当前题目样式应存在");

@@ -1298,7 +1298,10 @@ async function runSearchBatch(page) {
   const groupItems = page.locator(".group-items article");
   assert.equal(await groupItems.count(), 2, "加入题组 must prefill the two selected questions");
   const firstStem = await groupItems.first().innerText();
-  await groupItems.first().getByRole("button", { name: /下移第 1 题/ }).click();
+  await groupItems.first().dispatchEvent("dragstart");
+  await groupItems.nth(1).dispatchEvent("dragover");
+  await groupItems.nth(1).dispatchEvent("drop");
+  await groupItems.first().dispatchEvent("dragend");
   await page.waitForFunction((previous) => {
     const first = document.querySelector(".group-items article")?.innerText ?? "";
     return first.trim() !== previous;
