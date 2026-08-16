@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, BookOpenCheck, CheckCircle2, ChevronRight, Clock3, History, Play, RotateCcw, Trash2, XCircle } from "lucide-react";
-import { dbV7 } from "@/lib/db/db-v7";
+import { ArrowLeft, BookOpenCheck, CheckCircle2, ChevronRight, Clock3, GitBranch, History, Pencil, Play, RotateCcw, Star, Trash2, XCircle } from "lucide-react";
+import { dbV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
-import { toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
+import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
@@ -81,7 +81,7 @@ export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { o
   </section>;
 }
 
-export function PracticeRunResult({ runId, onBack, onContinue, onRepeat }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: QuestionViewModel[], label: string, previousOptionOrders: Record<string, number[]>) => void }) {
+export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotice, onGroup }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: QuestionViewModel[], label: string, previousOptionOrders: Record<string, number[]>) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
   const data = useLiveQuery(async () => {
     const run = await dbV7.practiceRuns.get(runId);
     if (!run) return undefined;
@@ -121,11 +121,11 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat }: { run
     <div className="result-actions"><button className="primary" onClick={() => onRepeat(ordered, `重练 · ${run.modeLabel}`, run.optionOrders)}><RotateCcw size={16} />重练本次题目</button>{wrongQuestions.length > 0 && <button onClick={() => onRepeat(wrongQuestions, `集中重练 ${wrongQuestions.length} 道错题`, run.optionOrders)}><XCircle size={16} />只练本次错题</button>}{run.status === "in_progress" && onContinue && <button onClick={() => onContinue(run.id, Math.max(0, run.questionIds.findIndex((id) => !run.answers[id]?.submitted)))}><BookOpenCheck size={16} />继续本次练习</button>}</div>
     <div className="result-filters">{(["all", "wrong", "unanswered"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "全部题目" : item === "wrong" ? "只看错题" : "只看未答"}</button>)}</div>
     <div className="result-question-groups">{TYPE_ORDER.map((type) => { const questions = visible.filter((question) => question.type === type); if (!questions.length) return null; return <section key={type}><header><h2>{type}</h2><span>{questions.length} 题</span></header><div>{questions.map((question) => { const answer = run.answers[question.id]; const state = !answer?.submitted ? "unanswered" : answer.correct ? "correct" : "wrong"; return <button key={question.id} data-question-id={question.id} className={(detailQuestion?.id ?? activeResultQuestionId) === question.id ? "detail-current" : ""} aria-label={`查看第 ${(originalIndex.get(question.id) ?? 0) + 1} 题详情`} onClick={() => { setActiveResultQuestionId(question.id); setDetailQuestion(question); }}><span className={`result-state ${state}`}>{state === "correct" ? <CheckCircle2 /> : state === "wrong" ? <XCircle /> : <Clock3 />}</span><span><strong>{(originalIndex.get(question.id) ?? 0) + 1}. <MathText text={question.stem} /></strong><small>{state === "unanswered" ? "未作答" : `正确答案：${question.answer} · 你的答案：${answer.selected.length ? question.type === "计算" ? answer.selected[0] : [...answer.selected].sort().join("") : "不会"}`}</small></span><ChevronRight size={16} /></button>; })}</div></section>; })}</div>
-    {detailQuestion && <ResultQuestionDetail question={detailQuestion} answer={run.answers[detailQuestion.id]} entries={visible} metric={summarizeAttemptStats()} onClose={() => { setActiveResultQuestionId(detailQuestion.id); setDetailQuestion(undefined); }} onNavigate={(id) => { setActiveResultQuestionId(id); setDetailQuestion(visible.find((item) => item.id === id)); }} />}
+    {detailQuestion && <ResultQuestionDetail question={detailQuestion} answer={run.answers[detailQuestion.id]} entries={visible} metric={summarizeAttemptStats()} onClose={() => { setActiveResultQuestionId(detailQuestion.id); setDetailQuestion(undefined); }} onNavigate={(id) => { setActiveResultQuestionId(id); setDetailQuestion(visible.find((item) => item.id === id)); }} onNotice={onNotice} onGroup={onGroup} />}
   </section>;
 }
 
-function ResultQuestionDetail({ question, answer, entries, metric, onClose, onNavigate }: { question: QuestionViewModel; answer?: PracticeRunV7["answers"][string]; entries: QuestionViewModel[]; metric: ReturnType<typeof summarizeAttemptStats>; onClose: () => void; onNavigate: (id: string) => void }) {
+function ResultQuestionDetail({ question, answer, entries, metric, onClose, onNavigate, onNotice, onGroup }: { question: QuestionViewModel; answer?: PracticeRunV7["answers"][string]; entries: QuestionViewModel[]; metric: ReturnType<typeof summarizeAttemptStats>; onClose: () => void; onNavigate: (id: string) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
   const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
   const navPrefs = useMemo(() => {
     try {
@@ -137,5 +137,6 @@ function ResultQuestionDetail({ question, answer, entries, metric, onClose, onNa
   }, []);
   const index = entries.findIndex((entry) => entry.id === question.id);
   const nav = index >= 0 ? { index, total: entries.length, onPrevious: () => onNavigate(entries[index - 1].id), onNext: () => onNavigate(entries[index + 1].id), keyboardShortcuts: navPrefs.keyboardShortcuts, swipeNavigation: navPrefs.swipeNavigation } : undefined;
-  return <QuestionDetail question={question} metric={metric} scopeLabel="本次练习" note={note?.content} answer={answer} onClose={onClose} nav={nav} />;
+  const [editing, setEditing] = useState(false);
+  return <><QuestionDetail question={question} metric={metric} scopeLabel="本次练习" note={note?.content} answer={answer} onClose={onClose} nav={nav} footer={<><button onClick={async () => { const updated = await updateQuestionV7(question.id, { favorite: !question.favorite }); onNotice?.(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button>{onGroup && <button onClick={() => onGroup([question.id])}><GitBranch size={16} />加入题组</button>}</>} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice?.("题目和标签已保存"); }} />}</>;
 }
