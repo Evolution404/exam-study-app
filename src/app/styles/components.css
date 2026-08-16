@@ -301,6 +301,11 @@ html[data-theme="dark"] :is(.number-setting input,.goal-preference input,.search
 html[data-theme="dark"] :where(.preference-row,.practice-actions,.practice-head,.question-editor>header,.question-editor>footer,.question-overview>header,.overview-legend,.search-question-detail>header,.search-question-detail>footer,.simple-dialog>header,.simple-dialog>footer,.search-practice-dialog>header,.search-practice-dialog>footer){border-color:var(--line)}
 html[data-theme="dark"] :where(.review-scope-choice-grid button.selected,.review-scope-round-list button.selected){background:#20352a;color:#b7d6c3}
 html[data-theme="dark"] :where(.search-results>div>button:hover,.search-results>div>button:focus-visible,.search-result-list article:hover,.bank-recent-runs button:hover,.relation-picker-results button:hover){background:#202d25}
+/* 题库仪表盘优先练习按钮：基础态在下方夜间列表里，但浅色 :hover 规则
+   特异性更高，悬浮时把浅底带回来，需单独覆盖（与 search-result-list 同款）。 */
+html[data-theme="dark"] .bank-priority-grid button:hover{border-color:#52655a;background:#202d25}
+/* 题库仪表盘优先练习按钮：基础态在下方夜间列表里，但浅色 :hover 规则
+   特异性更高，悬浮时把浅底带回来，需单独覆盖（与 search-result-list 同款）。 */
 html[data-theme="dark"] :where(.question-meta em,.result-type,.search-type,.run-status,.bank-run-summary span,.bank-profile-strip>span:last-child,.tag-detail-stats span,.overview-trigger){color:#a9c8b5;background:#25362c}
 html[data-theme="dark"] :is(.options button>span,.editor-options button,.search-detail-body>ol>li>span,.search-clear,.number-setting,.goal-preference>span label,.select-preference select){border-color:var(--line);color:var(--ink);background:#242d27}
 html[data-theme="dark"] :where(.options .selected,.mode-grid button.active,.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;background:#20352a}

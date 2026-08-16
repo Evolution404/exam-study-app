@@ -1640,6 +1640,62 @@ async function runDarkModeAudit(page) {
   await page.locator(".app-shell").waitFor({ state: "visible" });
   await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
 
+  // 夜间 hover 审计（静态 CSSOM）：浅色 :hover 规则的特异性高于夜间基础列表，
+  // 悬浮时会把浅底带回来（bank-priority-grid 曾中招）；元素级巡检采样的是
+  // 静止态，看不到悬浮样式，这里直接扫样式表做项目级守卫。
+  const hoverOffenders = await page.evaluate(() => {
+    const isLight = (channels, min) => channels && channels.r >= min && channels.g >= min && channels.b >= min;
+    const resolve = (value, min) => {
+      if (!value || value.includes("var(")) return false;
+      const toChannels = (text) => {
+        if (text.startsWith("#")) {
+          const hex = text.slice(1);
+          if (hex.length === 3) return { r: parseInt(hex[0] + hex[0], 16), g: parseInt(hex[1] + hex[1], 16), b: parseInt(hex[2] + hex[2], 16) };
+          if (hex.length === 6) return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+          return null;
+        }
+        const match = /rgba?\(([^)]+)\)/.exec(text);
+        if (!match) return null;
+        const parts = match[1].split(",").map((part) => Number(part.trim()));
+        return parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite) ? { r: parts[0], g: parts[1], b: parts[2] } : null;
+      };
+      return isLight(toChannels(value), min);
+    };
+    const rules = [];
+    const walk = (list) => {
+      for (const rule of list) {
+        // 分组规则（@media/@supports）没有 selectorText；样式规则一律收录。
+        // 不能用 rule.cssRules 判断分组——CSSStyleRule 也带空 cssRules（嵌套语法），
+        // 那样会把所有样式规则当分组规则吞掉，守卫变成空扫。
+        if (rule.selectorText !== undefined) {
+          rules.push(rule);
+          continue;
+        }
+        try { walk(rule.cssRules); } catch { /* 跨域或受限表跳过 */ }
+      }
+    };
+    for (const sheet of document.styleSheets) {
+      try { walk(sheet.cssRules); } catch { /* skip */ }
+    }
+    const darkSelectors = rules.filter((rule) => rule.selectorText?.includes('[data-theme="dark"]')).map((rule) => rule.selectorText);
+    const offenders = [];
+    for (const rule of rules) {
+      const selector = rule.selectorText ?? "";
+      if (!selector.includes(":hover") || selector.includes('[data-theme="dark"]')) continue;
+      const style = rule.style;
+      const bgValue = style.backgroundColor || style.background;
+      const borderValue = style.borderTopColor || style.borderColor;
+      if (!resolve(bgValue, 225) && !resolve(borderValue, 195)) continue;
+      const hoverParts = selector.split(",").map((part) => part.trim()).filter((part) => part.includes(":hover"));
+      // 覆盖判定：任一暗色选择器包含该 hover 选择器文本（共享 :where/:is 列表也成立）。
+      const uncovered = hoverParts.filter((part) => !darkSelectors.some((dark) => dark.includes(part)));
+      if (!uncovered.length) continue;
+      offenders.push(`${uncovered.join(", ")} bg=${bgValue || "-"} border=${borderValue || "-"}`);
+    }
+    return offenders;
+  });
+  assert.deepEqual(hoverOffenders, [], `夜间模式下存在未适配的 :hover 浅色规则（请补 html[data-theme="dark"] 覆盖或改用主题 token）：\n${hoverOffenders.join("\n")}`);
+
   const offenders = [];
   for (const nav of ["今日", "题库", "练习", "知识整理", "配置", "同步"]) {
     await clickButton(page, nav);
