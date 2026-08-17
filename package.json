@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "test": "npm run test:architecture && npm run typecheck && npm run build && npm run test:sync && npm run test:pwa && npm run test:shortcuts && npm run test:xlsx && npm run test:press-intent && npm run test:typography && npm run test:answer-ui && npm run test:question-types && npm run test:overview && npm run test:progress-boundaries && npm run test:projection-edge && npm run test:search-filters && npm run test:content-block-ui && npm run test:review-scope-ui && npm run test:v7-ui && npm run test:modal && npm run test:notice-tone",
     "typecheck": "tsc --noEmit",
-    "test:architecture": "node scripts/tools/check-architecture.mjs && node scripts/tools/check-no-native-tooltip-titles.mjs",
+    "test:architecture": "node scripts/tools/check-architecture.mjs && node scripts/tools/check-no-native-tooltip-titles.mjs && node scripts/tools/check-button-styles.mjs",
     "test:notice-tone": "tsx scripts/tests/test-notice-tone.ts",
     "test:sync": "npm run test:sync-payload && npm run test:sync-v7 && npm run test:sync-event-ui && npm run test:v7-domain && npm run test:db-v7 && npm run test:checkpoint-extra && npm run test:image-assets && npm run test:sync-mock && npm run test:sync-integration && npm run test:sync-progress && npm run test:sync-compression && npm run test:sync-download-concurrency && npm run test:sync-replay-perf && npm run test:sync-install-fingerprint && npm run test:sync-tombstone-gc",
     "test:sync-v7": "npm run test:sync-v7-protocol && npm run test:change-set-v7 && npm run test:sync-v7-multidevice",

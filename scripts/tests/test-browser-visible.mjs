@@ -293,6 +293,7 @@ async function attachFixtureImage(page) {
   await activityDates.nth(1).fill("2026-08-11");
   await capture(page, "desktop", "bank-custom-range");
   await clickTextButton(page, "试题管理");
+  await assertActionButtonRow(page, ".question-manager>header", { minHeight: 42, maxHeight: 42 });
   const question = page.locator(".managed-question-list article").filter({ hasText: "图片所示数值允许 1% 误差时" }).first();
   await question.getByRole("button", { name: "编辑题目" }).click();
   const stemEditor = page.locator(".question-editor .editor-rich-field").first();
@@ -303,6 +304,19 @@ async function attachFixtureImage(page) {
   await stemEditor.locator(".content-block-editor-image").waitFor({ state: "visible" });
   await clickButton(page, "保存修改");
   await page.getByRole("dialog", { name: "编辑题目" }).waitFor({ state: "hidden" });
+}
+
+async function assertActionButtonRow(page, selector, { minHeight = 36, maxHeight = 42 } = {}) {
+  const rows = await page.locator(`${selector} button:visible`).evaluateAll((buttons) => buttons.map((button) => {
+    const box = button.getBoundingClientRect();
+    return { height: box.height, fontSize: Number.parseFloat(getComputedStyle(button).fontSize) };
+  }));
+  assert.ok(rows.length > 0, `${selector} must contain a visible action button`);
+  for (const row of rows) {
+    assert.ok(row.height >= minHeight - 0.5 && row.height <= maxHeight + 0.5,
+      `${selector} button height ${row.height}px must stay in [${minHeight}, ${maxHeight}]`);
+    assert.ok(row.fontSize >= 12, `${selector} button font-size ${row.fontSize}px must be at least 12px`);
+  }
 }
 
 async function assertBankManagementActions(page) {
@@ -332,12 +346,14 @@ async function assertBankManagementActions(page) {
   for (const button of layout.buttons) {
     assert.ok(button.scrollWidth <= button.width + 1, "bank management action text must fit its button");
   }
+  await assertActionButtonRow(page, ".bank-primary-actions", { minHeight: 42, maxHeight: 42 });
 }
 
 async function createBlankBank(page, name) {
   await clickTextButton(page, "新建题库");
   const dialog = page.getByRole("dialog", { name: "新建空白题库" });
   await dialog.waitFor({ state: "visible" });
+  await assertActionButtonRow(page, ".simple-dialog footer", { minHeight: 42, maxHeight: 42 });
   // simple-dialog footer 的按钮规则（color:var(--ink)）特异性高于全局 .primary 的
   // 白字，曾把「创建并添加题目」压成绿底黑字；主按钮必须保持白字。
   const primaryTone = await dialog.locator("footer .primary").evaluate((button) => getComputedStyle(button).color);
@@ -858,6 +874,7 @@ async function runManagementQA(page, mockServer) {
   await page.locator("button.bank-management-main").filter({ hasText: "送电线路工-基础" }).first().click();
   await expectText(page, "范围表现（近 90 天）");
   await clickTextButton(page, "试题管理");
+  await assertActionButtonRow(page, ".question-bulk-bar>div", { minHeight: 36, maxHeight: 36 });
   await clickTextButton(page, "新增题目");
   const addDialog = page.getByRole("dialog", { name: "新增题目" });
   await addDialog.waitFor({ state: "visible" });
@@ -1254,6 +1271,7 @@ async function runSearchBatch(page) {
   await page.getByLabel("搜索题库").fill("");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /条件搜索找到 \d+ 道题/);
+  await assertActionButtonRow(page, ".search-batch-bar", { minHeight: 36, maxHeight: 36 });
   await assertSearchPinGeometry(page, "desktop", { requireScroll: true });
   // 恢复关键词搜索，后续详情导航依赖“巡视”结果集与排序。
   await page.getByLabel("搜索题库").fill("巡视");
