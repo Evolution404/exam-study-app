@@ -77,6 +77,13 @@ const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
 const componentStyles = readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+// 按钮体系统一：全局 .primary/.secondary 必须是 42px 高、10px 圆角的令牌化规格，
+// 主按钮不再叠加投影（与同行控件完全同高同角）；裸 <button> 无样式会回退浏览器默认灰底。
+assert.match(componentStyles, /\.secondary\s*\{[^}]*min-height:42px[^}]*var\(--color-surface-raised\)/, "全局二级按钮应为 42px 令牌化表面样式");
+const primaryRule = componentStyles.match(/\.primary\s*\{[^}]*\}/)?.[0] ?? "";
+assert.match(primaryRule, /min-height:42px/, "全局主按钮统一 42px 高");
+assert.match(primaryRule, /border-radius:10px/, "全局主按钮统一 10px 圆角");
+assert.doesNotMatch(primaryRule, /box-shadow/, "全局主按钮不再叠加投影");
 assert.match(componentStyles, /\.bank-management-grid article[^}]*transition/, "题库拖动卡片应保留移动过渡动画");
 assert.match(componentStyles, /\.question-body h1,\.practice-stem\s*\{[^}]*clamp\(21px,3vw,29px\)/, "富内容题干必须继承原答题页的标准字号");
 assert.match(componentStyles, /font-small[^}]*\.practice-stem[^}]*clamp\(18px,2\.4vw,24px\)/, "较小字号必须作用于富内容题干");

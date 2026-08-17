@@ -124,7 +124,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
     <div className="bank-detail-heading">
       <button onClick={onBack}><ArrowLeft size={16} />返回题库管理</button>
       <div><span className="section-kicker">{folderName}</span><h1>{bankTitle(bank)}</h1><p>{bank.description || "尚未填写题库说明"}</p></div>
-      <div><button onClick={() => setExportOpen(true)}><Download size={16} />导出题库</button><button onClick={onEdit}><Edit3 size={16} />编辑题库</button><button className="danger-button" onClick={onDelete}><Trash2 size={16} />删除题库</button></div>
+      <div><button className="secondary" onClick={() => setExportOpen(true)}><Download size={16} />导出题库</button><button className="secondary" onClick={onEdit}><Edit3 size={16} />编辑题库</button><button className="danger-button" onClick={onDelete}><Trash2 size={16} />删除题库</button></div>
     </div>
     <div className="bank-detail-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => onTab("overview")}>基本信息</button><button className={tab === "questions" ? "active" : ""} onClick={() => onTab("questions")}>试题管理 <span>{questions.length || bank.questionCount}</span></button></div>
     {tab === "overview" ? <div className="bank-dashboard">

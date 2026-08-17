@@ -189,6 +189,14 @@
   font-size: 11px;
 }
 
+/* 立即同步/编辑器保存是标准操作按钮：42px 高、继承 16px 字号（行内其余按钮保持紧凑规格）。 */
+.sync-event-manager-actions button,
+.sync-event-editor-actions button {
+  min-height: 42px;
+  padding: 8px 14px;
+  font-size: inherit;
+}
+
 .sync-event-manager-actions button:disabled,
 .sync-event-row-actions button:disabled,
 .sync-event-editor-actions button:disabled {

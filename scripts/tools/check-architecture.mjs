@@ -32,8 +32,8 @@ for (const { file, source } of appSources) {
   if (/#[0-9a-fA-F]{3,8}\b/.test(source) && file.endsWith(".css")) fail(`${file} 必须使用主题令牌，不能硬编码颜色`);
 }
 
-let legacyColorBudget = 1057;
-let legacyDarkSelectorBudget = 178;
+let legacyColorBudget = 1041;
+let legacyDarkSelectorBudget = 176;
 const colorCount = components.match(/#[0-9a-fA-F]{3,8}\b/g)?.length ?? 0;
 const darkSelectorCount = components.match(/html\[data-theme="dark"\]/g)?.length ?? 0;
 if (colorCount > legacyColorBudget) fail(`组件层硬编码颜色由 ${legacyColorBudget} 增至 ${colorCount}，只能减少`);
