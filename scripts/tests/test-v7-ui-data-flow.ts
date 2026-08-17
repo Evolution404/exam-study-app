@@ -97,6 +97,16 @@ assert.match(history, /runActivityAt\(b\)\.localeCompare\(runActivityAt\(a\)\)/,
 assert.doesNotMatch(history, /orderBy\("startedAt"\)/, "练习记录不得再按开始时间排序");
 assert.match(history, /formatTime\(runActivityAt\(run\)\)/, "记录卡片时间戳应与排序同口径（最后活动时间）");
 assert.match(history, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮应带 danger 红色调");
+// 结果页全览 + 按题型折叠：总览必须复用做题界面的 QuestionOverview（同一交互与口径）。
+assert.match(history, /import \{ QuestionOverview \} from "@\/app\/shell\/views\/question-overview"/, "结果页总览必须复用做题界面组件");
+assert.match(history, /aria-label="打开题目总览"/, "结果页筛选行应有题目总览入口");
+assert.match(history, /aria-expanded=\{!collapsed\}/, "题型分组头必须支持折叠并标注 aria-expanded");
+assert.match(history, /className=\{collapsed \? "collapsed" : ""\}/, "折叠态需要稳定的 collapsed 类名");
+assert.match(history, /onJump=\{\(target\) =>/, "总览点击题号应跳转打开对应题目详情");
+
+// 浏览器测试不得再用 osascript 切换窗口焦点（用户要求移除该功能，防回潮）。
+const browserTest = readFileSync(new URL("./test-browser-visible.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(browserTest, /osascript|keepBrowserInBackground|frontmostAppName/, "浏览器测试不得切换系统窗口焦点");
 
 // Continue-practice resume position: one past the furthest answered question,
 // except when the final question is answered — then jump to the first

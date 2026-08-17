@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import * as XLSX from "xlsx";
@@ -62,34 +62,6 @@ const excelFixtureFile = {
 };
 
 let devServer;
-
-function frontmostAppName() {
-  if (process.platform !== "darwin") return "";
-  try {
-    return execFileSync(
-      "osascript",
-      ["-e", 'tell application "System Events" to get name of first application process whose frontmost is true'],
-      { encoding: "utf8", timeout: 3000 },
-    ).trim();
-  } catch {
-    return "";
-  }
-}
-
-// BROWSER_HEADLESS=0 时启动可见 Chrome。为了不把 Chrome 弹到最前打断用户操作，
-// 启动/新建页面后把焦点还给启动测试前正在使用的 App，让 Chrome 留在窗口栈下层。
-let lastUserApp = "";
-function keepBrowserInBackground() {
-  if (process.platform !== "darwin") return;
-  const front = frontmostAppName();
-  if (front && front !== "Google Chrome" && front !== "Chromium") lastUserApp = front;
-  if (!lastUserApp || lastUserApp === "Google Chrome" || lastUserApp === "Chromium") return;
-  try {
-    execFileSync("osascript", ["-e", `tell application ${JSON.stringify(lastUserApp)} to activate`], { timeout: 3000 });
-  } catch {
-    // 没有自动化权限或 App 名称不可用时不影响测试本身。
-  }
-}
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1418,7 +1390,7 @@ async function runHistoryResult(page) {
   // 结果页选中题目以主色软背景作唯一反馈：按钮基础 border:0 无四周边框，边框/描边
   // 方案会同时改动顶边（inset 线）与底部分隔线成上下等宽绿边（用户否决），因此选中
   // 不得叠加边框或描边，且底部分隔线必须保持浅灰。
-  const firstResultQuestion = page.locator(".result-question-groups button").first();
+  const firstResultQuestion = page.locator(".result-question-groups button[aria-label^='查看第']").first();
   await firstResultQuestion.click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
   const detailHighlight = await firstResultQuestion.evaluate((button) => {
@@ -1448,6 +1420,29 @@ async function runHistoryResult(page) {
   assert.equal(await page.locator(".result-question-groups button[aria-label^='查看第']").count(), 1, "wrong filter must narrow to the one wrong question");
   await clickTextButton(page, "全部题目");
   await capture(page, contextName, "result-filter-wrong");
+
+  // 题目总览（与做题界面同款）：题号网格按题型分组，点击题号跳到该题详情。
+  await page.locator(".result-filters .result-overview-trigger").click();
+  await page.getByRole("dialog", { name: "题目总览" }).waitFor({ state: "visible" });
+  assert.equal(await page.locator(".question-overview .overview-number-grid button").count(), 5, "结果页总览应列出全部 5 题");
+  await capture(page, contextName, "result-overview-open");
+  await page.getByRole("button", { name: "第 2 题，单选" }).click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
+  assert.match(await page.getByRole("dialog", { name: "题目详情" }).innerText(), /发现异常/, "总览点击题号应打开对应题目详情");
+  await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
+  await capture(page, contextName, "result-overview-jump");
+
+  // 题型分组折叠：默认展开，点分组头折叠（列表隐藏），再点恢复。
+  const singleGroupToggle = page.locator(".result-question-groups .result-group-toggle").first();
+  assert.equal(await singleGroupToggle.getAttribute("aria-expanded"), "true", "题型分组默认展开");
+  await singleGroupToggle.click();
+  assert.equal(await singleGroupToggle.getAttribute("aria-expanded"), "false", "点击分组头应折叠");
+  assert.equal(await page.locator(".result-question-groups section").first().locator("div>button").count(), 0, "折叠后该组题目列表应整体隐藏");
+  await capture(page, contextName, "result-group-collapse");
+  await singleGroupToggle.click();
+  assert.equal(await page.locator(".result-question-groups section").first().locator("div>button").count(), 2, "再次点击应恢复该组题目（单选 2 题）");
+
   await clickTextButton(page, "只练本次错题");
   await page.locator(".question-card").waitFor({ state: "visible" });
   await waitForQuestion(page, 1, 1);
@@ -1857,7 +1852,6 @@ async function runSyncRefreshQA(page, mockServer) {
   // ===== 设备 B：拉取 run，补答 Q2/Q3 并推送 =====
   const contextB = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   const pageB = await contextB.newPage();
-  keepBrowserInBackground();
   pageB.setDefaultTimeout(10_000);
   try {
     await pageB.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -2114,13 +2108,11 @@ async function main() {
   // desktop sync pushes real data and the mobile sync pulls it back — a true
   // cross-device round-trip without any external network.
   const mockServer = await startMockGitHubServer();
-  lastUserApp = frontmostAppName();
   const browser = await chromium.launch({
     executablePath: chromeExecutable,
     headless,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });
-  keepBrowserInBackground();
 
   // BROWSER_GROUPS=desktop,mobile,management,review,search,history,practice-combo
   // (comma-separated; unset = all groups). Each group gets a fresh browser
@@ -2152,7 +2144,6 @@ async function main() {
       };
       const context = await browser.newContext(contextOptions);
       const page = await context.newPage();
-      keepBrowserInBackground();
       page.setDefaultTimeout(10_000);
       page.setDefaultNavigationTimeout(25_000);
       const before = screenshots.length;

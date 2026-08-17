@@ -63,6 +63,10 @@ assert.match(practiceHistory, /<button className="danger"[\s\S]*?<XCircle size=\
 assert.match(styles, /\.result-actions \.danger\{border-color:var\(--color-danger\);color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "只练本次错题按钮应整组走 danger token");
 assert.match(styles, /html\[data-theme="dark"\] \.result-actions button:not\(\.danger\)\{border-color:#3a473f/, "夜间普通按钮覆盖必须放行 danger 按钮（不加夜间规则）");
 assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*result-actions[^\n]*danger\{/, "danger 按钮不得依赖专属夜间规则（token 自适应）");
+// 结果页题型分组折叠 + 题目总览入口：分组头是按钮、折叠箭头旋转、入口靠右，全 token。
+assert.match(styles, /\.result-group-toggle\{[^}]*cursor:pointer\}/, "题型分组头必须可点击折叠");
+assert.match(styles, /\.result-question-groups>section\.collapsed \.result-group-toggle>svg\{transform:rotate\(-90deg\)\}/, "折叠态分组箭头应旋转指示");
+assert.match(styles, /\.result-filters \.result-overview-trigger\{margin-left:auto/, "题目总览入口应停在筛选行右端");
 
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
 // 用户显式点同步后刷新可见练习会话（对齐远端合并作答、跳到最后一题）是产品需求；
