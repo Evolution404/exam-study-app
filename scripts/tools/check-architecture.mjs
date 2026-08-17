@@ -17,13 +17,22 @@ for (const name of ["color-canvas", "color-surface", "color-surface-raised", "co
   if (definitions !== 2) fail(`主题令牌 --${name} 必须同时定义日间和夜间值`);
 }
 
+// 用户明令全项目禁用的颜色（2026-08：冷调薄荷绿表面色 #edf4ef，与暖纸色系冲突，
+// 曾作为 --color-surface-muted 及多处字面量出现）。任何源文件不得再引入该字面量。
+const collectSources = (dir) => fs.readdirSync(path.join(root, dir), { recursive: true })
+  .filter((file) => typeof file === "string" && /\.(tsx?|css)$/.test(file))
+  .map((file) => `${dir}/${file}`);
+for (const file of [...collectSources("src/app"), ...collectSources("src/lib")]) {
+  if (/edf4ef/i.test(read(file))) fail(`${file} 不得使用已禁用的冷薄荷绿 #edf4ef（用户明令全项目移除）`);
+}
+
 for (const { file, source } of appSources) {
   if (file === "styles/theme-tokens.css" || file === "styles/components.css") continue;
   if (/html\[data-theme=["']dark["']\]/.test(source)) fail(`${file} 不得添加页面级夜间补丁`);
   if (/#[0-9a-fA-F]{3,8}\b/.test(source) && file.endsWith(".css")) fail(`${file} 必须使用主题令牌，不能硬编码颜色`);
 }
 
-let legacyColorBudget = 1065;
+let legacyColorBudget = 1057;
 let legacyDarkSelectorBudget = 178;
 const colorCount = components.match(/#[0-9a-fA-F]{3,8}\b/g)?.length ?? 0;
 const darkSelectorCount = components.match(/html\[data-theme="dark"\]/g)?.length ?? 0;
