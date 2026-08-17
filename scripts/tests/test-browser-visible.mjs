@@ -881,6 +881,19 @@ async function runManagementQA(page, mockServer) {
   await page.locator(".managed-question-list article").filter({ hasText: "弧垂增大时安全距离如何变化" }).first().waitFor({ state: "visible" });
   await capture(page, contextName, "question-edited");
 
+  // 往既有题库继续导入：试题管理头部「导入题目」→ 选 Excel → 导入当前题库、停留在试题管理。
+  {
+    const listCount = await page.locator(".managed-question-list article").count();
+    await page.getByRole("button", { name: /导入题目/ }).click();
+    const bankExcelInput = page.locator('input[type="file"][accept*=".xlsx"]').first();
+    await bankExcelInput.setInputFiles(excelFixtureFile);
+    await expectNotice(page, /已从 Excel 导入 3 道题到「送电线路工-基础」/, "import-into-bank notice");
+    const grownCount = await page.locator(".managed-question-list article").count();
+    assert.equal(grownCount, listCount + 3, "导入题目应把 Excel 的 3 行追加进当前题库");
+    assert.ok(await page.locator(".bank-detail-tabs button.active").filter({ hasText: "试题管理" }).isVisible(), "导入后应停留在试题管理 tab");
+    await capture(page, contextName, "import-into-bank");
+  }
+
   // 题目详情：进度指示单独一行 + 上一题/下一题切换（与搜索详情统一）
   await page.locator(".managed-question-list article").first().locator("button").first().click();
   const managedDetail = page.getByRole("dialog", { name: "题目详情" });

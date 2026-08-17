@@ -42,6 +42,12 @@ const bank = [
 assert.match(bank, /仅从当前题库移除/);
 assert.match(bank, /全局删除题目及学习记录/);
 assert.match(bank, /listUnfiledQuestionsV7/);
+// 往既有题库继续导入：数据层带 targetBankId、UI 入口在试题管理头部。
+const questionManagerSource = source("bank/bank-library/question-manager.tsx");
+assert.match(questionManagerSource, /导入题目/, "试题管理头部应提供往当前题库导入题目的入口");
+assert.match(questionManagerSource, /onImportQuestions/, "试题管理应把导入入口上抛给题库详情");
+const dbQuestion = readFileSync(new URL("../../src/lib/db/db-v7-question.ts", import.meta.url), "utf8");
+assert.match(dbQuestion, /targetBankId/, "导入数据层必须支持指定目标题库");
 assert.match(bank, /progressScopeLabel/);
 assert.match(bank, /范围表现（\$\{progressScopeLabel\}）/);
 assert.match(bank, /setActivityRange\("custom"\)/);
@@ -126,6 +132,7 @@ assert.equal(resumeIndexAfterLastAnswer(resumeIds, {}), 0, "未作答从第一�
 assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 
 const study = source("shell/app-shell.tsx");
+assert.match(study, /importTargetBankIdRef/, "app-shell 应以 ref 记住导入目标题库后复用全局文件输入");
 const shellHelpers = source("shell/helpers.ts");
 const dashboardView = source("shell/views/dashboard.tsx");
 assert.match(shellHelpers, /resumeIndexAfterLastAnswer/);

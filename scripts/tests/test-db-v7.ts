@@ -268,5 +268,32 @@ const oldCheck = new Dexie(OLD_NAME);
 oldCheck.version(1).stores({ sentinel: "id" });
 assert.deepEqual(await oldCheck.table("sentinel").get("keep"), { id: "keep", value: "untouched" });
 await oldCheck.close();
+
+// 往既有题库继续导入：目标库由调用方指定（不再从文件名派生），指纹去重、
+// membership 追加排序、题库原名与计数语义全部沿用导入链。放在文件末尾——
+// 前面的场景对全局 questions 计数敏感。
+{
+  const targetRows = [{ q: "目标库已有题", type: "单选", a: ["甲", "乙"], ans: "A" }];
+  const targetBank = await importQuestionBankV7("target-bank.json", targetRows);
+  const bankCountBefore = await dbV7.banks.count();
+  const questionCountBefore = await dbV7.questions.count();
+  const targetImport = await importQuestionBankV7("more-questions.json", [
+    targetRows[0], // 与目标库已有题内容一致 → 指纹去重，不计入 importedCount
+    { q: "目标库新增单选", type: "单选", a: ["甲", "乙"], ans: "A" },
+    { q: "目标库新增判断", type: "判断", a: ["正确", "错误"], ans: "A" },
+  ], { targetBankId: targetBank.id });
+  assert.equal(targetImport.id, targetBank.id, "目标导入不得派生新题库 id");
+  assert.equal(targetImport.name, targetBank.name, "目标导入不得改动题库原名");
+  assert.equal(targetImport.importedCount, 2, "重复指纹不计入新增计数");
+  assert.equal(targetImport.questionCount, 3, "题库计数刷新为 1（已有）+2（新增）");
+  assert.equal(await dbV7.banks.count(), bankCountBefore, "目标导入不新建题库");
+  assert.equal((await dbV7.questions.count()), questionCountBefore + 2, "全局只新增 2 道题（重复指纹复用）");
+  const memberships = (await dbV7.bankQuestionMemberships.where("bankId").equals(targetBank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
+  assert.equal(memberships.length, 3);
+  assert.deepEqual(memberships.map((item) => item.sortOrder), [0, 1, 2], "追加排序接在既有 membership 之后");
+  const importEvent = await dbV7.changeSets.filter((record) => record.mutations.some((mutation) => mutation.kind === "question.import" && mutation.bank.id === targetBank.id && (mutation as { memberships?: unknown[] }).memberships?.length === 3)).last();
+  assert.ok(importEvent, "目标导入应发出携带目标题库的 question.import 变更集");
+  await assert.rejects(() => importQuestionBankV7("x.json", targetRows, { targetBankId: "bank_missing" }), /目标题库不存在/, "目标库被删时应明确报错");
+}
 await dbV7.delete();
 console.log("v7 database tests passed: namespace, joins, import, split, rounds, answers, deletion and image cache");

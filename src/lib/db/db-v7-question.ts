@@ -512,37 +512,47 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
 
 /**
  * Import a plain JSON question list.  The bank id is deterministic for a
- * filename/name, while question identity is content-addressed globally.  The
- * import is published as one atomic change-set; when its body exceeds the v7
- * inline-event budget the sync layer offloads it to a content-addressed
- * immutable object, so imports of any size stay within the protocol limits.
+ * filename/name, while question identity is content-addressed globally.  Pass
+ * `options.targetBankId` to append into an EXISTING bank instead of deriving
+ * one from the file name (dedupe / sortOrder append / note ownership all keep
+ * the same semantics).  The import is published as one atomic change-set; when
+ * its body exceeds the v7 inline-event budget the sync layer offloads it to a
+ * content-addressed immutable object, so imports of any size stay within the
+ * protocol limits.
  */
-export async function importQuestionBankV7(fileName: string, raw: unknown): Promise<BankV7> {
+export async function importQuestionBankV7(fileName: string, raw: unknown, options?: { targetBankId?: string }): Promise<BankV7 & { importedCount: number }> {
   const parsed = rawQuestionRows(raw);
-  const sourceName = (parsed.name?.trim() || fileName.replace(/\.(json|txt)$/i, "").trim());
-  if (!sourceName) throw new Error("题库名称不能为空。");
   const rows = parsed.rows.map(importDraft).filter((row): row is QuestionDraftV7 => Boolean(row));
   if (!rows.length) throw new Error("题库中没有可导入的有效题目。");
-  const bankId = `bank_${(await sha256Text(sourceName)).slice(0, 48)}`;
-  const existingBank = await dbV7.banks.get(bankId);
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();
-  const bank: BankV7 = existingBank ? {
-    ...existingBank,
-    name: existingBank.name || sourceName,
-    updatedAt: timestamp,
-    deviceId,
-  } : {
-    id: bankId,
-    name: sourceName,
-    sortOrder: await dbV7.banks.count(),
-    questionCount: 0,
-    importedAt: timestamp,
-    updatedAt: timestamp,
-    deviceId,
-  };
+  let bank: BankV7;
+  if (options?.targetBankId) {
+    const existingBank = await dbV7.banks.get(options.targetBankId);
+    if (!existingBank) throw new Error("目标题库不存在，可能已被删除，请刷新后重试。");
+    bank = { ...existingBank, updatedAt: timestamp, deviceId };
+  } else {
+    const sourceName = (parsed.name?.trim() || fileName.replace(/\.(json|txt)$/i, "").trim());
+    if (!sourceName) throw new Error("题库名称不能为空。");
+    const bankId = `bank_${(await sha256Text(sourceName)).slice(0, 48)}`;
+    const existingBank = await dbV7.banks.get(bankId);
+    bank = existingBank ? {
+      ...existingBank,
+      name: existingBank.name || sourceName,
+      updatedAt: timestamp,
+      deviceId,
+    } : {
+      id: bankId,
+      name: sourceName,
+      sortOrder: await dbV7.banks.count(),
+      questionCount: 0,
+      importedAt: timestamp,
+      updatedAt: timestamp,
+      deviceId,
+    };
+  }
   const seenInImport = new Set<string>();
-  const materialised: Array<{ question: QuestionV7; membership: BankQuestionMembership }> = [];
+  const materialised: Array<{ question: QuestionV7; membership: BankQuestionMembership; isNewMembership: boolean }> = [];
   const materialisedNotes: NoteV7[] = [];
   let sortOrder = await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).count();
   for (const draft of rows) {
@@ -561,7 +571,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown): Prom
       updatedAt: timestamp,
       deviceId,
     };
-    materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId } });
+    materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId }, isNewMembership: !existingMembership });
     // Imported 解析 becomes a personal note only when the question has none yet;
     // an existing note is user-owned and must not be overwritten by re-import.
     if (draft.note?.trim() && !(await dbV7.notes.get(question.id))) {
@@ -591,7 +601,8 @@ export async function importQuestionBankV7(fileName: string, raw: unknown): Prom
       await enqueueChangeSetV7(materialisedNotes.map((note) => ({ kind: "note.upserted" as const, note })), timestamp);
     }
   });
-  return (await dbV7.banks.get(bank.id))!;
+  const imported = await dbV7.banks.get(bank.id);
+  return { ...imported!, importedCount: materialised.filter((item) => item.isNewMembership).length };
 }
 
 export const importTextJsonBankV7 = importQuestionBankV7;

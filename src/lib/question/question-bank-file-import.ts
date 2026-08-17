@@ -38,7 +38,7 @@ async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookIma
   return mapping;
 }
 
-export async function importQuestionBankFile(file: File): Promise<{ bank: BankV7; type: QuestionBankFileType }> {
+export async function importQuestionBankFile(file: File, options?: { targetBankId?: string }): Promise<{ bank: BankV7; importedCount: number; type: QuestionBankFileType }> {
   const type = detectQuestionBankFileType(file);
   if (type === "xlsx") {
     const { rows, images } = await parseQuestionBankWorkbook(await file.arrayBuffer());
@@ -46,14 +46,14 @@ export async function importQuestionBankFile(file: File): Promise<{ bank: BankV7
     for (const row of rows) {
       if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
     }
-    const bank = await importQuestionBankV7(importFileName(file.name), rows);
-    return { bank, type };
+    const bank = await importQuestionBankV7(importFileName(file.name), rows, options);
+    return { bank, importedCount: bank.importedCount, type };
   }
   if (type === "zip") {
     const bundle = await parseQuestionBankZip(await file.arrayBuffer());
     for (const image of bundle.images) await storeImageAsset(image.bytes, image.mimeType, image.width, image.height);
-    const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions });
-    return { bank, type };
+    const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions }, options);
+    return { bank, importedCount: bank.importedCount, type };
   }
   let raw: unknown;
   try {
@@ -61,5 +61,6 @@ export async function importQuestionBankFile(file: File): Promise<{ bank: BankV7
   } catch {
     throw new Error("JSON 文件内容无法解析，请检查文件格式。");
   }
-  return { bank: await importQuestionBankV7(file.name, raw), type };
+  const bank = await importQuestionBankV7(file.name, raw, options);
+  return { bank, importedCount: bank.importedCount, type };
 }
