@@ -160,11 +160,11 @@ assert.match(
   "夜间模式搜索类 input 保持透明底（容器/input 无色差）",
 );
 
-// --- 防回退：详情页底部按钮夜间颜色（bug：夜间 >footer>button 匹配不到按钮） ----
+// --- 防回退：详情页底部按钮（bug：夜间 >footer>button 匹配不到按钮） ----------
 // 浅色规则是后代选择器 >footer button（命中 .search-detail-actions 内的按钮），
-// 夜间规则必须同作用域，否则按钮保持浅色 #fff。
-assert.match(styles, /\.search-question-detail>footer button\s*\{[^}]*background:#fff/, "浅色规则覆盖 footer 全部按钮");
-assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.search-question-detail>footer button[^)]*\)\{[^}]*background:#111813/, "夜间规则与浅色规则同作用域（后代选择器）");
+// 且必须全令牌化（surface-raised），夜间自动适配——不得再需要夜间专属覆盖。
+assert.match(styles, /\.search-question-detail>footer button\s*\{[^}]*background:var\(--color-surface-raised\)/, "浅色规则覆盖 footer 全部按钮且令牌化");
+assert.doesNotMatch(styles, /html\[data-theme="dark"\][^{]*\.search-question-detail>footer button/, "footer 按钮已令牌化，夜间不应再有专属覆盖");
 assert.ok(!styles.includes(".search-question-detail>footer>button"), "夜间/样式规则不得用 >footer>button 子选择器漏掉 actions 内按钮");
 
 // --- 防回退：空解析首字退出编辑（bug：渲染条件翻转卸载 textarea） ------------

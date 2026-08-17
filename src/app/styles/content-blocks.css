@@ -74,13 +74,14 @@
 
 .asset-image-retry,
 .content-block-editor-actions button {
-  min-height: 34px;
+  min-height: 36px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 9px;
   padding: 6px 10px;
   color: var(--color-primary);
   background: var(--color-surface-raised);
   cursor: pointer;
+  font-size: 12px;
 }
 
 .asset-image-retry:hover,

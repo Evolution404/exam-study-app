@@ -175,7 +175,7 @@
 .sync-event-row-actions button,
 .sync-event-mutations > section > button,
 .sync-event-editor-actions button {
-  min-height: 37px;
+  min-height: 36px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 8px 11px;
@@ -186,7 +186,7 @@
   color: var(--color-text);
   background: var(--color-surface-raised);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* 立即同步/编辑器保存是标准操作按钮：42px 高、继承 16px 字号（行内其余按钮保持紧凑规格）。 */
@@ -206,8 +206,8 @@
 
 .sync-event-manager-actions .primary,
 .sync-event-editor-actions .primary {
-  border-color: var(--color-primary);
-  color: var(--color-surface-raised);
+  border-color: transparent;
+  color: white;
   background: var(--color-primary);
   box-shadow: none;
 }
