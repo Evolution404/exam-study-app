@@ -163,7 +163,7 @@ export interface AttemptStats {
   hasBeenWrong: boolean;
   correctStreakAfterWrong: number;
   currentCorrectStreak: number;
-  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean }>;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
 }
 
 export interface AttemptDailyStats {

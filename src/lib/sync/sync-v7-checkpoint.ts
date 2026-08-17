@@ -274,6 +274,8 @@ function validateStats(state: SyncCheckpointV7State, questions: Set<string>, att
       if (!attempts.has(outcome.id)) fail(`state.attemptStats[${index}] references missing attempt ${outcome.id}`);
       assertDate(outcome.createdAt, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
       if (typeof outcome.correct !== "boolean") fail(`state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
+      // 作答时间为可选字段（难度 v2 前的旧 checkpoint 没有）；存在则必须是非负安全整数。
+      if (outcome.elapsedMs !== undefined) assertSafeInt(outcome.elapsedMs, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
     });
   });
   state.attemptDailyStats.forEach((stats, index) => {

@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {
   addAttemptToDailyStats,
+  attemptGapFactor,
   buildAttemptStats,
   calculateDifficulty,
+  difficultyFromOutcomes,
   needsWrongReview,
   statsNeedWrongReview,
+  summarizeAttemptStats,
   summarizeAttempts,
 } from "../../src/lib/practice/practice-metrics";
 import {
@@ -117,6 +120,11 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   ];
   const stats = buildScopedQuestionStats(["q1", "q2"], scope, attempts, [], T0);
   assert.equal(stats.size, 2);
+  // 窗口口径应携带作答序列（含作答时间）供难度 v2 使用；round 口径保持缺省走回退。
+  assert.equal(stats.get("q1")!.recentOutcomes?.length, 3, "rolling 窗口内的作答应生成 outcomes 序列");
+  assert.equal(stats.get("q1")!.recentOutcomes?.[0].elapsedMs, 10);
+  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes, undefined);
+  assert.equal(scopedStatsToLegacyAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
   const q1 = stats.get("q1")!;
   assert.equal(q1.total, 3, "窗口内 3 条（-2/-1/0）");
   assert.equal(q1.correct, 1);
@@ -207,7 +215,104 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(addAttemptToDailyStats(daily, attempts[1]).total, 2);
 
   assert.equal(summarizeAttempts(attempts).latest, Date.parse(at(0)));
-  assert.equal(summarizeAttempts(attempts).difficulty, calculateDifficulty(3, 1));
+  // 难度 v2：10ms 作答时间不入基准（<1s 视为噪声），首次/无基准做对按 q=0.9 计。
+  assert.equal(summarizeAttempts(attempts).difficulty, 41);
+}
+
+// ---------------------------------------------------------------------------
+// 难度 v2：时间感知（相对自己历史中位速度）+ 间隔感知（秒级对数插值）EMA
+// ---------------------------------------------------------------------------
+{
+  const HOUR = 3_600_000;
+  const T1 = "2026-08-01T00:00:00.000Z";
+  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs?: number) => ({
+    correct,
+    createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),
+    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+  });
+  // 逐步轨迹：对前缀序列逐个求难度，观察演化路径。
+  const trajectory = (...outcomes: ReturnType<typeof outcome>[]) =>
+    outcomes.map((_, index) => difficultyFromOutcomes(outcomes.slice(0, index + 1)));
+
+  // 间隔权重锚点与单调性（秒级连续插值，不按日历天）。
+  assert.equal(attemptGapFactor(60), 0.2);
+  assert.equal(attemptGapFactor(600), 0.2);
+  assert.equal(attemptGapFactor(43_200), 1);
+  assert.equal(attemptGapFactor(86_400), 1);
+  assert.ok(Math.abs(attemptGapFactor(1_800) - 0.406) < 0.01, "30min ≈ 0.41");
+  assert.ok(Math.abs(attemptGapFactor(3_600) - 0.535) < 0.01, "1h ≈ 0.53");
+  assert.ok(Math.abs(attemptGapFactor(21_600) - 0.87) < 0.01, "6h ≈ 0.87");
+  assert.ok(attemptGapFactor(1_200) < attemptGapFactor(7_200) && attemptGapFactor(7_200) < attemptGapFactor(10_800), "间隔权重随秒数单调递增");
+
+  // 空序列 = 未作答 = 50。
+  assert.equal(difficultyFromOutcomes([]), 50);
+
+  // 瞬时记忆防护：同场连刷（间隔 6 分钟）×5 只降到 29、×10 渐近 29（旧公式 17 / 8）。
+  assert.deepEqual(trajectory(
+    outcome(0, true, 20_000),
+    outcome(0.1, true, 8_000),
+    outcome(0.2, true, 6_000),
+    outcome(0.3, true, 5_000),
+    outcome(0.4, true, 4_000),
+  ), [36, 33, 31, 31, 29], "同场快速连对应缓慢下降");
+  assert.deepEqual(trajectory(...Array.from({ length: 10 }, (_, index) => outcome(index * 0.1, true, index === 0 ? 20_000 : 8_000 - index * 300)))
+    .at(-1), 29, "同场连刷 10 次应渐近稳定，不再骤降");
+
+  // 隔 13h 快速连对（每次都明显快于自己中位）→ 真掌握，较快变容易。
+  assert.deepEqual(trajectory(
+    outcome(0, true, 20_000),
+    outcome(13, true, 8_000),
+    outcome(26, true, 6_000),
+    outcome(39, true, 4_000),
+  ), [36, 23, 15, 10], "跨半天快速连对应显著降低难度");
+
+  // 隔 13h 但慢于自己常态（30s vs 基准 20s = 1.5×）→ 做对了难度反而回调。
+  assert.deepEqual(trajectory(
+    outcome(0, true, 20_000),
+    outcome(13, true, 30_000),
+    outcome(26, true, 32_000),
+  ).at(-1), 47, "慢于常态的做对不应降低难度");
+
+  // 做错（退步信号不降权）快速上升；错后连对渐进恢复。
+  assert.deepEqual(trajectory(outcome(0, false, 20_000), outcome(13, false, 25_000)), [68, 79], "做错应快速推高难度");
+  assert.deepEqual(trajectory(
+    outcome(0, false, 20_000),
+    outcome(13, true, 8_000),
+    outcome(26, true, 6_000),
+  ), [68, 44, 29], "错后隔天连对应渐进恢复难度");
+
+  // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。
+  assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");
+
+  // 中位基准抗离群：一次 10 分钟（接电话）后，8s 仍明显快于中位、恢复下降。
+  assert.deepEqual(trajectory(
+    outcome(0, true, 20_000),
+    outcome(13, true, 600_000),
+    outcome(26, true, 8_000),
+  ).at(-1), 28, "单次超长作答不应击穿速度基准");
+
+  // 聚合行读取路径：recentOutcomes 非空走 EMA；为空（round 口径/旧本地行）回退终身错误率。
+  assert.equal(summarizeAttemptStats({
+    questionId: "q", bankId: "", total: 2, correct: 2, wrong: 0, giveUps: 0, totalElapsedMs: 28_000,
+    firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
+    correctStreakAfterWrong: 0, currentCorrectStreak: 2,
+    recentOutcomes: [
+      { id: "a1", createdAt: at(-2), correct: true, elapsedMs: 20_000 },
+      { id: "a2", createdAt: at(-1), correct: true, elapsedMs: 8_000 },
+    ],
+  }).difficulty, 23, "聚合行有 outcomes 时按 EMA 估计（跨天快速连对第二步）");
+  assert.equal(summarizeAttemptStats({
+    questionId: "q", bankId: "", total: 8, correct: 8, wrong: 0, giveUps: 0, totalElapsedMs: 0,
+    firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
+    correctStreakAfterWrong: 0, currentCorrectStreak: 8,
+    recentOutcomes: [],
+  }).difficulty, calculateDifficulty(8, 0), "outcomes 为空时回退终身错误率公式");
+
+  // 写入链把作答时间记进 recentOutcomes（legacy 链；V7 链由静态断言覆盖）。
+  const builtChain = buildAttemptStats([attempt("a1", "q", at(-2), true), attempt("a2", "q", at(-1), false)]);
+  assert.equal(builtChain?.recentOutcomes[0].elapsedMs, 10);
+  assert.equal(builtChain?.recentOutcomes[1].elapsedMs, 10);
+  assert.equal(builtChain?.recentOutcomes.length, 2, "recentOutcomes 截断上限仍为 32（此处 2）");
 }
 
 // ===== 错题口径：scoped（进度口径）与 lifetime（终身）的区分性用例 =====

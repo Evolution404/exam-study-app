@@ -262,10 +262,10 @@ function addAttemptToStatsV7(current: AttemptStatsV7 | undefined, attempt: Attem
       hasBeenWrong: !attempt.correct,
       correctStreakAfterWrong: 0,
       currentCorrectStreak: attempt.correct ? 1 : 0,
-      recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct }],
+      recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }],
     };
   }
-  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct }]
+  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
   let currentCorrectStreak = 0;
@@ -286,6 +286,25 @@ function addAttemptToStatsV7(current: AttemptStatsV7 | undefined, attempt: Attem
     currentCorrectStreak,
     recentOutcomes,
   };
+}
+
+/** 一次性迁移：从原始 attempts 重建全部 attemptStats 行（为 recentOutcomes 补
+ *  作答时间，难度 v2 需要）。attemptStats 是纯派生数据，重建幂等且无损。 */
+export async function rebuildAttemptStatsFromAttemptsV7() {
+  const attempts = await dbV7.attempts.toArray();
+  const grouped = new Map<string, AttemptV7[]>();
+  for (const attempt of attempts.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))) {
+    const bucket = grouped.get(attempt.questionId);
+    if (bucket) bucket.push(attempt);
+    else grouped.set(attempt.questionId, [attempt]);
+  }
+  const rows: AttemptStatsV7[] = [];
+  for (const bucket of grouped.values()) {
+    let row: AttemptStatsV7 | undefined;
+    for (const attempt of bucket) row = addAttemptToStatsV7(row, attempt);
+    if (row) rows.push(row);
+  }
+  if (rows.length) await dbV7.attemptStats.bulkPut(rows);
 }
 
 function addDailyStatsV7(current: AttemptDailyStatsV7 | undefined, attempt: AttemptV7): AttemptDailyStatsV7 {

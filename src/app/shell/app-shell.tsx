@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, ClipboardCheck, Cloud, Home, Library, Link2, ListFilter, LoaderCircle, Menu, Play, RefreshCw, Settings2, Sparkles, X } from "lucide-react";
-import { dbV7, getV7DeviceId, createPracticeRunV7 } from "@/lib/db/db-v7";
+import { dbV7, getV7DeviceId, createPracticeRunV7, rebuildAttemptStatsFromAttemptsV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { SyncProgress, SyncHotWindowState } from "@/lib/sync/github-sync";
 import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, pullFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/sync/github-sync";
@@ -70,7 +70,15 @@ export function AppShell() {
   useAppViewport();
   useAppTheme(preferences.themeMode);
 
-  useEffect(() => { void ensureChangeSetQueueBaseV7(); }, []);
+  useEffect(() => {
+    void ensureChangeSetQueueBaseV7();
+    // 一次性迁移：为 attemptStats.recentOutcomes 补作答时间（难度 v2 需要）。
+    // attemptStats 是纯派生数据，重建幂等；同步拉取后 deriveAttemptStats 也会自然带出。
+    if (!localStorage.getItem("study-v7-stats-outcomes-v2")) {
+      localStorage.setItem("study-v7-stats-outcomes-v2", "1");
+      void rebuildAttemptStatsFromAttemptsV7();
+    }
+  }, []);
 
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;

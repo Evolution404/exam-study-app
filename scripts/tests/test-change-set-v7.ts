@@ -69,7 +69,7 @@ projection = reduceChangeSetV7(projection, await cs([{ kind: "review.round.saved
 const attempt = (id: string, correct: boolean): AttemptV7 => ({ id, runId: run.id, questionId: "question-1", selected: correct ? "A" : "B", correct, elapsedMs: 10, createdAt: at, deviceId });
 const answer = (eventId: string, correct: boolean): PracticeAnswerV7 => ({ selected: [correct ? "A" : "B"], submitted: true, correct, updatedAt: at, deviceId, eventId });
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-1", false), answer: answer("event-1", false), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
-assert.deepEqual(projection.attemptStats[0], { questionId: "question-1", total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 10, firstAttemptAt: at, firstAttemptCorrect: false, latestAttemptAt: at, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: "attempt-1", createdAt: at, correct: false }] });
+assert.deepEqual(projection.attemptStats[0], { questionId: "question-1", total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 10, firstAttemptAt: at, firstAttemptCorrect: false, latestAttemptAt: at, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: "attempt-1", createdAt: at, correct: false, elapsedMs: 10 }] });
 assert.equal(projection.reviewRoundProgress[0].wrong, 1);
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.updated", attempt: attempt("attempt-1", true), answer: answer("event-2", true), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
 assert.equal(projection.attemptStats[0].correct, 1);

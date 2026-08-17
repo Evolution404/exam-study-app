@@ -94,6 +94,7 @@ export {
   setPracticeRunStatusV7,
   deletePracticeRunV7,
   recordPracticeAnswerV7,
+  rebuildAttemptStatsFromAttemptsV7,
 } from "./db-v7-practice";
 
 export {

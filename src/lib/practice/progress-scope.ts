@@ -32,6 +32,9 @@ export interface ScopedQuestionStats {
   hasBeenWrong: boolean;
   currentCorrectStreak: number;
   correctStreakAfterWrong: number;
+  /** 窗口内最近作答序列（含作答时间），供时间/间隔感知的难度 v2 使用；
+   *  round 口径只有聚合行，无法重建，保持缺省。 */
+  recentOutcomes?: Array<{ correct: boolean; createdAt: string; elapsedMs?: number }>;
 }
 
 export interface ScopedAttemptSummary {
@@ -254,6 +257,7 @@ export function buildScopedQuestionStats(
       hasBeenWrong,
       currentCorrectStreak,
       correctStreakAfterWrong: hasBeenWrong ? currentCorrectStreak : 0,
+      recentOutcomes: ordered.slice(-32).map((row) => ({ correct: row.correct, createdAt: row.createdAt, elapsedMs: Math.max(0, row.elapsedMs || 0) })),
     });
   }
   return result;
@@ -299,9 +303,9 @@ export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQu
 /**
  * Bridge a scoped per-question stats row back into the legacy `AttemptStats`
  * shape so existing helpers (`summarizeAttemptStats`, `calculateDifficulty`)
- * work on date-range-filtered data.  Scoped stats cannot reconstruct the full
- * `recentOutcomes` history, so it is left empty (same trade-off the bank
- * overview already makes).
+ * work on date-range-filtered data.  The rolling/lifetime path now carries a
+ * `recentOutcomes` window for the time-aware difficulty; the round scope only
+ * has aggregates and leaves it empty (count-based fallback).
  */
 export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bankId = ""): AttemptStats {
   return {
@@ -318,6 +322,6 @@ export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bank
     hasBeenWrong: stats.hasBeenWrong,
     correctStreakAfterWrong: stats.correctStreakAfterWrong,
     currentCorrectStreak: stats.currentCorrectStreak,
-    recentOutcomes: [],
+    recentOutcomes: (stats.recentOutcomes ?? []).map((outcome, index) => ({ id: `${stats.questionId}:${index}`, ...outcome })),
   };
 }

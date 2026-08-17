@@ -69,4 +69,16 @@ assert.match(studyApp, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIn
 assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
 assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 
+// ===== 静态断言：难度 v2 数据链（时间感知 + 间隔感知）=====
+const metrics = read("src/lib/practice/practice-metrics.ts");
+assert.match(metrics, /export function difficultyFromOutcomes/, "难度 v2 纯函数必须存在且可单测");
+assert.match(metrics, /stats\.recentOutcomes\?\.length\s*\?\s*difficultyFromOutcomes\(stats\.recentOutcomes\)\s*:\s*calculateDifficulty/, "聚合读取必须有 outcomes 优先 + 终身错误率回退");
+const derived = read("src/lib/sync/change-set-v7-derived.ts");
+assert.match(derived, /recentOutcomes: ordered\.slice\(-32\)\.map\(\(attempt\) => \(\{ id: attempt\.id, createdAt: attempt\.createdAt, correct: attempt\.correct, elapsedMs:/, "同步派生链必须把作答时间写进 outcomes");
+const checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+assert.match(checkpoint, /outcome\.elapsedMs !== undefined\) assertSafeInt\(outcome\.elapsedMs/, "checkpoint 校验必须接受可选 elapsedMs（新旧互通）");
+assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs \|\| 0\) \}/, "作答写入链必须记录每次的作答时间");
+assert.match(studyApp, /rebuildAttemptStatsFromAttemptsV7\(\)/, "启动时必须执行一次性 attemptStats 重建（为旧数据补作答时间）");
+assert.match(practiceView, /难度按作答时间与作答间隔动态估计/, "练习页难度 chip 应有 Hint 说明难度估计口径");
+
 console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, silent sync and one-source resume cards");

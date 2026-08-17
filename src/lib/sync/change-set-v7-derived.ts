@@ -59,7 +59,7 @@ function deriveAttemptStats(attempts: readonly AttemptV7[]): AttemptStatsV7[] {
       hasBeenWrong: ordered.some((attempt) => !attempt.correct),
       correctStreakAfterWrong,
       currentCorrectStreak,
-      recentOutcomes: ordered.slice(-32).map((attempt) => ({ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct })),
+      recentOutcomes: ordered.slice(-32).map((attempt) => ({ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) })),
     } satisfies AttemptStatsV7;
   });
 }
