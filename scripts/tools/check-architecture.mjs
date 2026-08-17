@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -22,12 +23,27 @@ for (const { file, source } of appSources) {
   if (/#[0-9a-fA-F]{3,8}\b/.test(source) && file.endsWith(".css")) fail(`${file} 必须使用主题令牌，不能硬编码颜色`);
 }
 
-const legacyColorBudget = 1104;
-const legacyDarkSelectorBudget = 180;
+let legacyColorBudget = 1076;
+let legacyDarkSelectorBudget = 178;
 const colorCount = components.match(/#[0-9a-fA-F]{3,8}\b/g)?.length ?? 0;
 const darkSelectorCount = components.match(/html\[data-theme="dark"\]/g)?.length ?? 0;
 if (colorCount > legacyColorBudget) fail(`组件层硬编码颜色由 ${legacyColorBudget} 增至 ${colorCount}，只能减少`);
 if (darkSelectorCount > legacyDarkSelectorBudget) fail(`页面级夜间选择器由 ${legacyDarkSelectorBudget} 增至 ${darkSelectorCount}，只能减少`);
+
+// 预算棘轮：检查通过后把上限收紧为当前值并写回本文件——之后任何人新增
+// 硬编码颜色/夜间前缀都会立即超限，上限因此只降不升。CI 只改临时 checkout
+// 无副作用；本地跑完请把写回的预算值随本次变更一起提交。
+if (colorCount < legacyColorBudget || darkSelectorCount < legacyDarkSelectorBudget) {
+  const previousColorBudget = legacyColorBudget;
+  const previousDarkBudget = legacyDarkSelectorBudget;
+  legacyColorBudget = colorCount;
+  legacyDarkSelectorBudget = darkSelectorCount;
+  const selfPath = fileURLToPath(import.meta.url);
+  fs.writeFileSync(selfPath, fs.readFileSync(selfPath, "utf8")
+    .replace(/legacyColorBudget = \d+;/, `legacyColorBudget = ${colorCount};`)
+    .replace(/legacyDarkSelectorBudget = \d+;/, `legacyDarkSelectorBudget = ${darkSelectorCount};`));
+  console.log(`预算棘轮已收紧并写回：颜色 ${previousColorBudget}→${legacyColorBudget}，夜间 ${previousDarkBudget}→${legacyDarkSelectorBudget}（请随本次变更提交）`);
+}
 
 const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
