@@ -1563,8 +1563,19 @@ async function runPracticeSetupComboQA(page) {
   await page.locator(".setup-footer > button.primary").click();
   await page.locator(".practice-progress span").filter({ hasText: /^1 \/ 2 · 错题/ }).waitFor({ state: "visible" });
   await capture(page, contextName, "combo-wrong-random");
+  const stemsSeen = [];
   for (let answered = 0; answered < 2; answered += 1) {
+    if (answered > 0) {
+      // 进度条（同步 state）先于题目内容更新：activeQuestion 走 liveQuery 异步解析，
+      // 等「2 / 2」出现时旧题卡可能仍挂在 DOM——必须等题干真正换成另一道题再读，
+      // 否则会按上一题的答案点当前题（随机顺序下两题答案不同 → 判错）。
+      await page.waitForFunction((previous) => {
+        const text = document.querySelector(".practice-stem")?.textContent ?? "";
+        return text.length > 0 && text !== previous;
+      }, stemsSeen[stemsSeen.length - 1], { timeout: 10_000 });
+    }
     const stem = await page.locator(".practice-stem").innerText();
+    stemsSeen.push(stem);
     const optionIndexes = stem.includes("导线") ? [0] : [1]; // 导线→A 传输电能；发现异常→B 按流程记录
     await answerCurrentQuestion(page, optionIndexes);
     try {
@@ -1578,8 +1589,6 @@ async function runPracticeSetupComboQA(page) {
     }
     if (answered === 0) {
       await clickTextButton(page, "下一题");
-      // 等进度真正切到第 2 题再读题干：React 提交前旧题干仍在 DOM，
-      // 立即 innerText 会读到上一题（随机顺序下两题答案不同 → 点错）。
       await waitForQuestion(page, 2, 2);
     }
   }
