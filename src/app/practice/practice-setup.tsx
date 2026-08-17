@@ -1,9 +1,10 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Filter, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, Star, Tags } from "lucide-react";
+import { ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
 import { dbV7, getQuestionsForBanksV7 } from "@/lib/db/db-v7";
-import { isQuestionDoneInScope, normalizeProgressScope, type ProgressScope } from "@/lib/practice/progress-scope";
+import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
+import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
@@ -36,16 +37,42 @@ export interface V7PracticeFilter {
   modeLabel?: string;
 }
 
-const baseModes: Array<{ id: V7PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
-  { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle },
-  { id: "randomCustom", title: "随机指定题数", detail: "本次输入题数，不修改全局配置", icon: Shuffle },
-  { id: "sequential", title: "全量顺序练习", detail: "按题库顺序练完全部题目", icon: ListOrdered },
-  { id: "randomAll", title: "全量随机练习", detail: "全部题目随机排列", icon: Shuffle },
-  { id: "wrong", title: "练习错题", detail: "集中练习当前口径下的错题", icon: RotateCcw },
-  { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star },
-  { id: "difficult", title: "难题优先", detail: "按终身动态难度值排序", icon: Gauge },
-  { id: "tag", title: "标签模式", detail: "按知识标签练习", icon: Tags },
-  { id: "advanced", title: "高级筛选", detail: "组合题型、状态、标签和数量", icon: Filter },
+type AmountChoice = "default" | "custom" | "all";
+
+interface PracticeCombo {
+  status: V7PracticeFilter["status"];
+  order: V7PracticeFilter["order"];
+  amount: AmountChoice;
+}
+
+// 快捷卡片的两种行为：start=点卡片立即以纯预设开始（不读取下方自定义区）；
+// configure=把预设填进下方自定义组合（或展开对应折叠区），由用户确认后开始。
+type PresetCard =
+  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "start"; combo: PracticeCombo }
+  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "configure" };
+
+const presetCards: PresetCard[] = [
+  { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "default" } },
+  { id: "randomCustom", title: "随机指定题数", detail: "本次输入题数，不修改全局配置", icon: Shuffle, kind: "configure" },
+  { id: "sequential", title: "全量顺序练习", detail: "按题库顺序练完全部题目", icon: ListOrdered, kind: "start", combo: { status: "all", order: "sequential", amount: "all" } },
+  { id: "randomAll", title: "全量随机练习", detail: "全部题目随机排列", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "all" } },
+  { id: "wrong", title: "练习错题", detail: "集中练习当前口径下的错题", icon: RotateCcw, kind: "start", combo: { status: "wrong", order: "sequential", amount: "all" } },
+  { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star, kind: "start", combo: { status: "favorite", order: "sequential", amount: "all" } },
+  { id: "difficult", title: "难题优先", detail: "按终身动态难度值排序", icon: Gauge, kind: "start", combo: { status: "all", order: "difficulty", amount: "all" } },
+  { id: "tag", title: "标签模式", detail: "按知识标签练习", icon: Tags, kind: "configure" },
+];
+
+const statusOptions: Array<{ id: V7PracticeFilter["status"]; label: string }> = [
+  { id: "all", label: "全部" },
+  { id: "unanswered", label: "未做过" },
+  { id: "wrong", label: "错题" },
+  { id: "favorite", label: "收藏" },
+];
+
+const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
+  { id: "sequential", label: "题库顺序" },
+  { id: "random", label: "随机" },
+  { id: "difficulty", label: "难度优先" },
 ];
 
 const questionTypes: QuestionTypeV7[] = ["单选", "多选", "判断", "计算"];
@@ -54,7 +81,7 @@ function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));
 }
 
-export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30, defaultOrder = "sequential", progressScope = { type: "rolling", days: 90 }, rounds = [] }: {
+export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30, defaultOrder = "sequential", progressScope = { type: "rolling", days: 90 }, wrongRemovalStreak = 3, rounds = [] }: {
   banks: BankV7[];
   currentBankIds: string[];
   onBankChange: (bankIds: string[]) => void;
@@ -63,16 +90,16 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   groupSize?: number;
   defaultOrder?: V7PracticeFilter["order"];
   progressScope?: ProgressScope;
+  wrongRemovalStreak?: number;
   rounds?: readonly ReviewRound[];
 }) {
   const [bankIds, setBankIds] = useState(currentBankIds);
-  const [mode, setMode] = useState<V7PracticeMode>("sequential");
   const [types, setTypes] = useState<QuestionTypeV7[]>(questionTypes);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
   const [status, setStatus] = useState<V7PracticeFilter["status"]>("all");
   const [order, setOrder] = useState<V7PracticeFilter["order"]>(defaultOrder);
-  const [limit, setLimit] = useState<number | null>(null);
+  const [amountChoice, setAmountChoice] = useState<AmountChoice>("all");
   const [customRandomCount, setCustomRandomCount] = useState(String(groupSize));
   const [keyword, setKeyword] = useState("");
   const [keywordMode, setKeywordMode] = useState<V7PracticeFilter["keywordMode"]>("plain");
@@ -86,6 +113,10 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const [lastAttemptTo, setLastAttemptTo] = useState("");
   const [reviewRoundId, setReviewRoundId] = useState("");
   const [advancedScope, setAdvancedScope] = useState<ProgressScope | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [tagSectionOpen, setTagSectionOpen] = useState(false);
+  const customCountInputRef = useRef<HTMLInputElement>(null);
+  const tagSectionRef = useRef<HTMLDivElement>(null);
   const bankKey = bankIds.join("|");
   const dataset = useLiveQuery(async () => {
     const [questions, stats, roundsProgress] = await Promise.all([
@@ -93,8 +124,11 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
       dbV7.attemptStats.toArray(),
       dbV7.reviewRoundProgress.toArray(),
     ]);
-    return { questions, stats, roundsProgress };
-  }, [bankKey]) ?? { questions: [], stats: [], roundsProgress: [] };
+    // 错题卡计数需要进度口径内的原始作答行（attemptStats 是终身聚合，重建不了
+    // 窗口内的连对序列）；按题目 id 索引取子集，避免整表载入。
+    const attempts = questions.length ? await dbV7.attempts.where("questionId").anyOf(questions.map((question) => question.id)).toArray() : [];
+    return { questions, stats, roundsProgress, attempts };
+  }, [bankKey]) ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
   const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
   const effectiveScope = normalizeProgressScope(advancedScope ?? normalizedScope);
@@ -103,6 +137,19 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
       : rounds.find((round) => round.id === effectiveScope.roundId)?.name ?? "当前复习轮次";
   const [referenceTime] = useState(Date.now);
   const doneCount = useMemo(() => dataset.questions.filter((question) => isQuestionDoneInScope(question.id, effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime)).length, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
+  // 错题/收藏卡的实时计数：错题与开始练习同一口径（进度口径 scoped + 连对移出阈值）。
+  const wrongCardCount = useMemo(() => {
+    const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);
+    let count = 0;
+    scoped.forEach((stats) => { if (statsNeedWrongReview(scopedStatsToLegacyAttemptStats(stats), wrongRemovalStreak)) count += 1; });
+    return count;
+  }, [dataset.questions, dataset.attempts, dataset.roundsProgress, effectiveScope, referenceTime, wrongRemovalStreak]);
+  const favoriteCardCount = useMemo(() => dataset.questions.filter((question) => question.favorite).length, [dataset.questions]);
+
+  // 题量切到「自定义题数」时（无论是点卡片还是点题量分段）聚焦同一个题数输入框。
+  useEffect(() => {
+    if (amountChoice === "custom") customCountInputRef.current?.focus();
+  }, [amountChoice]);
 
   function toggleType(type: QuestionTypeV7) { setTypes(types.includes(type) ? types.filter((item) => item !== type) : [...types, type]); }
   function toggleTag(tag: string) { setSelectedTags(selectedTags.includes(tag) ? selectedTags.filter((item) => item !== tag) : [...selectedTags, tag]); }
@@ -113,52 +160,144 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     onBankChange(next);
   }
 
-  function start() {
-    const requestedRandomCount = Math.floor(Number(customRandomCount));
-    onStart({
+  function activateCard(card: PresetCard) {
+    if (card.kind === "start") {
+      onStart(assembleFilter(card.combo, { quick: true }));
+      return;
+    }
+    if (card.id === "randomCustom") {
+      setStatus("all");
+      setOrder("random");
+      setAmountChoice("custom");
+      return;
+    }
+    setTagSectionOpen(true);
+    requestAnimationFrame(() => tagSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  }
+
+  const requestedRandomCount = Math.floor(Number(customRandomCount));
+  const scopeOverridden = advancedScope !== null && progressScopeKey(advancedScope) !== progressScopeKey(normalizedScope);
+
+  function advancedFieldsActive(filter: V7PracticeFilter) {
+    return filter.types.length < questionTypes.length
+      || Boolean(filter.keyword.trim())
+      || filter.totalAttemptsMin !== null || filter.totalAttemptsMax !== null
+      || filter.wrongAttemptsMin !== null || filter.wrongAttemptsMax !== null
+      || filter.difficultyMin !== null || filter.difficultyMax !== null
+      || Boolean(filter.lastAttemptFrom) || Boolean(filter.lastAttemptTo)
+      || scopeOverridden;
+  }
+
+  function deriveMode(filter: V7PracticeFilter, advancedActive: boolean): V7PracticeMode {
+    if (advancedActive || filter.status === "unanswered") return "advanced";
+    if (filter.tags.length) return "tag";
+    if (filter.status === "wrong") return "wrong";
+    if (filter.status === "favorite") return "favorite";
+    if (filter.order === "difficulty") return "difficult";
+    if (filter.order === "random" && filter.limit !== null) return filter.limit === groupSize ? "random30" : "randomCustom";
+    if (filter.order === "random") return "randomAll";
+    return "sequential";
+  }
+
+  function composeModeLabel(filter: V7PracticeFilter, amount: AmountChoice) {
+    const parts: string[] = [];
+    if (filter.tags.length) parts.push(`标签 ${filter.tags.length} 个`);
+    if (filter.status === "wrong") parts.push("错题");
+    else if (filter.status === "unanswered") parts.push("未做过");
+    else if (filter.status === "favorite") parts.push("收藏");
+    parts.push(filter.order === "random" ? "随机" : filter.order === "difficulty" ? "难度优先" : "题库顺序");
+    if (amount === "custom") parts.push(`${requestedRandomCount} 题`);
+    else if (amount === "default") parts.push(`${groupSize} 题`);
+    else parts.push("不限题量");
+    return parts.join(" · ");
+  }
+
+  // filter 组装的唯一出口：quick=卡片路径（纯预设：全题型、无标签、无高级字段、
+  // 不读自定义区 state）；组合路径直读正交三段 + 折叠区 state。
+  function assembleFilter(combo: PracticeCombo | null, { quick = false } = {}): V7PracticeFilter {
+    const amount = quick && combo ? combo.amount : amountChoice;
+    const quickLimit = combo && combo.amount === "default" ? groupSize : null;
+    const comboLimit = amountChoice === "custom" ? requestedRandomCount : amountChoice === "default" ? groupSize : null;
+    const filter: V7PracticeFilter = {
       bankIds,
-      mode,
-      types: mode === "advanced" ? types : questionTypes,
-      tags: mode === "tag" || mode === "advanced" ? selectedTags : [],
+      mode: "sequential",
+      types: quick ? [...questionTypes] : [...types],
+      tags: quick ? [] : [...selectedTags],
       tagMatch,
-      status: mode === "wrong" ? "wrong" : mode === "favorite" ? "favorite" : mode === "advanced" ? status : "all",
-      order: mode === "random30" || mode === "randomCustom" || mode === "randomAll" ? "random" : mode === "difficult" ? "difficulty" : mode === "advanced" ? order : "sequential",
-      limit: mode === "random30" ? groupSize : mode === "randomCustom" ? requestedRandomCount : mode === "advanced" ? limit : null,
-      keyword: mode === "advanced" ? keyword : "",
+      status: quick && combo ? combo.status : status,
+      order: quick && combo ? combo.order : order,
+      limit: quick ? quickLimit : comboLimit,
+      keyword: quick ? "" : keyword,
       keywordMode,
-      totalAttemptsMin: mode === "advanced" ? metricValue(totalAttemptsMin) : null,
-      totalAttemptsMax: mode === "advanced" ? metricValue(totalAttemptsMax) : null,
-      wrongAttemptsMin: mode === "advanced" ? metricValue(wrongAttemptsMin) : null,
-      wrongAttemptsMax: mode === "advanced" ? metricValue(wrongAttemptsMax) : null,
-      difficultyMin: mode === "advanced" ? metricValue(difficultyMin) : null,
-      difficultyMax: mode === "advanced" ? metricValue(difficultyMax) : null,
-      lastAttemptFrom: mode === "advanced" ? lastAttemptFrom : "",
-      lastAttemptTo: mode === "advanced" ? lastAttemptTo : "",
-      progressScope: effectiveScope,
+      totalAttemptsMin: quick ? null : metricValue(totalAttemptsMin),
+      totalAttemptsMax: quick ? null : metricValue(totalAttemptsMax),
+      wrongAttemptsMin: quick ? null : metricValue(wrongAttemptsMin),
+      wrongAttemptsMax: quick ? null : metricValue(wrongAttemptsMax),
+      difficultyMin: quick ? null : metricValue(difficultyMin),
+      difficultyMax: quick ? null : metricValue(difficultyMax),
+      lastAttemptFrom: quick ? "" : lastAttemptFrom,
+      lastAttemptTo: quick ? "" : lastAttemptTo,
+      progressScope: quick ? normalizedScope : effectiveScope,
       ...(reviewRoundId ? { reviewRoundId } : {}),
-    });
+    };
+    filter.mode = deriveMode(filter, quick ? false : advancedFieldsActive(filter));
+    filter.modeLabel = composeModeLabel(filter, amount);
+    return filter;
+  }
+
+  function start() {
+    onStart(assembleFilter(null, { quick: false }));
   }
 
   let regexError = "";
-  if (mode === "advanced" && keywordMode === "regex" && keyword.trim()) { try { new RegExp(keyword); } catch { regexError = "正则表达式格式不正确"; } }
+  if (keywordMode === "regex" && keyword.trim()) { try { new RegExp(keyword); } catch { regexError = "正则表达式格式不正确"; } }
   const totalMin = metricValue(totalAttemptsMin); const totalMax = metricValue(totalAttemptsMax);
   const wrongMin = metricValue(wrongAttemptsMin); const wrongMax = metricValue(wrongAttemptsMax);
   const difficultyLow = metricValue(difficultyMin); const difficultyHigh = metricValue(difficultyMax);
   const metricError = totalMin !== null && totalMax !== null && totalMin > totalMax ? "总作答次数的最少值不能大于最多值" : wrongMin !== null && wrongMax !== null && wrongMin > wrongMax ? "错误次数的最少值不能大于最多值" : (difficultyLow !== null && difficultyLow > 100) || (difficultyHigh !== null && difficultyHigh > 100) ? "难度值范围必须在 0–100 之间" : difficultyLow !== null && difficultyHigh !== null && difficultyLow > difficultyHigh ? "最低难度不能大于最高难度" : "";
   const dateError = lastAttemptFrom && lastAttemptTo && lastAttemptFrom > lastAttemptTo ? "开始日期不能晚于结束日期" : "";
-  const requestedRandomCount = Math.floor(Number(customRandomCount));
-  const customRandomError = mode === "randomCustom" && (!Number.isFinite(requestedRandomCount) || requestedRandomCount < 1 || requestedRandomCount > dataset.questions.length) ? `请输入 1–${Math.max(1, dataset.questions.length)} 之间的题数` : "";
-  const disabled = !bankIds.length || Boolean(customRandomError) || (mode === "tag" && !selectedTags.length) || (mode === "advanced" && (!types.length || Boolean(regexError) || Boolean(metricError) || Boolean(dateError)));
+  const typeError = types.length ? "" : "高级筛选：至少选择一种题型";
+  const customRandomError = amountChoice === "custom" && (!Number.isFinite(requestedRandomCount) || requestedRandomCount < 1 || requestedRandomCount > dataset.questions.length) ? `请输入 1–${Math.max(1, dataset.questions.length)} 之间的题数` : "";
+  const disabled = !bankIds.length || Boolean(customRandomError) || Boolean(typeError) || Boolean(regexError) || Boolean(metricError) || Boolean(dateError);
+  // 高级筛选折叠时错误输入仍参与校验（会禁用开始按钮），错误文案需镜像到 footer 上方，
+  // 否则用户看不到禁用原因。
+  const collapsedErrors = advancedOpen ? [] : [typeError, regexError, metricError, dateError].filter(Boolean);
+  const amountOptions: Array<{ id: AmountChoice; label: string }> = [
+    { id: "default", label: `${groupSize} 题` },
+    { id: "custom", label: "自定义题数" },
+    { id: "all", label: "全部题目" },
+  ];
 
   return <>
-    {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习模式</h1><p>进度筛选当前使用 {normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前复习轮次"}，正确率与总次数仍为终身统计。</p></div></div>}
+    {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习方式</h1><p>进度筛选当前使用 {normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前复习轮次"}，正确率与总次数仍为终身统计。</p></div></div>}
     <section className="practice-setup-card">
       <div className="setup-bank"><span>练习题库（可单选或多选）</span><div className="scope-bank-list">{banks.map((bank) => <button type="button" key={bank.id} aria-pressed={bankIds.includes(bank.id)} className={bankIds.includes(bank.id) ? "selected" : ""} onClick={() => toggleBank(bank.id)}><i /> <span><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount} 题</small></span></button>)}</div></div>
-      <div className="mode-grid">{baseModes.map(({ id, title, detail, icon: Icon }) => <button type="button" key={id} className={mode === id ? "active" : ""} onClick={() => setMode(id)}><Icon size={20} /><strong>{id === "random30" ? `随机 ${groupSize} 题` : title}</strong><small>{id === "random30" ? `${detail} ${groupSize} 题` : detail}</small></button>)}</div>
       {rounds.filter((round) => round.status === "active").length > 0 && <label>绑定复习轮次（可选；一次练习最多绑定一轮）<AppSelect ariaLabel="复习轮次" value={reviewRoundId || "none"} onValueChange={(value) => { const round = rounds.find((candidate) => candidate.id === value && candidate.status === "active"); setReviewRoundId(round?.id ?? ""); if (round) { setBankIds([...round.bankIds]); onBankChange([...round.bankIds]); } }} options={[{ value: "none", label: "普通练习，不推进轮次" }, ...rounds.filter((round) => round.status === "active").map((round) => ({ value: round.id, label: `${round.name}（动态题库成员）` }))]} /></label>}
-      {mode === "randomCustom" && <div className="custom-random-count"><div><strong>本次随机抽取题数</strong><small>只对即将开始的这次练习生效。</small></div><label>题数<input aria-label="本次随机题数" type="number" min="1" max={Math.max(1, dataset.questions.length)} step="1" inputMode="numeric" value={customRandomCount} onChange={(event) => setCustomRandomCount(event.target.value)} /></label>{customRandomError && <p className="filter-error">{customRandomError}</p>}</div>}
-      {(mode === "tag" || mode === "advanced") && <div className="filter-section"><div className="filter-title"><Tags size={17} /><strong>用户标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : mode === "tag" ? "请选择标签" : "不限制标签"}</small></div>{tags.length ? <><div className="chip-list">{tags.map((tag) => <button type="button" key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div>{selectedTags.length > 1 && <div className="tag-match-control"><span>多个标签：</span><button type="button" className={tagMatch === "any" ? "selected" : ""} onClick={() => setTagMatch("any")}>符合任意一个</button><button type="button" className={tagMatch === "all" ? "selected" : ""} onClick={() => setTagMatch("all")}>同时符合全部</button></div>}</> : <p className="filter-empty">当前题库还没有用户标签。</p>}</div>}
-      {mode === "advanced" && <><ProgressScopeSetting value={effectiveScope} onChange={setAdvancedScope} /><div className="advanced-query-grid"><div className="filter-section keyword-filter"><div className="filter-title"><Search size={17} /><strong>关键词匹配</strong><small>题干、选项和图片说明</small></div><div className="query-row"><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder={keywordMode === "regex" ? "例如：弧垂|导线|杆塔" : "输入要查找的文字"} /><AppSelect ariaLabel="关键词方式" value={keywordMode} onValueChange={(value) => setKeywordMode(value as V7PracticeFilter["keywordMode"])} options={[{ value: "plain", label: "包含关键词" }, { value: "regex", label: "正则表达式" }]} /></div>{regexError && <p className="filter-error">{regexError}</p>}</div><div className="filter-section history-filter"><div className="filter-title"><History size={17} /><strong>终身统计筛选</strong><small>正确率/总次数不受进度口径影响</small></div><div className="metric-grid"><label>总作答最少<input type="number" min="0" value={totalAttemptsMin} onChange={(event) => setTotalAttemptsMin(event.target.value)} /></label><label>总作答最多<input type="number" min="0" value={totalAttemptsMax} onChange={(event) => setTotalAttemptsMax(event.target.value)} /></label><label>错误次数最少<input type="number" min="0" value={wrongAttemptsMin} onChange={(event) => setWrongAttemptsMin(event.target.value)} /></label><label>错误次数最多<input type="number" min="0" value={wrongAttemptsMax} onChange={(event) => setWrongAttemptsMax(event.target.value)} /></label><label>最低难度<input type="number" min="0" max="100" value={difficultyMin} onChange={(event) => setDifficultyMin(event.target.value)} /></label><label>最高难度<input type="number" min="0" max="100" value={difficultyMax} onChange={(event) => setDifficultyMax(event.target.value)} /></label></div>{metricError && <p className="filter-error">{metricError}</p>}<div className="date-range"><label>最近作答从<input type="date" value={lastAttemptFrom} onChange={(event) => setLastAttemptFrom(event.target.value)} /></label><label>到<input type="date" value={lastAttemptTo} onChange={(event) => setLastAttemptTo(event.target.value)} /></label></div>{dateError && <p className="filter-error">{dateError}</p>}</div><div className="filter-section"><div className="filter-title"><strong>高级选项</strong><small>可覆盖临时排序和状态</small></div><div className="advanced-choice-row"><label>题型{questionTypes.map((type) => <button type="button" key={type} className={types.includes(type) ? "selected" : ""} onClick={() => toggleType(type)}>{type}</button>)}</label><label>状态<AppSelect ariaLabel="状态" value={status} onValueChange={(value) => setStatus(value as V7PracticeFilter["status"])} options={[{ value: "all", label: "全部" }, { value: "unanswered", label: "进度口径未做" }, { value: "wrong", label: "错题" }, { value: "favorite", label: "收藏" }]} /></label><label>排序<AppSelect ariaLabel="排序" value={order} onValueChange={(value) => setOrder(value as V7PracticeFilter["order"])} options={[{ value: "sequential", label: "题库顺序" }, { value: "random", label: "随机" }, { value: "difficulty", label: "难度优先" }]} /></label><label>最多题数<input type="number" min="1" value={limit ?? ""} onChange={(event) => setLimit(event.target.value ? Math.max(1, Math.floor(Number(event.target.value))) : null)} /></label></div></div></div></>}
+      <div className="quick-start-heading"><strong>快捷开始</strong><small>点卡片立即开始，不使用下方自定义组合</small></div>
+      <div className="mode-grid">{presetCards.map((card) => {
+        // 错题/收藏卡显示实时计数；错题为 0 时禁用（口径与开始练习完全一致）。
+        const cardDetail = card.id === "random30" ? `${card.detail} ${groupSize} 题`
+          : card.id === "wrong" ? `当前口径下 ${wrongCardCount} 道错题`
+          : card.id === "favorite" ? `共 ${favoriteCardCount} 道收藏题`
+          : card.kind === "configure" ? `${card.detail}，先填充设置`
+          : card.detail;
+        const cardDisabled = card.kind === "start" && (!bankIds.length
+          || (card.id === "wrong" && wrongCardCount === 0)
+          || (card.id === "favorite" && favoriteCardCount === 0));
+        return <button type="button" key={card.id} disabled={cardDisabled} onClick={() => activateCard(card)}><card.icon size={20} /><strong>{card.id === "random30" ? `随机 ${groupSize} 题` : card.title}</strong><small>{cardDetail}</small></button>;
+      })}</div>
+      <div className="quick-start-heading"><strong>自定义组合</strong><small>出题范围 × 顺序 × 题量，自由组合后开始</small></div>
+      <div className="custom-combo">
+        <div className="practice-segment-group"><span>出题范围</span><div className="practice-segment-row" role="group" aria-label="出题范围">{statusOptions.map((option) => <button type="button" key={option.id} aria-pressed={status === option.id} className={status === option.id ? "selected" : ""} onClick={() => setStatus(option.id)}>{option.label}</button>)}</div></div>
+        <div className="practice-segment-group"><span>顺序</span><div className="practice-segment-row" role="group" aria-label="顺序">{orderOptions.map((option) => <button type="button" key={option.id} aria-pressed={order === option.id} className={order === option.id ? "selected" : ""} onClick={() => setOrder(option.id)}>{option.label}</button>)}</div></div>
+        <div className="practice-segment-group"><span>题量</span><div className="practice-segment-row" role="group" aria-label="题量">{amountOptions.map((option) => <button type="button" key={option.id} aria-pressed={amountChoice === option.id} className={amountChoice === option.id ? "selected" : ""} onClick={() => setAmountChoice(option.id)}>{option.label}</button>)}</div></div>
+        {amountChoice === "custom" && <div className="custom-random-count"><div><strong>本次随机抽取题数</strong><small>只对即将开始的这次练习生效，不修改全局配置。</small></div><label>题数<input ref={customCountInputRef} aria-label="本次随机题数" type="number" min="1" max={Math.max(1, dataset.questions.length)} step="1" inputMode="numeric" value={customRandomCount} onChange={(event) => setCustomRandomCount(event.target.value)} /></label>{customRandomError && <p className="filter-error">{customRandomError}</p>}</div>}
+        <button type="button" className="advanced-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}><SlidersHorizontal size={16} /> <strong>高级筛选</strong> <small>关键词、终身统计、最近作答、题型、进度口径</small> {advancedOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>
+        {advancedOpen && <><ProgressScopeSetting value={effectiveScope} onChange={setAdvancedScope} /><div className="advanced-query-grid"><div className="filter-section keyword-filter"><div className="filter-title"><Search size={17} /><strong>关键词匹配</strong><small>题干、选项和图片说明</small></div><div className="query-row"><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder={keywordMode === "regex" ? "例如：弧垂|导线|杆塔" : "输入要查找的文字"} /><AppSelect ariaLabel="关键词方式" value={keywordMode} onValueChange={(value) => setKeywordMode(value as V7PracticeFilter["keywordMode"])} options={[{ value: "plain", label: "包含关键词" }, { value: "regex", label: "正则表达式" }]} /></div>{regexError && <p className="filter-error">{regexError}</p>}</div><div className="filter-section history-filter"><div className="filter-title"><History size={17} /><strong>终身统计筛选</strong><small>正确率/总次数不受进度口径影响</small></div><div className="metric-grid"><label>总作答最少<input type="number" min="0" value={totalAttemptsMin} onChange={(event) => setTotalAttemptsMin(event.target.value)} /></label><label>总作答最多<input type="number" min="0" value={totalAttemptsMax} onChange={(event) => setTotalAttemptsMax(event.target.value)} /></label><label>错误次数最少<input type="number" min="0" value={wrongAttemptsMin} onChange={(event) => setWrongAttemptsMin(event.target.value)} /></label><label>错误次数最多<input type="number" min="0" value={wrongAttemptsMax} onChange={(event) => setWrongAttemptsMax(event.target.value)} /></label><label>最低难度<input type="number" min="0" max="100" value={difficultyMin} onChange={(event) => setDifficultyMin(event.target.value)} /></label><label>最高难度<input type="number" min="0" max="100" value={difficultyMax} onChange={(event) => setDifficultyMax(event.target.value)} /></label></div>{metricError && <p className="filter-error">{metricError}</p>}<div className="date-range"><label>最近作答从<input type="date" value={lastAttemptFrom} onChange={(event) => setLastAttemptFrom(event.target.value)} /></label><label>到<input type="date" value={lastAttemptTo} onChange={(event) => setLastAttemptTo(event.target.value)} /></label></div>{dateError && <p className="filter-error">{dateError}</p>}</div></div><div className="practice-segment-group"><span>题型</span><div className="practice-segment-row type-choice-row" role="group" aria-label="题型">{questionTypes.map((type) => <button type="button" key={type} aria-pressed={types.includes(type)} className={types.includes(type) ? "selected" : ""} onClick={() => toggleType(type)}>{type}</button>)}</div>{!types.length && <p className="filter-error">{typeError}</p>}</div></>}
+        <button type="button" className="advanced-toggle" aria-expanded={tagSectionOpen} onClick={() => setTagSectionOpen(!tagSectionOpen)}><Tags size={16} /> <strong>标签</strong> <small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : tags.length ? "不限制标签" : "当前题库还没有用户标签"}</small> {tagSectionOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>
+        {tagSectionOpen && <div ref={tagSectionRef} className="filter-section"><div className="filter-title"><Tags size={17} /><strong>用户标签</strong><small>{selectedTags.length ? `已选 ${selectedTags.length} 个` : "请选择标签"}</small></div>{tags.length ? <><div className="chip-list">{tags.map((tag) => <button type="button" key={tag} className={selectedTags.includes(tag) ? "selected" : ""} onClick={() => toggleTag(tag)}>{tag}</button>)}</div>{selectedTags.length > 1 && <div className="tag-match-control"><span>多个标签：</span><button type="button" className={tagMatch === "any" ? "selected" : ""} onClick={() => setTagMatch("any")}>符合任意一个</button><button type="button" className={tagMatch === "all" ? "selected" : ""} onClick={() => setTagMatch("all")}>同时符合全部</button></div>}</> : <p className="filter-empty">当前题库还没有用户标签。</p>}</div>}
+      </div>
+      {collapsedErrors.length > 0 && <div className="setup-error-summary">{collapsedErrors.map((message) => <p className="filter-error" key={message}>{message}</p>)}</div>}
       <div className="setup-footer"><ScopeSummaryChips total={dataset.questions.length} done={doneCount} scopeLabel={effectiveScopeLabel} totalLabel="可用" /><button type="button" className="primary" disabled={disabled} onClick={start}>开始练习</button></div>
     </section>
   </>;

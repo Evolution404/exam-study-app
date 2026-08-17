@@ -498,9 +498,20 @@ async function runDesktop(page, mockServer) {
   await customRandomCount.fill("3");
   assert.equal(await customRandomCount.inputValue(), "3", "custom random count should be editable without changing preferences");
   await capture(page, contextName, "practice-custom-random");
-  await clickTextButton(page, "全量顺序练习");
+  // 高级筛选折叠区：最近作答日期区间必须可交互（旧 .date-range-filter 类名失配曾导致控件无样式）。
+  await page.locator(".advanced-toggle").filter({ hasText: "高级筛选" }).click();
+  const dateFrom = page.getByLabel("最近作答从");
+  await dateFrom.fill("2026-01-01");
+  assert.equal(await dateFrom.inputValue(), "2026-01-01", "date range start input should accept and echo a date");
+  const dateTo = page.getByLabel("到", { exact: true });
+  await dateTo.fill("2026-12-31");
+  assert.equal(await dateTo.inputValue(), "2026-12-31", "date range end input should accept and echo a date");
+  await dateFrom.fill("");
+  await dateTo.fill("");
+  await page.locator(".advanced-toggle").filter({ hasText: "高级筛选" }).click();
   await capture(page, contextName, "practice-setup");
-  await page.locator(".setup-footer > button.primary").click();
+  // 快捷卡片一键开始：点「全量顺序练习」直接进入练习，不经过自定义组合的题量状态。
+  await clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
   const pendingBeforeFirstAnswer = await pendingEventCount(page);
   await answerCurrentQuestion(page, [0]);
@@ -747,7 +758,6 @@ async function runMobile(page, mockServer) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await clickButton(page, "打开题目总览");
   // Fresh practice starts at the first question — the overview focuses the
@@ -1199,7 +1209,6 @@ async function runReviewRounds(page) {
     return bank?.getAttribute("aria-pressed") === "true";
   }, undefined, { timeout: 5_000 });
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await answerCurrentQuestion(page, [0]);
   await expectText(page, "回答正确");
@@ -1373,7 +1382,6 @@ async function runHistoryResult(page) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   // 1 导线（单选 A）→ 对
   await answerCurrentQuestion(page, [0]);
@@ -1492,6 +1500,109 @@ async function runHistoryResult(page) {
   await capture(page, contextName, "history-deleted");
 }
 
+// ===== 练习中心「快捷卡片 + 正交组合」重构回归 =====
+// A. 错题 × 随机组合（旧 UI 的 mode 写死顺序，做不出这个组合）；
+// B. 连对移出错题端到端（错题跟随进度口径，wrongRemovalStreak=1 时答对一次即移出）；
+// C. 自定义题数越界 → 错误文案 + 开始按钮禁用。
+async function runPracticeSetupComboQA(page) {
+  const contextName = "practice-combo";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await importFixture(page);
+  await setPracticePreferences(page, { autoNextCorrect: false, shuffleOptions: false, wrongRemovalStreak: 1 });
+
+  // C. 「随机指定题数」卡片只填充三段（不立即开始），输入 99 越界 → 错误文案 + 开始按钮禁用。
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "随机指定题数");
+  await page.getByRole("spinbutton", { name: "本次随机题数" }).fill("99");
+  await expectText(page, "请输入 1–5 之间的题数");
+  assert.equal(await page.locator(".setup-footer > button.primary").isDisabled(), true, "越界自定义题数必须禁用开始按钮");
+  await capture(page, contextName, "setup-custom-count-error");
+  await page.getByRole("spinbutton", { name: "本次随机题数" }).fill("2");
+
+  // 全量顺序练习答 5 题：Q1、Q2 各答错一次，Q3–Q5 答对（错题集合 = 2 道单选）。
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [1]); // Q1 导线（单选 A）→ 错
+  await expectText(page, "这次没有答对");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 2, 5);
+  await answerCurrentQuestion(page, [0]); // Q2 发现异常（单选 B）→ 错
+  await expectText(page, "这次没有答对");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 3, 5);
+  await answerCurrentQuestion(page, [0, 1], true); // Q3 安全巡视（多选 AB）→ 对
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 4, 5);
+  await answerCurrentQuestion(page, [0]); // Q4 判断 → 对
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 5, 5);
+  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await clickTextButton(page, "确认答案");
+  await expectText(page, "回答正确");
+  await clickButton(page, "暂停并返回首页");
+
+  // A. 正交组合：出题范围=错题 × 顺序=随机 × 题量=全部 → 2 道错题的随机练习。
+  // 不断言题目顺序：随机 = 题型分组内随机（TYPE_ORDER 语义），只保证恰好 2 道且都是错题口径。
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  // 错题卡实时计数（liveQuery 异步重算，等到计数出现再断言）。
+  await page.waitForFunction(() => {
+    const card = [...document.querySelectorAll(".mode-grid button")].find((button) => button.textContent?.includes("练习错题"));
+    return card?.textContent?.includes("当前口径下 2 道错题");
+  }, undefined, { timeout: 10_000 });
+  assert.equal(await page.locator(".mode-grid button").filter({ hasText: "练习错题" }).isDisabled(), false, "有错题时错题卡必须可点击");
+  await page.locator('.practice-segment-row[aria-label="出题范围"]').getByRole("button", { name: "错题", exact: true }).click();
+  await page.locator('.practice-segment-row[aria-label="顺序"]').getByRole("button", { name: "随机", exact: true }).click();
+  await page.locator('.practice-segment-row[aria-label="题量"]').getByRole("button", { name: "全部题目", exact: true }).click();
+  await page.locator(".setup-footer > button.primary").click();
+  await page.locator(".practice-progress span").filter({ hasText: /^1 \/ 2 · 错题/ }).waitFor({ state: "visible" });
+  await capture(page, contextName, "combo-wrong-random");
+  for (let answered = 0; answered < 2; answered += 1) {
+    const stem = await page.locator(".practice-stem").innerText();
+    const optionIndexes = stem.includes("导线") ? [0] : [1]; // 导线→A 传输电能；发现异常→B 按流程记录
+    await answerCurrentQuestion(page, optionIndexes);
+    try {
+      await expectText(page, "回答正确");
+    } catch (error) {
+      console.error(`[practice-combo] 作答未判正确：iteration=${answered} stem="${stem.slice(0, 40)}" indexes=[${optionIndexes.join(",")}]`);
+      console.error(`[practice-combo] result-box="${(await page.locator(".result-box").innerText().catch(() => "<无>")).slice(0, 120)}"`);
+      console.error(`[practice-combo] 进度="${await page.locator(".practice-progress span").innerText().catch(() => "<无>")}"`);
+      await page.screenshot({ path: path.join(runRoot, `${Date.now()}-combo-answer-fail.png`), fullPage: true });
+      throw error;
+    }
+    if (answered === 0) {
+      await clickTextButton(page, "下一题");
+      // 等进度真正切到第 2 题再读题干：React 提交前旧题干仍在 DOM，
+      // 立即 innerText 会读到上一题（随机顺序下两题答案不同 → 点错）。
+      await waitForQuestion(page, 2, 2);
+    }
+  }
+  await clickButton(page, "暂停并返回首页");
+
+  // B. 连对移出：两道错题已各连对一次（wrongRemovalStreak=1）→ 错题卡计数归零并禁用。
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  const wrongCard = page.locator(".mode-grid button").filter({ hasText: "练习错题" });
+  await wrongCard.waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const card = [...document.querySelectorAll(".mode-grid button")].find((button) => button.textContent?.includes("练习错题"));
+    return card instanceof HTMLButtonElement && card.disabled;
+  }, undefined, { timeout: 10_000 });
+  assert.match(await wrongCard.innerText(), /当前口径下 0 道错题/, "错题卡计数应实时反映进度口径");
+  await capture(page, contextName, "wrong-card-empty");
+  // 组合路径同样无题可练：出题范围=错题 → 开始 → 空集提示。
+  await page.locator('.practice-segment-row[aria-label="出题范围"]').getByRole("button", { name: "错题", exact: true }).click();
+  await page.locator(".setup-footer > button.primary").click();
+  await expectNotice(page, /没有符合当前条件的题目/, "连对移出后错题组合应无题可练（进度口径）");
+}
+
 // 练习进行中删除题目/题库的竞争状态：直接经页面内 import 数据层触发删除（等价后台同步拉取删除），
 // 验证练习界面不会卡死或静默丢答案。
 async function runInFlightDeletionQA(page) {
@@ -1506,7 +1617,6 @@ async function runInFlightDeletionQA(page) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await page.waitForTimeout(300);
   const firstStem = (await page.locator(".practice-stem").innerText()).trim();
@@ -1546,7 +1656,6 @@ async function runInFlightDeletionQA(page) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await page.waitForTimeout(300);
   const bankId = await page.evaluate(async () => {
@@ -1633,6 +1742,7 @@ const GROUPS = [
   { key: "search", run: runSearchBatch, viewport: { width: 1440, height: 960 }, minScreenshots: 4 },
   { key: "search-pin", run: runSearchPinMobile, viewport: { width: 390, height: 844 }, isMobile: true, minScreenshots: 1 },
   { key: "history", run: runHistoryResult, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
+  { key: "practice-combo", run: runPracticeSetupComboQA, viewport: { width: 1440, height: 960 }, minScreenshots: 2 },
   { key: "inflight", run: runInFlightDeletionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "sync-refresh", run: runSyncRefreshQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "dark", run: runDarkModeAudit, viewport: { width: 1440, height: 960 }, minScreenshots: 1 },
@@ -1661,7 +1771,6 @@ async function runSyncRefreshQA(page, mockServer) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await waitForQuestion(page, 1, 5);
   await answerCurrentQuestion(page, [0]); // Q1 单选 传输电能 → 对
@@ -1921,7 +2030,6 @@ async function runDarkModeAudit(page) {
   await expectText(page, "练习中心");
   await selectBankOnPracticeSetup(page);
   await clickTextButton(page, "全量顺序练习");
-  await page.locator(".setup-footer > button.primary").click();
   await page.locator(".question-card").waitFor({ state: "visible" });
   await answerCurrentQuestion(page, [0]);
   await auditVisibleButtons(page, "练习作答", offenders);
@@ -1945,7 +2053,7 @@ async function main() {
   });
   keepBrowserInBackground();
 
-  // BROWSER_GROUPS=desktop,mobile,management,review,search,history
+  // BROWSER_GROUPS=desktop,mobile,management,review,search,history,practice-combo
   // (comma-separated; unset = all groups). Each group gets a fresh browser
   // context and its own IndexedDB; `requires` expands dependencies first so a
   // group that depends on another device's pushed data (mobile → desktop) still

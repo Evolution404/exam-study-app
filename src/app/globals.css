@@ -2,6 +2,7 @@
 @import "./styles/theme-tokens.css";
 @import "./styles/controls.css";
 @import "./styles/components.css";
+@import "./styles/practice-setup.css";
 @import "./styles/content-blocks.css";
 @import "./styles/review-scope.css";
 @import "./styles/hint.css";

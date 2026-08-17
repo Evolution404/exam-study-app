@@ -43,8 +43,20 @@ assert.match(styles, /\.resume-progress>i>b/, "resume card must render a dedicat
 
 assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
 assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");
-assert.match(practiceSetup, /mode === "randomCustom" \? requestedRandomCount/, "custom random count must be passed as this run's limit");
+assert.match(practiceSetup, /amountChoice === "custom" \? requestedRandomCount/, "custom random count must be passed as this run's limit");
 assert.match(practiceSetup, /不修改全局配置/, "custom random mode must remain independent from global preferences");
+// 正交三段 + 卡片一键开始：卡片走纯预设（quick），组合路径唯一出口 assembleFilter。
+assert.match(practiceSetup, /assembleFilter\(card\.combo, \{ quick: true \}\)/, "preset cards must start immediately with a pure combo");
+assert.match(practiceSetup, /点卡片立即开始，不使用下方自定义组合/, "card row must explain that cards bypass the custom combo area");
+assert.match(practiceSetup, /aria-expanded=\{advancedOpen\}/, "advanced filters must live behind a collapsed toggle");
+// 日期区间必须挂在真实类名 .date-range 上（旧 .date-range-filter 是零引用死类）。
+assert.match(practiceSetup, /className="date-range"/, "date range inputs must use the styled .date-range class");
+assert.doesNotMatch(practiceSetup, /date-range-filter/, "the dead date-range-filter class must stay deleted");
+// 错题卡实时计数与禁用：口径必须与开始练习一致（scoped + wrongRemovalStreak）。
+assert.match(practiceSetup, /当前口径下 \$\{wrongCardCount\} 道错题/, "wrong card must preview the scoped wrong-question count");
+assert.match(practiceSetup, /card\.id === "wrong" && wrongCardCount === 0/, "wrong card must disable itself when no wrong questions remain");
+assert.match(practiceSetup, /where\("questionId"\)\.anyOf/, "card counts must load attempts via the questionId index instead of the whole table");
+assert.match(studyApp, /wrongRemovalStreak=\{preferences\.wrongRemovalStreak\}/, "practice setup must receive the wrong-removal streak preference");
 
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
 // 用户显式点同步后刷新可见练习会话（对齐远端合并作答、跳到最后一题）是产品需求；

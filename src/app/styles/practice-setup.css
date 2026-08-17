@@ -1,0 +1,38 @@
+/* 练习中心「快捷开始 + 自定义组合」界面。
+   全部使用主题令牌：日/夜间自适应，禁止硬编码颜色与页面级夜间补丁。 */
+
+.quick-start-heading { display: flex; align-items: baseline; gap: 9px; margin: 22px 2px 11px; }
+.quick-start-heading strong { font-size: 13px; }
+.quick-start-heading small { color: var(--color-text-muted); font-size: 10px; }
+
+.custom-combo { display: grid; gap: 4px; padding: 17px 19px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-muted); }
+
+.practice-segment-group { display: grid; gap: 8px; margin: 10px 0; }
+.practice-segment-group > span { color: var(--color-text-muted); font-size: 11px; }
+.practice-segment-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.practice-segment-row button { min-height: 40px; border: 1px solid var(--color-border); border-radius: 10px; padding: 8px 14px; color: var(--color-text); background: var(--color-surface-raised); cursor: pointer; font-size: 12px; font-weight: 600; }
+.practice-segment-row button:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); background: var(--color-surface); }
+.practice-segment-row button[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent); font-weight: 700; }
+
+.type-choice-row button { border-radius: 99px; padding: 7px 12px; font-size: 11px; }
+
+.advanced-toggle { width: 100%; min-height: 42px; margin-top: 10px; border: 1px solid var(--color-border); border-radius: 11px; padding: 10px 14px; display: flex; align-items: center; gap: 8px; color: var(--color-text); background: var(--color-surface-raised); cursor: pointer; font-size: 12px; }
+.advanced-toggle:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); }
+.advanced-toggle[aria-expanded="true"] { border-color: var(--color-primary); color: var(--color-primary); }
+.advanced-toggle small { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--color-text-muted); font-size: 10px; }
+.advanced-toggle > svg { flex: none; color: var(--color-text-muted); }
+
+/* 最近作答日期区间：挂在 TSX 真实类名 .date-range 上（旧 .date-range-filter
+   从未匹配任何元素，是日期控件样式破碎的根因）。 */
+.date-range { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: var(--color-text-muted); font-size: 10px; }
+.date-range label { display: grid; gap: 6px; }
+.date-range input { width: 100%; min-height: 42px; border: 1px solid var(--color-border); border-radius: 10px; padding: 9px 11px; color: var(--color-text); background: var(--color-surface-raised); outline: none; font-family: inherit; }
+.date-range input:focus { border-color: var(--color-primary); }
+
+.setup-error-summary { display: grid; gap: 4px; margin: 12px 2px 0; }
+
+@media(max-width:760px) {
+  .date-range { grid-template-columns: 1fr; }
+  .practice-segment-row { gap: 7px; }
+  .practice-segment-row button { flex: 1 1 88px; padding: 8px 10px; }
+}
