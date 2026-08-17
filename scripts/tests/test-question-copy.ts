@@ -90,6 +90,11 @@ assert.match(styles, /\.question-meta \.question-meta-copy\{margin-left:auto/, "
 assert.match(styles, /\.question-meta \.copy-question\.copied,\.search-question-detail \.copy-question\.copied\{color:var\(--color-surface-raised\);background:var\(--color-success\)\}/, "copied 态应走 success token");
 assert.match(styles, /\.question-meta \.copy-question\.error,\.search-question-detail \.copy-question\.error\{color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "error 态应走 danger token");
 assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*copy-question/, "复制按钮不得依赖暗色前缀（token 自适应）");
-assert.match(styles, /\.search-detail-body>ol>li\.wrong\{border-color:var\(--color-danger\);color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "详情页做错选项标记应全 token 化");
+assert.match(styles, /\.search-detail-body>ol>li\.wrong\{border-color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "详情页做错选项标记应全 token 化");
+// 选项文字保持正文墨色（与做题界面一致）：answer/wrong 规则不得染文字色，只有状态图标着色。
+assert.doesNotMatch(styles, /search-detail-body>ol>li\.answer\s*\{[^}]*[^-]color:/, "正确选项文字不得染绿（做题界面文字为墨色）");
+assert.doesNotMatch(styles, /search-detail-body>ol>li\.wrong\s*\{[^}]*[^-]color:/, "做错选项文字不得染红（做题界面文字为墨色）");
+assert.match(styles, /li\.answer>svg\{color:var\(--color-success\)\}/, "正确选项状态图标保持成功色");
+assert.match(styles, /li\.wrong>svg\{color:var\(--color-danger\)\}/, "做错选项状态图标保持危险色");
 
 console.log("question copy tests passed: 文本构造（含做错附我的选择）、练习页双按钮、详情页复制、token 化样式");

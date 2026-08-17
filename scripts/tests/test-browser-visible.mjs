@@ -597,6 +597,15 @@ async function runDesktop(page, mockServer) {
   const wrongOption = page.locator(".search-detail-body > ol > li.wrong").first();
   await wrongOption.waitFor({ state: "visible" });
   assert.ok(await wrongOption.locator("svg").last().isVisible(), "做错选项应带 X 图标");
+  // 选项文字保持正文墨色（与做题界面一致），只有边框/底色/字母块/图标变色。
+  const optionTextColor = await page.evaluate(() => {
+    const wrong = document.querySelector(".search-detail-body > ol > li.wrong");
+    const answer = document.querySelector(".search-detail-body > ol > li.answer");
+    const ink = getComputedStyle(document.body).color;
+    return { wrong: wrong ? getComputedStyle(wrong).color : null, answer: answer ? getComputedStyle(answer).color : null, ink };
+  });
+  assert.equal(optionTextColor.wrong, optionTextColor.ink, "做错选项文字必须保持正文墨色（不染红）");
+  assert.equal(optionTextColor.answer, optionTextColor.ink, "正确选项文字必须保持正文墨色（不染绿）");
   await clickButton(page, "关闭题目详情");
 
   await clickTextButton(page, "返回练习记录");
