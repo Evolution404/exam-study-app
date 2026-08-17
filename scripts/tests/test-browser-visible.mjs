@@ -580,6 +580,7 @@ async function runDesktop(page, mockServer) {
   assert.match(correctQuestionCopy, /题目：/, "详情页复制应包含题干");
   assert.match(correctQuestionCopy, /正确答案：[A-D]\. /, "详情页复制必须带正确答案（与练习页作答后一致）");
   assert.doesNotMatch(correctQuestionCopy, /我的选择|答案内容/, "答对题的详情复制不得附我的选择，且无答案内容行");
+  assert.equal(await page.locator(".search-detail-body > ol > li.wrong").count(), 0, "答对题的详情选项不得有 wrong 标记");
   await capture(page, contextName, "practice-result-detail");
   await clickButton(page, "关闭题目详情");
   // 第 2 题做错：详情页复制附「我的选择」（错误选项）+ 正确答案。
@@ -592,6 +593,10 @@ async function runDesktop(page, mockServer) {
   assert.match(wrongQuestionCopy, /我的选择：[A-D]\. /, "做错题的详情复制应附我选择的错误选项");
   assert.match(wrongQuestionCopy, /正确答案：[A-D]\. /, "做错题的详情复制同样带正确答案");
   assert.doesNotMatch(wrongQuestionCopy, /答案内容/, "详情页复制不输出独立的答案内容行");
+  // 做错选项标记与做题界面一致：所选错误项红标 + X 图标。
+  const wrongOption = page.locator(".search-detail-body > ol > li.wrong").first();
+  await wrongOption.waitFor({ state: "visible" });
+  assert.ok(await wrongOption.locator("svg").last().isVisible(), "做错选项应带 X 图标");
   await clickButton(page, "关闭题目详情");
 
   await clickTextButton(page, "返回练习记录");
