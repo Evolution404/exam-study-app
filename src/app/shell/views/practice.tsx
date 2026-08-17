@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, CircleHelp, Copy, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
+import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, ClipboardCheck, ClipboardList, CircleHelp, Copy, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
 import { dbV7 } from "@/lib/db/db-v7";
 import { difficultyLabel, difficultyTone } from "@/lib/practice/practice-metrics";
 import { SharedQuestionEditor, loadImageAssetV7 } from "@/app/bank/question-editor";
@@ -10,7 +10,9 @@ import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { formatKeyboardShortcut, resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
 import { isCalculationAnswerCorrect } from "@/lib/question/question-utils";
-import { answerText, displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
+import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
+import { Hint } from "@/app/ui/hint";
+import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
 import { QuestionOverview } from "./question-overview";
 
 export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
@@ -20,7 +22,8 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [copyFeedback, setCopyFeedback] = useState<{ target: "question" | "questionWithAnswer"; status: "idle" | "copied" | "error" }>({ target: "question", status: "idle" });
+  const copyStatusOf = (target: "question" | "questionWithAnswer") => (copyFeedback.target === target ? copyFeedback.status : "idle");
   const [startedAt] = useState(() => Date.now());
   const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
   const attemptSummary = useLiveQuery(async () => summarizeV7AttemptStats(await dbV7.attemptStats.get(question.id)), [question.id]) ?? summarizeV7AttemptStats();
@@ -256,42 +259,35 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     onStateChange({ selected: [], submitted: false });
   }
 
-  async function copyQuestion() {
-    const optionLines = displayOrder.map((originalIndex, displayIndex) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`);
-    const lines = [
-      `题型：${question.type}`,
-      `题目：${question.stem}`,
-      "选项：",
-      ...optionLines,
-    ];
-    if (submitted) {
-      lines.push(`正确答案：${displayAnswer}`, `答案内容：${answerText(question, displayOrder)}`);
-    }
-    const text = lines.join("\n");
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-      await navigator.clipboard.writeText(text);
-      setCopyStatus("copied");
-    } catch {
-      try {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        const copied = document.execCommand("copy");
-        textarea.remove();
-        if (!copied) throw new Error("Copy command failed");
-        setCopyStatus("copied");
-      } catch { setCopyStatus("error"); }
-    }
+  // 复制目标：question = 题目+选项（做错附「我的选择」，绝不带答案）；
+  // questionWithAnswer = 额外附一行「正确答案：字母. 选项文本」（做错同样附「我的选择」）。
+  async function handleCopyQuestion(target: "question" | "questionWithAnswer") {
+    const wrongSelection = submitted && !correct ? selected : undefined;
+    const text = buildQuestionCopyText(question, {
+      displayOrder,
+      includeAnswer: target === "questionWithAnswer",
+      wrongSelection,
+    });
+    const ok = await copyTextToClipboard(text);
+    setCopyFeedback({ target, status: ok ? "copied" : "error" });
     window.clearTimeout(copyStatusTimer.current);
-    copyStatusTimer.current = window.setTimeout(() => setCopyStatus("idle"), 1800);
+    copyStatusTimer.current = window.setTimeout(() => setCopyFeedback((current) => ({ ...current, status: "idle" })), 1800);
+  }
+
+  function copyLabel(target: "question" | "questionWithAnswer", status: "idle" | "copied" | "error") {
+    if (status === "copied") return "已复制";
+    if (status === "error") return "复制失败";
+    return target === "question" ? "复制题目" : "复制题目和答案";
+  }
+
+  function copyIcon(target: "question" | "questionWithAnswer", status: "idle" | "copied" | "error") {
+    if (status === "copied") return <ClipboardCheck size={16} />;
+    if (status === "error") return <CircleAlert size={16} />;
+    return target === "question" ? <Copy size={16} /> : <ClipboardList size={16} />;
   }
 
   return <><div className="practice-layout"><section ref={questionCardRef} className="question-card" data-no-pull-refresh><div className="practice-head"><button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button><div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div><div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div></div>
-    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<button className={`copy-question ${copyStatus}`} aria-label={submitted ? "复制题目、选项和答案" : "复制题目和选项"} onClick={() => void copyQuestion()}>{copyStatus === "copied" ? <ClipboardCheck size={14} /> : <Copy size={14} />}{copyStatus === "copied" ? "已复制" : copyStatus === "error" ? "复制失败" : submitted ? "复制题目和答案" : "复制题目"}</button><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem" />{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}{question.type === "计算" ? <div className={`calculation-answer ${submitted ? correct ? "correct" : "wrong" : ""}`}><label htmlFor={`calculation-answer-${question.id}`}>输入计算结果</label><input id={`calculation-answer-${question.id}`} aria-label="计算题答案" type="number" inputMode="decimal" value={submitted ? selectedCanonical : calculationDraft} disabled={submitted} onChange={(event) => setCalculationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder={`允许误差 ${preferences.calculationTolerancePercent}%`} /><small>按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定</small></div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
+    <div className="question-body"><div className="question-meta"><span>{question.bankName}</span><em className="question-type-chip">{question.type}</em><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em>{question.tags.map((tag) => <em key={tag}>{tag}</em>)}<span className="question-meta-copy"><Hint label={copyLabel("question", copyStatusOf("question"))}><button type="button" className={`icon-button copy-question ${copyStatusOf("question")}`} aria-label={copyLabel("question", copyStatusOf("question"))} onClick={() => void handleCopyQuestion("question")}>{copyIcon("question", copyStatusOf("question"))}</button></Hint>{submitted && <Hint label={copyLabel("questionWithAnswer", copyStatusOf("questionWithAnswer"))}><button type="button" className={`icon-button copy-question ${copyStatusOf("questionWithAnswer")}`} aria-label={copyLabel("questionWithAnswer", copyStatusOf("questionWithAnswer"))} onClick={() => void handleCopyQuestion("questionWithAnswer")}>{copyIcon("questionWithAnswer", copyStatusOf("questionWithAnswer"))}</button></Hint>}</span><button className={`favorite-question ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button className="edit-question-link" onClick={() => setEditing(true)}><Pencil size={13} />编辑题目</button></div><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem" />{question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}{question.type === "计算" ? <div className={`calculation-answer ${submitted ? correct ? "correct" : "wrong" : ""}`}><label htmlFor={`calculation-answer-${question.id}`}>输入计算结果</label><input id={`calculation-answer-${question.id}`} aria-label="计算题答案" type="number" inputMode="decimal" value={submitted ? selectedCanonical : calculationDraft} disabled={submitted} onChange={(event) => setCalculationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder={`允许误差 ${preferences.calculationTolerancePercent}%`} /><small>按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定</small></div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const isAnswer = revealAnswer && question.answer.includes(originalLetter); const isWrong = submitted && selected.includes(originalLetter) && !question.answer.includes(originalLetter); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
       {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
       {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：确认 <kbd>{preferences.keyboardShortcuts.bindings.confirm.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.bindings.previous.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.bindings.next.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd></div>}
       {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}

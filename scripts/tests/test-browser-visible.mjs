@@ -542,6 +542,23 @@ async function runDesktop(page, mockServer) {
   assert.match(wrongFeedback, /你的选择：A/);
   assert.doesNotMatch(wrongFeedback, /立即离开并隐瞒|按流程记录并报告/);
   await capture(page, contextName, "practice-wrong-answer");
+  // 复制题目双按钮（做错态）：不含答案版附「我的选择」且绝不泄漏答案；含答案版两行齐全。
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text) => { window.__copyCapture = text; return Promise.resolve(); } } });
+  });
+  await clickButton(page, "复制题目");
+  const questionOnlyCopy = await page.evaluate(() => window.__copyCapture);
+  assert.match(questionOnlyCopy, /题目：/, "复制题目应包含题干");
+  assert.match(questionOnlyCopy, /我的选择：/, "做错题的复制应附我的选择");
+  assert.doesNotMatch(questionOnlyCopy, /正确答案|答案内容/, "不含答案版不得泄漏答案");
+  await page.locator(".question-meta .copy-question.copied").first().waitFor({ state: "visible" });
+  await page.evaluate(() => { window.__copyCapture = undefined; });
+  await clickButton(page, "复制题目和答案");
+  const withAnswerCopy = await page.evaluate(() => window.__copyCapture);
+  assert.match(withAnswerCopy, /正确答案：[A-D]\. /, "含答案版应包含正确答案的选项（字母+文本单行）");
+  assert.doesNotMatch(withAnswerCopy, /答案内容/, "含答案版不再输出独立的答案内容行");
+  assert.match(withAnswerCopy, /我的选择：/, "含答案版做错时同样附我的选择");
+  await capture(page, contextName, "practice-copy-buttons");
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 3);
   await answerCurrentQuestion(page, [0, 1], true);
@@ -556,7 +573,23 @@ async function runDesktop(page, mockServer) {
   await capture(page, contextName, "practice-result");
   await page.locator('button[aria-label^="查看第"]').first().click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
+  // 第 1 题答对：详情页复制只含题目+选项，无「我的选择/答案内容」。
+  await page.evaluate(() => { window.__copyCapture = undefined; });
+  await clickButton(page, "复制题目");
+  const correctQuestionCopy = await page.evaluate(() => window.__copyCapture);
+  assert.match(correctQuestionCopy, /题目：/, "详情页复制应包含题干");
+  assert.doesNotMatch(correctQuestionCopy, /我的选择|答案内容|正确答案/, "答对题的详情复制不得附我的选择或答案");
   await capture(page, contextName, "practice-result-detail");
+  await clickButton(page, "关闭题目详情");
+  // 第 2 题做错：详情页复制附「我的选择」（错误选项），仍不含答案。
+  await page.locator('button[aria-label="查看第 2 题详情"]').click();
+  await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
+  await page.evaluate(() => { window.__copyCapture = undefined; });
+  await clickButton(page, "复制题目");
+  const wrongQuestionCopy = await page.evaluate(() => window.__copyCapture);
+  // 详情页按原始字母输出（canonical 顺序），选项打乱时具体字母不定，断言到字母级。
+  assert.match(wrongQuestionCopy, /我的选择：[A-D]\. /, "做错题的详情复制应附我选择的错误选项");
+  assert.doesNotMatch(wrongQuestionCopy, /答案内容|正确答案/, "详情页复制永不包含答案");
   await clickButton(page, "关闭题目详情");
 
   await clickTextButton(page, "返回练习记录");

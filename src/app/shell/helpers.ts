@@ -129,27 +129,9 @@ export function loadPreferences(): PracticePreferences {
   }
 }
 
-export function displayedAnswer(question: Question, optionOrder: number[]) {
-  if (question.type === "计算") return question.answer;
-  return question.answer
-    .split("")
-    .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
-    .filter((index) => index >= 0)
-    .map((index) => String.fromCharCode(65 + index))
-    .sort()
-    .join("");
-}
-
-export function answerText(question: Question, optionOrder: number[]) {
-  if (question.type === "计算") return question.answer;
-  return question.answer
-    .split("")
-    .map((letter) => letter.charCodeAt(0) - 65)
-    .map((originalIndex) => ({ originalIndex, displayIndex: optionOrder.indexOf(originalIndex) }))
-    .sort((a, b) => a.displayIndex - b.displayIndex)
-    .map(({ originalIndex, displayIndex }) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`)
-    .join("；");
-}
+// 字母映射的唯一实现收敛在 lib/question/question-copy（复制题目功能共用），
+// 这里按原签名委托 re-export，消费方 import 不变。
+export { displayedAnswer, answerText } from "@/lib/question/question-copy";
 
 export function formatDate(value?: string) {
   if (!value) return "暂无";

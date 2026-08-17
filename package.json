@@ -36,7 +36,7 @@
     "test:browser:inflight": "BROWSER_GROUPS=inflight node scripts/tests/test-browser-visible.mjs",
     "test:press-intent": "tsx scripts/tests/test-press-intent.ts",
     "test:typography": "tsx scripts/tests/test-display-typography.ts",
-    "test:answer-ui": "tsx scripts/tests/test-practice-answer-feedback.ts",
+    "test:answer-ui": "tsx scripts/tests/test-practice-answer-feedback.ts && tsx scripts/tests/test-question-copy.ts",
     "test:question-types": "tsx scripts/tests/test-question-types.ts",
     "test:overview": "tsx scripts/tests/test-question-overview.ts",
     "test:progress-boundaries": "tsx scripts/tests/test-progress-metrics-boundaries.ts",
