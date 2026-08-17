@@ -77,10 +77,9 @@ assert.match(practiceView, /question-meta-copy/, "双按钮应外包容器避免
 // ===== 静态断言：题目详情页复制按钮 =====
 
 const questionDetail = await readFile("src/app/bank/question-detail.tsx", "utf8");
-assert.match(questionDetail, /aria-label="复制题目"/, "详情页应有复制题目按钮");
+assert.match(questionDetail, /aria-label="复制题目和答案"/, "详情页复制按钮应与练习页含答案版同名");
 assert.match(questionDetail, /answer\?\.submitted && answer\.correct === false \? answer\.selected : undefined/, "详情页做错时应附我的选择");
-assert.match(questionDetail, /buildQuestionCopyText\(question, \{ wrongSelection \}\)/, "详情页复制不得带 includeAnswer");
-assert.doesNotMatch(questionDetail, /includeAnswer: true/, "详情页源码不得出现含答案复制");
+assert.match(questionDetail, /buildQuestionCopyText\(question, \{ includeAnswer: true, wrongSelection \}\)/, "详情页复制必须带正确答案（与练习页作答后一致）");
 
 // ===== 静态断言：CSS token 化与旧暗色规则清除 =====
 
