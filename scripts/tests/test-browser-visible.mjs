@@ -566,7 +566,8 @@ async function runDesktop(page, mockServer) {
   await page.evaluate(() => { window.__copyCapture = undefined; });
   await clickButton(page, "复制题目和答案");
   const withAnswerCopy = await page.evaluate(() => window.__copyCapture);
-  assert.match(withAnswerCopy, /正确答案：[A-D]\. /, "含答案版应包含正确答案的选项（字母+文本单行）");
+  assert.match(withAnswerCopy, /正确答案：[A-D]+\b/, "含答案版应包含正确答案字母（不带选项文本，用户口径）");
+  assert.doesNotMatch(withAnswerCopy, /正确答案：[A-D]+\./, "正确答案不得附带选项文本");
   assert.doesNotMatch(withAnswerCopy, /答案内容/, "含答案版不再输出独立的答案内容行");
   assert.match(withAnswerCopy, /我的选择：/, "含答案版做错时同样附我的选择");
   await capture(page, contextName, "practice-copy-buttons");
@@ -589,7 +590,7 @@ async function runDesktop(page, mockServer) {
   await clickButton(page, "复制题目和答案");
   const correctQuestionCopy = await page.evaluate(() => window.__copyCapture);
   assert.match(correctQuestionCopy, /题目：/, "详情页复制应包含题干");
-  assert.match(correctQuestionCopy, /正确答案：[A-D]\. /, "详情页复制必须带正确答案（与练习页作答后一致）");
+  assert.match(correctQuestionCopy, /正确答案：[A-D]+\b/, "详情页复制必须带正确答案字母（与练习页作答后一致）");
   assert.doesNotMatch(correctQuestionCopy, /我的选择|答案内容/, "答对题的详情复制不得附我的选择，且无答案内容行");
   assert.equal(await page.locator(".search-detail-body > ol > li.wrong").count(), 0, "答对题的详情选项不得有 wrong 标记");
   await capture(page, contextName, "practice-result-detail");
@@ -600,9 +601,11 @@ async function runDesktop(page, mockServer) {
   await page.evaluate(() => { window.__copyCapture = undefined; });
   await clickButton(page, "复制题目和答案");
   const wrongQuestionCopy = await page.evaluate(() => window.__copyCapture);
-  // 详情页按原始字母输出（canonical 顺序），选项打乱时具体字母不定，断言到字母级。
-  assert.match(wrongQuestionCopy, /我的选择：[A-D]\. /, "做错题的详情复制应附我选择的错误选项");
-  assert.match(wrongQuestionCopy, /正确答案：[A-D]\. /, "做错题的详情复制同样带正确答案");
+  // 详情页按原始字母输出（canonical 顺序），选项打乱时具体字母不定，断言到字母级；
+  // 我的选择只带字母（用户口径：不带选项内容）。
+  assert.match(wrongQuestionCopy, /我的选择：[A-D]+\b/, "做错题的详情复制应附我选择的字母");
+  assert.doesNotMatch(wrongQuestionCopy, /我的选择：[A-D]\. /, "我的选择不得附带选项文本");
+  assert.match(wrongQuestionCopy, /正确答案：[A-D]+\b/, "做错题的详情复制同样带正确答案字母");
   assert.doesNotMatch(wrongQuestionCopy, /答案内容/, "详情页复制不输出独立的答案内容行");
   // 做错选项标记与做题界面一致：所选错误项红标 + X 图标。
   const wrongOption = page.locator(".search-detail-body > ol > li.wrong").first();

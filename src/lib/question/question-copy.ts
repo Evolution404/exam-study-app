@@ -39,6 +39,7 @@ export function displayedAnswer(question: QuestionCopySource, optionOrder: numbe
     .join("");
 }
 
+/** 「字母. 选项文本」逐项格式（练习页作答反馈仍使用；复制文本已改为纯字母）。 */
 export function answerText(question: QuestionCopySource, optionOrder: number[]): string {
   if (question.type === "计算") return question.answer;
   return question.answer
@@ -50,17 +51,18 @@ export function answerText(question: QuestionCopySource, optionOrder: number[]):
     .join("；");
 }
 
-/** 我的选择（做错时附上）：与「答案内容」同款「X. 文本；Y. 文本」格式。 */
+/** 我的选择（做错时附上）：只带显示字母（用户口径：不要选项内容），
+ *  按显示位置排序拼接，与「正确答案：AB」的多选字母格式一致；计算题为输入值。 */
 function wrongSelectionText(question: QuestionCopySource, order: number[], wrongSelection: string[]): string {
   if (!wrongSelection.length) return "我的选择：不会";
   if (question.type === "计算") return `我的选择：${wrongSelection[0]}`;
   return `我的选择：${wrongSelection
     .map((letter) => letter.charCodeAt(0) - 65)
-    .map((originalIndex) => ({ originalIndex, displayIndex: order.indexOf(originalIndex) }))
-    .filter(({ displayIndex }) => displayIndex >= 0)
-    .sort((a, b) => a.displayIndex - b.displayIndex)
-    .map(({ originalIndex, displayIndex }) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`)
-    .join("；")}`;
+    .map((originalIndex) => order.indexOf(originalIndex))
+    .filter((displayIndex) => displayIndex >= 0)
+    .sort((a, b) => a - b)
+    .map((displayIndex) => String.fromCharCode(65 + displayIndex))
+    .join("")}`;
 }
 
 export function buildQuestionCopyText(question: QuestionCopySource, options?: QuestionCopyOptions): string {
@@ -75,9 +77,9 @@ export function buildQuestionCopyText(question: QuestionCopySource, options?: Qu
     lines.push(...order.map((originalIndex, displayIndex) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`));
   }
   if (options?.includeAnswer) {
-    // 只输出一行「正确答案：字母. 选项文本」（与「我的选择」同款格式），
-    // 不再单独列「答案内容」行（用户确认口径）。
-    lines.push(`正确答案：${answerText(question, order)}`);
+    // 只输出「正确答案：字母」（多选字母拼接，与「我的选择」同款；用户口径：
+    // 不带选项文本、不单独列「答案内容」行）；计算题为数值。
+    lines.push(`正确答案：${displayedAnswer(question, order)}`);
   }
   if (options?.wrongSelection) {
     lines.push(wrongSelectionText(question, order, options.wrongSelection));

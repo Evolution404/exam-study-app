@@ -23,15 +23,17 @@ const shuffled = buildQuestionCopyText(single, { displayOrder: [2, 0, 1] });
 assert.match(shuffled, /^A\. 储存电能$/m, "displayOrder 后首行 A 应为原始第三项");
 assert.match(shuffled, /^B\. 传输电能$/m, "displayOrder 后第二行 B 应为原始第一项");
 
-// 3) includeAnswer + displayOrder：正确答案只输出一行「字母. 选项文本」（无独立答案内容行）。
+// 3) includeAnswer + displayOrder：正确答案只输出映射后的显示字母（不带选项文本，用户口径）。
 const withAnswer = buildQuestionCopyText(single, { displayOrder: [2, 0, 1], includeAnswer: true });
-assert.match(withAnswer, /正确答案：B\. 传输电能/, "正确答案应为映射后显示字母+文本的单行");
+assert.match(withAnswer, /正确答案：B\b/, "正确答案应为映射后显示字母");
+assert.doesNotMatch(withAnswer, /正确答案：B\./, "正确答案不得附带选项文本");
 assert.doesNotMatch(withAnswer, /答案内容/, "不得再输出独立的答案内容行");
 
-// 4) 多选做错：我的选择 = 全部所选（用户确认口径），映射为显示字母并排序。
+// 4) 多选做错：我的选择只带显示字母（用户口径：不要选项内容），按显示位置排序拼接。
 const multi = { type: "多选", stem: "哪些做法有助于安全巡视？", options: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], answer: "AB" };
 const wrongMulti = buildQuestionCopyText(multi, { displayOrder: [2, 0, 1, 3], wrongSelection: ["A", "C"] });
-assert.match(wrongMulti, /我的选择：A\. 跨越警戒区域；B\. 按规程佩戴防护用品/, "我的选择按显示字母顺序输出全部所选");
+assert.match(wrongMulti, /我的选择：AB/, "我的选择应只输出映射后的显示字母");
+assert.doesNotMatch(wrongMulti, /我的选择：[A-Z]\./, "我的选择不得附带选项文本");
 assert.doesNotMatch(wrongMulti, /正确答案|答案内容/, "未要求 includeAnswer 时不得出现答案");
 
 // 5) 「不会」：空选择 → 我的选择：不会。
@@ -57,7 +59,8 @@ assert.match(fallback, /^A\. 传输电能$/m, "displayOrder 长度不符应回�
 
 // 9) includeAnswer:false 与 wrongSelection 共存：含我的选择、不含答案内容。
 const mixed = buildQuestionCopyText(multi, { includeAnswer: false, wrongSelection: ["D"] });
-assert.match(mixed, /我的选择：D\. 跳过危险点记录/, "无 displayOrder 时按原始字母输出");
+assert.match(mixed, /我的选择：D/, "无 displayOrder 时按原始字母输出");
+assert.doesNotMatch(mixed, /我的选择：D\./, "我的选择不得附带选项文本");
 assert.doesNotMatch(mixed, /正确答案|答案内容/, "includeAnswer:false 不得输出答案");
 
 // 10) 委托导出的字母映射函数与 lib 实现一致（防 helpers 双写回潮）。
