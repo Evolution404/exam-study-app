@@ -213,11 +213,11 @@ export function AppShell() {
       setNotice("本次练习对应的题库已被删除，练习已结束");
     });
   }, [activeRunExists, practiceSession, view]);
-  const stats = useLiveQuery(async () => {
+  const statsBaseQuery = useLiveQuery(async () => {
     const today = calendarDate(new Date());
-    const [questions, attemptStats, todayRows, pending, notes] = await Promise.all([
+    const [questions, attemptStats, todayRows, notes] = await Promise.all([
       dbV7.questions.count(), dbV7.attemptStats.toArray(), dbV7.attemptDailyStats.where("date").equals(today).toArray(),
-      dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), dbV7.notes.count(),
+      dbV7.notes.count(),
     ]);
     const totals = attemptStats.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
     const todayTotals = todayRows.reduce((result, row) => ({ attempts: result.attempts + row.total, correct: result.correct + row.correct }), { attempts: 0, correct: 0 });
@@ -228,19 +228,29 @@ export function AppShell() {
       correct: totals.correct,
       todayAttempts: todayTotals.attempts,
       todayCorrect: todayTotals.correct,
-      pending,
       notes,
       last: last?.latestAttemptAt,
     };
-  }, []) ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, pending: 0, notes: 0, last: undefined };
+  }, []);
+  // 待同步计数单独订阅：同步过程会翻转 changeSets 状态 3–5 次（claim/commit/
+  // blocked/prune），若与重型 stats 查询（attemptStats 全表）绑在一起，每次翻转
+  // 都会连带重跑全表统计并重渲染整棵树。
+  const pendingCountQuery = useLiveQuery(() => dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), []);
+  const stats = useMemo(() => {
+    const base = statsBaseQuery ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, notes: 0, last: undefined };
+    return { ...base, pending: pendingCountQuery ?? 0 };
+  }, [statsBaseQuery, pendingCountQuery]);
   // The `?? []` fallback must be memoised too, otherwise its fresh array on
   // every render would defeat the dependency check below.
   const syncChangeSetsRaw = useLiveQuery(() => dbV7.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []);
   const syncChangeSets = useMemo(() => syncChangeSetsRaw ?? [], [syncChangeSetsRaw]);
   // Dependency resolution is only needed when the change-set list actually
   // changes; memoising it keeps every answer submission (which re-renders the
-  // app) from re-running the O(n) scan over the event queue.
+  // app) from re-running the O(n) scan over the event queue.  抽屉关闭时
+  // SyncEventDrawer 本就渲染 null，跳过整段 O(300×pending) 依赖解析——
+  // 这是自动同步期间不必要的重渲染主力。
   const syncItems: SyncChangeSetItemV7[] = useMemo(() => {
+    if (!syncDrawerOpen) return [];
     const manageableChangeSets = syncChangeSets.filter((record) => record.state === "pending" || record.state === "blocked");
     return syncChangeSets.map((record) => ({
       changeSet: record,
@@ -250,7 +260,7 @@ export function AppShell() {
       editable: record.state === "pending" || record.state === "blocked",
       cancellable: record.state === "pending" || record.state === "blocked",
     }));
-  }, [syncChangeSets]);
+  }, [syncChangeSets, syncDrawerOpen]);
   const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
@@ -424,12 +434,23 @@ export function AppShell() {
   useEffect(() => {
     if (!preferences.autoSyncEnabled || stats.pending < preferences.autoSyncEventThreshold || automaticSyncRunning.current || syncOperationRunning.current || quickRestoring || Date.now() - lastAutomaticSyncAt.current < 30_000) return;
     if (!loadGitHubSettings().repo || !loadGitHubToken()) return;
-    const timer = window.setTimeout(() => {
+    // 两阶段空闲调度：先固定延迟去抖（连续答题会不断重排，避免撞上答题反馈
+    // 动画），再等浏览器空闲帧（旧 Safari 退化为 setTimeout）。此前零延迟
+    // 触发会在答完题的瞬间开始同步。
+    let idleHandle: number | undefined;
+    const run = () => {
       automaticSyncRunning.current = true;
       lastAutomaticSyncAt.current = Date.now();
       void quickSyncAction.current({ silent: true }).finally(() => { automaticSyncRunning.current = false; });
-    });
-    return () => window.clearTimeout(timer);
+    };
+    const timer = window.setTimeout(() => {
+      if (typeof requestIdleCallback === "function") idleHandle = requestIdleCallback(() => run(), { timeout: 2_000 });
+      else run();
+    }, 2_500);
+    return () => {
+      window.clearTimeout(timer);
+      if (idleHandle !== undefined && typeof cancelIdleCallback === "function") cancelIdleCallback(idleHandle);
+    };
   }, [preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring, quickSyncing, stats.pending]);
 
   useEffect(() => {

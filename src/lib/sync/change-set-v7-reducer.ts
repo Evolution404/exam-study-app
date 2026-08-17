@@ -302,20 +302,34 @@ function applyMutation(projection: ChangeSetProjectionV7, mutation: ChangeSetMut
   }
 }
 
-/** Apply one change-set's mutations to a private envelope, recompute derived
- *  tables once, and validate.  (Single-change fast path of the batch replay.) */
-export function reduceChangeSetV7(input: ChangeSetProjectionInputV7, changeSet: ChangeSetV7): ChangeSetProjectionV7 {
+/** Apply one change-set onto a caller-owned projection through a shallow
+ *  envelope (rollback = discard the envelope; the input projection is never
+ *  observably mutated).  Throws on any failed mutation BEFORE returning, so a
+ *  change-set stays atomic even when it contains many mutations.  Derived
+ *  tables are NOT recomputed here — chains should recompute + validate exactly
+ *  once via finalizeRebasedProjectionV7 instead of per record. */
+export function applyChangeSetToOwnedProjectionV7(projection: ChangeSetProjectionV7, changeSet: ChangeSetV7): ChangeSetProjectionV7 {
   assertChangeSetV7(changeSet);
-  const next = shallowEnvelope(normalizeProjection(input));
+  const envelope = shallowEnvelope(projection);
   const context = { createdAt: changeSet.createdAt, deviceId: changeSet.deviceId, eventId: changeSet.id, localSequence: changeSet.localSequence };
-  // Applying to a private envelope guarantees no partial writes if any mutation
-  // fails.  Mutations are intentionally kept in their supplied order: a
-  // createQuestion batch may create a question before its membership/answer.
-  for (const mutation of changeSet.mutations) applyMutation(next, mutation, context);
-  const rebuilt = recomputeProjectionInPlace(next);
+  // Mutations are intentionally kept in their supplied order: a createQuestion
+  // batch may create a question before its membership/answer.
+  for (const mutation of changeSet.mutations) applyMutation(envelope, mutation, context);
+  return envelope;
+}
+
+/** One recompute + one validation pass for a finished rebase/replay chain. */
+export function finalizeRebasedProjectionV7(projection: ChangeSetProjectionV7): ChangeSetProjectionV7 {
+  const rebuilt = recomputeProjectionInPlace(projection);
   const issues = projectionValidationIssuesV7(rebuilt, { verifyDerived: false });
   if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
   return rebuilt;
+}
+
+/** Apply one change-set's mutations to a private envelope, recompute derived
+ *  tables once, and validate.  (Single-change fast path of the batch replay.) */
+export function reduceChangeSetV7(input: ChangeSetProjectionInputV7, changeSet: ChangeSetV7): ChangeSetProjectionV7 {
+  return finalizeRebasedProjectionV7(applyChangeSetToOwnedProjectionV7(normalizeProjection(input), changeSet));
 }
 
 /** Batch replay for sync pulls and queue rebuilds: applies every change-set on
@@ -333,21 +347,14 @@ export function replayChangeSetBatchV7(input: ChangeSetProjectionInputV7, change
   for (let index = 0; index < changes.length; index += 1) {
     const change = changes[index];
     try {
-      assertChangeSetV7(change);
-      const envelope = shallowEnvelope(good);
-      const context = { createdAt: change.createdAt, deviceId: change.deviceId, eventId: change.id, localSequence: change.localSequence };
-      for (const mutation of change.mutations) applyMutation(envelope, mutation, context);
-      good = envelope;
+      good = applyChangeSetToOwnedProjectionV7(good, change);
     } catch (error) {
       if (!skip) throw error;
       skipped.push(change.id);
     }
     if (onStep && ((index + 1) % every === 0 || index + 1 === changes.length)) onStep(index + 1, changes.length);
   }
-  const rebuilt = recomputeProjectionInPlace(good);
-  const issues = projectionValidationIssuesV7(rebuilt, { verifyDerived: false });
-  if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
-  return { projection: rebuilt, skipped };
+  return { projection: finalizeRebasedProjectionV7(good), skipped };
 }
 
 export const applyChangeSetV7 = reduceChangeSetV7;

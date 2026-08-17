@@ -645,7 +645,9 @@ async function runDesktop(page, mockServer) {
     if (!raw) return false;
     try { return Number(JSON.parse(raw).autoSyncEventThreshold) === 1; } catch { return false; }
   });
-  const requestDeadline = Date.now() + 5_000;
+  // 自动同步现为两阶段空闲调度（~2.5s 去抖 + requestIdleCallback 最多 2s），
+  // 阈值触发到真正发起请求最坏接近 4.5s，等待窗口放宽到 10s 防抖动。
+  const requestDeadline = Date.now() + 10_000;
   while (failingServer.stats.totalRequests <= requestsBeforeAutoSync && Date.now() < requestDeadline) await page.waitForTimeout(100);
   assert.ok(failingServer.stats.totalRequests > requestsBeforeAutoSync, "enabling automatic sync should issue a GitHub request when pending events exceed the threshold");
   await capture(page, contextName, "auto-sync-enabled");

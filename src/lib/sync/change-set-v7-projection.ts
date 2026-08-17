@@ -20,6 +20,8 @@ export {
   assertChangeSetProjectionV7,
 } from "./change-set-v7-derived";
 export {
+  applyChangeSetToOwnedProjectionV7,
+  finalizeRebasedProjectionV7,
   reduceChangeSetV7,
   replayChangeSetBatchV7,
   applyChangeSetV7,

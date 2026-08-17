@@ -8,7 +8,7 @@ import {
   type ChangeSetQueueRecordV7,
 } from "../db/db-v7";
 import type { GitHubSettings } from "../../types/types";
-import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
+import { applyChangeSetToOwnedProjectionV7, finalizeRebasedProjectionV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import type { SyncV7HeadCache } from "./github-v7-remote";
 import {
   bandPercent,
@@ -60,6 +60,16 @@ import {
 import { offloadSyncV7Events } from "./sync-v7-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-v7-watermark";
 import { uploadedDescriptor, uploadPendingImageAssetsV7 } from "./sync-v7-upload";
+
+/** Yield one macrotask so input events and rendering can interleave with the
+ *  rebase loop (auto-sync used to run pending-count × full-dataset clone +
+ *  derive in one long task and visibly freeze the UI mid-practice).  Returns
+ *  whether a real macrotask boundary happened — hidden pages skip it because
+ *  there is nothing to keep responsive. */
+function yieldToMainIfVisible(): Promise<boolean> {
+  if (typeof document === "undefined" || document.visibilityState !== "visible") return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => window.setTimeout(() => resolve(true), 0));
+}
 
 async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"]): Promise<SyncV7HeadCache> {
   const client = remote(settings, token, fetchImpl);
@@ -160,21 +170,38 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     }
     const localPending = await listChangeSetsV7(["pending"]);
     const blocked: ChangeSetQueueRecordV7[] = [];
-    const localEvery = Math.max(1, Math.floor(localPending.length / 12));
-    for (let localIndex = 0; localIndex < localPending.length; localIndex += 1) {
-      const record = localPending[localIndex];
-      try {
-        rebasedProjection = reduceChangeSetV7(rebasedProjection, record);
+    if (localPending.length) {
+      const localEvery = Math.max(1, Math.floor(localPending.length / 12));
+      // 每条变更集只做一次浅信封应用，派生表与校验在循环后统一跑一次——
+      // 旧实现每条记录全量克隆 15 张表并全量派生/校验，是自动同步卡界面的主因。
+      let yieldedToMain = false;
+      for (let localIndex = 0; localIndex < localPending.length; localIndex += 1) {
+        const record = localPending[localIndex];
+        try {
+          rebasedProjection = applyChangeSetToOwnedProjectionV7(rebasedProjection, record);
+        } catch (error) {
+          blocked.push({
+            ...record,
+            state: "blocked",
+            blockedReason: error instanceof Error ? error.message : "该操作无法应用到最新远端数据。",
+          });
+        }
         if ((localIndex + 1) % localEvery === 0 || localIndex + 1 === localPending.length) {
           report(progress, "merge", `正在归并本机待上传变更（${localIndex + 1}/${localPending.length}）`, bandPercent(bands.merge, 0.5 + 0.5 * (localIndex + 1) / localPending.length), bands.merge[1]);
         }
-      } catch (error) {
-        blocked.push({
-          ...record,
-          state: "blocked",
-          blockedReason: error instanceof Error ? error.message : "该操作无法应用到最新远端数据。",
-        });
+        yieldedToMain = (await yieldToMainIfVisible()) || yieldedToMain;
       }
+      if (yieldedToMain) {
+        // 让出期间用户可在同步抽屉丢弃/修改待同步项；被丢弃的记录已进本投影但
+        // 不会上传，若照常写入 committed 基线会污染队列基线。校验快照仍逐一以
+        // 相同 digest 待同步，否则整轮重试（外层上限 4 次）。新到的记录忽略——
+        // 与无让出时的表现一致。
+        const currentPending = await listChangeSetsV7(["pending"]);
+        const currentById = new Map(currentPending.map((record) => [record.id, record]));
+        const snapshotChanged = localPending.some((record) => currentById.get(record.id)?.digest !== record.digest);
+        if (snapshotChanged) continue;
+      }
+      rebasedProjection = finalizeRebasedProjectionV7(rebasedProjection);
     }
     const firstProjectionInstall = !installedHead;
     const needsInstall = projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);

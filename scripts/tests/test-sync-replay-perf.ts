@@ -4,6 +4,8 @@ import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src
 import type { AttemptV7, BankV7, PracticeRunV7, QuestionV7 } from "../../src/lib/db/v7-types";
 import { createChangeSetV7, type ChangeSetV7 } from "../../src/lib/sync/change-set-v7";
 import {
+  applyChangeSetToOwnedProjectionV7,
+  finalizeRebasedProjectionV7,
   reduceChangeSetsV7,
   replayChangeSetBatchV7,
   type ChangeSetProjectionV7,
@@ -145,6 +147,43 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   const base = bigProjection(10);
   const poison = await cs([{ kind: "question.delete" as const, questionId: "missing", cascade: true, deletedAt: at }]);
   assert.throws(() => replayChangeSetBatchV7(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
+}
+
+// --- 4. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
+// 编排器重写后的本地待上传归并路径：单次 caller-owned 投影上逐条浅信封应用，
+// 循环后统一派生+校验一次。必须与旧的逐条 reduce（每条全量克隆+派生）等价，
+// 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
+{
+  const base = bigProjection(50);
+  const good: ChangeSetV7[] = [];
+  for (let index = 0; index < 8; index += 1) {
+    const questionId = `q-${index}`;
+    good.push(await cs([
+      {
+        kind: "practice.answer.submitted" as const, runId: "run-1", questionId,
+        attempt: { id: `owned-a-${index}`, runId: "run-1", questionId, selected: "A", correct: true, elapsedMs: 90, createdAt: at, deviceId },
+        answer: { selected: ["A"], submitted: true, correct: true, updatedAt: at, deviceId, eventId: `owned-evt-${index}` },
+      },
+    ]));
+  }
+  good.push(await cs([{ kind: "question.bulk.delete" as const, questionIds: ["q-40", "q-41", "q-42"], deletedAt: at, cascade: true }]));
+  for (let index = 0; index < 3; index += 1) {
+    good.push(await cs([{ kind: "note.upserted" as const, note: { questionId: `q-${index + 10}`, content: `归并解析 ${index}`, revision: 1, updatedAt: at, deviceId } }]));
+  }
+
+  const sequential = reduceChangeSetsV7(base, good);
+  let owned = base as ChangeSetProjectionV7;
+  for (const change of good) owned = applyChangeSetToOwnedProjectionV7(owned, change);
+  owned = finalizeRebasedProjectionV7(owned);
+  assert.deepEqual(owned, sequential, "owned 逐条 apply + 一次 finalize 必须与逐条 reduce 等价");
+
+  const poison = await cs([
+    { kind: "note.upserted" as const, note: { questionId: "q-20", content: "毒记录部分写入", revision: 1, updatedAt: at, deviceId } },
+    { kind: "question.delete" as const, questionId: "does-not-exist", cascade: true, deletedAt: at },
+  ]);
+  assert.throws(() => applyChangeSetToOwnedProjectionV7(owned, poison), /不存在/, "毒记录应抛出而非静默");
+  assert.ok(!owned.notes.some((note) => note.content === "毒记录部分写入"), "毒记录的部分写入必须整体回滚（owned 输入投影不受影响）");
+  assert.equal(owned.questions.length, sequential.questions.length, "抛出后投影保持等价结果");
 }
 
 // --- 5. 队列删除（真实 IndexedDB + mock 后端）--------------------------------

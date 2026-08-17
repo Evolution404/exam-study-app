@@ -136,6 +136,13 @@ assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
 assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
+// 自动同步不卡界面：空闲期触发（去抖 + requestIdleCallback）、待同步计数独立轻量订阅、
+// 本地归并逐条让出主线程且派生只跑一次。
+assert.match(study, /requestIdleCallback/, "自动同步应等浏览器空闲帧再触发，不撞答题反馈动画");
+assert.match(study, /dbV7\.changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "待同步计数应独立轻量订阅，不与全表统计绑定");
+const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-v7-orchestrator.ts", import.meta.url), "utf8");
+assert.match(syncOrchestrator, /yieldToMainIfVisible/, "本地归并应逐条让出主线程");
+assert.match(syncOrchestrator, /applyChangeSetToOwnedProjectionV7/, "本地归并应走浅信封单次派生路径（不再每条全量克隆）");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
 assert.match(study, /restoreLastRemoteCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复完成态应留出可见时间");
 
