@@ -57,6 +57,12 @@ assert.match(practiceSetup, /当前口径下 \$\{wrongCardCount\} 道错题/, "w
 assert.match(practiceSetup, /card\.id === "wrong" && wrongCardCount === 0/, "wrong card must disable itself when no wrong questions remain");
 assert.match(practiceSetup, /where\("questionId"\)\.anyOf/, "card counts must load attempts via the questionId index instead of the whole table");
 assert.match(studyApp, /wrongRemovalStreak=\{preferences\.wrongRemovalStreak\}/, "practice setup must receive the wrong-removal streak preference");
+// 只练本次错题按钮：红色调走 danger token；夜间靠 token 自适应（普通按钮的夜间
+// 覆盖必须 :not(.danger) 放行，不得新增页面级夜间规则）。
+assert.match(practiceHistory, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮必须带 danger 类");
+assert.match(styles, /\.result-actions \.danger\{border-color:var\(--color-danger\);color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "只练本次错题按钮应整组走 danger token");
+assert.match(styles, /html\[data-theme="dark"\] \.result-actions button:not\(\.danger\)\{border-color:#3a473f/, "夜间普通按钮覆盖必须放行 danger 按钮（不加夜间规则）");
+assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*result-actions[^\n]*danger\{/, "danger 按钮不得依赖专属夜间规则（token 自适应）");
 
 assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
 // 用户显式点同步后刷新可见练习会话（对齐远端合并作答、跳到最后一题）是产品需求；

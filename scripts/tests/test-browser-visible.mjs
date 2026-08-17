@@ -1501,6 +1501,63 @@ async function runHistoryResult(page) {
   await expectNotice(page, /练习记录已删除，并加入同步队列/, "delete record notice");
   await expectText(page, "这里还没有记录");
   await capture(page, contextName, "history-deleted");
+
+  // 排序口径：X 先开始、只答 1 题暂停；Y 开始更晚但先完整完成；随后续答 X。
+  // 旧口径（按开始时间）Y 在前；新口径（最后活动时间）续答过的 X 必须在最前。
+  await clickButton(page, "练习");
+  await expectText(page, "练习中心");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  // Y：完整答完 5 题 → 已完成，完成时间早于 X 的续答。
+  await clickButton(page, "练习");
+  await selectBankOnPracticeSetup(page);
+  await clickTextButton(page, "全量顺序练习");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 2, 5);
+  await answerCurrentQuestion(page, [1]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 3, 5);
+  await answerCurrentQuestion(page, [0, 1], true);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 4, 5);
+  await answerCurrentQuestion(page, [0]);
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "下一题");
+  await waitForQuestion(page, 5, 5);
+  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await clickTextButton(page, "确认答案");
+  await expectText(page, "回答正确");
+  await clickTextButton(page, "查看本次结果");
+  await expectText(page, "本次正确率");
+  await clickTextButton(page, "返回练习记录");
+  // 续答 X 的第 2 题 → X 的最后活动时间晚于 Y 的完成时间。
+  await page.locator(".history-filters button").filter({ hasText: /进行中/ }).click();
+  const suspendedRun = page.locator(".history-list article").first();
+  await suspendedRun.getByRole("button", { name: "继续练习" }).click();
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await waitForQuestion(page, 2, 5);
+  await answerCurrentQuestion(page, [1]);
+  await expectText(page, "回答正确");
+  await clickButton(page, "暂停并返回首页");
+  await expectText(page, "继续上次练习");
+  await clickButton(page, "练习");
+  await page.locator(".practice-hub-tabs button").filter({ hasText: "练习记录" }).click();
+  await expectText(page, "练习记录");
+  await page.locator(".history-filters button").filter({ hasText: /全部/ }).click();
+  const firstHistoryCard = page.locator(".history-list article").first();
+  await firstHistoryCard.locator(".run-status").filter({ hasText: "进行中" }).waitFor({ state: "visible" });
+  assert.match(await firstHistoryCard.locator(".history-metrics span").first().innerText(), /2 \/ 5/, "记录排序应按最后活动时间：续答过的旧练习（X）必须排在后完成的记录（Y）之前");
+  await capture(page, contextName, "history-activity-order");
 }
 
 // ===== 练习中心「快捷卡片 + 正交组合」重构回归 =====

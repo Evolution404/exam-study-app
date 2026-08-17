@@ -6,7 +6,7 @@ import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
 import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { QuestionDetail } from "@/app/bank/question-detail";
-import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
+import { runActivityAt, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
@@ -65,16 +65,19 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
       onPointerUp={finishSwipe}
       onPointerCancel={finishSwipe}
     >
-      <button type="button" className={run.status === "in_progress" ? "history-open has-actions" : "history-open"} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (offset < 0) { setOffset(0); return; } onOpen(run.id); }}><div className="history-title"><span className={`run-status ${run.status}`}>{statusText[run.status]}</span><strong>{run.modeLabel}</strong><small>{formatTime(run.startedAt)}</small></div><h3>{run.bankName}</h3><div className="history-metrics"><span><b>{stats.answered}</b> / {run.questionIds.length} 已作答</span><span><b>{stats.accuracy}%</b> 正确率</span><span>{stats.correct} 对 · {stats.wrong} 错</span></div>{run.status !== "in_progress" && <ChevronRight size={18} />}</button>
+      <button type="button" className={run.status === "in_progress" ? "history-open has-actions" : "history-open"} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (offset < 0) { setOffset(0); return; } onOpen(run.id); }}><div className="history-title"><span className={`run-status ${run.status}`}>{statusText[run.status]}</span><strong>{run.modeLabel}</strong><small>{formatTime(runActivityAt(run))}</small></div><h3>{run.bankName}</h3><div className="history-metrics"><span><b>{stats.answered}</b> / {run.questionIds.length} 已作答</span><span><b>{stats.accuracy}%</b> 正确率</span><span>{stats.correct} 对 · {stats.wrong} 错</span></div>{run.status !== "in_progress" && <ChevronRight size={18} />}</button>
       {run.status === "in_progress" && <div className="history-card-actions"><Hint label="继续练习"><button type="button" aria-label="继续练习" onClick={() => onContinue(run.id)}><Play size={15} fill="currentColor" /></button></Hint><Hint label="放弃练习"><button type="button" className="abandon" aria-label="放弃练习" onClick={() => onAbandon(run.id)}><XCircle size={16} /></button></Hint></div>}
     </div>
   </article>;
 }
 
 export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
-  const runs = useLiveQuery(() => dbV7.practiceRuns.orderBy("startedAt").reverse().toArray(), []) ?? [];
+  const runsQuery = useLiveQuery(() => dbV7.practiceRuns.toArray(), []);
+  const runs = runsQuery ?? [];
+  // 排序口径：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），不再按开始时间。
+  const ordered = useMemo(() => (runsQuery ?? []).slice().sort((a, b) => runActivityAt(b).localeCompare(runActivityAt(a))), [runsQuery]);
   const [status, setStatus] = useState<"all" | PracticeRunV7["status"]>("all");
-  const visible = status === "all" ? runs : runs.filter((run) => run.status === status);
+  const visible = status === "all" ? ordered : ordered.filter((run) => run.status === status);
   return <section className="practice-history-card">
     <header><div><span className="section-kicker">每次练习都有迹可循</span><h2>练习记录</h2><p>进行中、已完成和已放弃的练习都会保留。</p></div><History size={24} /></header>
     <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? runs.length : runs.filter((run) => run.status === item).length}</span></button>)}</div>
@@ -119,7 +122,7 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
   return <section className="run-result">
     <header><button className="back-link" onClick={onBack}><ArrowLeft size={16} />返回练习记录</button><span className={`run-status ${run.status}`}>{statusText[run.status]}</span><h1>{run.modeLabel}</h1><p>{run.bankName} · {formatTime(run.startedAt)}</p></header>
     <div className="result-score"><div><strong>{stats.accuracy}<small>%</small></strong><span>本次正确率</span></div><div className="result-score-grid"><span><b>{run.questionIds.length}</b>计划题目</span><span><b>{stats.answered}</b>已作答</span><span className="correct"><b>{stats.correct}</b>正确</span><span className="wrong"><b>{stats.wrong}</b>错误</span></div></div>
-    <div className="result-actions"><button className="primary" onClick={() => onRepeat(ordered, `重练 · ${run.modeLabel}`, run.optionOrders)}><RotateCcw size={16} />重练本次题目</button>{wrongQuestions.length > 0 && <button onClick={() => onRepeat(wrongQuestions, `集中重练 ${wrongQuestions.length} 道错题`, run.optionOrders)}><XCircle size={16} />只练本次错题</button>}{run.status === "in_progress" && onContinue && <button onClick={() => onContinue(run.id, Math.max(0, run.questionIds.findIndex((id) => !run.answers[id]?.submitted)))}><BookOpenCheck size={16} />继续本次练习</button>}</div>
+    <div className="result-actions"><button className="primary" onClick={() => onRepeat(ordered, `重练 · ${run.modeLabel}`, run.optionOrders)}><RotateCcw size={16} />重练本次题目</button>{wrongQuestions.length > 0 && <button className="danger" onClick={() => onRepeat(wrongQuestions, `集中重练 ${wrongQuestions.length} 道错题`, run.optionOrders)}><XCircle size={16} />只练本次错题</button>}{run.status === "in_progress" && onContinue && <button onClick={() => onContinue(run.id, Math.max(0, run.questionIds.findIndex((id) => !run.answers[id]?.submitted)))}><BookOpenCheck size={16} />继续本次练习</button>}</div>
     <div className="result-filters">{(["all", "wrong", "unanswered"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "全部题目" : item === "wrong" ? "只看错题" : "只看未答"}</button>)}</div>
     <div className="result-question-groups">{TYPE_ORDER.map((type) => { const questions = visible.filter((question) => question.type === type); if (!questions.length) return null; return <section key={type}><header><h2>{type}</h2><span>{questions.length} 题</span></header><div>{questions.map((question) => { const answer = run.answers[question.id]; const state = !answer?.submitted ? "unanswered" : answer.correct ? "correct" : "wrong"; return <button key={question.id} data-question-id={question.id} className={(detailQuestion?.id ?? activeResultQuestionId) === question.id ? "detail-current" : ""} aria-label={`查看第 ${(originalIndex.get(question.id) ?? 0) + 1} 题详情`} onClick={() => { setActiveResultQuestionId(question.id); setDetailQuestion(question); }}><span className={`result-state ${state}`}>{state === "correct" ? <CheckCircle2 /> : state === "wrong" ? <XCircle /> : <Clock3 />}</span><span><strong>{(originalIndex.get(question.id) ?? 0) + 1}. <MathText text={question.stem} /></strong><small>{state === "unanswered" ? "未作答" : `正确答案：${question.answer} · 你的答案：${answer.selected.length ? question.type === "计算" ? answer.selected[0] : [...answer.selected].sort().join("") : "不会"}`}</small></span><ChevronRight size={16} /></button>; })}</div></section>; })}</div>
     {detailQuestion && <ResultQuestionDetail question={detailQuestion} answer={run.answers[detailQuestion.id]} entries={visible} progressScope={progressScope} scopeLabel={scopeLabel} onClose={() => { setActiveResultQuestionId(detailQuestion.id); setDetailQuestion(undefined); }} onNavigate={(id) => { setActiveResultQuestionId(id); setDetailQuestion(visible.find((item) => item.id === id)); }} onNotice={onNotice} onGroup={onGroup} />}

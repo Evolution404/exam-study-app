@@ -91,6 +91,12 @@ assert.match(history, /已收藏这道题/, "练习结果详情应支持收藏�
 assert.doesNotMatch(history, /只练这一题/, "全项目不应再保留只练这一题入口");
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
+// 练习记录排序：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），
+// 不再按开始时间——恢复旧练习并作答后应浮到最前。
+assert.match(history, /runActivityAt\(b\)\.localeCompare\(runActivityAt\(a\)\)/, "练习记录必须按活动时间倒序");
+assert.doesNotMatch(history, /orderBy\("startedAt"\)/, "练习记录不得再按开始时间排序");
+assert.match(history, /formatTime\(runActivityAt\(run\)\)/, "记录卡片时间戳应与排序同口径（最后活动时间）");
+assert.match(history, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮应带 danger 红色调");
 
 // Continue-practice resume position: one past the furthest answered question,
 // except when the final question is answered — then jump to the first

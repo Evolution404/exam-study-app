@@ -6,6 +6,7 @@ import {
   calculateDifficulty,
   difficultyFromOutcomes,
   needsWrongReview,
+  runActivityAt,
   statsNeedWrongReview,
   summarizeAttemptStats,
   summarizeAttempts,
@@ -313,6 +314,51 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(builtChain?.recentOutcomes[0].elapsedMs, 10);
   assert.equal(builtChain?.recentOutcomes[1].elapsedMs, 10);
   assert.equal(builtChain?.recentOutcomes.length, 2, "recentOutcomes 截断上限仍为 32（此处 2）");
+}
+
+// ===== 练习记录的活动时间：排序口径（已完成=完成时间，其余=最后一道作答题的时间）=====
+{
+  type Answer = { submitted: boolean; updatedAt?: string };
+  const run = (overrides: Partial<Parameters<typeof runActivityAt>[0]>) =>
+    ({ status: "in_progress", startedAt: "2026-08-01T00:00:00.000Z", answers: {}, ...overrides }) as Parameters<typeof runActivityAt>[0];
+  const answers = (...entries: Array<[string, boolean]>): Record<string, Answer> =>
+    Object.fromEntries(entries.map(([updatedAt, submitted], index) => [`q${index}`, { submitted, updatedAt }]));
+
+  assert.equal(
+    runActivityAt(run({ status: "completed", completedAt: "2026-08-15T08:00:00.000Z", startedAt: "2026-08-01T00:00:00.000Z", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),
+    "2026-08-15T08:00:00.000Z",
+    "已完成按完成时间排序（不是开始时间，也不是最后一题时间）",
+  );
+  assert.equal(
+    runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),
+    "2026-08-14T22:00:00.000Z",
+    "缺 completedAt 的旧数据回退最后一道作答题的时间",
+  );
+  assert.equal(
+    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: answers(["2026-08-16T09:00:00.000Z", true], ["2026-08-16T10:30:00.000Z", true], ["2026-08-16T10:00:00.000Z", true]) })),
+    "2026-08-16T10:30:00.000Z",
+    "进行中取多道作答里最新的 updatedAt（恢复旧练习后应排到最前）",
+  );
+  assert.equal(
+    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: false, updatedAt: "2026-08-16T12:00:00.000Z" }, q2: { submitted: true, updatedAt: "2026-08-16T09:00:00.000Z" } } })),
+    "2026-08-16T09:00:00.000Z",
+    "未提交的暂存选择不算做题（只有 submitted 才计入活动时间）",
+  );
+  assert.equal(
+    runActivityAt(run({ status: "abandoned", abandonedAt: "2026-08-16T12:00:00.000Z", answers: answers(["2026-08-16T09:00:00.000Z", true]) })),
+    "2026-08-16T09:00:00.000Z",
+    "已放弃按最后一道作答题的时间（不按放弃时间，完成时间口径只属于已完成）",
+  );
+  assert.equal(
+    runActivityAt(run({ status: "abandoned", abandonedAt: "2026-08-16T12:00:00.000Z" })),
+    "2026-08-16T12:00:00.000Z",
+    "未作答的已放弃记录回退放弃时间",
+  );
+  assert.equal(
+    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })),
+    "2026-08-01T00:00:00.000Z",
+    "旧数据 answer.updatedAt 缺失时回退开始时间",
+  );
 }
 
 // ===== 错题口径：scoped（进度口径）与 lifetime（终身）的区分性用例 =====

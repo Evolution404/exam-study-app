@@ -235,3 +235,24 @@ export function difficultyTone(score: number): "easy" | "medium" | "hard" {
   if (score >= 45) return "medium";
   return "easy";
 }
+
+// ===== 练习记录的活动时间口径（列表排序与卡片时间戳共用）=====
+// 已完成按完成时间；进行中/已放弃按最后一道作答题的时间（answer.updatedAt），
+// 未作答回退 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。
+
+export interface RunActivitySource {
+  status: "in_progress" | "completed" | "abandoned";
+  startedAt: string;
+  completedAt?: string;
+  abandonedAt?: string;
+  answers: Record<string, { submitted: boolean; updatedAt?: string }>;
+}
+
+export function runActivityAt(run: RunActivitySource): string {
+  if (run.status === "completed" && run.completedAt) return run.completedAt;
+  let latest: string | undefined;
+  for (const answer of Object.values(run.answers)) {
+    if (answer.submitted && answer.updatedAt && (!latest || answer.updatedAt > latest)) latest = answer.updatedAt;
+  }
+  return latest ?? run.abandonedAt ?? run.startedAt;
+}
