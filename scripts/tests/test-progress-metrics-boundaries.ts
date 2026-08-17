@@ -210,5 +210,43 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(summarizeAttempts(attempts).difficulty, calculateDifficulty(3, 1));
 }
 
+// ===== 错题口径：scoped（进度口径）与 lifetime（终身）的区分性用例 =====
+// 练习入口的 wrong 判定与题库页一致使用 scoped 统计：窗口外的历史不影响窗口内判定。
+{
+  const scope = normalizeProgressScope({ type: "rolling", days: 30 });
+  // 场景 1：错题发生在窗口内、随后的连对也在窗口内 → 连对数满足即移出。
+  const inWindow = buildScopedQuestionStats(["q1"], scope, [
+    attempt("w1", "q1", at(-10), false),
+    attempt("w2", "q1", at(-9), true),
+    attempt("w3", "q1", at(-8), true),
+  ], [], Date.parse(T0));
+  const inWindowLegacy = scopedStatsToLegacyAttemptStats(inWindow.get("q1")!);
+  assert.equal(statsNeedWrongReview(inWindowLegacy, 2), false, "窗口内错后 2 连对应移出错题");
+
+  // 场景 2：错误与连对都在窗口外（40 天前）→ rolling(30) 下 scoped 无记录，不再是错题；
+  // 但 lifetime 聚合仍算错题（正确后连对数不足阈值）——证明两种口径的集合不同。
+  const staleAttempts = [
+    attempt("s1", "q2", at(-40), false),
+    attempt("s2", "q2", at(-39), true),
+  ];
+  const staleScoped = buildScopedQuestionStats(["q2"], scope, staleAttempts, [], Date.parse(T0));
+  assert.equal(staleScoped.has("q2"), false, "窗口外作答在 scoped 口径下无记录");
+  assert.equal(statsNeedWrongReview(undefined, 2), false, "窗口外错题在 scoped 口径下不再算错题（与 startPractice 的传法一致）");
+  assert.equal(statsNeedWrongReview(buildAttemptStats(staleAttempts), 2), true, "同一数据在 lifetime 口径下仍是错题（口径差异的证明）");
+
+  // 场景 3：错误在窗口内、连对在窗口外（先对后错）→ scoped 只见错误，仍是错题。
+  const wrongRecent = buildScopedQuestionStats(["q3"], scope, [
+    attempt("r1", "q3", at(-40), true),
+    attempt("r2", "q3", at(-5), false),
+  ], [], Date.parse(T0));
+  assert.equal(statsNeedWrongReview(scopedStatsToLegacyAttemptStats(wrongRecent.get("q3")!), 2), true, "窗口内的错误即使之前有历史连对也仍是错题");
+
+  // 场景 4：round 口径下 wrong>0 恒为错题（correctStreakAfterWrong 恒 0，既定行为）。
+  const roundScoped = buildScopedQuestionStats(["q4"], normalizeProgressScope({ type: "round", roundId: "round-1" }), [], [
+    round("round-1", "q4", 6, 5, 1),
+  ], Date.parse(T0));
+  assert.equal(statsNeedWrongReview(scopedStatsToLegacyAttemptStats(roundScoped.get("q4")!), 1), true, "轮次内错过永不移出（既定行为）");
+}
+
 console.log("progress metrics boundary tests passed");
 process.exit(0);

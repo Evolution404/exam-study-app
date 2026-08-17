@@ -17,14 +17,14 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/practice/press-intent";
 import type { ActivePractice, GitHubSettings } from "@/types/types";
-import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { classifyNoticeTone } from "@/lib/practice/notice-tone";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
 import type { SyncChangeSetItemV7 } from "@/app/sync/sync-event-manager";
 import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
 import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/sync/change-set-v7-queue";
-import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toLegacyAttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
+import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
 import { Dashboard, Practice, PreferencesView, PullToRefresh } from "./views";
 
 export function AppShell() {
@@ -580,18 +580,25 @@ export function AppShell() {
         return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
       });
     }
-    const [statsRows, roundProgress] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray()]);
-    const statsByQuestion = new Map(statsRows.map((stats) => [stats.questionId, stats]));
+    const [statsRows, roundProgress, attemptRows] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.attempts.toArray()]);
     const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)]));
     const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
     const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
     const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
+    // 错题口径与题库页一致：用进度口径（rolling/round）内的原始作答重建
+    // 「错后连对序列」，而不是终身聚合表（attemptStats 的 correctStreakAfterWrong
+    // 是终身值，无法回答「这个窗口里它还算错题吗」）。只在需要时对候选集计算。
+    const scopedWrongStats = filter.status === "wrong"
+      ? buildScopedQuestionStats(questions.map((question) => question.id), progressScope, attemptRows, roundProgress, Date.now())
+      : null;
     questions = questions.filter((question) => {
-      const stats = statsByQuestion.get(question.id);
       const metric = attemptMetrics.get(question.id) ?? summarizeV7AttemptStats();
       const doneInScope = isQuestionDoneInScope(question.id, progressScope, statsRows, roundProgress, Date.now());
       if (filter.status === "unanswered" && doneInScope) return false;
-      if (filter.status === "wrong" && !statsNeedWrongReview(toLegacyAttemptStats(stats), preferences.wrongRemovalStreak)) return false;
+      if (filter.status === "wrong") {
+        const scoped = scopedWrongStats?.get(question.id);
+        if (!statsNeedWrongReview(scoped ? scopedStatsToLegacyAttemptStats(scoped) : undefined, preferences.wrongRemovalStreak)) return false;
+      }
       if (filter.status === "favorite" && !question.favorite) return false;
       if (filter.totalAttemptsMin !== null && metric.total < filter.totalAttemptsMin) return false;
       if (filter.totalAttemptsMax !== null && metric.total > filter.totalAttemptsMax) return false;
@@ -630,7 +637,7 @@ export function AppShell() {
       bankIds: requestedBankIds,
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
       mode: filter.mode,
-      modeLabel: filter.mode === "random30" || filter.mode === "randomCustom" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode],
+      modeLabel: filter.modeLabel ?? (filter.mode === "random30" || filter.mode === "randomCustom" ? `随机 ${filter.limit ?? preferences.groupSize} 题` : modeLabels[filter.mode]),
       questionIds: questions.map((question) => question.id),
       questionTypes: Object.fromEntries(questions.map((question) => [question.id, question.type])),
       shuffleOptions: preferences.shuffleOptions,

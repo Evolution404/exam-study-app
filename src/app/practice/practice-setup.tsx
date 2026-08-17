@@ -32,6 +32,8 @@ export interface V7PracticeFilter {
   lastAttemptTo: string;
   progressScope: ProgressScope;
   reviewRoundId?: string;
+  /** 调用方提供的 run 展示标签（组合式文案）；缺省时 startPractice 按 mode 推导。 */
+  modeLabel?: string;
 }
 
 const baseModes: Array<{ id: V7PracticeMode; title: string; detail: string; icon: typeof Shuffle }> = [
