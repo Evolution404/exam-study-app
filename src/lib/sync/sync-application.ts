@@ -2,6 +2,10 @@ import { dbV7 } from "../db/db-v7";
 import { questionContentFingerprint } from "../question/question-content";
 import type { GitHubSettings } from "../../types/types";
 import {
+  clearImageCache as clearImageCacheInternal,
+  downloadAllImageAssets as downloadAllImageAssetsInternal,
+  downloadImageAsset as downloadImageAssetInternal,
+  getImageCacheStats as getImageCacheStatsInternal,
   getGitHubLogin,
   getLastRemoteCache,
   getSyncHotWindowState,
@@ -119,6 +123,24 @@ class SyncApplication {
 
   getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {
     return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);
+  }
+
+  getImageCacheStats() {
+    return getImageCacheStatsInternal();
+  }
+
+  clearImageCache() {
+    return clearImageCacheInternal();
+  }
+
+  async downloadImageAsset(assetId: string): Promise<void> {
+    const { settings, token } = await this.resolveConnection();
+    await downloadImageAssetInternal(settings, token, assetId);
+  }
+
+  async downloadAllImageAssets(): Promise<number> {
+    const { settings, token } = await this.resolveConnection();
+    return downloadAllImageAssetsInternal(settings, token);
   }
 
   ensureQueueBase(): Promise<void> {
