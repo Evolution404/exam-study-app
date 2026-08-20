@@ -24,7 +24,7 @@ jobs:
       - run: npm ci
       - name: Apply migration
         run: |
-          if grep -q 'downloadImageAssetFromGitHub' src/lib/sync/sync-application.ts; then
+          if grep -q 'downloadImageAssetInternal' src/lib/sync/sync-application.ts; then
             echo 'image sync boundary already applied'
           else
             node scripts/tools/apply-sync-image-boundary.mjs
@@ -37,7 +37,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -- src/lib/sync/sync-application.ts src/app/bank/question-editor.tsx
+          git add -- src/lib/sync/sync-application.ts src/app/bank/question-editor.tsx src/app/shell/views/image-cache-setting.tsx
           git diff --cached --quiet && exit 0
-          git commit -m 'refactor(sync): route image hydration through application [image-sync-generated]'
+          git commit -m 'refactor(sync): route image cache through application [image-sync-generated]'
           git push origin HEAD:refactor/sync-ui-boundary
