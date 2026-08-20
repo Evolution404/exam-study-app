@@ -1,0 +1,34 @@
+name: Apply sync boundary source tests
+
+on:
+  push:
+    branches: [refactor/sync-ui-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ !contains(github.event.head_commit.message, '[sync-test-generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/sync-ui-boundary
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/tools/fix-sync-boundary-source-tests.mjs
+      - run: npm run test:sync-event-ui
+      - run: npm run test:v7-ui
+      - run: npm run test:answer-ui
+      - name: Commit migrated tests
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- scripts/tests/test-sync-event-ui.ts scripts/tests/test-v7-ui-data-flow.ts
+          git diff --cached --quiet && exit 0
+          git commit -m 'test(sync): align source tests with application boundary [sync-test-generated]'
+          git push origin HEAD:refactor/sync-ui-boundary
