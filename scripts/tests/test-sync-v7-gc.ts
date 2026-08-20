@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import "fake-indexeddb/auto";
 import { createHash } from "node:crypto";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
+import { checkpointFromProjection } from "../../src/lib/sync/sync-v7-checkpoint-bridge";
 import { gcSyncV7Remote } from "../../src/lib/sync/sync-v7-gc";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
@@ -10,11 +12,38 @@ import {
   type SyncV7Descriptor,
   type SyncV7SegmentDescriptor,
 } from "../../src/lib/sync/sync-v7-head";
+import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const vaultId = "qa/v7-gc@main";
 const deviceId = "device-a";
+
+// The reducer projection intentionally exposes an internal table-name alias.
+// Checkpoint JSON must keep only the canonical wire field (`memberships`) or a
+// compaction duplicates the whole join table and a hydrate cycle changes state.
+const emptyProjection: ChangeSetProjectionV7 = {
+  banks: [],
+  bankFolders: [],
+  questions: [],
+  memberships: [],
+  bankQuestionMemberships: [],
+  imageAssets: [],
+  attempts: [],
+  attemptStats: [],
+  attemptDailyStats: [],
+  notes: [],
+  practiceRuns: [],
+  practiceRunStats: [],
+  questionGroups: [],
+  reviewRounds: [],
+  reviewRoundProgress: [],
+  tombstones: [],
+  attemptRoundIds: {},
+};
+const canonicalCheckpoint = await checkpointFromProjection(emptyProjection, {});
+assert.equal("bankQuestionMemberships" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize the projection membership alias");
+assert.equal("attemptRoundIds" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize reducer-only metadata");
 
 const server = await startMockGitHubServer({ cas: true });
 try {
@@ -89,7 +118,7 @@ try {
   assert.deepEqual(new Set(checkpointPaths), new Set([c1.path, c2.path]), "previous checkpoint must survive ordinary appends until the next compaction");
   assert.deepEqual(new Set(segmentPaths), new Set([s2.path, s3.path]), "segment grace window advances one head generation at a time");
 
-  console.log("sync v7 GC tests passed: post-CAS pruning, two-checkpoint retention, segment grace window and append safety");
+  console.log("sync v7 GC tests passed: canonical checkpoint schema, post-CAS pruning, two-checkpoint retention, segment grace window and append safety");
 } finally {
   await server.close();
 }
