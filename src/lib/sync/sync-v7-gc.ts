@@ -19,7 +19,7 @@ function addHeadPaths(head: SyncHeadV7 | null | undefined, checkpoints: Set<stri
 
 async function deleteUnreachable(
   client: GitHubV7Remote,
-  prefix: string,
+  prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX,
   keep: ReadonlySet<string>,
 ): Promise<{ deleted: number; skipped: number }> {
   const entries = await client.listImmutableDirectory(prefix);
