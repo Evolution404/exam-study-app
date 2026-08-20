@@ -16,6 +16,7 @@ import type { CreatePracticeRunInputV7, PracticeAnswerInputV7, PracticeAnswerV7 
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { withSyncLock } from "../sync/sync-lock";
 import type {
   AttemptDailyStatsV7,
   AttemptStatsV7,
@@ -94,7 +95,7 @@ export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRun
  * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
 export async function savePracticeProgressV7(run: PracticeRunV7): Promise<PracticeRunV7 | undefined> {
-  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats], async () => {
+  return withSyncLock(() => dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats], async () => {
     const current = await dbV7.practiceRuns.get(run.id);
     if (!current) return undefined;
     const liveQuestionIds = new Set(current.questionIds);
@@ -112,7 +113,7 @@ export async function savePracticeProgressV7(run: PracticeRunV7): Promise<Practi
     await updatePracticeRunStatsInTx(current, updated);
     await dbV7.practiceRuns.put(updated);
     return updated;
-  });
+  }));
 }
 
 export async function getReviewRoundQuestionIdsV7(roundId: string): Promise<string[]> {
@@ -223,7 +224,7 @@ export async function deletePracticeRunV7(runId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV7DeviceId();
   const eventId = makeV7Id("run-delete");
-  const runDeleteSequence = nextV7Sequence(deviceId);
+  const runDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets], async () => {
     await updatePracticeRunStatsInTx(current, undefined);
     await dbV7.practiceRuns.delete(runId);
@@ -341,61 +342,66 @@ async function progressForAnswerInTx(roundId: string, questionId: string, attemp
  * are committed in one transaction and exactly one domain event is emitted.
  */
 export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Promise<{ attempt: AttemptV7; answer: PracticeAnswerV7 }> {
-  const run = await dbV7.practiceRuns.get(input.runId);
-  if (!run) throw new Error("练习记录不存在或已被删除。");
-  if (!run.questionIds.includes(input.questionId)) throw new Error("练习记录不包含当前题目。");
   const selected = uniqueStrings(Array.isArray(input.selected) ? [...input.selected] : [input.selected]);
   const timestamp = input.createdAt ?? nowIso();
-  const deviceId = getV7DeviceId();
-  const eventId = makeV7Id("answer");
-  if (input.reviewRoundId !== undefined && input.reviewRoundId !== run.reviewRoundId) {
-    throw new Error("reviewRoundId 必须与练习记录绑定的 active 复习轮次一致。");
-  }
-  const reviewRoundId = run.reviewRoundId;
-  if (reviewRoundId) {
-    const round = await dbV7.reviewRounds.get(reviewRoundId);
-    if (!round || round.status !== "active") throw new Error("reviewRoundId 必须匹配 active 复习轮次。");
-    const targetIds = await getReviewRoundQuestionIdsV7(reviewRoundId);
-    if (!targetIds.includes(input.questionId)) throw new Error("当前题目不属于 active 复习轮次。");
-    if (run.reviewRoundId && run.reviewRoundId !== reviewRoundId) throw new Error("reviewRoundId 与练习记录不匹配。");
-  }
-  const sourceBankId = input.sourceBankId ?? input.bankId ?? run.bankIds[0];
-  const attempt: AttemptV7 = {
-    id: makeV7Id("attempt"),
-    runId: input.runId,
-    questionId: input.questionId,
-    selected: selected.join(""),
-    correct: Boolean(input.correct),
-    elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),
-    createdAt: timestamp,
-    deviceId,
-    ...(sourceBankId ? { sourceBankId } : {}),
-  };
-  const answer: PracticeAnswerV7 = {
-    selected,
-    submitted: true,
-    correct: Boolean(input.correct),
-    updatedAt: timestamp,
-    deviceId,
-    eventId,
-  };
-  const answers = { ...run.answers, [input.questionId]: answer };
-  const lastSubmittedIndex = run.questionIds.reduce(
-    (last, questionId, index) => answers[questionId]?.submitted ? index : last,
-    -1,
-  );
-  const nextRun: PracticeRunV7 = {
-    ...run,
-    answers,
-    updatedAt: timestamp,
-    revision: run.revision + 1,
-    lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : run.lastAnsweredIndex,
-  };
-  await dbV7.transaction("rw", [
+  const selectedAnswer = selected.join("");
+  return dbV7.transaction("rw", [
     dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.practiceRuns,
     dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.changeSets,
   ], async () => {
+    // Re-read the authoritative run after the write transaction has acquired
+    // its lock. Two answers submitted concurrently must merge their answers
+    // and increment revision from the same serial order; using a snapshot read
+    // before this transaction let the later writer erase the earlier answer.
+    const run = await dbV7.practiceRuns.get(input.runId);
+    if (!run) throw new Error("练习记录不存在或已被删除。");
+    if (!run.questionIds.includes(input.questionId)) throw new Error("练习记录不包含当前题目。");
+    if (input.reviewRoundId !== undefined && input.reviewRoundId !== run.reviewRoundId) {
+      throw new Error("reviewRoundId 必须与练习记录绑定的 active 复习轮次一致。");
+    }
+    const reviewRoundId = run.reviewRoundId;
+    if (reviewRoundId) {
+      const round = await dbV7.reviewRounds.get(reviewRoundId);
+      if (!round || round.status !== "active") throw new Error("reviewRoundId 必须匹配 active 复习轮次。");
+      const targetIds = await getReviewRoundQuestionIdsV7(reviewRoundId);
+      if (!targetIds.includes(input.questionId)) throw new Error("当前题目不属于 active 复习轮次。");
+      if (run.reviewRoundId && run.reviewRoundId !== reviewRoundId) throw new Error("reviewRoundId 与练习记录不匹配。");
+    }
+    const deviceId = getV7DeviceId();
+    const eventId = makeV7Id("answer");
+    const sourceBankId = input.sourceBankId ?? input.bankId ?? run.bankIds[0];
+    const attempt: AttemptV7 = {
+      id: makeV7Id("attempt"),
+      runId: input.runId,
+      questionId: input.questionId,
+      selected: selectedAnswer,
+      correct: Boolean(input.correct),
+      elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),
+      createdAt: timestamp,
+      deviceId,
+      ...(sourceBankId ? { sourceBankId } : {}),
+    };
+    const answer: PracticeAnswerV7 = {
+      selected,
+      submitted: true,
+      correct: Boolean(input.correct),
+      updatedAt: timestamp,
+      deviceId,
+      eventId,
+    };
+    const answers = { ...run.answers, [input.questionId]: answer };
+    const lastSubmittedIndex = run.questionIds.reduce(
+      (last, questionId, index) => answers[questionId]?.submitted ? index : last,
+      -1,
+    );
+    const nextRun: PracticeRunV7 = {
+      ...run,
+      answers,
+      updatedAt: timestamp,
+      revision: run.revision + 1,
+      lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : run.lastAnsweredIndex,
+    };
     await dbV7.attempts.put(attempt);
     await dbV7.attemptStats.put(addAttemptToStatsV7(await dbV7.attemptStats.get(input.questionId), attempt));
     const key = dailyStatsKey(timestamp, input.questionId);
@@ -411,6 +417,6 @@ export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Prom
       { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId, ...(reviewRoundId ? { reviewRoundId } : {}) },
       ...(completedRound?.status === "completed" ? [{ kind: "review.round.completed" as const, round: completedRound }] : []),
     ], timestamp);
+    return { attempt, answer };
   });
-  return { attempt, answer };
 }

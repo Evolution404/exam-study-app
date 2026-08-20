@@ -157,7 +157,7 @@ export async function deleteBankFolderV7(folderId: string): Promise<boolean> {
   const deviceId = getV7DeviceId();
   const eventId = makeV7Id("folder-delete");
   const banks = await dbV7.banks.where("folderId").equals(folderId).toArray();
-  const folderDeleteSequence = nextV7Sequence(deviceId);
+  const folderDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.bankFolders, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankFolders.delete(folderId);
     const detached = banks.map((bank) => ({ ...bank, folderId: undefined, updatedAt, deviceId }));
@@ -227,7 +227,7 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
   // Runs that target this bank are dropped with it; otherwise their bankId
   // would dangle and the checkpoint would fail referential validation.
   const runs = (await dbV7.practiceRuns.toArray()).filter((run) => runBankIds(run).includes(bankId));
-  const bankDeleteSequence = nextV7Sequence(deviceId);
+  const bankDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV7.banks.delete(bankId);

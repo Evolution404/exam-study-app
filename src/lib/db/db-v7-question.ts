@@ -188,7 +188,7 @@ export async function splitQuestionV7(
     updatedAt: timestamp,
     deviceId,
   } : undefined;
-  const splitSequence = nextV7Sequence(deviceId);
+  const splitSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.notes, dbV7.banks,
     dbV7.tombstones, dbV7.changeSets,
@@ -225,7 +225,7 @@ export async function removeMembershipV7(
   if (!current) return false;
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();
-  const membershipDeleteSequence = nextV7Sequence(deviceId);
+  const membershipDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankQuestionMemberships.delete(key);
     await dbV7.tombstones.put({
@@ -246,7 +246,7 @@ export async function removeMembershipsV7(bankId: string, questionIds: readonly 
   if (!memberships.length) return 0;
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();
-  const membershipBulkDeleteSequence = nextV7Sequence(deviceId);
+  const membershipBulkDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV7.tombstones.bulkPut(memberships.map((membership) => ({
@@ -319,7 +319,7 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
   // 只对「远端可能已经见过」的题目写墓碑/删除事件（未被抵消的创建）。
   const publishedIds = existingIds.filter((id) => !unpublishedIds.has(id));
   const publishedMembershipKeys = new Set(memberships.filter((membership) => !unpublishedIds.has(membership.questionId)).map((membership) => membership.key));
-  const deleteSequence = nextV7Sequence(deviceId);
+  const deleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
     dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRoundProgress,
@@ -665,7 +665,7 @@ export async function deleteQuestionGroupV7(groupId: string): Promise<boolean> {
   const deletedAt = nowIso();
   const deviceId = getV7DeviceId();
   const eventId = makeV7Id("group-delete");
-  const groupDeleteSequence = nextV7Sequence(deviceId);
+  const groupDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.questionGroups, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.questionGroups.delete(groupId);
     await dbV7.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId, sequence: groupDeleteSequence });

@@ -113,6 +113,7 @@ export interface V7RestoreState {
 
 let idCounter = 0;
 let sequenceCounter = 0;
+let sequenceLockTail: Promise<void> = Promise.resolve();
 
 /** internal, 供兄弟模块使用 */
 export function nowIso(): string {
@@ -144,16 +145,56 @@ export function getV7DeviceId(): string {
 }
 
 /** internal, 供兄弟模块使用 */
-export function nextV7Sequence(deviceId = getV7DeviceId()): number {
-  sequenceCounter = Math.max(sequenceCounter + 1, Date.now() * 1000);
-  if (typeof localStorage !== "undefined") {
+type NavigatorLocksLike = {
+  request<T>(name: string, options: { mode: "exclusive" }, callback: () => Promise<T>): Promise<T>;
+};
+
+function navigatorLocks(): NavigatorLocksLike | undefined {
+  const navigatorValue = (globalThis as { navigator?: { locks?: NavigatorLocksLike } }).navigator;
+  return navigatorValue?.locks;
+}
+
+async function withSequenceLock<T>(operation: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const previous = sequenceLockTail;
+  sequenceLockTail = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    const locks = navigatorLocks();
+    if (locks) return await locks.request("shijuan-study-v7-sequence", { mode: "exclusive" }, operation);
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Allocate a per-device sequence under an async lock and an IndexedDB
+ * read/write transaction. The IDB row is the cross-realm source of truth;
+ * Web Locks additionally serialize the localStorage compatibility mirror.
+ * Gaps are harmless when a surrounding domain transaction later aborts.
+ */
+export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number> {
+  return withSequenceLock(async () => {
     const key = `shijuan-study-v7-sequence:${deviceId}`;
     const legacyKey = `shijuan-study-v6-sequence:${deviceId}`;
-    const current = Number(localStorage.getItem(key)) || Number(localStorage.getItem(legacyKey)) || 0;
-    sequenceCounter = Math.max(sequenceCounter, current) + 1;
-    localStorage.setItem(key, String(sequenceCounter));
-  }
-  return sequenceCounter;
+    // Use an independent IndexedDB read/write transaction so callers can
+    // reserve a sequence while already inside their domain transaction (which
+    // includes changeSets but not syncMeta). IDB serializes this key across
+    // tabs even when Web Locks is unavailable.
+    const allocated = await Dexie.ignoreTransaction(() => dbV7.transaction("rw", dbV7.syncMeta, async () => {
+      const row = await dbV7.syncMeta.get(key);
+      const persisted = Number(row?.value) || 0;
+      const legacy = typeof localStorage !== "undefined" ? Number(localStorage.getItem(legacyKey)) || Number(localStorage.getItem(key)) || 0 : 0;
+      const current = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(legacy) ? legacy : 0);
+      const next = current + 1;
+      await dbV7.syncMeta.put({ key, value: next, updatedAt: nowIso() });
+      return next;
+    }));
+    sequenceCounter = Math.max(sequenceCounter, allocated);
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, String(allocated));
+    return allocated;
+  });
 }
 
 /** internal, 供兄弟模块使用 */

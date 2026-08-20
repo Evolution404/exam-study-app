@@ -1,4 +1,4 @@
-import { dbV7, listChangeSetsV7, restoreV7Checkpoint } from "../db/db-v7";
+import { listChangeSetsV7, restoreV7Checkpoint } from "../db/db-v7";
 import type { GitHubSettings } from "../../types/types";
 import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
 import { assertChangeSetProjectionV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
@@ -18,6 +18,7 @@ import {
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 import { uploadedDescriptor } from "./sync-v7-upload";
 import { installFingerprint } from "./sync-v7-watermark";
+import { withSyncLock } from "./sync-lock";
 
 export async function getGitHubLogin(token: string): Promise<string> {
   const response = await fetch("https://api.github.com/user", { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
@@ -82,21 +83,24 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
 }
 
 export async function restoreLastRemoteCache(settings: GitHubSettings, callback?: SyncProgressCallback) {
-  report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
-  const value = await loadRemoteCache(settings);
-  if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
-  // 注意：这里刻意不做「未同步变更」守卫。本地恢复的用途就是丢弃待同步事件、
-  // 回滚到最后一次成功同步的状态；两个入口（同步胶囊长按、设置页恢复）都先经
-  // 危险色确认弹窗明示「此时间之后的编辑将被放弃」，再走到这里清空 changeSets。
-  report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
-  await restoreV7Checkpoint(value.checkpoint.state);
-  await dbV7.changeSets.clear();
-  await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
-  await saveHeadCache(settings, value.head);
-  await saveInstalledHead(settings, installFingerprint(value.head));
-  await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
-  report(callback, "complete", "本地数据恢复完成", 100);
-  return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const, pulled: 0, deferred: 0 };
+  return withSyncLock(async () => {
+    report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
+    const value = await loadRemoteCache(settings);
+    if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
+    // 缓存恢复仍允许用户明确丢弃快照时已有的待同步变更，但只允许丢弃
+    // 恢复开始时的那一批。若下载/重建期间出现新编辑，事务守卫会拒绝，
+    // 避免把刚发生的本地修改连同队列一起吞掉。
+    const queueSnapshot = await listChangeSetsV7();
+    report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
+    const installed = await restoreV7Checkpoint(value.checkpoint.state, { queueGuard: queueSnapshot, clearChangeSets: true });
+    if (!installed) throw new Error("恢复期间检测到新的本地更改，请重试。");
+    await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
+    await saveHeadCache(settings, value.head);
+    await saveInstalledHead(settings, installFingerprint(value.head));
+    await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
+    report(callback, "complete", "本地数据恢复完成", 100);
+    return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const, pulled: 0, deferred: 0 };
+  });
 }
 
 export async function verifyGitHubVault(settings: GitHubSettings, token: string, options?: SyncWithGitHubOptions) { return (await remote(settings, token, options?.fetch).readHead()).initialized ? 7 as const : 0 as const; }

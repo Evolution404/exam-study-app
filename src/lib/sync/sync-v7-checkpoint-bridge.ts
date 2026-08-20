@@ -1,4 +1,4 @@
-import { dbV7, restoreV7Checkpoint } from "../db/db-v7";
+import { dbV7, restoreV7Checkpoint, type V7ChangeSetQueueGuard } from "../db/db-v7";
 import type { ChangeSetV7 } from "./change-set-v7";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
@@ -100,10 +100,13 @@ export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes
   return replayChangeSetBatchV7(projection, changes, onStep);
 }
 
-export async function installProjection(projection: ChangeSetProjectionV7): Promise<void> {
+export async function installProjection(
+  projection: ChangeSetProjectionV7,
+  options?: { queueGuard?: readonly V7ChangeSetQueueGuard[]; clearChangeSets?: boolean },
+): Promise<boolean> {
   // Restore directly from the projection state — building a full checkpoint
   // envelope (with counts/cursors) just to unwrap it was pure overhead.
-  await restoreV7Checkpoint({
+  return restoreV7Checkpoint({
     ...projection,
     memberships: projection.memberships,
     imageAssets: projection.imageAssets.map((asset) => ({
@@ -114,5 +117,5 @@ export async function installProjection(projection: ChangeSetProjectionV7): Prom
       height: asset.height,
       remote: asset.remote,
     })),
-  });
+  }, options);
 }

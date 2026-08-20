@@ -33,6 +33,8 @@ export {
   enqueueChangeSetV7,
   listChangeSetsV7,
   claimPendingChangeSetsV7,
+  blockChangeSetSnapshotV7,
+  commitChangeSetSnapshotV7,
   releaseChangeSetClaimV7,
   commitChangeSetClaimV7,
   discardPendingChangeSetV7,
@@ -116,4 +118,8 @@ export {
 
 export {
   restoreV7Checkpoint,
+} from "./db-v7-restore";
+export type {
+  RestoreV7CheckpointOptions,
+  V7ChangeSetQueueGuard,
 } from "./db-v7-restore";

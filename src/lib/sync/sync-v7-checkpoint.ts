@@ -8,7 +8,7 @@
  * represented by one bounded restore object instead of an unbounded event
  * tail.
  */
-import { dbV7, restoreV7Checkpoint, type V7RestoreState } from "../db/db-v7";
+import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7, type V7RestoreState } from "../db/db-v7";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head";
 import type {
@@ -452,13 +452,32 @@ function cloneState(state: V7RestoreState & { memberships?: BankQuestionMembersh
   };
 }
 
-/** Create a full checkpoint from the v7 namespace only. */
-export async function createSyncCheckpointV7(generatedAt = new Date().toISOString()): Promise<SyncCheckpointV7> {
-  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, changeSets] = await Promise.all([
+export interface SyncCheckpointSnapshotV7 {
+  checkpoint: SyncCheckpointV7;
+  /** Exact queue rows read by the same IndexedDB transaction as the projection. */
+  changeSets: ChangeSetQueueRecordV7[];
+}
+
+/** Create a full checkpoint and retain the exact queue rows it covered.
+ *
+ * Every projection table and change-set cursor is read from one readonly
+ * transaction.  A Promise.all over individual Dexie table calls is not a
+ * snapshot: a local write can commit between two requests and produce a
+ * checkpoint whose projection and cursor describe different moments.
+ */
+export async function createSyncCheckpointV7Snapshot(generatedAt = new Date().toISOString()): Promise<SyncCheckpointSnapshotV7> {
+  const tables = [
+    dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.imageAssets,
+    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns,
+    dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.tombstones, dbV7.changeSets,
+  ] as const;
+  const rows = await dbV7.transaction("r", tables, async () => Promise.all([
     dbV7.banks.toArray(), dbV7.bankFolders.toArray(), dbV7.questions.toArray(), dbV7.bankQuestionMemberships.toArray(), dbV7.imageAssets.toArray(),
     dbV7.attempts.toArray(), dbV7.attemptStats.toArray(), dbV7.attemptDailyStats.toArray(), dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.practiceRunStats.toArray(),
     dbV7.questionGroups.toArray(), dbV7.reviewRounds.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(), dbV7.changeSets.toArray(),
-  ]);
+  ]));
+  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, changeSets] = rows;
   // The local checkpoint is a projection, not an event log.  Cursors track the
   // pending change-set tail so concurrent devices can detect coverage.
   const state = cloneState({ banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones });
@@ -466,7 +485,12 @@ export async function createSyncCheckpointV7(generatedAt = new Date().toISOStrin
   for (const change of changeSets) cursors[change.deviceId] = Math.max(cursors[change.deviceId] ?? 0, change.localSequence);
   const checkpoint: SyncCheckpointV7 = { formatVersion: SYNC_V7_CHECKPOINT_FORMAT, generatedAt, state, cursors, counts: countsFor(state) };
   validateSyncCheckpointV7(checkpoint);
-  return checkpoint;
+  return { checkpoint, changeSets };
+}
+
+/** Create a full checkpoint from the v7 namespace only. */
+export async function createSyncCheckpointV7(generatedAt = new Date().toISOString()): Promise<SyncCheckpointV7> {
+  return (await createSyncCheckpointV7Snapshot(generatedAt)).checkpoint;
 }
 
 export const createV7Checkpoint = createSyncCheckpointV7;

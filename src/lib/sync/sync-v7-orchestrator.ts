@@ -1,5 +1,7 @@
 import {
   claimPendingChangeSetsV7,
+  blockChangeSetSnapshotV7,
+  commitChangeSetSnapshotV7,
   commitChangeSetClaimV7,
   dbV7,
   getV7DeviceId,
@@ -44,7 +46,8 @@ import {
   replayRemoteResilient,
   saveQueueBase,
 } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createSyncCheckpointV7, createSyncCheckpointV7Snapshot, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { withSyncLock } from "./sync-lock";
 import { createRemoteCheckpointV8, encodeSyncCheckpointV8, gcSyncV8HistoryRemote } from "./sync-v8-history";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
@@ -78,7 +81,8 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
   report(callback, "prepare", "正在初始化 v8 热窗口", 4, 6);
-  const localCheckpoint = await createSyncCheckpointV7();
+  const localSnapshot = await createSyncCheckpointV7Snapshot();
+  const localCheckpoint = localSnapshot.checkpoint;
   const checkpoint = await createRemoteCheckpointV8(client, localCheckpoint);
   const bytes = encodeSyncCheckpointV8(checkpoint);
   const digest = await sha256(bytes);
@@ -103,8 +107,8 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   // Local recovery cache remains a fully hydrated v7 projection; only the
   // remote immutable checkpoint is bounded format 8.
   await saveRemoteCache(settings, localCheckpoint, committed.cache);
-  const covered = await listChangeSetsV7(["pending", "blocked"]);
-  if (covered.length) await dbV7.changeSets.bulkPut(covered.map((record) => ({ ...record, state: "committed" as const, committedAt: now })));
+  const covered = localSnapshot.changeSets.filter((record) => record.state === "pending" || record.state === "blocked");
+  if (covered.length) await commitChangeSetSnapshotV7(covered, now);
   await saveQueueBase(await projectionFromCheckpoint(localCheckpoint));
   await saveInstalledHead(settings, installFingerprint(committed.cache));
   return committed.cache;
@@ -173,7 +177,11 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       }
       report(progress, "upload", `已上传 ${uploadedImageAssets.length} 个图片资产`, bandPercent(bands.upload!, 0.06), bandPercent(bands.upload!, 0.12));
     }
-    const localPending = await listChangeSetsV7(["pending"]);
+    // Keep a complete queue snapshot for the projection install guard.  A new
+    // local edit must either commit after the guarded install or make this
+    // attempt retry; otherwise restoreV7Checkpoint could erase its projection.
+    const queueSnapshot = await listChangeSetsV7();
+    const localPending = queueSnapshot.filter((record) => record.state === "pending");
     const blocked: ChangeSetQueueRecordV7[] = [];
     if (localPending.length) {
       const localEvery = Math.max(1, Math.floor(localPending.length / 12));
@@ -212,17 +220,28 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const needsInstall = projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
     if (needsInstall) {
       report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
-      await installProjection(rebasedProjection);
+      const installed = await installProjection(rebasedProjection, { queueGuard: queueSnapshot });
+      if (!installed) continue;
       report(progress, "merge", "本机数据已更新", bandPercent(bands.install, 1), bands.install[1]);
       installedHead = installFingerprint(read.cache);
       await saveInstalledHead(settings, installedHead);
       if (firstProjectionInstall || !downloaded.reusedCache) receivedSnapshot = downloaded.checkpoint.counts;
-      if (blocked.length) await dbV7.changeSets.bulkPut(blocked);
+      if (blocked.length) await blockChangeSetSnapshotV7(blocked);
       await dbV7.changeSets.bulkPut(unseen.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
       pulled += unseen.length;
     }
     if (!needsInstall && !unseen.length) report(progress, "merge", "远端与本机已一致，无需合并", bands.merge[1], bands.merge[1]);
-    const claim = await claimPendingChangeSetsV7();
+    // Rebase and the queue claim must describe the same digest.  A pending
+    // record edited while the projection was being rebuilt invalidates the
+    // in-memory projection; retry instead of publishing a stale queue base.
+    const currentPending = await listChangeSetsV7(["pending"]);
+    const pendingChanged = localPending.some((record) => currentPending.find((current) => current.id === record.id)?.digest !== record.digest);
+    if (pendingChanged) continue;
+    const claim = await claimPendingChangeSetsV7(localPending);
+    if (claim.records.length !== localPending.length) {
+      if (claim.records.length) await releaseChangeSetClaimV7(claim.claimId);
+      continue;
+    }
     if (!claim.records.length) {
       report(progress, "cache", "正在更新本机缓存", bandPercent(bands.cache, 0.4), bands.cache[1]);
       await saveHeadCache(settings, read.cache);
@@ -377,7 +396,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
 let syncInFlight: ReturnType<typeof syncWithGitHubInternal> | null = null;
 export async function syncWithGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
   if (syncInFlight) return syncInFlight;
-  syncInFlight = syncWithGitHubInternal(settings, token, callback, options);
+  syncInFlight = withSyncLock(() => syncWithGitHubInternal(settings, token, callback, options));
   try {
     return await syncInFlight;
   } finally {
@@ -386,37 +405,42 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
 }
 
 export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
-  const client = remote(settings, token, options?.fetch);
-  const read = await client.readHead();
-  if (!read.initialized) throw new Error("远端还没有 v8 数据。");
-  // B1: restore wipes the whole local change-set queue. Guard against silently
-  // discarding un-synced local edits — surface them so the caller can sync (or
-  // explicitly discard) before overwriting from remote.
-  const unsynced = await listChangeSetsV7(["pending", "blocked", "claimed"]);
-  if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复远程历史。`);
-  const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
-  const progress = monotonicProgress(callback);
-  report(progress, "download", "正在从远端抓取完整 v8 数据", bandPercent(bands.download, 0.02), bands.download[1]);
-  const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]));
-  const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]));
-  report(progress, "merge", `正在写入 ${projection.questions.length.toLocaleString("zh-CN")} 道题到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
-  await installProjection(projection);
-  report(progress, "cache", "正在重建本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
-  await dbV7.changeSets.clear();
-  await dbV7.changeSets.bulkPut(downloaded.changes.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
-  await saveHeadCache(settings, read.cache);
-  const checkpoint = await createSyncCheckpointV7();
-  await saveRemoteCache(settings, checkpoint, read.cache);
-  await saveQueueBase(projection);
-  await saveInstalledHead(settings, installFingerprint(read.cache));
-  await saveInstalledCursors(settings, read.head.cursors);
-  await pruneCommittedChangeSets(read.head.cursors);
-  report(callback, "complete", "v8 远端恢复完成", 100);
-  return { pulled: downloaded.changes.length, formatVersion: 8 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns };
+  return withSyncLock(async () => {
+    const client = remote(settings, token, options?.fetch);
+    const read = await client.readHead();
+    if (!read.initialized) throw new Error("远端还没有 v8 数据。");
+    // B1: restore wipes the whole local change-set queue. Guard against silently
+    // discarding un-synced local edits — surface them so the caller can sync (or
+    // explicitly discard) before overwriting from remote. The same exact
+    // snapshot is checked again in the install transaction for edits that arrive
+    // while the remote history is downloading.
+    const queueSnapshot = await listChangeSetsV7();
+    const unsynced = queueSnapshot.filter((record) => record.state === "pending" || record.state === "blocked" || record.state === "claimed");
+    if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复远程历史。`);
+    const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
+    const progress = monotonicProgress(callback);
+    report(progress, "download", "正在从远端抓取完整 v8 数据", bandPercent(bands.download, 0.02), bands.download[1]);
+    const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]));
+    const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]));
+    report(progress, "merge", `正在写入 ${projection.questions.length.toLocaleString("zh-CN")} 道题到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
+    const installed = await installProjection(projection, { queueGuard: queueSnapshot, clearChangeSets: true });
+    if (!installed) throw new Error("恢复期间检测到新的本地更改，请先同步或处理后再重试。");
+    report(progress, "cache", "正在重建本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
+    await dbV7.changeSets.bulkPut(downloaded.changes.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
+    await saveHeadCache(settings, read.cache);
+    const checkpoint = await createSyncCheckpointV7();
+    await saveRemoteCache(settings, checkpoint, read.cache);
+    await saveQueueBase(projection);
+    await saveInstalledHead(settings, installFingerprint(read.cache));
+    await saveInstalledCursors(settings, read.head.cursors);
+    await pruneCommittedChangeSets(read.head.cursors);
+    report(callback, "complete", "v8 远端恢复完成", 100);
+    return { pulled: downloaded.changes.length, formatVersion: 8 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns };
+  });
 }
 
 export const restoreFromGitHub = restoreFullHistoryFromGitHub;
 export const pullFromGitHub = async (settings: GitHubSettings, token: string, callback?: SyncProgressCallback) => syncWithGitHub(settings, token, callback);
-export const initializeGitHubVault = initialize;
+export const initializeGitHubVault = (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"]) => withSyncLock(() => initialize(settings, token, callback, fetchImpl));
 
 export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}) { await syncWithGitHub(settings, token); const rows = (await dbV7.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }
