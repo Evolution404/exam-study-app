@@ -1,0 +1,80 @@
+name: Deploy acceptance preview
+
+on:
+  push:
+    branches: [sync/v8-history-archive]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR3 stack
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build preview
+        run: CF_PAGES=1 npm run build
+
+      - name: Require Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing CLOUDFLARE_API_TOKEN' >&2; exit 2; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing CLOUDFLARE_ACCOUNT_ID' >&2; exit 2; }
+
+      - name: Ensure isolated Pages project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT_NAME: exam-study-app-acceptance
+        run: |
+          set -euo pipefail
+          npx wrangler@4 pages project list --json > /tmp/pages-projects.json
+          if ! node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync("/tmp/pages-projects.json","utf8")); process.exit(Array.isArray(v)&&v.some(x=>x.name===process.env.PROJECT_NAME)?0:1)'; then
+            npx wrangler@4 pages project create "$PROJECT_NAME" --production-branch "$GITHUB_REF_NAME"
+          fi
+
+      - name: Deploy isolated preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT_NAME: exam-study-app-acceptance
+        run: |
+          set -euo pipefail
+          npx wrangler@4 pages deploy dist \
+            --project-name "$PROJECT_NAME" \
+            --branch "$GITHUB_REF_NAME" \
+            --commit-hash "$GITHUB_SHA"
+          npx wrangler@4 pages deployment list \
+            --project-name "$PROJECT_NAME" \
+            --environment production \
+            --json > /tmp/pages-deployments.json
+          node <<'NODE'
+          const fs = require('fs');
+          const deployments = JSON.parse(fs.readFileSync('/tmp/pages-deployments.json', 'utf8'));
+          const latest = Array.isArray(deployments) ? deployments[0] : null;
+          const url = latest?.url || 'https://exam-study-app-acceptance.pages.dev';
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Acceptance preview\n\n${url}\n\nBranch: \`${process.env.GITHUB_REF_NAME}\`\n\nCommit: \`${process.env.GITHUB_SHA}\`\n`);
+          console.log(`ACCEPTANCE_PREVIEW_URL=${url}`);
+          NODE
