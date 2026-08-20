@@ -11,8 +11,10 @@ const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts"
 const hintSource = await readFile(new URL("../../src/app/ui/hint.tsx", import.meta.url), "utf8");
 const globalsCss = await readFile(new URL("../../src/app/globals.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+const syncApplication = await readFile(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
 
-assert.match(manager, /import type \{ ChangeSetMutationV7, ChangeSetV7 \} from "@\/lib\/sync\/change-set-v7"/, "UI consumes the immutable v7 type contract without owning persistence");
+assert.match(manager, /ChangeSetMutationV7,[\s\S]*ChangeSetV7,[\s\S]*from "@\/lib\/sync\/sync-application"/, "UI consumes change-set types only through the public sync application contract");
+assert.match(syncApplication, /from "\.\/change-set-v7"/, "sync application owns the v7 change-set implementation dependency");
 for (const state of ["pending", "claimed", "blocked", "committed"]) {
   assert.match(manager, new RegExp(`${state}:`), `manager presents ${state} state`);
 }
@@ -80,7 +82,7 @@ assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i ar
 assert.match(manager, /statusPanel\?: ReactNode;/, "manager offers a status panel slot below the toolbar");
 assert.match(drawer, /statusPanel=\{<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{syncedAt\} \/>/, "drawer feeds the shared panel through the status slot");
 assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\}/, "study-app passes hot window state to the drawer");
-assert.match(studyApp, /getSyncHotWindowState\(settings\)/, "drawer hot window state is loaded from the cached head");
+assert.match(studyApp, /syncApplication\.getHotWindow\(settings\)/, "drawer hot window state is loaded through the sync application boundary");
 // 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
 // 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
 const componentsCss = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
@@ -99,8 +101,8 @@ assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v7-d
 // 同步页状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：
 // 本页或外部快速同步把水位/新代数写入本地缓存后，live 查询自动重跑，无需
 // 轮询，也无需依赖 changeSets 队列（prune 保留近期 committed 记录，不是可靠信号）。
-assert.match(syncView, /const hotWindow = useLiveQuery\(\(\) => \(settings\.owner && settings\.repo \? getSyncHotWindowState\(settings\)/, "hot window panel is a live query over the local head cache");
-assert.match(syncView, /const lastCache = useLiveQuery\(\(\) => \(settings\.owner && settings\.repo \? getLastRemoteCache\(settings\)/, "last cache panel is a live query over the local checkpoint cache");
+assert.match(syncView, /const hotWindow = useLiveQuery\(\(\) => syncApplication\.getHotWindow\(settings\)/, "hot window panel is a live query through the application boundary");
+assert.match(syncView, /const lastCache = useLiveQuery\(\(\) => syncApplication\.getLastRemoteCache\(settings\)/, "last cache panel is a live query through the application boundary");
 assert.ok(!/setInterval/.test(syncView), "sync page refreshes reactively, not by polling");
 assert.ok(!/\.sync-hot-window\{[^}]*grid-template-columns:1fr/.test(componentsCss), "任何规则（含媒体查询）不得把热窗口覆盖回单列");
 assert.doesNotMatch(studyApp, /onCreateAction=/, "top drawer no longer hosts the removed '新建业务操作' button");
