@@ -22,7 +22,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/tools/fix-sync-boundary-source-tests.mjs
+      - name: Apply test migration when needed
+        run: |
+          if grep -q 'sync application owns the v7 change-set implementation dependency' scripts/tests/test-sync-event-ui.ts; then
+            echo 'sync boundary source tests already migrated'
+          else
+            node scripts/tools/fix-sync-boundary-source-tests.mjs
+          fi
       - run: npm run test:sync-event-ui
       - run: npm run test:v7-ui
       - run: npm run test:answer-ui
