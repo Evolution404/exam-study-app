@@ -17,6 +17,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 const configuredBaseUrl = process.env.PWA_BASE_URL?.trim();
 const baseUrl = (configuredBaseUrl || `http://127.0.0.1:${port}`).replace(/\/$/, "");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const viteCli = path.join(root, "node_modules", "vite", "bin", "vite.js");
 let previewServer;
 
 function wait(ms) {
@@ -70,7 +71,9 @@ async function buildIfNeeded() {
 
 async function runSmoke() {
   await buildIfNeeded();
-  previewServer = spawn(npm, ["run", "preview", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+  // Start Vite directly. Spawning it through `npm run preview` leaves the Vite
+  // grandchild alive on some Linux CI runners after the npm parent is killed.
+  previewServer = spawn(process.execPath, [viteCli, "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, BROWSER: "none", CF_PAGES: "1" },
