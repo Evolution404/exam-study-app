@@ -20,6 +20,7 @@ import {
 import {
   loadGitHubSettings,
   loadGitHubToken,
+  resolveDefaultGitHubApiBaseUrl,
   saveGitHubSettings,
   saveGitHubToken,
 } from "./github-credentials";
@@ -76,6 +77,10 @@ function queueItemFor(record: ChangeSetV7 & { state: SyncChangeSetState; blocked
 }
 
 class SyncApplication {
+  getDefaultApiBaseUrl(): string {
+    return resolveDefaultGitHubApiBaseUrl();
+  }
+
   getConnection(): SyncConnectionState {
     const settings = loadGitHubSettings();
     const token = loadGitHubToken();
@@ -92,7 +97,7 @@ class SyncApplication {
 
   async resolveConnection(settings = loadGitHubSettings(), token = loadGitHubToken()): Promise<{ settings: GitHubSettings; token: string }> {
     if (!settings.repo || !token) throw new Error("请先在配置页面填写 GitHub 令牌和仓库信息");
-    const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
+    const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token, settings.apiBaseUrl) };
     saveGitHubSettings(resolved);
     saveGitHubToken(token);
     return { settings: resolved, token };

@@ -69,8 +69,8 @@ docs/          # 项目文档
 
 ## 5. 代理与部署
 
-- Pages Function 同源代理：应用默认 `同步中转地址 = /api-github`，源码 `proxy/pages-function.js`，构建生成 `functions/api-github/[[path]].js`。
-- 独立 Worker 跨域代理：`proxy/worker.js`，域名 `sync.980923.xyz`，部署命令：
+- Pages Function 同源代理：Cloudflare Pages 默认 `同步中转地址 = /api-github`，源码 `proxy/pages-function.js`，构建生成 `functions/api-github/[[path]].js`。
+- 独立 Worker 跨域代理：GitHub Pages 默认 `同步中转地址 = https://sync.980923.xyz`，源码 `proxy/worker.js`，部署命令：
   `npx wrangler deploy --config proxy/wrangler.toml`。
 - 两个代理共用 `proxy/github-relay-common.js`，剥除头清单、上游地址、`redirect: manual` 和 `set-cookie` 处理必须保持一致。
 - GitHub Pages 只部署 `dist/`，不包含 Pages Function；Cloudflare Pages 部署 `dist/` + `functions/`。

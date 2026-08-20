@@ -20,8 +20,8 @@ import { uploadedDescriptor } from "./sync-v7-upload";
 import { installFingerprint } from "./sync-v7-watermark";
 import { withSyncLock } from "./sync-lock";
 
-export async function getGitHubLogin(token: string): Promise<string> {
-  const response = await fetch("https://api.github.com/user", { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
+export async function getGitHubLogin(token: string, apiBaseUrl = "https://api.github.com"): Promise<string> {
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/user`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
   if (!response.ok) throw new Error(`GitHub 请求失败（${response.status}）`);
   const value = await response.json() as { login?: unknown };
   if (typeof value.login !== "string" || !value.login) throw new Error("GitHub 未返回登录名。");

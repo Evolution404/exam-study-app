@@ -55,6 +55,7 @@ export const testGroups = {
     "test:sync-questiongroup-tombstone",
     "test:sync-restore-full-claimed-guard",
     "test:sync-bank-delete-run-tombstone",
+    "test:sync-data-races",
     "test:sync-claim-order",
     "test:sync-watermark-cache",
     "test:sync-compaction-plan-head",

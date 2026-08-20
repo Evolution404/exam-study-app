@@ -10,7 +10,7 @@
 - 浏览器 IndexedDB：当前设备的题库、作答、错题和解析。
 - 用户自己的私有 GitHub 仓库：跨设备同步事件。
 - GitHub 令牌：会持久保存在当前设备的浏览器本地存储中，直到你主动清除；不会写入题库或同步到远端资料库。
-- GitHub API 中继：默认使用部署站点同源的 `/api-github`，只把请求转发到 GitHub；如果改成自定义中转地址，请只使用自己信任的部署，因为中转服务会处理带令牌的请求。
+- GitHub API 中继：Cloudflare Pages 默认使用同源 `/api-github`；GitHub Pages 因不能运行 Function，默认使用配套的 `https://sync.980923.xyz` Worker。中继只允许同步所需的 GitHub API 路径与方法；如果改成自定义地址，请只使用自己信任的部署，因为中转服务会处理带令牌的请求。
 
 本仓库不允许提交真实题库文件。项目所有者的送电线路工题库位于私有 `exam-study-vault` 中。
 

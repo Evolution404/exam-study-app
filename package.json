@@ -93,6 +93,7 @@
     "test:sync-questiongroup-tombstone": "tsx scripts/tests/test-sync-questiongroup-tombstone.ts",
     "test:sync-restore-full-claimed-guard": "tsx scripts/tests/test-sync-restore-full-claimed-guard.ts",
     "test:sync-bank-delete-run-tombstone": "tsx scripts/tests/test-sync-bank-delete-run-tombstone.ts",
+    "test:sync-data-races": "tsx scripts/tests/test-sync-data-races.ts",
     "test:sync-bank-reorder-folder": "tsx scripts/tests/test-sync-bank-reorder-folder.ts",
     "test:sync-v7-gc": "tsx scripts/tests/test-sync-v7-gc.ts",
     "test:sync-v8-history": "tsx scripts/tests/test-sync-v8-history.ts"
@@ -117,7 +118,7 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-react": "6.1.0",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
@@ -129,9 +130,9 @@
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.11",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.59.3",
-    "vite": "8.0.13",
-    "xlsx": "^0.18.5"
+    "typescript-eslint": "8.67.0",
+    "vite": "8.2.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "type": "module"
 }
