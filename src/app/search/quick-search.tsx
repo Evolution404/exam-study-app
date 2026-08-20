@@ -9,6 +9,7 @@ import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, searchFieldsForQuestion, type SearchContentScope } from "@/app/search/search-matching";
 
 type QuestionType = QuestionTypeV7;
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
@@ -21,10 +22,11 @@ const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
 export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   banks: BankV7[];
   activeBankIds: string[];
-  onOpenSearch: (keyword: string, questionId?: string) => void;
+  onOpenSearch: (keyword: string, questionId?: string, contentScope?: SearchContentScope) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
+  const [contentScope, setContentScope] = useState<SearchContentScope>("all");
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,24 +41,34 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
 
   function openSearch(questionId?: string) {
     setOpen(false);
-    onOpenSearch(draft.trim(), questionId);
+    // Keep the all-fields path compatible with existing callers while still
+    // carrying a focused scope into the full search page.
+    if (contentScope === "all") onOpenSearch(draft.trim(), questionId);
+    else onOpenSearch(draft.trim(), questionId, contentScope);
   }
 
   return <div ref={boxRef} className={`searchbox ${open && draft.trim() ? "results-open" : ""}`}>
     <Hint label="搜索主页与高级筛选"><button className="search-page-trigger" aria-label="进入搜索主页" onClick={() => openSearch()}><Search size={17} /></button></Hint>
     <input aria-label="快速正则搜索题目、选项、标签或解析" value={draft} onFocus={() => { setOpen(true); }} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setDraft(""); setOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />
+    <select aria-label="快速搜索范围" className="quick-search-scope" value={contentScope} onChange={(event) => { setContentScope(event.currentTarget.value as SearchContentScope); setOpen(true); }}>{SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select>
     {draft && <button className="search-clear" aria-label="清除搜索" onClick={() => { setDraft(""); setOpen(false); }}><X size={15} /></button>}
-    <QuickSearchResults query={draft} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />
+    <QuickSearchResults enabled={open && Boolean(draft.trim())} query={draft} contentScope={contentScope} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />
   </div>;
 }
 
-function QuickSearchResults({ query, bankIds, onChoose, onViewAll }: { query: string; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
-  const normalizedQuery = query.trim();
+function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, onViewAll }: { enabled: boolean; query: string; contentScope: SearchContentScope; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 160);
+    return () => window.clearTimeout(timer);
+  }, [enabled, query]);
+  const normalizedQuery = debouncedQuery.trim();
   const bankKey = bankIds.join("|");
   // 题库只随题库范围变化查询一次；输入词不再触发 IndexedDB 查询/映射，
   // 避免数据量大时每次按键都做异步重查询干扰输入框光标。
   const data = useLiveQuery(async () => {
-    if (!bankIds.length) return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
+    if (!enabled || !bankIds.length || !normalizedQuery) return undefined;
     const [views, notes] = await Promise.all([
       listQuestionViewsForBanksV7(bankIds),
       dbV7.notes.toArray(),
@@ -67,26 +79,21 @@ function QuickSearchResults({ query, bankIds, onChoose, onViewAll }: { query: st
       return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
     });
     return { questions, notes: new Map(notes.map((note) => [note.questionId, note.content])) };
-  }, [bankKey]);
+  }, [bankKey, enabled]);
 
   // 输入词变化只做同步过滤，不触碰 IndexedDB。
   const results = useMemo(() => {
     if (!normalizedQuery || !bankIds.length) return { items: [] as ReturnType<typeof toQuestionViewModel>[], total: 0, error: "" };
-    let pattern: RegExp;
-    try { pattern = new RegExp(normalizedQuery, "i"); } catch { return { items: [], total: 0, error: "正则表达式格式不完整" }; }
+    const matcher = createSearchMatcher(normalizedQuery, "regex");
+    if (matcher.error) return { items: [], total: 0, error: matcher.error };
     const questions = data?.questions ?? [];
     const notesByQuestion = data?.notes ?? new Map<string, string>();
-    const matched = questions.filter((question) => [
-      question.stem,
-      ...question.options,
-      ...question.tags,
-      notesByQuestion.get(question.id) ?? "",
-    ].join("\n").match(pattern));
+    const matched = questions.filter((question) => matcher.matches(searchFieldsForQuestion(question, notesByQuestion.get(question.id) ?? "", contentScope)));
     const grouped = TYPE_ORDER.flatMap((type) => matched.filter((question) => question.type === type));
     return { items: grouped.slice(0, 8), total: grouped.length, error: "" };
-  }, [normalizedQuery, data, bankIds.length]);
+  }, [normalizedQuery, data, bankIds.length, contentScope]);
 
-  if (!normalizedQuery) return null;
+  if (!enabled || !normalizedQuery) return null;
   if (data === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   return <section className="search-results" aria-label="搜索结果">
     <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>

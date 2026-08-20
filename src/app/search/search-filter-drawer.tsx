@@ -6,6 +6,7 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/practice/progress-scope";
 import type { BankV7 } from "@/lib/db/v7-types";
+import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope } from "@/app/search/search-matching";
 
 export type SearchBankScope = "current" | "all" | "custom";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
@@ -15,6 +16,7 @@ export interface SearchFilters {
   bankScope: SearchBankScope;
   customBankIds: string[];
   keywordMode: "plain" | "regex";
+  contentScope: SearchContentScope;
   status: SearchStatus;
   tag: string;
   noteFilter: SearchNoteFilter;
@@ -29,11 +31,12 @@ export interface SearchFilters {
   lastTo: string;
 }
 
-export function createDefaultSearchFilters(currentBankIds: readonly string[]): SearchFilters {
+export function createDefaultSearchFilters(currentBankIds: readonly string[], contentScope: SearchContentScope = "all"): SearchFilters {
   return {
     bankScope: currentBankIds.length ? "current" : "all",
     customBankIds: [],
     keywordMode: "regex",
+    contentScope,
     status: "all",
     tag: "all",
     noteFilter: "all",
@@ -67,6 +70,7 @@ export function countActiveSearchFilters(filters: SearchFilters): number {
   return [
     filters.bankScope !== "current",
     filters.keywordMode !== "regex",
+    filters.contentScope !== "all",
     filters.status !== "all",
     filters.tag !== "all",
     filters.noteFilter !== "all",
@@ -180,6 +184,9 @@ export function SearchFilterDrawer({
 
             <section className="search-filter-section">
               <h3>内容匹配</h3>
+              <div className="search-filter-segments search-content-scope-segments" role="radiogroup" aria-label="搜索内容范围">
+                {SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <button key={value} role="radio" aria-checked={filters.contentScope === value} className={filters.contentScope === value ? "active" : ""} onClick={() => patch({ contentScope: value })}>{label}</button>)}
+              </div>
               <div className="search-filter-segments" role="radiogroup" aria-label="关键词方式">
                 <button role="radio" aria-checked={filters.keywordMode === "regex"} className={filters.keywordMode === "regex" ? "active" : ""} onClick={() => patch({ keywordMode: "regex" })}>正则表达式</button>
                 <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>

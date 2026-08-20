@@ -9,6 +9,7 @@ import { syncRuntime } from "@/lib/sync/sync-runtime";
 import { calendarDate, statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
+import type { SearchContentScope } from "@/app/search/search-matching";
 import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
 import { QuickSearch } from "@/app/search/quick-search";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
@@ -28,6 +29,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [searchContentScope, setSearchContentScope] = useState<SearchContentScope>("all");
   const [searchQuestionId, setSearchQuestionId] = useState<string>();
   const [searchRevision, setSearchRevision] = useState(0);
   const [groupQuestionIds, setGroupQuestionIds] = useState<string[]>([]);
@@ -102,6 +104,7 @@ export function AppShell() {
     setSidebarOpen(false);
     setNotice("");
     setQuery("");
+    setSearchContentScope("all");
     setSearchQuestionId(undefined);
     setSearchRevision((revision) => revision + 1);
     setGroupQuestionIds([]);
@@ -651,7 +654,7 @@ export function AppShell() {
     setView("practice");
   }
 
-  function openSearch(questionId?: string, keyword?: string) {
+  function openSearch(questionId?: string, keyword?: string, contentScope: SearchContentScope = "all") {
     const kw = (keyword ?? query).trim();
     if (kw) {
       try {
@@ -661,6 +664,7 @@ export function AppShell() {
       } catch { localStorage.setItem("study-search-history", JSON.stringify([kw])); }
     }
     setSearchQuestionId(questionId);
+    setSearchContentScope(contentScope);
     setSearchRevision((revision) => revision + 1);
     setView("search");
   }
@@ -815,7 +819,7 @@ export function AppShell() {
       <section ref={workspaceRef} className={`workspace ${view === "search" ? "view-search" : ""}`}>
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId) => { setQuery(keyword); openSearch(questionId, keyword); }} />
+          <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId, contentScope) => { setQuery(keyword); openSearch(questionId, keyword, contentScope); }} />
           <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
         </header>
 
@@ -831,7 +835,7 @@ export function AppShell() {
           {view === "relations" && <KnowledgeView initialQuestionIds={groupQuestionIds} onStartTag={(tag) => { const bankIds = banks.map((bank) => bank.id); const filter = { ...quickFilter(bankIds, "sequential", preferences.groupSize, preferences.progressScope), mode: "tag" as const, tags: [tag] }; void startPractice(filter); }} onStartQuestions={(questions, label) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions })} onNotice={setNotice} />}
           {view === "preferences" && <PreferencesView preferences={preferences} rounds={reviewRounds} banks={banks} pendingSync={stats.pending} onNotice={setNotice} onChange={updatePreferences} onRestored={handleRestoreSuccess} />}
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
-          {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} progressScope={preferences.progressScope} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
+          {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={banks} currentBankIds={activeBankIds} initialContentScope={searchContentScope} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} progressScope={preferences.progressScope} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label, previousOptionOrders) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions }, undefined, previousOptionOrders)} onNotice={setNotice} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} progressScope={preferences.progressScope} scopeLabel={selectedScopeLabel} />}
           {view === "practice" && practiceSession && activeQuestion && (
             <Practice key={activeQuestion.id} runId={practiceSession.runId} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onExit={() => { setPracticeSession(null); setView("home"); }} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />

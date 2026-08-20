@@ -1259,6 +1259,18 @@ async function runSearchBatch(page) {
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“巡视”找到 \d+ 道题/);
   await capture(page, contextName, "search-results");
+  // 内容范围必须真正限制匹配字段：该词只在第二题选项中出现，题干范围不得命中。
+  await page.getByLabel("搜索题库").fill("按规程");
+  await page.getByLabel("搜索内容范围").selectOption("options");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“按规程”找到 1 道题/);
+  await page.getByLabel("搜索内容范围").selectOption("stem");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“按规程”找到 0 道题/);
+  await page.getByLabel("搜索内容范围").selectOption("all");
+  await page.getByLabel("搜索题库").fill("巡视");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expectText(page, /“巡视”找到 \d+ 道题/);
   // 吸附几何：搜索框钉顶、批量栏紧贴、全局顶栏滚走（桌面）。
   // 导入加长题库 + 清空关键词做条件搜索，让列表足够长以保证真正吸顶。
   await page.locator('input[type="file"]').first().setInputFiles(bigFixtureFile);

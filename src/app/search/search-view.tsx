@@ -25,6 +25,7 @@ import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from
 import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, searchFieldsForQuestion, type SearchContentScope } from "@/app/search/search-matching";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -98,6 +99,7 @@ export function SearchView({
   onQueryChange,
   banks,
   currentBankIds,
+  initialContentScope = "all",
   focusQuestionId,
   onFocusHandled,
   wrongRemovalStreak,
@@ -111,6 +113,7 @@ export function SearchView({
   onQueryChange: (query: string) => void;
   banks: Bank[];
   currentBankIds: string[];
+  initialContentScope?: SearchContentScope;
   focusQuestionId?: string;
   onFocusHandled: () => void;
   wrongRemovalStreak: number;
@@ -120,7 +123,7 @@ export function SearchView({
   onGroup: (questionIds: string[]) => void;
   onNotice: (message: string) => void;
 }) {
-  const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds));
+  const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds, initialContentScope));
   const pageRef = useRef<HTMLDivElement>(null);
 
   // 吸附两阶段状态（JS 给 .search-page 加状态类，CSS 过渡接管视觉）：
@@ -167,6 +170,12 @@ export function SearchView({
   }, [detailQuestionId]);
   const [batchTag, setBatchTag] = useState("");
   const [history, setHistory] = useState(loadSearchHistory);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 160);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
@@ -191,13 +200,12 @@ export function SearchView({
     const attemptStats = data?.attemptStats ?? [];
     const notes = data?.notes ?? [];
     const roundProgress = data?.roundProgress ?? [];
-    const normalized = query.trim().toLocaleLowerCase("zh-CN");
-    let pattern: RegExp | null = null;
-    if (normalized && activeFilters.keywordMode === "regex") {
-      try { pattern = new RegExp(query.trim(), "i"); } catch { return { entries: [], counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: "正则表达式格式不正确", scopedMetricByQuestion, normalizedScope }; }
-    }
+    const matcher = createSearchMatcher(debouncedQuery, activeFilters.keywordMode);
+    if (matcher.error) return { entries: [], counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: matcher.error, scopedMetricByQuestion, normalizedScope };
+    const normalized = matcher.query.toLocaleLowerCase("zh-CN");
     const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
     const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, stats]));
+    const scopedLegacyByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, scopedStatsToLegacyAttemptStats(stats)]));
     const minDifficulty = numberOrNull(activeFilters.difficultyMin);
     const maxDifficulty = numberOrNull(activeFilters.difficultyMax);
     const minAttempts = numberOrNull(activeFilters.attemptsMin);
@@ -211,13 +219,12 @@ export function SearchView({
       const metric = scopedMetricByQuestion.get(question.id) ?? summarizeAttemptStats(stats);
       const latest = summarizeAttemptStats(stats).latest;
       const note = notesByQuestion.get(question.id) ?? "";
-      const searchable = [question.stem, ...question.options, ...question.tags, note].join("\n");
       // An empty keyword is allowed: search by conditions only.
-      const keywordMatches = !normalized || (pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(normalized));
+      const keywordMatches = !normalized || matcher.matches(searchFieldsForQuestion(question, note, activeFilters.contentScope));
       if (!keywordMatches) return [];
       if (activeFilters.tag !== "all" && !question.tags.includes(activeFilters.tag)) return [];
       if (activeFilters.status === "unanswered" && isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)) return [];
-      if (activeFilters.status === "wrong" && !statsNeedWrongReview(stats, wrongRemovalStreak)) return [];
+      if (activeFilters.status === "wrong" && !statsNeedWrongReview(scopedLegacyByQuestion.get(question.id), wrongRemovalStreak)) return [];
       if (activeFilters.status === "favorite" && !question.favorite) return [];
       if (activeFilters.noteFilter === "with" && !note.trim()) return [];
       if (activeFilters.noteFilter === "without" && note.trim()) return [];
@@ -269,11 +276,14 @@ export function SearchView({
   }
 
   function triggerSearch() {
-    const validationError = searchFilterValidationError(filters) || result.error;
+    const validationError = searchFilterValidationError(filters) || createSearchMatcher(query, filters.keywordMode).error || result.error;
     if (validationError) {
       onNotice(validationError);
       return;
     }
+    // Enter/click is an explicit search action, so bypass the typing debounce
+    // and make the just-submitted query visible in the same render cycle.
+    setDebouncedQuery(query);
     if (filters.bankScope === "custom" && !filters.customBankIds.length) {
       onNotice("请至少选择一个指定题库");
       return;
@@ -305,6 +315,7 @@ export function SearchView({
     filters.bankScope === "current" ? "已选题库" : filters.bankScope === "all" ? "全部题库" : `指定题库 · ${filters.customBankIds.length} 个`,
     filters.status === "unanswered" ? "未做" : filters.status === "wrong" ? "错题" : filters.status === "favorite" ? "收藏" : "",
     filters.keywordMode === "regex" ? "正则表达式" : "",
+    filters.contentScope !== "all" ? `范围：${SEARCH_CONTENT_SCOPE_OPTIONS.find((option) => option.value === filters.contentScope)?.label ?? "全部"}` : "",
     filters.tag !== "all" ? `标签：${filters.tag}` : "",
     filters.noteFilter === "with" ? "已有解析" : filters.noteFilter === "without" ? "没有解析" : "",
     filters.progressScopeOverride ? `统计：${scopeLabelFor(filters.progressScopeOverride)}` : "",
@@ -312,7 +323,7 @@ export function SearchView({
 
   return <div className="search-page" ref={pageRef}>
     <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认正则表达式，也可以组合题库、学习状态、标签、难度和日期进行筛选。"}</p></div></div>
-    <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") triggerSearch(); }} placeholder={filters.keywordMode === "regex" ? "正则示例：弧垂|导线" : "输入题干、选项、标签或个人解析"} /><div className="search-query-actions"><button aria-label="搜索" className="search-trigger-button" onClick={triggerSearch}><Search size={16} /><span className="search-action-label">搜索</span></button><button aria-label={activeFilterCount ? `筛选，已设置 ${activeFilterCount} 项` : "筛选"} className={`search-filter-toggle ${activeFilterCount ? "active" : ""}`} onClick={openFilters}><Filter size={16} /><span className="search-action-label">筛选</span>{activeFilterCount > 0 && <span className="search-filter-count">{activeFilterCount}</span>}</button></div></section>
+    <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") triggerSearch(); }} placeholder={filters.keywordMode === "regex" ? "正则示例：弧垂|导线" : "输入题干、选项、解析"} /><select aria-label="搜索内容范围" className="search-content-scope" value={filters.contentScope} onChange={(event) => updateFilters({ ...filters, contentScope: event.currentTarget.value as SearchContentScope })}>{SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select><div className="search-query-actions"><button aria-label="搜索" className="search-trigger-button" onClick={triggerSearch}><Search size={16} /><span className="search-action-label">搜索</span></button><button aria-label={activeFilterCount ? `筛选，已设置 ${activeFilterCount} 项` : "筛选"} className={`search-filter-toggle ${activeFilterCount ? "active" : ""}`} onClick={openFilters}><Filter size={16} /><span className="search-action-label">筛选</span>{activeFilterCount > 0 && <span className="search-filter-count">{activeFilterCount}</span>}</button></div></section>
     <div className="search-filter-chips" aria-label="当前筛选条件">{filterChips.map((chip) => <span key={chip}>{chip}</span>)}</div>
     {showResults && <section className="search-toolbar"><div className="search-type-tabs">{(["全部", ...TYPE_ORDER] as TypeTab[]).map((type) => <button key={type} className={typeTab === type ? "active" : ""} onClick={() => { setTypeTab(type); setVisibleCount(50); }}>{type}<span>{type === "全部" ? totalCount : result.counts[type]}</span></button>)}</div></section>}
     {!showResults ? <section className="search-empty-page"><Search size={28} /><h2>输入关键词或按条件搜索</h2><p>支持正则表达式和普通关键词；也可以不输入关键词，设置条件后点击“搜索”。搜索只读取本地题库。</p>{history.length > 0 && <div className="search-history"><header><span><History size={15} />最近搜索</span><button onClick={clearHistory}>清除</button></header><div>{history.map((item) => <button key={item} onClick={() => onQueryChange(item)}>{item}</button>)}</div></div>}</section> : data === undefined ? <div className="search-loading"><LoaderCircle className="spin" />正在读取本地题库…</div> : result.error ? <div className="search-no-result"><CircleAlert /><h2>{result.error}</h2></div> : result.entries.length ? <>
