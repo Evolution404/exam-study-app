@@ -37,7 +37,7 @@ const RAW_MEDIA = "application/vnd.github.raw+json";
 // Expose etag so client JS can read the head version header.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS",
   "Access-Control-Allow-Headers": "authorization,content-type,accept,x-github-api-version,if-none-match",
   "Access-Control-Expose-Headers": "etag,x-ratelimit-limit,x-ratelimit-remaining",
   "Access-Control-Max-Age": "86400",
@@ -187,7 +187,17 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             return sendJson(res, 500, { message: "transient mock GET failure" });
           }
           const sha = paths.get(storageKey);
-          if (!sha) return sendJson(res, 404, { message: "Not Found" });
+          if (!sha) {
+            const prefix = storageKey + "/";
+            const entries = [...paths.entries()]
+              .filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes("/"))
+              .map(([key, childSha]) => {
+                const childPath = key.replace(/^[^/]+\/[^/]+\//, "");
+                return { name: childPath.split("/").pop(), path: childPath, sha: childSha, type: "file", size: blobs.get(childSha)?.length ?? 0 };
+              });
+            if (entries.length) return sendJson(res, 200, entries);
+            return sendJson(res, 404, { message: "Not Found" });
+          }
           // Conditional GET: honor If-None-Match against the current etag (CAS mode).
           if (cas) {
             const inm = req.headers["if-none-match"];
@@ -202,6 +212,15 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             size: buffer.length,
             name: logicalPath.split("/").pop(),
           }, { etag: `"${sha}"` });
+        }
+
+        if (req.method === "DELETE") {
+          const currentSha = paths.get(storageKey);
+          if (!currentSha) return sendJson(res, 404, { message: "Not Found" });
+          const body = JSON.parse((await readBody(req)).toString("utf8"));
+          if (typeof body.sha !== "string" || body.sha !== currentSha) return sendJson(res, 409, { message: "Conflict" });
+          paths.delete(storageKey);
+          return sendJson(res, 200, { commit: { sha: randomBytes(20).toString("hex") }, content: null });
         }
 
         if (req.method === "PUT") {

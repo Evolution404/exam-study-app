@@ -34,6 +34,7 @@ import {
   saveRemoteCache,
 } from "./sync-v7-cache";
 import { maybeCoalesceHotWindow } from "./sync-v7-coalesce";
+import { gcSyncV7Remote } from "./sync-v7-gc";
 import { downloadRemoteV7 } from "./sync-v7-download";
 import {
   checkpointFromProjection,
@@ -334,6 +335,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
       await saveInstalledHead(settings, installFingerprint(committed.cache));
       await saveInstalledCursors(settings, nextHead.cursors);
+      // The head CAS is durable before any deletion. Sweep only files unreachable
+      // from the current/previous head; failures are maintenance-only.
+      try { await gcSyncV7Remote(client, read.head, committed.cache, { checkpointChanged: compaction.required }); } catch { /* best-effort */ }
       // The push is already durable. Coalescing is a best-effort maintenance write
       // (re-packs many small segments into fewer); isolate its failures so a
       // transient error never reverts the committed change-sets above.
