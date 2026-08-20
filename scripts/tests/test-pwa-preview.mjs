@@ -35,15 +35,11 @@ function probePreview(url) {
   });
 }
 
-async function waitForPreview(url, child, readyRef) {
+async function waitForPreview(url, child) {
   const deadline = Date.now() + 30_000;
   let lastError;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`Vite preview exited before becoming ready (code ${child.exitCode ?? "signal"})`);
-    if (!readyRef.value) {
-      await wait(100);
-      continue;
-    }
     try {
       // Use Node's direct HTTP client instead of fetch. Some CI runners expose
       // proxy variables that can make loopback fetches return the proxy's 4xx
@@ -74,7 +70,6 @@ async function buildIfNeeded() {
 
 async function runSmoke() {
   await buildIfNeeded();
-  const ready = { value: false };
   previewServer = spawn(npm, ["run", "preview", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
@@ -82,11 +77,10 @@ async function runSmoke() {
   });
   previewServer.stdout?.on("data", (chunk) => {
     const text = chunk.toString();
-    if (/Local:\s/.test(text)) ready.value = true;
     process.stdout.write(`[vite-preview] ${text}`);
   });
   previewServer.stderr?.on("data", (chunk) => process.stderr.write(`[vite-preview] ${chunk}`));
-  await waitForPreview(`${baseUrl}/`, previewServer, ready);
+  await waitForPreview(`${baseUrl}/`, previewServer);
 
   const browser = await chromium.launch({
     executablePath: resolveChromeExecutable(),
