@@ -17,7 +17,7 @@ patch("src/lib/sync/sync-application.ts", [
   ],
   [
     `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n`,
-    `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n\n  getImageCacheStats() {\n    return getImageCacheStatsInternal();\n  }\n\n  clearImageCache(): Promise<void> {\n    return clearImageCacheInternal();\n  }\n\n  async downloadImageAsset(assetId: string): Promise<void> {\n    const { settings, token } = await this.resolveConnection();\n    await downloadImageAssetInternal(settings, token, assetId);\n  }\n\n  async downloadAllImageAssets(): Promise<number> {\n    const { settings, token } = await this.resolveConnection();\n    return downloadAllImageAssetsInternal(settings, token);\n  }\n`,
+    `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n\n  getImageCacheStats() {\n    return getImageCacheStatsInternal();\n  }\n\n  clearImageCache() {\n    return clearImageCacheInternal();\n  }\n\n  async downloadImageAsset(assetId: string): Promise<void> {\n    const { settings, token } = await this.resolveConnection();\n    await downloadImageAssetInternal(settings, token, assetId);\n  }\n\n  async downloadAllImageAssets(): Promise<number> {\n    const { settings, token } = await this.resolveConnection();\n    return downloadAllImageAssetsInternal(settings, token);\n  }\n`,
     "image facade methods",
   ],
 ]);
