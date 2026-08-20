@@ -1,0 +1,3 @@
+https://acceptance-v8.exam-study-app.pages.dev
+commit=4be880ff0ffbcc8a91c97a358528419639f7a810
+branch=acceptance-v8

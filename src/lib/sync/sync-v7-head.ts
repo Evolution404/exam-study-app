@@ -11,6 +11,8 @@ export const SYNC_V7_FORMAT_VERSION = 7 as const;
 export const SYNC_V7_HEAD_PATH = "sync/v7/head.json";
 export const SYNC_V7_CHECKPOINT_PREFIX = "sync/v7/checkpoints/";
 export const SYNC_V7_OBJECT_PREFIX = "sync/v7/objects/";
+/** v8 bounded-checkpoint history objects use a dedicated GC-safe namespace. */
+export const SYNC_V8_HISTORY_PREFIX = "sync/v8/history/";
 export const SYNC_V7_SEGMENT_PREFIX = "sync/v7/segments/";
 export const SYNC_V7_ASSET_PREFIX = "sync/v7/assets/";
 /** Naming aliases used by callers that call segments “hot segments”. */
@@ -164,7 +166,7 @@ export interface SyncV7ReplaySegment<T = unknown> {
   metadata?: SyncV7SegmentMetadata;
 }
 
-export type SyncV7DescriptorKind = "checkpoint" | "object" | "segment" | "asset";
+export type SyncV7DescriptorKind = "checkpoint" | "object" | "segment" | "asset" | "history";
 
 export interface SyncV7PublicationFile {
   path: string;
@@ -282,6 +284,7 @@ export function assertSyncV7Path(value: unknown, kind: SyncV7DescriptorKind | "h
   if (value === SYNC_V7_HEAD_PATH) fail("head.json is mutable and cannot be an immutable descriptor");
   if (kind === "checkpoint" && !hashPath(value, SYNC_V7_CHECKPOINT_PREFIX)) fail(`checkpoint path must be ${SYNC_V7_CHECKPOINT_PREFIX}<sha256>.json`);
   if (kind === "object" && !hashPath(value, SYNC_V7_OBJECT_PREFIX)) fail(`object path must be ${SYNC_V7_OBJECT_PREFIX}<sha256>.json`);
+  if (kind === "history" && !hashPath(value, SYNC_V8_HISTORY_PREFIX)) fail(`history path must be ${SYNC_V8_HISTORY_PREFIX}<sha256>.json`);
   if (kind === "segment" && !hashPath(value, SYNC_V7_SEGMENT_PREFIX)) fail(`segment path must be ${SYNC_V7_SEGMENT_PREFIX}<sha256>.json`);
   if (kind === "asset" && !hashPath(value, SYNC_V7_ASSET_PREFIX, "webp|jpg|jpeg|png|bin")) fail(`asset path must be ${SYNC_V7_ASSET_PREFIX}<sha256>.<ext>`);
 }

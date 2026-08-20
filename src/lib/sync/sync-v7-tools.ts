@@ -5,7 +5,8 @@ import { assertChangeSetProjectionV7, type ChangeSetProjectionV7 } from "./chang
 import { cursorsFor, descriptorPath, remote, report, sha256, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-v7-context";
 import { loadHeadCache, loadRemoteCache, saveHeadCache, saveInstalledCursors, saveInstalledHead } from "./sync-v7-cache";
 import { checkpointFromProjection, projectionFromCheckpoint, replayRemoteResilient, saveQueueBase } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createRemoteCheckpointV8, decodeRemoteCheckpoint, encodeSyncCheckpointV8, gcSyncV8HistoryRemote } from "./sync-v8-history";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
   SYNC_V7_MAX_HOT_BYTES,
@@ -147,7 +148,8 @@ export async function migrateVaultToCompressed(settings: GitHubSettings, token: 
 
     // ---- Phase 1: read-only verification ----------------------------------
     onProgress?.(`验证检查点（${(head.checkpoint.size / 1024).toFixed(0)} KiB）`);
-    const checkpoint = parseSyncCheckpointV7(await client.readBlob(head.checkpoint));
+    const decodedCheckpoint = await decodeRemoteCheckpoint(client, await client.readBlob(head.checkpoint));
+    const checkpoint = decodedCheckpoint.checkpoint;
     const ordered = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal);
     const changes: ChangeSetV7[] = [];
     for (const descriptor of ordered) {
@@ -189,8 +191,9 @@ export async function migrateVaultToCompressed(settings: GitHubSettings, token: 
     const compacted = { ...replayed.projection, tombstones: [] as ChangeSetProjectionV7["tombstones"] };
     const generation = head.generation + 1;
     const nextCursors = { ...head.cursors, ...cursorsFor(changes) };
-    const newCheckpoint = await checkpointFromProjection(compacted, nextCursors);
-    const bytes = encodeSyncCheckpointV7(newCheckpoint);
+    const fullCheckpoint = await checkpointFromProjection(compacted, nextCursors);
+    const newCheckpoint = await createRemoteCheckpointV8(client, fullCheckpoint);
+    const bytes = encodeSyncCheckpointV8(newCheckpoint);
     const digest = await sha256(bytes);
     const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
     onProgress?.(`上传压缩检查点（逻辑 ${(bytes.byteLength / 1024).toFixed(0)} KiB）`);
@@ -204,6 +207,7 @@ export async function migrateVaultToCompressed(settings: GitHubSettings, token: 
     // 发布后复核：重读新检查点对象，确认 digest 与逻辑字节一致。
     const verifyBytes = await client.readBlob({ ...uploaded, generation });
     if (verifyBytes.byteLength !== bytes.byteLength || await sha256(verifyBytes) !== digest) throw new Error("迁移后复核失败：新检查点读回不一致。");
+    try { await gcSyncV8HistoryRemote(client, head, published.cache); } catch { /* best-effort */ }
     return { migrated: true, verified: true, droppedTombstones, hotEvents: changes.length, bytesBefore, bytesAfter: bytes.byteLength };
   }
   throw new Error("远端持续发生并发更新，迁移未执行（远端数据未损坏）。");

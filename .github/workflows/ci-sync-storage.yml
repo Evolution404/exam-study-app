@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  v7-storage:
+  storage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -19,3 +19,4 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:sync-v7-protocol
       - run: npx tsx scripts/tests/test-sync-v7-gc.ts
+      - run: npx tsx scripts/tests/test-sync-v8-history.ts

@@ -5,6 +5,7 @@ import {
   SYNC_V7_MAX_SEGMENT_BYTES,
   SYNC_V7_OBJECT_PREFIX,
   SYNC_V7_SEGMENT_PREFIX,
+  SYNC_V8_HISTORY_PREFIX,
   SYNC_V7_HEAD_PATH,
   assertSyncV7Path,
   validateSyncHeadV7,
@@ -336,8 +337,8 @@ export class GitHubV7Remote {
   }
 
   /** List immutable files in a bounded v7 maintenance namespace. */
-  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX): Promise<SyncV7RemoteEntry[]> {
-    const kind: SyncV7DescriptorKind = prefix === SYNC_V7_CHECKPOINT_PREFIX ? "checkpoint" : "segment";
+  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX | typeof SYNC_V8_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
+    const kind: SyncV7DescriptorKind = prefix === SYNC_V7_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_V7_SEGMENT_PREFIX ? "segment" : "history";
     const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
     const response = await this.request(withRef(contentPath(this.owner, this.repo, directory), this.branch));
     if (response.status === 404) return [];
@@ -361,7 +362,7 @@ export class GitHubV7Remote {
   /** Delete an immutable path only when its Git blob SHA still matches. */
   async deleteImmutablePath(path: string, blobSha: string): Promise<boolean> {
     const kind = inferKind(path);
-    if (kind !== "checkpoint" && kind !== "segment" && kind !== "object") throw new TypeError("v7 GC cannot delete assets");
+    if (kind !== "checkpoint" && kind !== "segment" && kind !== "object" && kind !== "history") throw new TypeError("sync GC cannot delete assets");
     assertSyncV7Path(path, kind);
     assertSha1(blobSha, "immutable delete blobSha");
     const response = await this.request(contentPath(this.owner, this.repo, path), {
@@ -552,6 +553,7 @@ function inferKind(path: string): SyncV7DescriptorKind {
   if (path.startsWith(SYNC_V7_ASSET_PREFIX)) return "asset";
   if (path.startsWith(SYNC_V7_CHECKPOINT_PREFIX)) return "checkpoint";
   if (path.startsWith(SYNC_V7_OBJECT_PREFIX)) return "object";
+  if (path.startsWith(SYNC_V8_HISTORY_PREFIX)) return "history";
   if (path.startsWith(SYNC_V7_SEGMENT_PREFIX)) return "segment";
   throw new TypeError("immutable v7 path must be in a known namespace");
 }
