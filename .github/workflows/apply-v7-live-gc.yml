@@ -3,13 +3,15 @@ name: Apply v7 live GC
 on:
   push:
     branches: [sync/v7-live-gc]
+  pull_request:
+    branches: [refactor/sync-ui-boundary]
 
 permissions:
   contents: write
 
 jobs:
   migrate:
-    if: ${{ !contains(github.event.head_commit.message, '[v7-gc-generated]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[v7-gc-generated]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -29,6 +31,7 @@ jobs:
           fi
       - run: npm run typecheck
       - run: npm run test:sync-v7-protocol
+      - run: npx tsx scripts/tests/test-sync-v7-gc.ts
       - name: Commit generated GC integration
         run: |
           git config user.name github-actions[bot]
