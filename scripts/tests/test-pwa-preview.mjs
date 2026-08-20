@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -21,6 +23,18 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function probePreview(url) {
+  return new Promise((resolve, reject) => {
+    const transport = url.startsWith("https:") ? https : http;
+    const request = transport.get(url, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode ?? 0));
+    });
+    request.setTimeout(2_000, () => request.destroy(new Error("preview probe timed out")));
+    request.once("error", reject);
+  });
+}
+
 async function waitForPreview(url, child, readyRef) {
   const deadline = Date.now() + 30_000;
   let lastError;
@@ -31,8 +45,12 @@ async function waitForPreview(url, child, readyRef) {
       continue;
     }
     try {
-      const response = await fetch(url);
-      if (response.ok) return;
+      // Use Node's direct HTTP client instead of fetch. Some CI runners expose
+      // proxy variables that can make loopback fetches return the proxy's 4xx
+      // response even though the preview process is healthy.
+      const status = await probePreview(url);
+      if (status >= 200 && status < 400) return;
+      lastError = new Error(`preview returned HTTP ${status}`);
     } catch (error) {
       lastError = error;
     }
