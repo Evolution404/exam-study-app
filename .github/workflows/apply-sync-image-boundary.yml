@@ -29,6 +29,8 @@ jobs:
           else
             node scripts/tools/apply-sync-image-boundary.mjs
           fi
+      - name: Report direct sync implementation imports
+        run: grep -R -n -E '@/lib/sync/(github-sync|github-credentials|github-v7-remote|sync-v7-)' src/app || true
       - run: npm run typecheck
       - run: npm run test:architecture
       - name: Commit generated boundary changes
