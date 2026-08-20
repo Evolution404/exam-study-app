@@ -37,7 +37,7 @@ try {
   }
 
   const [c0, c1, c2] = await Promise.all([checkpoint("checkpoint-0", 0), checkpoint("checkpoint-1", 1), checkpoint("checkpoint-2", 2)]);
-  const [s0, s1, s2, s3] = await Promise.all([segment("segment-0", 0), segment("segment-1", 1), segment("segment-2", 2), segment("segment-3", 3)]);
+  const [s0, s1, s2, orphan] = await Promise.all([segment("segment-0", 0), segment("segment-1", 1), segment("segment-2", 2), segment("orphan", 99)]);
 
   const head = (generation: number, checkpointDescriptor: SyncV7Descriptor, segments: SyncV7SegmentDescriptor[]): SyncHeadV7 => ({
     formatVersion: 7,
@@ -67,12 +67,17 @@ try {
 
   const firstGc = await gcSyncV7Remote(client, h1, p2.cache, { checkpointChanged: true });
   assert.equal(firstGc.checkpointsDeleted, 1, "checkpoint compaction should prune generations older than current + previous");
-  assert.equal(firstGc.segmentsDeleted, 2, "segments unreachable from the current/previous heads should be pruned (including never-referenced test segment)");
+  assert.equal(firstGc.segmentsDeleted, 2, "segments unreachable from the current/previous heads should be pruned, including orphaned uploads");
   let checkpointPaths = server.contentPaths().filter((path) => path.startsWith(SYNC_V7_CHECKPOINT_PREFIX));
   let segmentPaths = server.contentPaths().filter((path) => path.startsWith(SYNC_V7_SEGMENT_PREFIX));
   assert.deepEqual(new Set(checkpointPaths), new Set([c1.path, c2.path]), "exactly two checkpoint generations should remain after uncontended compaction GC");
   assert.deepEqual(new Set(segmentPaths), new Set([s1.path, s2.path]), "current and previous head segments must remain available");
+  assert.ok(!segmentPaths.includes(orphan.path), "orphaned immutable segment should be removed");
 
+  // A future segment is uploaded only immediately before the head that references
+  // it, matching the real immutable-first publication order. It must not exist
+  // during the prior GC pass or that pass would correctly classify it as orphaned.
+  const s3 = await segment("segment-3", 3);
   const h3 = head(3, c2, [s2, s3]);
   const p3 = await client.putHead(h3, p2.blobSha);
   assert.equal(p3.ok, true);
