@@ -3,10 +3,11 @@ name: Deploy acceptance preview
 on:
   push:
     branches: [sync/v8-history-archive]
+    paths-ignore: ['.preview/**']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: acceptance-preview
@@ -75,6 +76,18 @@ jobs:
           const deployments = JSON.parse(fs.readFileSync('/tmp/pages-deployments.json', 'utf8'));
           const latest = Array.isArray(deployments) ? deployments[0] : null;
           const url = latest?.url || 'https://exam-study-app-acceptance.pages.dev';
+          fs.mkdirSync('.preview', { recursive: true });
+          fs.writeFileSync('.preview/acceptance-url.txt', `${url}\ncommit=${process.env.GITHUB_SHA}\n`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Acceptance preview\n\n${url}\n\nBranch: \`${process.env.GITHUB_REF_NAME}\`\n\nCommit: \`${process.env.GITHUB_SHA}\`\n`);
           console.log(`ACCEPTANCE_PREVIEW_URL=${url}`);
           NODE
+
+      - name: Publish preview URL marker
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- .preview/acceptance-url.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: record acceptance preview URL [skip ci]'
+          git push origin HEAD:sync/v8-history-archive
