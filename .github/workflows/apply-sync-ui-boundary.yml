@@ -3,13 +3,15 @@ name: Apply sync UI boundary
 on:
   push:
     branches: [refactor/sync-ui-boundary]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   migrate:
-    if: ${{ !contains(github.event.head_commit.message, '[sync-ui-generated]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[sync-ui-generated]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,7 +22,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/tools/apply-sync-ui-boundary.mjs
+      - name: Apply migration
+        run: |
+          if grep -q 'sync-runtime' src/app/shell/app-shell.tsx; then
+            echo 'sync UI migration already applied'
+          else
+            node scripts/tools/apply-sync-ui-boundary.mjs
+          fi
       - run: npm run typecheck
       - name: Commit generated refactor
         run: |
