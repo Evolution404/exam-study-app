@@ -72,6 +72,7 @@ const syncV7 = read("src/lib/sync/github-sync-v7.ts");
 const syncV7Head = read("src/lib/sync/sync-v7-head.ts");
 const syncV7Remote = read("src/lib/sync/github-v7-remote.ts");
 const syncV7Checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+const syncV8History = read("src/lib/sync/sync-v8-history.ts");
 if (fs.existsSync(path.join(root, "src/lib/sync/sync-v6-head.ts")) || fs.existsSync(path.join(root, "src/lib/sync/sync-v6-checkpoint.ts"))) {
   fail("sync-v6 head/checkpoint 文件必须删除，统一使用 sync-v7-checkpoint");
 }
@@ -89,8 +90,10 @@ if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
   || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
   || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
+  || !/SYNC_V8_CHECKPOINT_FORMAT\s*=\s*8/.test(syncV8History)
+  || !/createRemoteCheckpointV8/.test(syncV8History)
   || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
-  fail("公开同步入口必须使用 v7 固定 head、v7 checkpoint 格式、严格热窗口和 GitHub v7 transport");
+  fail("公开同步入口必须使用 v7 固定 head/热窗口 transport，并以 format 8 bounded checkpoint + history archive 写远端");
 }
 
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");

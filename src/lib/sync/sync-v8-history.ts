@@ -233,13 +233,13 @@ export function validateSyncCheckpointV8(value: unknown): asserts value is SyncC
     cursors: value.cursors,
     counts: value.counts,
     retention: value.retention,
-  } as SyncCheckpointV7;
+  } as unknown as SyncCheckpointV7;
   validateSyncCheckpointV7(surrogate);
   const state = surrogate.state;
-  if ((value.counts as SyncCheckpointV7Counts).totalAttempts !== state.attempts.length + value.history.archivedAttempts) {
+  if ((value.counts as unknown as SyncCheckpointV7Counts).totalAttempts !== state.attempts.length + value.history.archivedAttempts) {
     throw new Error("invalid v8 checkpoint: totalAttempts does not match recent + archived");
   }
-  if ((value.counts as SyncCheckpointV7Counts).totalPracticeRuns !== state.practiceRuns.length + value.history.archivedPracticeRuns) {
+  if ((value.counts as unknown as SyncCheckpointV7Counts).totalPracticeRuns !== state.practiceRuns.length + value.history.archivedPracticeRuns) {
     throw new Error("invalid v8 checkpoint: totalPracticeRuns does not match recent + archived");
   }
   if ((value.history.archivedAttempts > 0 || value.history.archivedPracticeRuns > 0) && value.history.index === null) {
