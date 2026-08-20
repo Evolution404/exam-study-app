@@ -1,22 +1,16 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Cloud, CloudDownload, DatabaseBackup, GitBranch, LoaderCircle, Trash2 } from "lucide-react";
-import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, restoreFullHistoryFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/sync/github-sync";
-import type { SyncProgress } from "@/lib/sync/github-sync";
-import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings, saveGitHubToken } from "@/lib/sync/github-credentials";
+import { syncApplication, type SyncProgress } from "@/lib/sync/sync-application";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { clearAllSiteData, clearSiteDataExceptConfig, reloadAsFreshSite } from "@/lib/sync/site-data-reset";
-import { dbV7 } from "@/lib/db/db-v7";
-import { discardManagedChangeSetV7, reviseManagedChangeSetV7 } from "@/lib/sync/change-set-v7-queue";
-import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
-import { questionContentFingerprint } from "@/lib/question/question-content";
-import { SyncEventManager, type SyncChangeSetItemV7, type SyncChangeSetTypedEditV7 } from "@/app/sync/sync-event-manager";
+import { SyncEventManager } from "@/app/sync/sync-event-manager";
 import { SyncHotWindowPanel } from "@/app/sync/sync-hot-window";
 import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
 
 export function SyncView({ pending, onNotice, onRestored }: { pending: number; onNotice: (message: string) => void; onRestored: (message: string) => void }) {
-  const [settings, setSettings] = useState(loadGitHubSettings);
-  const [token, setToken] = useState(loadGitHubToken);
+  const [settings, setSettings] = useState(() => syncApplication.getConnection().settings);
+  const [token, setToken] = useState(() => syncApplication.getConnection().token);
   const [syncing, setSyncing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoringCache, setRestoringCache] = useState(false);
@@ -25,34 +19,30 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const [clearPrompt, setClearPrompt] = useState(false);
   const [clearing, setClearing] = useState(false);
   const ready = Boolean(settings.repo && token);
-  const changeSets = useLiveQuery(() => dbV7.changeSets.orderBy("createdAt").reverse().limit(500).toArray(), []) ?? [];
-  const manageableChangeSets = changeSets.filter((record) => record.state === "pending" || record.state === "blocked");
-  const changeSetItems: SyncChangeSetItemV7[] = changeSets.map((record) => ({ changeSet: record, state: record.state, blockers: record.blockedReason ? [record.blockedReason] : undefined, dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets), editable: record.state === "pending" || record.state === "blocked", cancellable: record.state === "pending" || record.state === "blocked" }));
+  const changeSetItems = useLiveQuery(() => syncApplication.listQueueItems(500), []) ?? [];
   const smoothProgress = useSmoothProgress(operationProgress);
 
-  // 状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：本页 sync()
-  // 或外部快速同步（顶栏/抽屉 quickSync）只要把水位/新代数写入本地缓存，
-  // 这两条 live 查询就会自动重跑，面板无需轮询也无需依赖 changeSets 队列
-  // （prune 保留近期 committed 记录，队列不是可靠的「同步完成」信号）。
-  const hotWindow = useLiveQuery(() => (settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null)), [settings]) ?? null;
-  const lastCache = useLiveQuery(() => (settings.owner && settings.repo ? getLastRemoteCache(settings) : Promise.resolve(null)), [settings]) ?? null;
+  // 状态面板订阅 application boundary 暴露的本地 head/checkpoint 缓存。
+  // 无论同步来自本页、顶栏还是后台 runtime，只要缓存水位变化 liveQuery 都会刷新。
+  const hotWindow = useLiveQuery(() => syncApplication.getHotWindow(settings), [settings]) ?? null;
+  const lastCache = useLiveQuery(() => syncApplication.getLastRemoteCache(settings), [settings]) ?? null;
 
   async function resolveSettings() {
-    const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-    setSettings(resolved);
-    saveGitHubSettings(resolved);
-    saveGitHubToken(token);
-    return resolved;
+    syncApplication.saveSettings(settings);
+    syncApplication.saveToken(token);
+    const resolved = await syncApplication.resolveConnection(settings, token);
+    setSettings(resolved.settings);
+    return resolved.settings;
   }
 
   function updateSettings(next: typeof settings) {
     setSettings(next);
-    saveGitHubSettings(next);
+    syncApplication.saveSettings(next);
   }
 
   function updateToken(next: string) {
     setToken(next);
-    saveGitHubToken(next);
+    syncApplication.saveToken(next);
   }
 
   async function sync() {
@@ -60,9 +50,8 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
     try {
       setSyncing(true);
       setOperationProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
-      const resolved = await resolveSettings();
-      const result = await syncWithGitHub(resolved, token, setOperationProgress);
-      // 面板由上方 live 查询驱动，sync 写入本地 head/checkpoint 缓存后自动刷新。
+      await resolveSettings();
+      const result = await syncApplication.syncNow(setOperationProgress);
       const received = result.receivedSnapshot
         ? `接收 ${result.receivedSnapshot.questions.toLocaleString("zh-CN")} 道题、${result.receivedSnapshot.totalAttempts.toLocaleString("zh-CN")} 条作答`
         : `接收 ${result.pulled} 组操作`;
@@ -72,38 +61,12 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
     } finally { setSyncing(false); setOperationProgress(undefined); }
   }
 
-  async function editChangeSet(id: string, edit: SyncChangeSetTypedEditV7) {
-    const current = await dbV7.changeSets.get(id);
-    if (!current || (current.state !== "pending" && current.state !== "blocked")) throw new Error("该变更已进入同步流程，不能继续修改。");
-    const mutations = current.mutations.map((mutation, index) => {
-      if (index !== edit.mutationIndex || mutation.kind !== edit.kind) return mutation;
-      if (edit.kind === "note.upserted" && mutation.kind === "note.upserted") return { ...mutation, note: { ...mutation.note, content: edit.content, revision: mutation.note.revision + 1, updatedAt: new Date().toISOString() } };
-      if (edit.kind === "bank.update" && mutation.kind === "bank.update") return { ...mutation, bank: { ...mutation.bank, name: edit.name.trim() || mutation.bank.name, displayName: edit.displayName.trim() || undefined, description: edit.description.trim() || undefined, updatedAt: new Date().toISOString() } };
-      if (edit.kind === "question.upsert" && mutation.kind === "question.upsert") {
-        let insertedText = false;
-        const content: typeof mutation.question.content = [];
-        for (const block of mutation.question.content) {
-          if (block.type !== "text") content.push(block);
-          else if (!insertedText) {
-            content.push({ ...block, text: edit.stem });
-            insertedText = true;
-          }
-        }
-        if (!insertedText) content.unshift({ id: "stem-0", type: "text", text: edit.stem });
-        const question = { ...mutation.question, answer: edit.answer, tags: edit.tags, content, updatedAt: new Date().toISOString() };
-        return { ...mutation, question: { ...question, contentFingerprint: questionContentFingerprint(question) } };
-      }
-      return mutation;
-    });
-    await reviseManagedChangeSetV7(id, mutations);
-  }
-
   async function restoreFromCache() {
     if (!lastCache || restoringCache) return;
     try {
       setRestoringCache(true);
       setOperationProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
-      const result = await restoreLastRemoteCache(settings, setOperationProgress);
+      const result = await syncApplication.restoreCache(settings, setOperationProgress);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       setRestorePrompt(undefined);
       setRestoringCache(false);
@@ -121,8 +84,8 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
     try {
       setRestoring(true);
       setOperationProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
-      const resolved = await resolveSettings();
-      const result = await restoreFullHistoryFromGitHub(resolved, token, setOperationProgress);
+      await resolveSettings();
+      const result = await syncApplication.restoreRemote(setOperationProgress);
       const successMessage = `已通过 v${result.formatVersion} 从远端恢复完整数据，另载入 ${result.archivedAttempts} 条归档作答和 ${result.archivedPracticeRuns} 次归档练习。${result.deferred ? `仍有 ${result.deferred} 个热增量页，请重新载入后继续同步。` : ""}`;
       setRestorePrompt(undefined);
       setRestoring(false);
@@ -165,7 +128,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
       <section className="guide-card"><span className="section-kicker">首次设置</span><h2>三步建立同步资料库</h2><ol><li><span>1</span><div><strong>新建私有仓库</strong><p>建议命名 exam-study-vault，并创建 README。</p></div></li><li><span>2</span><div><strong>创建细粒度令牌</strong><p>只授权该仓库的 Contents 读写权限。</p></div></li><li><span>3</span><div><strong>在每台设备连接</strong><p>首次拉取后，题库和学习记录会自动合并。</p></div></li></ol></section></div>
     <section className="restore-card data-restore-card"><div className="restore-icon"><DatabaseBackup /></div><div><span className="section-kicker">数据恢复</span><h2>选择恢复来源</h2><p>{lastCache ? `本地快照保存于 ${new Date(lastCache.cachedAt).toLocaleString("zh-CN")}；也可以从 GitHub 重新获取完整数据。` : "成功同步后会保存本地快照；也可以随时从 GitHub 重新获取完整数据。"}</p></div><div className="restore-card-actions"><button className="secondary" disabled={!lastCache || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("cache")}>{restoringCache ? <LoaderCircle className="spin" size={18} /> : <DatabaseBackup size={18} />}{restoringCache ? "恢复中…" : "本地恢复"}</button><button className="secondary" disabled={!ready || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("remote")}>{restoring ? <LoaderCircle className="spin" size={18} /> : <CloudDownload size={18} />}{restoring ? "恢复中…" : "远端恢复"}</button></div></section>
     <section className="restore-card clear-data-card"><div className="restore-icon"><Trash2 /></div><div><span className="section-kicker">恢复出厂状态</span><h2>清除本机所有数据</h2><p>删除题库、作答、练习、GitHub 令牌、配置、Cookie、Storage、IndexedDB、离线缓存和 Service Worker。远端私有仓库不会被删除。</p></div><button className="danger-button" disabled={syncing || restoring || restoringCache || clearing} onClick={() => setClearPrompt(true)}><Trash2 size={18} />清除数据</button></section>
-    <section className="settings-card sync-events-page"><SyncEventManager items={changeSetItems} syncing={syncing} progress={smoothProgress} showBatchSections onSyncNow={sync} onEdit={editChangeSet} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} /></section>
+    <section className="settings-card sync-events-page"><SyncEventManager items={changeSetItems} syncing={syncing} progress={smoothProgress} showBatchSections onSyncNow={sync} onEdit={(id, edit) => syncApplication.editPendingChange(id, edit)} onDelete={(id, options) => syncApplication.discardPendingChange(id, options)} /></section>
     <ConfirmDialog open={syncing} eyebrow="GitHub 同步" title="正在同步云端数据" busy hideCancel progress={smoothProgress} confirmLabel="同步中" onCancel={() => undefined} onConfirm={() => undefined} description={<><strong>正在安全合并本地与远程更改</strong><span>同步期间可以继续使用应用；新产生的记录会加入同步队列。</span></>} />
     <ConfirmDialog open={restorePrompt === "cache"} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={restoringCache} progress={restoringCache ? smoothProgress : undefined} confirmLabel="确认恢复" onCancel={() => setRestorePrompt(undefined)} onConfirm={() => void restoreFromCache()} description={<><strong>{lastCache ? `恢复到本地 ${new Date(lastCache.cachedAt).toLocaleString("zh-CN")} 的记录` : "恢复最近的本地记录"}</strong><span>当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></>} />
     <ConfirmDialog open={restorePrompt === "remote"} eyebrow="从 GitHub 恢复" title="确认重建本地数据" tone="danger" busy={restoring} progress={restoring ? smoothProgress : undefined} confirmLabel="远端恢复" onCancel={() => setRestorePrompt(undefined)} onConfirm={() => void restoreFromRemote()} description={<><strong>当前浏览器的数据将被远端完整数据替换</strong><span>将重新获取题库、统计、作答和练习记录，并同时恢复可用的历史归档；耗时和流量取决于数据量。</span></>} />
