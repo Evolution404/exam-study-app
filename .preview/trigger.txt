@@ -1,2 +1,2 @@
-triggered=2026-08-20T07:49:25Z
-purpose=deploy PR3 acceptance preview
+triggered=2026-08-20T07:58:30Z
+purpose=redeploy PR3 acceptance preview after SHA fix
