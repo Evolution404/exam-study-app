@@ -27,6 +27,7 @@ jobs:
           if grep -q 'listImmutableDirectory' src/lib/sync/github-v7-remote.ts; then
             echo 'v7 GC migration already applied'
           else
+            node scripts/tools/fix-v7-live-gc-migration.mjs
             node scripts/tools/apply-v7-live-gc.mjs
           fi
       - run: npm run typecheck
