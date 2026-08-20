@@ -12,13 +12,13 @@ function patch(path, replacements) {
 patch("src/lib/sync/sync-application.ts", [
   [
     `import {\n  getGitHubLogin,`,
-    `import {\n  downloadImageAsset as downloadImageAssetFromGitHub,\n  getGitHubLogin,`,
-    "image facade import",
+    `import {\n  clearImageCache as clearImageCacheInternal,\n  downloadAllImageAssets as downloadAllImageAssetsInternal,\n  downloadImageAsset as downloadImageAssetInternal,\n  getImageCacheStats as getImageCacheStatsInternal,\n  getGitHubLogin,`,
+    "image facade imports",
   ],
   [
     `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n`,
-    `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n\n  async downloadImageAsset(assetId: string): Promise<void> {\n    const { settings, token } = await this.resolveConnection();\n    await downloadImageAssetFromGitHub(settings, token, assetId);\n  }\n`,
-    "image facade method",
+    `  getHotWindow(settings = loadGitHubSettings()): Promise<SyncHotWindowState | null> {\n    return settings.owner && settings.repo ? getSyncHotWindowState(settings) : Promise.resolve(null);\n  }\n\n  getImageCacheStats() {\n    return getImageCacheStatsInternal();\n  }\n\n  clearImageCache(): Promise<void> {\n    return clearImageCacheInternal();\n  }\n\n  async downloadImageAsset(assetId: string): Promise<void> {\n    const { settings, token } = await this.resolveConnection();\n    await downloadImageAssetInternal(settings, token, assetId);\n  }\n\n  async downloadAllImageAssets(): Promise<number> {\n    const { settings, token } = await this.resolveConnection();\n    return downloadAllImageAssetsInternal(settings, token);\n  }\n`,
+    "image facade methods",
   ],
 ]);
 
@@ -32,6 +32,34 @@ patch("src/app/bank/question-editor.tsx", [
     `    const settings = loadGitHubSettings();\n    const token = loadGitHubToken();\n    if (!settings.repo || !token) return undefined;\n    await downloadImageAsset(settings, token, assetId);`,
     `    if (!syncApplication.getConnection().ready) return undefined;\n    await syncApplication.downloadImageAsset(assetId);`,
     "question editor image hydration",
+  ],
+]);
+
+patch("src/app/shell/views/image-cache-setting.tsx", [
+  [
+    `import { getImageCacheSizeV7 } from "@/lib/db/db-v7";\nimport { loadGitHubSettings, loadGitHubToken } from "@/lib/sync/github-credentials";\nimport { clearImageCache, downloadAllImageAssets, getImageCacheStats } from "@/lib/sync/github-sync";`,
+    `import { getImageCacheSizeV7 } from "@/lib/db/db-v7";\nimport { syncApplication } from "@/lib/sync/sync-application";`,
+    "image cache setting imports",
+  ],
+  [
+    `      const stats = await getImageCacheStats();`,
+    `      const stats = await syncApplication.getImageCacheStats();`,
+    "image cache stats",
+  ],
+  [
+    `    const settings = loadGitHubSettings();\n    const token = loadGitHubToken();\n    if (!settings.repo || !token) { onNotice("请先在同步页面配置 GitHub，才能缓存远程图片"); return; }`,
+    `    if (!syncApplication.getConnection().ready) { onNotice("请先在同步页面配置 GitHub，才能缓存远程图片"); return; }`,
+    "image cache connection",
+  ],
+  [
+    `      await downloadAllImageAssets(settings, token);`,
+    `      await syncApplication.downloadAllImageAssets();`,
+    "image cache download all",
+  ],
+  [
+    `      await clearImageCache();`,
+    `      await syncApplication.clearImageCache();`,
+    "image cache clear",
   ],
 ]);
 
