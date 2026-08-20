@@ -1,0 +1,32 @@
+name: Apply sync UI boundary
+
+on:
+  push:
+    branches: [refactor/sync-ui-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ !contains(github.event.head_commit.message, '[sync-ui-generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/sync-ui-boundary
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/tools/apply-sync-ui-boundary.mjs
+      - run: npm run typecheck
+      - name: Commit generated refactor
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- src/app/shell/app-shell.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m 'refactor(sync): decouple shell from sync internals [sync-ui-generated]'
+          git push origin HEAD:refactor/sync-ui-boundary
