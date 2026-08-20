@@ -3,8 +3,7 @@ import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Cloud } from "lucide-react";
 import { getImageCacheSizeV7 } from "@/lib/db/db-v7";
-import { loadGitHubSettings, loadGitHubToken } from "@/lib/sync/github-credentials";
-import { clearImageCache, downloadAllImageAssets, getImageCacheStats } from "@/lib/sync/github-sync";
+import { syncApplication } from "@/lib/sync/sync-application";
 
 export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }) {
   const cachedBytes = useLiveQuery(() => getImageCacheSizeV7(), []) ?? 0;
@@ -13,7 +12,7 @@ export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) =>
 
   async function refreshStats() {
     try {
-      const stats = await getImageCacheStats();
+      const stats = await syncApplication.getImageCacheStats();
       if (stats && typeof stats === "object" && "cached" in stats) {
         const count = Number((stats as { cached?: unknown }).cached);
         if (Number.isFinite(count)) setAssetCount(count);
@@ -23,12 +22,10 @@ export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) =>
 
   async function cacheAll() {
     if (busy) return;
-    const settings = loadGitHubSettings();
-    const token = loadGitHubToken();
-    if (!settings.repo || !token) { onNotice("请先在同步页面配置 GitHub，才能缓存远程图片"); return; }
+    if (!syncApplication.getConnection().ready) { onNotice("请先在同步页面配置 GitHub，才能缓存远程图片"); return; }
     setBusy(true);
     try {
-      await downloadAllImageAssets(settings, token);
+      await syncApplication.downloadAllImageAssets();
       await refreshStats();
       onNotice("图片缓存已更新");
     } catch (error) { onNotice(error instanceof Error ? error.message : "图片缓存失败"); }
@@ -39,7 +36,7 @@ export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) =>
     if (busy) return;
     setBusy(true);
     try {
-      await clearImageCache();
+      await syncApplication.clearImageCache();
       setAssetCount(0);
       onNotice("本机图片缓存已清理");
     } catch (error) { onNotice(error instanceof Error ? error.message : "清理图片缓存失败"); }

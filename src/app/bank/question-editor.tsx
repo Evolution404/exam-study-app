@@ -7,9 +7,8 @@ import { dbV7 } from "@/lib/db/db-v7";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";
 import { optimizeImageFile } from "@/lib/io/image-assets";
 import { getImageAssetBlobV7, putImageAssetV7, saveNoteV7, splitQuestionV7, updateQuestionV7 } from "@/lib/db/db-v7";
-import { downloadImageAsset } from "@/lib/sync/github-sync";
+import { syncApplication } from "@/lib/sync/sync-application";
 import { getQuestionViewV7, type QuestionViewV7 } from "@/lib/db/app-data-v7";
-import { loadGitHubSettings, loadGitHubToken } from "@/lib/sync/github-credentials";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockEditor } from "@/app/bank/content-block-editor";
@@ -88,10 +87,8 @@ export async function loadImageAssetV7(assetId: string): Promise<Blob | undefine
   const cached = await getImageAssetBlobV7(assetId);
   if (cached) return cached;
   try {
-    const settings = loadGitHubSettings();
-    const token = loadGitHubToken();
-    if (!settings.repo || !token) return undefined;
-    await downloadImageAsset(settings, token, assetId);
+    if (!syncApplication.getConnection().ready) return undefined;
+    await syncApplication.downloadImageAsset(assetId);
     return getImageAssetBlobV7(assetId);
   } catch {
     return undefined;
