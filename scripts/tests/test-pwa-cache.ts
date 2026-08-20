@@ -7,6 +7,7 @@ const studyApp = read("src/app/shell/app-shell.tsx");
 const shellHelpers = read("src/app/shell/helpers.ts");
 const preferencesView = read("src/app/shell/views/preferences-view.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
+const syncApplication = read("src/lib/sync/sync-application.ts");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");
@@ -44,7 +45,9 @@ assert.match(syncView, /onRestored\(`已从本机缓存恢复/);
 assert.match(syncView, /<section className="restore-card data-restore-card">/, "local and remote recovery must share one restore card");
 assert.match(syncView, /setRestorePrompt\("cache"\)[\s\S]*?"本地恢复"/, "local recovery must use the four-character label");
 assert.match(syncView, /setRestorePrompt\("remote"\)[\s\S]*?"远端恢复"/, "remote recovery must use the four-character label");
-assert.match(syncView, /restoreFullHistoryFromGitHub\(resolved, token, setOperationProgress\)/, "remote recovery must include available history archives");
+assert.match(syncView, /syncApplication\.restoreRemote\(setOperationProgress\)/, "UI remote recovery must go through the sync application boundary");
+assert.match(syncApplication, /return restoreFullHistoryFromGitHub\(settings, token, callback\)/, "the application boundary must preserve full remote recovery including history archives");
+assert.doesNotMatch(syncView, /restoreFullHistoryFromGitHub|github-sync-v7|github-credentials/, "sync view must not bypass the application boundary");
 assert.doesNotMatch(syncView, /快速恢复|完整恢复|remoteFull/, "sync view must not expose obsolete fast/full recovery choices");
 assert.match(preferencesView, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
 assert.match(syncView, /<h2>清除本机所有数据<\/h2>/, "sync view must expose the site-data reset action");
@@ -59,4 +62,4 @@ assert.match(siteDataReset, /sessionStorage\.clear\(\)/, "reset must clear sessi
 assert.match(siteDataReset, /document\.cookie =/, "reset must expire site cookies");
 assert.match(siteDataReset, /window\.location\.replace/, "reset must reload at a fresh site URL");
 
-console.log("PWA cache tests passed: versioned shell, bounded SW update, cache strategies, restore and full site reset");
+console.log("PWA cache tests passed: versioned shell, bounded SW update, cache strategies, restore application boundary and full site reset");

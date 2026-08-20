@@ -4,9 +4,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, ClipboardCheck, Cloud, Home, Library, Link2, ListFilter, LoaderCircle, Menu, Play, RefreshCw, Settings2, Sparkles, X } from "lucide-react";
 import { dbV7, getV7DeviceId, createPracticeRunV7, rebuildAttemptStatsFromAttemptsV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
-import type { SyncProgress, SyncHotWindowState } from "@/lib/sync/github-sync";
-import { getGitHubLogin, getLastRemoteCache, getSyncHotWindowState, pullFromGitHub, restoreLastRemoteCache, syncWithGitHub } from "@/lib/sync/github-sync";
-import { loadGitHubSettings, loadGitHubToken, saveGitHubSettings } from "@/lib/sync/github-credentials";
+import { syncApplication, type SyncProgress, type SyncHotWindowState } from "@/lib/sync/sync-application";
+import { syncRuntime } from "@/lib/sync/sync-runtime";
 import { calendarDate, statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
@@ -21,9 +20,6 @@ import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgres
 import { classifyNoticeTone } from "@/lib/practice/notice-tone";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
-import type { SyncChangeSetItemV7 } from "@/app/sync/sync-event-manager";
-import { dependentChangeSetIdsV7 } from "@/lib/sync/change-set-v7";
-import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "@/lib/sync/change-set-v7-queue";
 import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
 import { Dashboard, Practice, PreferencesView, PullToRefresh } from "./views";
 
@@ -57,11 +53,6 @@ export function AppShell() {
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
-  const syncOperationRunning = useRef(false);
-  const automaticSyncRunning = useRef(false);
-  const periodicPullRunning = useRef(false);
-  const quickSyncAction = useRef<(options?: { silent?: boolean }) => Promise<void>>(async () => undefined);
-  const lastAutomaticSyncAt = useRef(0);
   // 同步是异步操作，await 期间 practiceSession 闭包会过期（用户可能正好提交了答案）。
   // 渲染期镜像到 ref，同步结束后读最新快照（同 Practice 组件的 lastNoteQuestionId 模式）。
   const practiceSessionRef = useRef(practiceSession);
@@ -71,7 +62,7 @@ export function AppShell() {
   useAppTheme(preferences.themeMode);
 
   useEffect(() => {
-    void ensureChangeSetQueueBaseV7();
+    void syncApplication.ensureQueueBase();
     // 一次性迁移：为 attemptStats.recentOutcomes 补作答时间（难度 v2 需要）。
     // attemptStats 是纯派生数据，重建幂等；同步拉取后 deriveAttemptStats 也会自然带出。
     if (!localStorage.getItem("study-v7-stats-outcomes-v2")) {
@@ -235,32 +226,16 @@ export function AppShell() {
   // 待同步计数单独订阅：同步过程会翻转 changeSets 状态 3–5 次（claim/commit/
   // blocked/prune），若与重型 stats 查询（attemptStats 全表）绑在一起，每次翻转
   // 都会连带重跑全表统计并重渲染整棵树。
-  const pendingCountQuery = useLiveQuery(() => dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), []);
+  const pendingCountQuery = useLiveQuery(() => syncApplication.pendingCount(), []);
   const stats = useMemo(() => {
     const base = statsBaseQuery ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, notes: 0, last: undefined };
     return { ...base, pending: pendingCountQuery ?? 0 };
   }, [statsBaseQuery, pendingCountQuery]);
   // The `?? []` fallback must be memoised too, otherwise its fresh array on
   // every render would defeat the dependency check below.
-  const syncChangeSetsRaw = useLiveQuery(() => dbV7.changeSets.orderBy("createdAt").reverse().limit(300).toArray(), []);
-  const syncChangeSets = useMemo(() => syncChangeSetsRaw ?? [], [syncChangeSetsRaw]);
-  // Dependency resolution is only needed when the change-set list actually
-  // changes; memoising it keeps every answer submission (which re-renders the
-  // app) from re-running the O(n) scan over the event queue.  抽屉关闭时
-  // SyncEventDrawer 本就渲染 null，跳过整段 O(300×pending) 依赖解析——
-  // 这是自动同步期间不必要的重渲染主力。
-  const syncItems: SyncChangeSetItemV7[] = useMemo(() => {
-    if (!syncDrawerOpen) return [];
-    const manageableChangeSets = syncChangeSets.filter((record) => record.state === "pending" || record.state === "blocked");
-    return syncChangeSets.map((record) => ({
-      changeSet: record,
-      state: record.state,
-      blockers: record.blockedReason ? [record.blockedReason] : undefined,
-      dependentChangeSetIds: dependentChangeSetIdsV7(record, manageableChangeSets),
-      editable: record.state === "pending" || record.state === "blocked",
-      cancellable: record.state === "pending" || record.state === "blocked",
-    }));
-  }, [syncChangeSets, syncDrawerOpen]);
+  const syncItemsRaw = useLiveQuery(() => syncApplication.listQueueItems(300), []);
+  // 队列依赖解析已下沉到 sync-application；抽屉关闭时仍跳过列表渲染。
+  const syncItems = useMemo(() => syncDrawerOpen ? (syncItemsRaw ?? []) : [], [syncItemsRaw, syncDrawerOpen]);
   const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
@@ -389,54 +364,46 @@ export function AppShell() {
   }
 
   async function quickSync({ silent = false }: { silent?: boolean } = {}) {
-    if (syncOperationRunning.current || quickRestoring) return;
-    const token = loadGitHubToken();
-    const settings = loadGitHubSettings();
-    if (!settings.repo || !token) {
+    if (syncRuntime.isBusy() || quickRestoring) return;
+    const connection = syncApplication.getConnection();
+    if (!connection.ready) {
       if (!silent) {
         setNotice("请先在配置页面填写 GitHub 令牌");
         setView(window.matchMedia("(max-width: 760px)").matches ? "preferences" : "settings");
       }
       return;
     }
-    syncOperationRunning.current = true;
     try {
       if (!silent) {
         setQuickSyncing(true);
         setQuickSyncProgress({ phase: "prepare", label: "正在准备同步", percent: 0 });
       }
-      const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-      saveGitHubSettings(resolved);
-      const result = await syncWithGitHub(resolved, token, silent ? undefined : setQuickSyncProgress);
+      const result = await syncRuntime.sync(silent ? undefined : setQuickSyncProgress);
       if (!silent) {
         const received = result.receivedSnapshot
           ? `接收 ${result.receivedSnapshot.questions.toLocaleString("zh-CN")} 道题、${result.receivedSnapshot.totalAttempts.toLocaleString("zh-CN")} 条作答`
           : `接收 ${result.pulled} 组操作`;
         setNotice(`同步完成：上传 ${result.pushed} 组操作，${received}${result.compacted ? "，远程数据已压缩" : ""}${result.remaining ? `，待同步 ${result.remaining} 组操作` : ""}`);
       }
-      // 刷新练习必须在「同步完成」提示之后执行，避免 refresh 的
-      // 「已同步本练习 N 道新作答」被后置的 setNotice 覆盖。
       if (result.pulled || result.receivedSnapshot) await refreshActivePracticeAfterSync();
     } catch (error) {
       if (!silent) setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
-      syncOperationRunning.current = false;
       if (!silent) {
         setQuickSyncing(false);
         setQuickSyncProgress(undefined);
       }
     }
   }
-  quickSyncAction.current = quickSync;
 
   // 同步抽屉打开时（以及抽屉开着时一次快速同步结束）刷新热窗口状态，
   // 抽屉内展示与同步页完全一致的信息面板。
   useEffect(() => {
     if (!syncDrawerOpen) return;
-    const settings = loadGitHubSettings();
+    const settings = syncApplication.getConnection().settings;
     let active = true;
     const load = settings.repo
-      ? Promise.all([getLastRemoteCache(settings), getSyncHotWindowState(settings)]).then(([cache, hotWindow]) => ({ hotWindow, syncedAt: cache?.cachedAt ?? null }))
+      ? Promise.all([syncApplication.getLastRemoteCache(settings), syncApplication.getHotWindow(settings)]).then(([cache, hotWindow]) => ({ hotWindow, syncedAt: cache?.cachedAt ?? null }))
       : Promise.resolve({ hotWindow: null, syncedAt: null });
     void load.then((value) => {
       if (!active) return;
@@ -447,68 +414,33 @@ export function AppShell() {
   }, [syncDrawerOpen, quickSyncing]);
 
   useEffect(() => {
-    if (!preferences.autoSyncEnabled || stats.pending < preferences.autoSyncEventThreshold || automaticSyncRunning.current || syncOperationRunning.current || quickRestoring || Date.now() - lastAutomaticSyncAt.current < 30_000) return;
-    if (!loadGitHubSettings().repo || !loadGitHubToken()) return;
-    // 两阶段空闲调度：先固定延迟去抖（连续答题会不断重排，避免撞上答题反馈
-    // 动画），再等浏览器空闲帧（旧 Safari 退化为 setTimeout）。此前零延迟
-    // 触发会在答完题的瞬间开始同步。
-    let idleHandle: number | undefined;
-    const run = () => {
-      automaticSyncRunning.current = true;
-      lastAutomaticSyncAt.current = Date.now();
-      void quickSyncAction.current({ silent: true }).finally(() => { automaticSyncRunning.current = false; });
-    };
-    const timer = window.setTimeout(() => {
-      if (typeof requestIdleCallback === "function") idleHandle = requestIdleCallback(() => run(), { timeout: 2_000 });
-      else run();
-    }, 2_500);
-    return () => {
-      window.clearTimeout(timer);
-      if (idleHandle !== undefined && typeof cancelIdleCallback === "function") cancelIdleCallback(idleHandle);
-    };
-  }, [preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring, quickSyncing, stats.pending]);
+    return syncRuntime.scheduleAutomaticSync({
+      enabled: preferences.autoSyncEnabled,
+      pending: stats.pending,
+      threshold: preferences.autoSyncEventThreshold,
+      blocked: quickRestoring,
+      onError: () => undefined,
+    });
+  }, [preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring, stats.pending]);
 
   useEffect(() => {
-    if (!preferences.periodicPullEnabled) return;
-    const pull = async () => {
-      if (periodicPullRunning.current || syncOperationRunning.current || quickRestoring) return;
-      const token = loadGitHubToken();
-      const settings = loadGitHubSettings();
-      if (!settings.repo || !token) return;
-      periodicPullRunning.current = true;
-      syncOperationRunning.current = true;
-      try {
-        const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token) };
-        saveGitHubSettings(resolved);
-        // 后台定期拉取不刷新可见练习会话：静默重建/跳题会打扰正在答题的用户。
-        // 只有用户显式点同步（quickSync）才会刷新会话对齐远端合并的作答。
-        await pullFromGitHub(resolved, token);
-      } catch (error) {
-        setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败");
-      } finally {
-        periodicPullRunning.current = false;
-        syncOperationRunning.current = false;
-      }
-    };
-    const timer = window.setInterval(() => void pull(), preferences.periodicPullSeconds * 1_000);
-    return () => window.clearInterval(timer);
-  }, [preferences.periodicPullEnabled, preferences.periodicPullSeconds, quickRestoring, quickSyncing]);
+    return syncRuntime.startPeriodicPull({
+      enabled: preferences.periodicPullEnabled,
+      seconds: preferences.periodicPullSeconds,
+      blocked: () => quickRestoring,
+      onError: (error) => setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败"),
+    });
+  }, [preferences.periodicPullEnabled, preferences.periodicPullSeconds, quickRestoring]);
 
   async function prepareQuickRestore() {
     if (quickSyncing || quickRestoring) return;
-    let settings: GitHubSettings;
-    try {
-      settings = JSON.parse(localStorage.getItem("github-settings") ?? "") as GitHubSettings;
-    } catch {
-      setNotice("本机还没有远程缓存，请先成功同步一次");
-      return;
-    }
+    const settings: GitHubSettings = syncApplication.getConnection().settings;
     if (!settings.owner || !settings.repo) {
       setNotice("本机还没有远程缓存，请先成功同步一次");
       return;
     }
     try {
-      const cached = await getLastRemoteCache(settings);
+      const cached = await syncApplication.getLastRemoteCache(settings);
       if (!cached) {
         setNotice("本机还没有远程缓存，请先成功同步一次");
         return;
@@ -524,7 +456,7 @@ export function AppShell() {
     try {
       setQuickRestoring(true);
       setQuickSyncProgress({ phase: "prepare", label: "正在准备恢复", percent: 0 });
-      const result = await restoreLastRemoteCache(quickRestorePrompt.settings, setQuickSyncProgress);
+      const result = await syncApplication.restoreCache(quickRestorePrompt.settings, setQuickSyncProgress);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       setQuickRestorePrompt(undefined);
       setQuickRestoring(false);
@@ -906,7 +838,7 @@ export function AppShell() {
           )}
         </Suspense></div>
       </section>
-      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={smoothQuickSyncProgress ?? quickSyncProgress} hotWindow={drawerHotWindow} syncedAt={drawerSyncedAt} onSyncNow={() => quickSync()} onDelete={async (id, options) => { await discardManagedChangeSetV7(id, options); }} />
+      <SyncEventDrawer open={syncDrawerOpen} onClose={() => setSyncDrawerOpen(false)} items={syncItems} syncing={quickSyncing} progress={smoothQuickSyncProgress ?? quickSyncProgress} hotWindow={drawerHotWindow} syncedAt={drawerSyncedAt} onSyncNow={() => quickSync()} onDelete={(id, options) => syncApplication.discardPendingChange(id, options)} />
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? smoothQuickSyncProgress ?? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
