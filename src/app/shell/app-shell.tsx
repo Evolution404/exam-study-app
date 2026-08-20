@@ -236,8 +236,11 @@ export function AppShell() {
   }, [statsBaseQuery, pendingCountQuery]);
   // The `?? []` fallback must be memoised too, otherwise its fresh array on
   // every render would defeat the dependency check below.
-  const syncItemsRaw = useLiveQuery(() => syncApplication.listQueueItems(300), []);
-  // 队列依赖解析已下沉到 sync-application；抽屉关闭时仍跳过列表渲染。
+  const syncItemsRaw = useLiveQuery(
+    () => syncDrawerOpen ? syncApplication.listQueueItems(300) : Promise.resolve([]),
+    [syncDrawerOpen],
+  );
+  // 队列依赖解析已下沉到 sync-application；抽屉关闭时不查询也不渲染列表。
   const syncItems = useMemo(() => syncDrawerOpen ? (syncItemsRaw ?? []) : [], [syncItemsRaw, syncDrawerOpen]);
   const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
@@ -246,13 +249,15 @@ export function AppShell() {
     : progressScopeLabel(normalizedProgressScope);
   const activeBankKey = activeBankIds.join("|");
   const scopeProgress = useLiveQuery(async () => {
+    if (view !== "home") return { completed: 0, total: 0 };
     if (!activeBankIds.length) return { completed: 0, total: 0 };
     const [questions, stats, roundProgress] = await Promise.all([listQuestionViewsForBanksV7(activeBankIds), dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray()]);
     const ids = [...new Set(questions.map((view) => view.question.id))];
     const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), stats, roundProgress, Date.now());
     return { completed: completion.completed, total: completion.total };
-  }, [activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
+  }, [view, activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
   const scopeStats = useLiveQuery(async () => {
+    if (view !== "home") return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: 0 };
     const questionIds = activeBankIds.length
       ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
       : await dbV7.questions.toCollection().primaryKeys();
@@ -269,7 +274,7 @@ export function AppShell() {
       last: summary.lastAttemptAt,
       bankCount: activeBankIds.length || banks.length,
     };
-  }, [activeBankKey, preferences.progressScope, banks.length]) ?? { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
+  }, [view, activeBankKey, preferences.progressScope, banks.length]) ?? { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
 
   // 往既有题库继续导入：试题管理头部「导入题目」先记下目标题库再复用同一个
   // 隐藏文件输入。ref 而非 state——不触发重渲染，也无陈旧闭包。
@@ -825,7 +830,7 @@ export function AppShell() {
 
         {smoothQuickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={smoothQuickSyncProgress.percent}><span>{smoothQuickSyncProgress.label}<em>{smoothQuickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${smoothQuickSyncProgress.percent}%` }} /></i></div>}
 
-        {notice && <div className={`toast ${classifyNoticeTone(notice)}`}><Sparkles size={16} /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
+        {notice && <div className={`toast ${classifyNoticeTone(notice)}`} role={classifyNoticeTone(notice) === "error" ? "alert" : "status"} aria-live={classifyNoticeTone(notice) === "error" ? "assertive" : "polite"} aria-atomic="true"><Sparkles size={16} aria-hidden="true" /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept={QUESTION_BANK_FILE_ACCEPT} hidden onChange={(event) => onImport(event.target.files?.[0])} />
 
         <div className={`content ${view === "practice" ? "practice-content" : ""}`}><Suspense fallback={<div className="route-loading"><LoaderCircle className="spin" size={24} /><span>正在载入页面…</span></div>}>
