@@ -1,4 +1,4 @@
-const CACHE = "shijuan-v9";
+const CACHE = "shijuan-v10";
 const CACHE_PREFIX = "shijuan-";
 const NAVIGATION_TIMEOUT_MS = 1200;
 // Non-navigation app requests (favicon, manifest, misc icons) have no cached

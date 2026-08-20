@@ -15,7 +15,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const settings = { owner: "qa", repo: "restore-cursors-vault", branch: "main", apiBaseUrl: "" };
-const cursorsKey = "v7:sync:installed-cursors:qa/restore-cursors-vault@main";
+const cursorsKey = "v8:sync:installed-cursors:qa/restore-cursors-vault@main";
 
 const server = await startMockGitHubServer({ cas: true });
 try {

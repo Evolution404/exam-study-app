@@ -74,7 +74,7 @@ export async function maybeCoalesceHotWindow(client: GitHubV7Remote, cache: Sync
   for (let index = 0; index < pages.length; index += 1) {
     const ordinal = index;
     const pageCursors = cursorsFor(pages[index].events as Array<{ deviceId: string; localSequence: number }>);
-    const segmentBytes = encodeSyncV7Segment({ formatVersion: 7 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors: pageCursors, events: pages[index].events });
+    const segmentBytes = encodeSyncV7Segment({ formatVersion: 8 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors: pageCursors, events: pages[index].events });
     const digest = await sha256(segmentBytes);
     const path = descriptorPath(SYNC_V7_SEGMENT_PREFIX, digest);
     const base = await uploadedDescriptor(client, path, segmentBytes, "segment");

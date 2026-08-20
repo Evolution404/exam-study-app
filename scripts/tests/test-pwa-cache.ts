@@ -12,7 +12,7 @@ const siteDataReset = read("src/lib/sync/site-data-reset.ts");
 const main = read("src/main.tsx");
 const headers = read("public/_headers");
 
-assert.match(serviceWorker, /const CACHE = "shijuan-v9"/);
+assert.match(serviceWorker, /const CACHE = "shijuan-v10"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
 assert.match(serviceWorker, /const APP_REQUEST_TIMEOUT_MS = 8000/, "non-navigation app requests need a longer network budget than the navigation cut-off");
 assert.match(serviceWorker, /`\$\{BASE\}icons\/favicon-64\.png`/, "the favicon must be precached so a cold first load never re-fetches it late");

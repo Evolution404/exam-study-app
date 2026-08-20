@@ -46,7 +46,7 @@ function singleChoice(stem: string, answer: string, options: string[]): Paramete
 // segment，使 downloaded.changes 非空——用于触发依赖远端 changes 的路径。
 async function clearRemoteCache(): Promise<void> {
   const keys = (await dbV7.syncMeta.toCollection().primaryKeys()) as string[];
-  for (const key of keys) if (key.startsWith("v7:sync:checkpoint")) await dbV7.syncMeta.delete(key);
+  for (const key of keys) if (key.startsWith("v8:sync:checkpoint")) await dbV7.syncMeta.delete(key);
 }
 
 // 手动 seed 一条 change-set（可精确控制 id / createdAt / mutations），用于

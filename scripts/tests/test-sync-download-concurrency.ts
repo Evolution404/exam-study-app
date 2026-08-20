@@ -55,7 +55,7 @@ for (let round = 0; round < 8; round += 1) {
 }
 
 // 确认热窗口确实有多个分段，否则本套件没有观测对象。
-const headResponse = await fetch(`${settings.apiBaseUrl}/repos/qa/concurrency-vault/contents/sync/v7/head.json`);
+const headResponse = await fetch(`${settings.apiBaseUrl}/repos/qa/concurrency-vault/contents/sync/v8/head.json`);
 const headEnvelope = await headResponse.json() as { content: string };
 const head = JSON.parse(Buffer.from(headEnvelope.content, "base64").toString("utf8")) as { segments: Array<{ path: string }> };
 assert.ok(head.segments.length >= 6, `热窗口应至少有 6 个分段（实际 ${head.segments.length}）供并发观测`);

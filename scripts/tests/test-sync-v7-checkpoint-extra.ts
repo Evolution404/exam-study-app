@@ -46,7 +46,7 @@ await putImageAssetV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, w
   legacy.formatVersion = 6;
   legacy.state.imageAssets[0] = {
     ...legacy.state.imageAssets[0],
-    remote: { path: `sync/v7/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
+    remote: { path: `sync/v8/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
   };
   const parsed = parseSyncCheckpointV7(encodeSyncCheckpointV7(legacy));
   assert.equal(parsed.formatVersion, 7);
@@ -62,7 +62,7 @@ await putImageAssetV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, w
   const badAsset = structuredClone(current);
   badAsset.state.imageAssets[0] = {
     ...badAsset.state.imageAssets[0],
-    remote: { path: `sync/v7/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "c".repeat(64), size: 123 },
+    remote: { path: `sync/v8/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "c".repeat(64), size: 123 },
   };
   assert.throws(() => validateSyncCheckpointV7(badAsset), /remote\.sha256 must equal id/);
 

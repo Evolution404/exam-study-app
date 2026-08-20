@@ -1,6 +1,6 @@
 # 项目交接文档
 
-> 更新时间：2026-08-15（Asia/Shanghai）
+> 更新时间：2026-08-20（Asia/Shanghai）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
@@ -10,8 +10,8 @@
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
 - 公开客户端数据层：独立 IndexedDB `shijuan-study-v7`（首次启动自动从旧 `shijuan-study-v6` 迁移）。
-- 公开同步协议：Sync v7，唯一可变入口 `sync/v7/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
-- Service Worker 缓存版本：`shijuan-v9`。
+- 公开同步协议：Sync v8，唯一可变入口 `sync/v8/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
+- Service Worker 缓存版本：`shijuan-v10`。
 - 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
 
 ## 2. 目录结构
@@ -47,10 +47,11 @@ docs/          # 项目文档
 - 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
 - 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
 - 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。
-- 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v7/assets/<sha256>.<ext>`。
-- 同步固定 head：`sync/v7/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
+- 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v8/assets/<sha256>.<ext>`。
+- 同步固定 head：`sync/v8/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
-- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面，只委托 v7 transport。
+- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v8。
+- 一次性远端迁移使用 `npm run migrate:vault:v8 -- --owner <owner> --repo <repo> --branch main`；先加 `--verify` 预检。迁移固定旧 v7 head SHA、严格回放热分段、复制资产、发布 v8 有界检查点，并保留旧 `sync/v7` 数据。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
 ## 4. 关键文件
@@ -79,7 +80,7 @@ docs/          # 项目文档
 `scripts/tools/check-architecture.mjs` 会检查：
 
 1. 公开页面只使用 `shijuan-study-v7`，不导入旧 `lib/db.ts`。
-2. 公开同步只写 `sync/v7/head.json`，不保留 v1/v2/v5/v6 传输回退。
+2. 公开同步只读写 `sync/v8/*`；旧 `sync/v7/*` 只能由隔离的一次性迁移工具读取。
 3. 页面不得重新使用 `Question.imageUrl` 或“图片地址”导入列。
 4. `practiceRuns` 是唯一持久化练习进度；不得恢复 active session 双写。
 5. 页面 CSS 使用主题令牌，不扩大硬编码颜色和 dark-mode 补丁预算。

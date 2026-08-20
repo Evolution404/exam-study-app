@@ -81,19 +81,30 @@ if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客�
 if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
 if (/github-sync-v5|github-v5-remote|sync-v5|from ["']\.\/db["']/.test(sync)) fail("公开同步门面不得导入 v5 或旧 DB");
 if (/github-sync-v6|github-v6-remote|sync-v6-head|sync-v6-checkpoint/.test(sync)) fail("公开同步门面不得依赖已移除的 v6 transport");
-if (/sync\/v6\//.test(syncV7) || /sync\/v6\//.test(syncV7Head) || /sync\/v6\//.test(syncV7Remote)) fail("v7 同步模块不得写入 v6 namespace");
+if (/sync\/v[67]\//.test(syncV7) || /sync\/v[67]\//.test(syncV7Remote)) fail("公开同步模块不得读写旧 v6/v7 namespace");
 if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync)) fail("公开 syncWithGitHub 必须委托 v7");
 if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
   fail("公开恢复入口必须委托 v7");
 }
-if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
+if (!/SYNC_V8_HEAD_PATH\s*=\s*["']sync\/v8\/head\.json["']/.test(syncV7Head)
+  || !/SYNC_V8_CHECKPOINT_PREFIX\s*=\s*["']sync\/v8\/checkpoints\/["']/.test(syncV7Head)
+  || !/SYNC_V8_SEGMENT_PREFIX\s*=\s*["']sync\/v8\/segments\/["']/.test(syncV7Head)
+  || !/SYNC_V8_OBJECT_PREFIX\s*=\s*["']sync\/v8\/objects\/["']/.test(syncV7Head)
+  || !/SYNC_V8_ASSET_PREFIX\s*=\s*["']sync\/v8\/assets\/["']/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
   || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
   || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
   || !/SYNC_V8_CHECKPOINT_FORMAT\s*=\s*8/.test(syncV8History)
   || !/createRemoteCheckpointV8/.test(syncV8History)
   || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
-  fail("公开同步入口必须使用 v7 固定 head/热窗口 transport，并以 format 8 bounded checkpoint + history archive 写远端");
+  fail("公开同步入口必须仅使用 v8 固定 head/热窗口 transport，并以 format 8 bounded checkpoint + history archive 写远端");
+}
+
+const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
+  .filter((file) => typeof file === "string" && file.endsWith(".ts") && file !== "sync-v8-protocol-migration.ts")
+  .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
+for (const { file, source } of activeSyncSources) {
+  if (/sync\/v7\//.test(source) && !["sync-v7-checkpoint.ts", "sync-v7-head.ts"].includes(file)) fail(`${file} 不得访问旧 v7 远端 namespace；兼容读取只能留在一次性迁移模块`);
 }
 
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
@@ -112,4 +123,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：独立数据库 v7 命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);
+console.log(`架构检查通过：独立数据库 v7 命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v8 namespace/head/checkpoint。`);

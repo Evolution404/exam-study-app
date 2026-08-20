@@ -289,11 +289,11 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   await sync();
 
   // One large import (>128 KB) becomes a single offloaded change-set: its
-  // segment carries only a stub pointing at sync/v7/objects/<sha>.json.
+  // segment carries only a stub pointing at sync/v8/objects/<sha>.json.
   const rows = Array.from({ length: 600 }, (_, index) => ({ q: `卸载合并第 ${index + 1} 题：考点 ${index} 的详细描述与选项辨析。`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
   const bank = await importQuestionBankV7("offload-coalesce.json", rows);
   await sync();
-  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v7/objects/")), "大导入应卸载为不可变对象");
+  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v8/objects/")), "大导入应卸载为不可变对象");
   const afterImport = await getSyncHotWindowState(settings);
   assert.equal(afterImport?.segmentCount, 1, "大导入应只占 1 个带 stub 的分段");
 
@@ -305,7 +305,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
     if ((await sync()).coalesced) coalescedWithStub = true;
   }
   assert.ok(coalescedWithStub, "带 stub 的热窗口到达阈值应触发合并");
-  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v7/objects/")), "合并后不可变对象应仍然存在（内容寻址，不被删除）");
+  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v8/objects/")), "合并后不可变对象应仍然存在（内容寻址，不被删除）");
 
   // The fresh device pulls the coalesced segments and must hydrate the stub.
   await freshClient("device-b");

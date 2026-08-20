@@ -4,7 +4,7 @@ import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7 } from "../db/db
 
 async function queueBase(): Promise<ChangeSetProjectionV7> {
   const base = (await dbV7.syncMeta.get("v7:queue-base"))?.value as ChangeSetProjectionV7 | undefined;
-  if (!base) throw new Error("请先完成一次 v7 同步，建立可审查的队列基线后再修改事件。");
+  if (!base) throw new Error("请先完成一次 v8 同步，建立可审查的队列基线后再修改事件。");
   return structuredClone(base);
 }
 

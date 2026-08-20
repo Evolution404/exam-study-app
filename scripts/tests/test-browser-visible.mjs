@@ -685,7 +685,7 @@ async function runDesktop(page, mockServer) {
   await realFields.nth(4).fill(mockServer.url);
   await capture(page, contextName, "sync-mock-configured");
   await clickTextButton(page, "立即同步");
-  await expectNotice(page, /v7 同步完成/, "real sync success notice");
+  await expectNotice(page, /v8 同步完成/, "real sync success notice");
   const hotWindow = page.locator(".sync-hot-window");
   await hotWindow.waitFor({ state: "visible" });
   const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
@@ -697,8 +697,8 @@ async function runDesktop(page, mockServer) {
   assert.ok(hotValues.some((text) => /^\d+$/.test(text)), "hot-window event count must be shown after a real sync");
   assert.ok(hotValues.some((text) => /\d{2}\/\d{2} \d{2}:\d{2}/.test(text)), "last sync time must be shown after a real sync");
   await capture(page, contextName, "sync-hot-window");
-  assert.ok(mockServer.contentPaths().includes("sync/v7/head.json"), "mock backend must hold the v7 head after a real sync");
-  assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v7/checkpoints/")), "mock backend must hold the initial checkpoint");
+  assert.ok(mockServer.contentPaths().includes("sync/v8/head.json"), "mock backend must hold the v8 head after a real sync");
+  assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v8/checkpoints/")), "mock backend must hold the initial checkpoint");
   // 统一悬浮提示：检查点体积格以鼠标第一次悬浮的位置为中心弹出，格内移动不跟随，离开即关闭。
   const volumeCell = hotWindow.locator("div").filter({ hasText: "检查点体积" }).locator("dd");
   assert.equal(await volumeCell.getAttribute("title"), null, "checkpoint volume must not carry a native title");
@@ -722,7 +722,7 @@ async function runDesktop(page, mockServer) {
   await hint.waitFor({ state: "hidden" });
   // Idempotent: a second sync with no new events pushes nothing but still succeeds.
   await clickTextButton(page, "立即同步");
-  await expectNotice(page, /v7 同步完成/, "idempotent second sync");
+  await expectNotice(page, /v8 同步完成/, "idempotent second sync");
 }
 
 async function runMobile(page, mockServer) {
@@ -823,7 +823,7 @@ async function runMobile(page, mockServer) {
   await realFields.nth(1).fill("browser-vault");
   await realFields.nth(4).fill(mockServer.url);
   await clickTextButton(page, "立即同步");
-  await expectNotice(page, /v7 同步完成/, "second-device real sync success");
+  await expectNotice(page, /v8 同步完成/, "second-device real sync success");
   await capture(page, contextName, "sync-mobile-pulled");
   // Cross-device: the desktop-created bank must have propagated to this device.
   await clickButton(page, "打开导航");
@@ -1083,7 +1083,7 @@ async function runManagementQA(page, mockServer) {
   await clickTextButton(page, "立即同步");
   await page.locator(".simple-dialog").filter({ hasText: "正在同步云端数据" }).waitFor({ state: "hidden", timeout: 20_000 }).catch(() => {});
   const syncToast = await page.locator(".toast").first().innerText().catch(() => "");
-  assert.match(syncToast, /v7 同步完成/, "management events should sync successfully");
+  assert.match(syncToast, /v8 同步完成/, "management events should sync successfully");
   await capture(page, contextName, "events-synced");
 
   // 本次同步抽屉：搜索输入框必须无边框、聚焦只靠边框变色（统一输入框样式，避免内外两个矩形或聚焦光环）
@@ -1136,7 +1136,7 @@ async function runManagementQA(page, mockServer) {
   await page.locator(".sync-queue-trigger").click();
   await page.locator(".sync-event-drawer").waitFor({ state: "visible" });
   await page.locator(".sync-event-drawer .sync-event-manager-actions button").click();
-  await expectNotice(page, /v7 同步完成/, "drawer quick sync notice");
+  await expectNotice(page, /v8 同步完成/, "drawer quick sync notice");
   await page.waitForTimeout(600);
   const drawerPanel = await readPanel(".sync-event-drawer .sync-hot-window");
   assert.ok(drawerPanel, "抽屉面板应在同步后存在");

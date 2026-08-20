@@ -69,7 +69,7 @@ try {
     const sample = (await dbV7.questions.limit(5).toArray()).map((question) => ({ id: question.id, fingerprint: question.contentFingerprint }));
     const pushResult = await sync();
     assert.equal(pushResult.pushed, 1, "大规模导入应为单个原子 change-set（不再分块）");
-    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v7/objects/")), "超大变更集应卸载为不可变对象而非内联塞入 segment");
+    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v8/objects/")), "超大变更集应卸载为不可变对象而非内联塞入 segment");
 
     // Brand-new device pulls the whole vault.
     await freshClient("device-b");
@@ -205,7 +205,7 @@ try {
     await savePracticeRunV7(bigRun);
     const pushResult = await sync();
     assert.ok(pushResult.pushed > 0, "大练习应作为变更推送");
-    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v7/objects/")).length >= 2, "大题库导入与大练习都应各自卸载为不可变对象");
+    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v8/objects/")).length >= 2, "大题库导入与大练习都应各自卸载为不可变对象");
 
     await freshClient("device-b");
     await sync();

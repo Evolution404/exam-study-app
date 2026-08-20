@@ -29,7 +29,7 @@ export async function getGitHubLogin(token: string): Promise<string> {
 
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = await loadRemoteCache(settings);
-  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const } : null;
+  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const } : null;
 }
 
 export interface SyncHotWindowState {
@@ -96,7 +96,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   await saveInstalledHead(settings, installFingerprint(value.head));
   await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
   report(callback, "complete", "本地数据恢复完成", 100);
-  return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 7 as const, pulled: 0, deferred: 0 };
+  return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const, pulled: 0, deferred: 0 };
 }
 
 export async function verifyGitHubVault(settings: GitHubSettings, token: string, options?: SyncWithGitHubOptions) { return (await remote(settings, token, options?.fetch).readHead()).initialized ? 7 as const : 0 as const; }

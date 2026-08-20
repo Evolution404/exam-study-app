@@ -23,8 +23,8 @@ const deviceBQuestion = await createChangeSetV7({ id: "b-question", deviceId: "d
 // Both devices worked offline. CAS makes A generation 1; B rebases and becomes
 // generation 2. Hash/path order is deliberately reversed and must not matter.
 const wire = replaySyncV7Segments([
-  { generation: 2, ordinal: 0, path: "sync/v7/segments/000.json", events: [deviceBQuestion] },
-  { generation: 1, ordinal: 0, path: "sync/v7/segments/fff.json", events: [deviceAImport] },
+  { generation: 2, ordinal: 0, path: "sync/v8/segments/000.json", events: [deviceBQuestion] },
+  { generation: 1, ordinal: 0, path: "sync/v8/segments/fff.json", events: [deviceAImport] },
 ]);
 let merged = structuredClone(empty);
 for (const change of wire) merged = reduceChangeSetV7(merged, change);
@@ -68,7 +68,7 @@ assert.equal(mixed.projection.questions.find((item) => item.id === "question-c")
 // Repeated normal sync and CAS retries remain below the real aggregate byte
 // threshold and therefore categorically cannot request a checkpoint.
 for (let count = 1; count <= 100; count += 1) {
-  const decision = planSyncV7Compaction({ head: { formatVersion: 7, vaultId: "vault", generatedAt: at, generation: count, metadata: { vaultId: "vault" }, checkpoint: { path: `sync/v7/checkpoints/${"a".repeat(64)}.json`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 }, segments: [], cursors: {} }, hotBytes: count * 512 });
+  const decision = planSyncV7Compaction({ head: { formatVersion: 8, vaultId: "vault", generatedAt: at, generation: count, metadata: { vaultId: "vault" }, checkpoint: { path: `sync/v8/checkpoints/${"a".repeat(64)}.json`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 }, segments: [], cursors: {} }, hotBytes: count * 512 });
   assert.equal(decision.required, false);
   assert.equal(decision.checkpointAllowed, false);
 }

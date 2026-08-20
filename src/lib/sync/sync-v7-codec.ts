@@ -1,5 +1,5 @@
 /**
- * Transport/storage envelope codec for v7 sync objects (segments, checkpoints,
+ * Transport/storage envelope codec for v8 sync objects (segments, checkpoints,
  * offloaded objects — everything except head.json).
  *
  * Writers DEFLATE-compress the JSON when `CompressionStream` is available;

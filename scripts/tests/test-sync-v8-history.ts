@@ -119,7 +119,7 @@ try {
     generation: 1,
   };
   const head: SyncHeadV7 = {
-    formatVersion: 7,
+    formatVersion: 8,
     vaultId,
     generatedAt: "2026-02-01T00:00:00.000Z",
     generation: 1,

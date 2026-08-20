@@ -10,7 +10,7 @@ import { hydrateSyncV7Events } from "./sync-v7-payload";
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse
  *  decision directly against a remote head + an arbitrary cached view. */
 export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8 }> {
-  if (!head.checkpoint) throw new Error("v7 远端缺少初始化检查点。");
+  if (!head.checkpoint) throw new Error("v8 远端缺少初始化检查点。");
   // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
   //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
   //           (original checkpoint + every segment replayed at save time) is a

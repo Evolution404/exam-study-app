@@ -8,7 +8,7 @@
  * ceiling (which only postpones the wall) or split the atomic unit, a
  * change-set whose body exceeds the inline budget is *offloaded*: the body is
  * published as a content-addressed immutable object under
- * sync/v7/objects/<sha256>.json, and the segment event becomes a thin stub
+ * sync/v8/objects/<sha256>.json, and the segment event becomes a thin stub
  * carrying only the ordering/dedup metadata plus a `payloadRef` to that object.
  *
  * This is transport-only. The local Dexie change-set record always keeps the
@@ -108,7 +108,7 @@ export async function offloadSyncV7Events(
 /**
  * Hydrate wire events back into full change-sets. Inline events pass through;
  * stubs are resolved by fetching their immutable object and verifying its
- * content hash and size. The caller supplies the fetcher (the v7 remote
+ * content hash and size. The caller supplies the fetcher (the v8 remote
  * reading by content-addressed path), keeping this module transport-agnostic
  * and unit-testable without a network.
  */
@@ -126,7 +126,7 @@ export async function hydrateSyncV7Events<T>(
     const raw = toUint8Array(await fetchObject(ref));
     const digest = await sha256Hex(raw);
     if (digest !== ref.sha256 || raw.byteLength !== ref.size) {
-      throw new Error(`v7 immutable object ${ref.path} failed its sha256/size integrity check`);
+      throw new Error(`v8 immutable object ${ref.path} failed its sha256/size integrity check`);
     }
     result.push(JSON.parse(decoder.decode(raw)) as T);
   }

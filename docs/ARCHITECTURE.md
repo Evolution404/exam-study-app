@@ -92,9 +92,9 @@ scripts/
 ## 当前数据与同步格式
 
 - 客户端只使用 IndexedDB v7（`shijuan-study-v7`）。
-- 公开同步协议为 Sync v7：head 固定为 `sync/v7/head.json`，不可变对象走内容寻址，GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
-- 不保留 v1/v2/v5/v6 传输回退和旧迁移链。
-- 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；旧远程 v6 检查点只读兼容，新检查点一律写 v7。
+- 公开同步协议为 Sync v8：head 固定为 `sync/v8/head.json`，检查点、分段、对象、历史与资产全部位于 `sync/v8/`，不可变对象走内容寻址，GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
+- 正常同步不保留 v1/v2/v5/v6/v7 传输回退；旧远端 v7 只允许由隔离的一次性迁移工具读取。
+- 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；本地领域模型保持 v7，远端 head/segment/checkpoint envelope 均为 format 8。
 
 ## 主题规则
 

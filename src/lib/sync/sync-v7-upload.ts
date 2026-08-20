@@ -6,7 +6,7 @@ import { SYNC_V7_ASSET_PREFIX, type SyncV7Descriptor } from "./sync-v7-head";
 
 /**
  * Upload local image blobs that have never been published, then enqueue
- * image.asset.save events with their v7 remote descriptors. The queue planner
+ * image.asset.save events with their v8 remote descriptors. The queue planner
  * orders assets before questions, so a remote device can replay image-bearing
  * questions without missing asset descriptors.
  */

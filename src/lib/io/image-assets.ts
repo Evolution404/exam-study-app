@@ -517,7 +517,7 @@ export function imageMimeForExtension(extension: string): ImageMimeType {
 /** Build the immutable v7 content-addressed remote path. */
 export function remoteAssetPath(id: string, mimeType: string): string {
   assertDigest(id);
-  return `sync/v7/assets/${id}.${imageExtensionForMime(mimeType)}`;
+  return `sync/v8/assets/${id}.${imageExtensionForMime(mimeType)}`;
 }
 
 function normaliseEstimateNumber(value: unknown): number | undefined {
