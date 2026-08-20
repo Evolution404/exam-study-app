@@ -99,6 +99,14 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
   if (/\bimageUrl\b|题目图片地址/.test(source)) fail(`${file} 不得使用公开图片 URL 字段`);
 }
 
+// React/UI 层只依赖稳定的 sync-application / sync-runtime 边界；GitHub
+// transport、credentials、change-set queue 和 v7 protocol 都属于同步实现细节。
+for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
+  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-v7)?|github-credentials|github-v7-remote|change-set-v7(?:-queue)?|sync-v7-[^"']+)["']/.test(source)) {
+    fail(`${file} 不得直接依赖同步实现；请通过 sync-application / sync-runtime`);
+  }
+}
+
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：独立数据库 v7 命名空间、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);
+console.log(`架构检查通过：独立数据库 v7 命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);
