@@ -605,3 +605,11 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 .result-question-groups>section>div>button.detail-current {
   background: var(--color-primary-soft);
 }
+
+/* Sort handles are real buttons so keyboard sensors can focus them. */
+.bank-drag,
+.group-drag {
+  border: 0;
+  background: transparent;
+  font: inherit;
+}

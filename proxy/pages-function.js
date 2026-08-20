@@ -1,4 +1,4 @@
-import { buildUpstreamRequest, withoutSetCookie } from "./github-relay-common.js";
+import { buildUpstreamRequest, relayRequestPolicy, withoutSetCookie } from "./github-relay-common.js";
 
 /**
  * Cloudflare Pages Function：应用同源 /api-github/* 的 GitHub API 转发。
@@ -7,6 +7,8 @@ import { buildUpstreamRequest, withoutSetCookie } from "./github-relay-common.js
  * 本文件由 scripts/tools/emit-pages-relay.mjs 打包进 functions/api-github/[[path]].js。
  */
 export async function onRequest(context) {
+  const policy = relayRequestPolicy(context.request, { pathPrefix: "/api-github" });
+  if (!policy.allowed) return new Response("GitHub relay request rejected", { status: policy.status });
   const proxied = buildUpstreamRequest(context.request, { pathPrefix: "/api-github" });
   const response = await fetch(proxied);
   return new Response(response.body, {

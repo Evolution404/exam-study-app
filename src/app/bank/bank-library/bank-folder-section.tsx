@@ -1,14 +1,14 @@
 "use client";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, BookOpenCheck, ChevronRight, Folder, FolderOpen, GripVertical, Library, Pencil, Trash2 } from "lucide-react";
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { arrayMove, sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { bankTitle, fullDate, type Bank, type BankFolder } from "./bank-library-shared";
 
 function SortableBankItem({ bank, index, total, onOpen, onMove }: { bank: Bank; index: number; total: number; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: bank.id });
-  return <article ref={setNodeRef} data-drag-id={bank.id} data-drag-index={index} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined }} className={isDragging ? "drag-active" : ""}><span className="bank-drag" {...attributes} {...listeners}><GripVertical size={18} /></span><button className="bank-management-main" onClick={() => onOpen(bank)}><span className="bank-color" style={{ background: bank.color || "#dfe9e2" }}><BookOpenCheck size={18} /></span><span><strong>{bankTitle(bank)}</strong><small>{bank.questionCount.toLocaleString()} 题 · {fullDate(bank.importedAt)}</small></span><ChevronRight size={17} /></button><div className="bank-order-buttons"><button aria-label="向上移动" disabled={index === 0} onClick={() => onMove(bank, -1)}><ArrowUp size={14} /></button><button aria-label="向下移动" disabled={index === total - 1} onClick={() => onMove(bank, 1)}><ArrowDown size={14} /></button></div></article>;
+  return <article ref={setNodeRef} data-drag-id={bank.id} data-drag-index={index} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined }} className={isDragging ? "drag-active" : ""}><button type="button" className="bank-drag" aria-label={`拖动${bankTitle(bank)}排序`} {...attributes} {...listeners}><GripVertical size={18} /></button><button className="bank-management-main" onClick={() => onOpen(bank)}><span className="bank-color" style={{ background: bank.color || "#dfe9e2" }}><BookOpenCheck size={18} /></span><span><strong>{bankTitle(bank)}</strong><small>{bank.questionCount.toLocaleString()} 题 · {fullDate(bank.importedAt)}</small></span><ChevronRight size={17} /></button><div className="bank-order-buttons"><button aria-label="向上移动" disabled={index === 0} onClick={() => onMove(bank, -1)}><ArrowUp size={14} /></button><button aria-label="向下移动" disabled={index === total - 1} onClick={() => onMove(bank, 1)}><ArrowDown size={14} /></button></div></article>;
 }
 
 export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
@@ -16,10 +16,12 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   const ordered = preview.value;
   // 同步父级顺序：仅在父级数据变化时重置预览，不在 effect 中 setState。
   if (preview.source !== banks) {
-    console.log("[drag-debug] reset preview from props", { folderId: folder?.id, propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
     setPreview({ source: banks, value: banks });
   }
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   function reorder(from: number, to: number) {
     if (from < 0 || to < 0 || from >= ordered.length || to >= ordered.length || from === to) return;
@@ -27,7 +29,6 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   }
 
   function handleDragStart(event: DragStartEvent) {
-    console.log("[drag-debug] drag-start", { folderId: folder?.id, activeId: String(event.active.id), propIds: banks.map((bank) => bank.id), previewIds: ordered.map((bank) => bank.id) });
     onDrag(String(event.active.id));
   }
   function handleDragOver(event: DragOverEvent) {
@@ -35,7 +36,6 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     if (!over || active.id === over.id) return;
     const from = ordered.findIndex((bank) => bank.id === active.id);
     const to = ordered.findIndex((bank) => bank.id === over.id);
-    console.log("[drag-debug] drag-over", { folderId: folder?.id, activeId: String(active.id), overId: String(over.id), from, to, previewIds: ordered.map((bank) => bank.id) });
     reorder(from, to);
   }
   function handleDragEnd(event: DragEndEvent) {
@@ -44,7 +44,6 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
     // active 自身；此时仍必须提交预览顺序，不能当成 no-op 丢掉。
     const previewChanged = banks.some((bank, index) => ordered[index]?.id !== bank.id);
     if (!previewChanged && (!over || active.id === over.id)) {
-      console.log("[drag-debug] drag-end no-op", { folderId: folder?.id, activeId: String(active.id), overId: over ? String(over.id) : null, previewIds: ordered.map((bank) => bank.id) });
       onDrag(undefined);
       return;
     }

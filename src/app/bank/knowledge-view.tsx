@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Check, ChevronRight, FolderPlus, GripVertical, Layers3, Merge, Pencil, Play, Plus, Search, Star, Tags, Trash2, X } from "lucide-react";
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
+import { arrayMove, sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { dbV7, deleteQuestionGroupV7, saveQuestionGroupV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
@@ -94,7 +94,10 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   const byId = new Map(questions.map((question) => [question.id, question]));
   const detailEntries = items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question));
   const results = query.trim() ? questions.filter((question) => !items.some((item) => item.questionId === question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   function reorderItems(from: number, to: number) {
     if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
@@ -155,7 +158,7 @@ function SortableGroupItem({ item, question, index, detailQuestionId, activeQues
   onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: question.id });
-  return <article ref={setNodeRef} data-question-id={question.id} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined }} className={`${(detailQuestionId ?? activeQuestionId) === question.id ? "detail-current" : ""} ${isDragging ? "drag-active" : ""}`}><span className="group-drag" aria-label={`拖动第 ${index + 1} 题排序`} {...attributes} {...listeners}><GripVertical size={16} /></span><span className="group-order">{index + 1}</span><div><button className="group-question-open" aria-label={`查看第 ${index + 1} 题详情`} onClick={() => onOpen(question.id)}><strong><MathText text={question.stem} /></strong><small>{question.type} · {question.bankName}</small></button><input value={item.note} onChange={(event) => onNote(event.target.value)} placeholder="这道题在本组中的区分点（可选）" /></div><button className="group-remove" aria-label={`移除第 ${index + 1} 题`} onClick={onRemove}><X size={15} /></button></article>;
+  return <article ref={setNodeRef} data-question-id={question.id} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined }} className={`${(detailQuestionId ?? activeQuestionId) === question.id ? "detail-current" : ""} ${isDragging ? "drag-active" : ""}`}><button type="button" className="group-drag" aria-label={`拖动第 ${index + 1} 题排序`} {...attributes} {...listeners}><GripVertical size={16} /></button><span className="group-order">{index + 1}</span><div><button className="group-question-open" aria-label={`查看第 ${index + 1} 题详情`} onClick={() => onOpen(question.id)}><strong><MathText text={question.stem} /></strong><small>{question.type} · {question.bankName}</small></button><input value={item.note} onChange={(event) => onNote(event.target.value)} placeholder="这道题在本组中的区分点（可选）" /></div><button className="group-remove" aria-label={`移除第 ${index + 1} 题`} onClick={onRemove}><X size={15} /></button></article>;
 }
 
 function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotice }: {

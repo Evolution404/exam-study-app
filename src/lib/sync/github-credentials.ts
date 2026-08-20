@@ -4,17 +4,31 @@ const settingsKey = "github-settings";
 const tokenKey = "github-token";
 
 /**
- * 同步默认走应用同源的 GitHub 代理（Cloudflare Pages Function，源码见
- * proxy/pages-function.js，构建时生成 functions/api-github/[[path]].js）：
- * 同源请求不触发 CORS preflight。需要直连或外部中转时，在同步页把
- * 「同步中转地址」改成完整 URL 即可。
+ * Cloudflare Pages 使用同源 Function。GitHub Pages 无法运行 Functions，
+ * 因此自动使用配套的跨域 Worker；否则公开主站上的默认同步会稳定 404。
+ * 用户仍可在同步页显式改为自己的中转地址。
  */
-export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = { owner: "", repo: "exam-study-vault", branch: "main", apiBaseUrl: "/api-github" };
+export const GITHUB_PAGES_RELAY = "https://sync.980923.xyz";
+
+function currentHostname() {
+  return typeof location !== "undefined" ? location.hostname : "";
+}
+
+export function resolveDefaultGitHubApiBaseUrl(hostname = currentHostname()) {
+  return hostname.toLowerCase().endsWith(".github.io") ? GITHUB_PAGES_RELAY : "/api-github";
+}
+
+export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = { owner: "", repo: "exam-study-vault", branch: "main", apiBaseUrl: resolveDefaultGitHubApiBaseUrl() };
 
 export function loadGitHubSettings(): GitHubSettings {
   if (typeof window === "undefined") return DEFAULT_GITHUB_SETTINGS;
   try {
-    return { ...DEFAULT_GITHUB_SETTINGS, ...JSON.parse(localStorage.getItem(settingsKey) ?? "{}") } as GitHubSettings;
+    const saved = JSON.parse(localStorage.getItem(settingsKey) ?? "{}") as Partial<GitHubSettings>;
+    const settings = { ...DEFAULT_GITHUB_SETTINGS, ...saved } as GitHubSettings;
+    // Migrate the former same-origin default on GitHub Pages. It cannot be a
+    // working intentional choice there because GitHub Pages serves static files only.
+    if (resolveDefaultGitHubApiBaseUrl() === GITHUB_PAGES_RELAY && (!saved.apiBaseUrl || saved.apiBaseUrl === "/api-github")) settings.apiBaseUrl = GITHUB_PAGES_RELAY;
+    return settings;
   } catch {
     return DEFAULT_GITHUB_SETTINGS;
   }

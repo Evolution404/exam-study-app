@@ -32,6 +32,22 @@ export function buildUpstreamUrl(requestUrl, { pathPrefix } = {}) {
   return upstream;
 }
 
+/** Restrict the public relay to the small GitHub API surface used by sync. */
+export function relayRequestPolicy(request, { pathPrefix } = {}) {
+  const method = request.method.toUpperCase();
+  if (!["GET", "HEAD", "PUT"].includes(method)) return { allowed: false, status: 405 };
+  const upstream = buildUpstreamUrl(request.url, { pathPrefix });
+  const path = upstream.pathname;
+  const userLookup = path === "/user" && (method === "GET" || method === "HEAD");
+  const repositoryRead = /^\/repos\/[^/]+\/[^/]+\/(?:contents(?:\/.*)?|git\/blobs\/[a-f0-9]{40})$/i.test(path)
+    && (method === "GET" || method === "HEAD");
+  const contentsWrite = /^\/repos\/[^/]+\/[^/]+\/contents(?:\/.*)?$/i.test(path) && method === "PUT";
+  if (!userLookup && !repositoryRead && !contentsWrite) return { allowed: false, status: 404 };
+  const declaredBytes = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > 20 * 1024 * 1024) return { allowed: false, status: 413 };
+  return { allowed: true, status: 200 };
+}
+
 export function buildUpstreamRequest(request, { pathPrefix, omitBodyForGetHead = false } = {}) {
   const upstream = buildUpstreamUrl(request.url, { pathPrefix });
   const headers = stripRequestHeaders(request.headers);

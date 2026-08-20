@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { GITHUB_PAGES_RELAY, resolveDefaultGitHubApiBaseUrl } from "../../src/lib/sync/github-credentials";
+import { relayRequestPolicy } from "../../proxy/github-relay-common.js";
 
 const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 const common = read("proxy/github-relay-common.js");
@@ -45,8 +47,20 @@ for (const header of ["etag", "content-type", "last-modified", "x-ratelimit-limi
 }
 assert.match(worker, /Access-Control-Allow-Origin": "\*"/, "worker relay must allow cross-origin browser clients");
 
+assert.equal(relayRequestPolicy(new Request("https://sync.example/user")).allowed, true);
+assert.equal(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/contents/sync/v8/head.json", { method: "PUT" })).allowed, true);
+assert.equal(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/git/blobs/0123456789012345678901234567890123456789")).allowed, true);
+assert.deepEqual(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/issues", { method: "POST" })), { allowed: false, status: 405 });
+assert.deepEqual(relayRequestPolicy(new Request("https://pages.example/api-github/repos/me/vault/issues"), { pathPrefix: "/api-github" }), { allowed: false, status: 404 });
+
 // Pages 路由只覆盖 /api-github/*，其他路径不得挂函数。
 assert.deepEqual(routes.include, ["/api-github/*"], "functions route only the API proxy path");
 assert.deepEqual(routes.exclude, [], "no other path runs as a function");
 
-console.log("GitHub relay consistency tests passed: shared upstream/strip-list/redirect, pages prefix, worker CORS, pages routes");
+// GitHub Pages cannot run Functions, so its advertised public build must use
+// the dedicated Worker instead of the same-origin path that would return 404.
+assert.equal(resolveDefaultGitHubApiBaseUrl("evolution404.github.io"), GITHUB_PAGES_RELAY);
+assert.equal(resolveDefaultGitHubApiBaseUrl("exam-study-app.pages.dev"), "/api-github");
+assert.equal(resolveDefaultGitHubApiBaseUrl("localhost"), "/api-github");
+
+console.log("GitHub relay consistency tests passed: shared upstream/strip-list/redirect, deploy-specific defaults, worker CORS, pages routes");

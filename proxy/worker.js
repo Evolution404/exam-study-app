@@ -1,4 +1,4 @@
-import { buildUpstreamRequest } from "./github-relay-common.js";
+import { buildUpstreamRequest, relayRequestPolicy } from "./github-relay-common.js";
 
 const RESPONSE_HEADERS_TO_COPY = [
   "etag",
@@ -21,6 +21,9 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
+
+    const policy = relayRequestPolicy(request);
+    if (!policy.allowed) return new Response("GitHub relay request rejected", { status: policy.status, headers: corsHeaders() });
 
     const proxied = buildUpstreamRequest(request, { omitBodyForGetHead: true });
     const upstreamResponse = await fetch(proxied);

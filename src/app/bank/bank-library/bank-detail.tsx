@@ -23,17 +23,17 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const dataset = useLiveQuery(async () => {
     const views = await listQuestionViewsForBankV7(bank.id);
     const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
-    const questionIds = new Set(questions.map((question) => question.id));
+    const questionIdList = questions.map((question) => question.id);
     const [rawStats, rawAttempts, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
-      dbV7.attemptStats.toArray(),
-      dbV7.attempts.toArray(),
-      dbV7.notes.toArray(),
+      dbV7.attemptStats.bulkGet(questionIdList),
+      questionIdList.length ? dbV7.attempts.where("questionId").anyOf(questionIdList).toArray() : [],
+      dbV7.notes.bulkGet(questionIdList),
       dbV7.practiceRuns.toArray(),
       dbV7.practiceRunStats.get(bank.id),
-      dbV7.reviewRoundProgress.toArray(),
+      questionIdList.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(questionIdList).toArray() : [],
     ]);
-    const attemptStats = rawStats.filter((stats) => questionIds.has(stats.questionId)).map((stats) => ({ ...stats, bankId: bank.id }));
-    return { questions, lifetimeAttemptStats: attemptStats, attempts: rawAttempts.filter((attempt) => questionIds.has(attempt.questionId)), notes: allNotes.filter((note) => questionIds.has(note.questionId) && note.content.trim()), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress: roundProgress.filter((row) => questionIds.has(row.questionId)) };
+    const attemptStats = rawStats.filter((stats) => stats !== undefined).map((stats) => ({ ...stats, bankId: bank.id }));
+    return { questions, lifetimeAttemptStats: attemptStats, attempts: rawAttempts, notes: allNotes.flatMap((note) => note?.content.trim() ? [note] : []), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress };
   }, [bank.id]);
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);
   const lifetimeAttemptStats = useMemo(() => dataset?.lifetimeAttemptStats ?? [], [dataset]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, LoaderCircle, X } from "lucide-react";
 import { ModalPortal } from "@/app/ui/modal-portal";
 
@@ -37,13 +37,59 @@ export function ConfirmDialog({
   onSecondary?: () => void;
   onCancel: () => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
   useEffect(() => {
-    if (!open || busy || hideCancel) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+    if (!open) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const initial = dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]:not(:disabled)");
+      (initial ?? dialog).focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      const previous = previousFocusRef.current;
+      previousFocusRef.current = null;
+      if (previous) window.requestAnimationFrame(() => { if (previous.isConnected) previous.focus(); });
     };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy && !hideCancel) {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])",
+      )].filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [busy, hideCancel, onCancel, open]);
 
   if (!open) return null;
@@ -53,16 +99,16 @@ export function ConfirmDialog({
     <div className="simple-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !busy && !hideCancel) onCancel();
     }}>
-      <section className={`simple-dialog small confirm-dialog ${tone}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <section ref={dialogRef} className={`simple-dialog small confirm-dialog ${tone}`} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
         <header>
-          <div><span className="section-kicker">{eyebrow}</span><h2 id="confirm-dialog-title">{title}</h2></div>
+          <div><span className="section-kicker">{eyebrow}</span><h2 id={titleId}>{title}</h2></div>
           {!hideCancel && <button className="icon-button" aria-label="关闭确认框" disabled={busy} onClick={onCancel}><X size={17} /></button>}
         </header>
-        <div className="confirm-dialog-body"><span className="confirm-dialog-icon"><Icon size={22} /></span><div>{description}{progress && <div className="dialog-progress" aria-label={`${progress.label} ${progress.percent}%`}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${progress.percent}%` }} /></i></div>}{error && <p className="editor-error confirm-dialog-error" role="alert">{error}</p>}</div></div>
+        <div className="confirm-dialog-body"><span className="confirm-dialog-icon"><Icon size={22} /></span><div id={descriptionId}>{description}{progress && <div className="dialog-progress" role="progressbar" aria-label={progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span><strong>{progress.label}</strong><em>{progress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${progress.percent}%` }} /></i></div>}{error && <p className="editor-error confirm-dialog-error" role="alert">{error}</p>}</div></div>
         <footer>
-          {!hideCancel && <button disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
+          {!hideCancel && <button data-dialog-initial-focus disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
           {onSecondary && secondaryLabel && <button className="confirm-dialog-secondary" disabled={busy} onClick={onSecondary}>{secondaryLabel}</button>}
-          <button className={tone === "danger" ? "danger-button" : "primary"} disabled={busy} onClick={onConfirm}>
+          <button data-dialog-initial-focus={hideCancel ? true : undefined} className={tone === "danger" ? "danger-button" : "primary"} disabled={busy} onClick={onConfirm}>
             {busy && <LoaderCircle className="spin" size={17} />}{busy ? "处理中…" : confirmLabel}
           </button>
         </footer>

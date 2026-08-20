@@ -78,11 +78,14 @@ export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { o
   // 排序口径：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），不再按开始时间。
   const ordered = useMemo(() => (runsQuery ?? []).slice().sort((a, b) => runActivityAt(b).localeCompare(runActivityAt(a))), [runsQuery]);
   const [status, setStatus] = useState<"all" | PracticeRunV7["status"]>("all");
-  const visible = status === "all" ? ordered : ordered.filter((run) => run.status === status);
+  const [visibleLimit, setVisibleLimit] = useState(50);
+  const filtered = status === "all" ? ordered : ordered.filter((run) => run.status === status);
+  const visible = filtered.slice(0, visibleLimit);
   return <section className="practice-history-card">
     <header><div><span className="section-kicker">每次练习都有迹可循</span><h2>练习记录</h2><p>进行中、已完成和已放弃的练习都会保留。</p></div><History size={24} /></header>
-    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? runs.length : runs.filter((run) => run.status === item).length}</span></button>)}</div>
+    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => { setStatus(item); setVisibleLimit(50); }}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? runs.length : runs.filter((run) => run.status === item).length}</span></button>)}</div>
     {visible.length ? <div className="history-list">{visible.map((run) => <HistoryRunCard key={run.id} run={run} onOpen={onOpen} onContinue={onContinue} onAbandon={onAbandon} onDelete={onDelete} />)}</div> : <div className="history-empty"><Clock3 /><h3>这里还没有记录</h3><p>开始一组练习后，会立即建立可恢复的练习记录。</p></div>}
+    {visible.length < filtered.length && <button className="search-load-more" onClick={() => setVisibleLimit((current) => current + 50)}>继续加载（{visible.length} / {filtered.length}）</button>}
   </section>;
 }
 
@@ -91,8 +94,9 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
     const run = await dbV7.practiceRuns.get(runId);
     if (!run) return undefined;
     const questions = (await dbV7.questions.bulkGet(run.questionIds)).filter(Boolean);
-    const memberships = await dbV7.bankQuestionMemberships.toArray();
-    const banks = await dbV7.banks.toArray();
+    const memberships = run.questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];
+    const bankIds = [...new Set(memberships.map((membership) => membership.bankId))];
+    const banks = (await dbV7.banks.bulkGet(bankIds)).filter((bank) => bank !== undefined);
     return { run, questions: questions.map((question) => { const membership = memberships.find((item) => item.questionId === question!.id); const bank = banks.find((item) => item.id === membership?.bankId); return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
   }, [runId]);
   const [filter, setFilter] = useState<"all" | "wrong" | "unanswered">("all");
