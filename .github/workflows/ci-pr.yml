@@ -16,4 +16,20 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:fast
+      - name: Production build
+        run: npm run build
+      - name: Fast checks
+        run: npm run test:fast
+      - name: Install Chromium for browser smoke
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+          else
+            sudo apt-get update
+            sudo apt-get install -y chromium
+            chromium --version
+          fi
+      - name: Browser smoke (Ubuntu Chromium)
+        run: npm run test:browser-smoke
+      - name: PWA preview smoke
+        run: npm run test:pwa-smoke

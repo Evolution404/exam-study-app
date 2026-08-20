@@ -20,11 +20,12 @@ function run(script) {
   });
 }
 
-const firstStage = await Promise.all(scripts.map(run));
-const failed = firstStage.filter((result) => result.code !== 0);
-if (failed.length) {
-  console.error(`[run-test-full] 阶段一失败：${failed.map((item) => item.script).join(", ")}`);
-  process.exit(1);
+for (const script of scripts) {
+  const result = await run(script);
+  if (result.code !== 0) {
+    console.error(`[run-test-full] 阶段一失败：${script}`);
+    process.exit(1);
+  }
 }
 
 const browser = await run("test:browser");

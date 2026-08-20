@@ -17,6 +17,7 @@ export const testGroups = {
     "test:sync-payload",
     "test:sync-v7-multidevice",
     "test:sync-v7-protocol",
+    "test:sync-v8-migration",
     "test:v7-domain",
     "test:image-assets",
   ],
@@ -58,6 +59,15 @@ export const testGroups = {
     "test:sync-watermark-cache",
     "test:sync-compaction-plan-head",
     "test:sync-tombstone-retired-date",
+    "test:sync-bank-reorder-folder",
+    "test:sync-v7-gc",
+    "test:sync-v8-history",
+  ],
+  // E2E tests are intentionally opt-in for fast checks. CI and release checks
+  // invoke this group after installing a system Chromium.
+  e2e: [
+    "test:browser-smoke",
+    "test:pwa-smoke",
   ],
 };
 
@@ -65,4 +75,5 @@ export const groupConcurrency = {
   unit: 6,
   source: 6,
   integration: 2,
+  e2e: 1,
 };

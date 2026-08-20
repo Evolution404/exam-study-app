@@ -10,7 +10,9 @@ const syncView = read("src/app/sync/sync-view.tsx");
 const syncApplication = read("src/lib/sync/sync-application.ts");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
 const main = read("src/main.tsx");
+const errorBoundary = read("src/app/error-boundary.tsx");
 const headers = read("public/_headers");
+const previewSmoke = read("scripts/tests/test-pwa-preview.mjs");
 
 assert.match(serviceWorker, /const CACHE = "shijuan-v10"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
@@ -30,12 +32,23 @@ assert.match(serviceWorker, /return !url\.pathname\.startsWith\(`\$\{BASE\}api-g
 assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
 assert.doesNotMatch(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE/);
 assert.match(headers, /\/index\.html[\s\S]*Cache-Control: no-cache, must-revalidate/, "entry HTML must revalidate on every deployment");
+assert.match(headers, /\/sw\.js[\s\S]*Cache-Control: no-cache, must-revalidate/, "service worker source must revalidate after deployment");
+assert.match(headers, /\/manifest\.webmanifest[\s\S]*Cache-Control: no-cache, must-revalidate/, "manifest must revalidate after deployment");
+assert.match(headers, /\/icons\/\*[\s\S]*Cache-Control: no-cache, must-revalidate/, "fixed-name PWA icons must revalidate after deployment");
 assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=31536000, immutable/, "content-hashed assets remain safely immutable");
+assert.match(previewSmoke, /npm run build/, "PWA smoke must exercise a production build");
+assert.match(previewSmoke, /run", "preview/, "PWA smoke must exercise Vite preview");
+assert.match(previewSmoke, /navigator\.serviceWorker\.controller/, "PWA smoke must verify an active service worker controls the preview page");
+assert.match(previewSmoke, /shijuan-v10/, "PWA smoke must verify the versioned service-worker cache");
 
 // 代理一致性由 test-github-relay-consistency 专门验证。这里只保留 PWA 边界：
 // 同源 /api-github 请求必须绕过 Service Worker，避免被缓存或离线回退。
 
 assert.match(main, /updateViaCache: "none"/);
+assert.match(main, /dbV7Ready\.then[\s\S]*\.catch/, "startup failures must render a recovery screen instead of leaving a blank root");
+assert.match(errorBoundary, /class AppErrorBoundary/, "render failures must be caught by a top-level error boundary");
+assert.match(errorBoundary, /重试加载/, "startup recovery must offer an explicit retry");
+assert.match(errorBoundary, /导出 JSON\/Excel/, "startup recovery must direct users to export before any destructive reset");
 assert.match(shellHelpers, /function updateServiceWorkerWithinTimeout/);
 assert.match(shellHelpers, /await settleWithTimeout\(registration\.update\(\), 700\)/);
 assert.doesNotMatch(studyApp, /onConfirm=\{\(\) => window\.location\.reload\(\)\}/);

@@ -59,11 +59,14 @@ src/types/
 
 `v7-types.ts` 仍留在 `src/lib/db/`，因为它描述的是 v7 数据模型；`db-v7.ts` 现在只是 barrel，实现分布在 `db-v7-*` 子模块中。
 
-## 入口 `src/main.tsx`
+## 入口与启动恢复 `src/main.tsx`
 
 - 挂载 React 应用 `StudyApp`
 - 引入 `src/app/globals.css` 和 `src/generated/title-font.css`
-- 生产环境注册 `/sw.js`
+- 等待 `dbV7Ready` 后挂载 `AppErrorBoundary`；数据库迁移或懒加载失败时显示 `AppRecoveryScreen`，只提供重试和导出/清除提示，不会自动删除 IndexedDB、Storage 或 Cookie。
+- 生产环境注册 `/sw.js`，使用 `updateViaCache: "none"` 让新部署的 worker 尽快生效。
+
+GitHub 令牌由 `src/lib/sync/github-credentials.ts` 持久保存在当前设备浏览器的 `localStorage`，直到用户主动清除；令牌不进入题库快照或同步对象。共享设备应在“同步”页清除本机数据，外部中转地址也应只使用可信部署。
 
 ## 代理层 `proxy/`
 
@@ -84,7 +87,8 @@ proxy/
 ```text
 scripts/
 ├── tools/   # subset-title-font, emit-pages-relay, check-architecture,
-│            # check-no-native-tooltip-titles, mock-github-server,
+│            # check-test-registration, check-no-native-tooltip-titles,
+│            # chrome-executable, mock-github-server,
 │            # migrate-vault-compressed, generate-xlsx-template
 └── tests/   # 所有 test-*.ts / test-browser-visible.mjs
 ```

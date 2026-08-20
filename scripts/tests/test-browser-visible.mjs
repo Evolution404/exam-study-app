@@ -1,28 +1,29 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import * as XLSX from "xlsx";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { resolveChromeExecutable } from "../tools/chrome-executable.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const chromeExecutable = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chromeExecutable = resolveChromeExecutable();
 // 默认后台 headless 运行，不弹出 Chrome 窗口打断操作；需要肉眼观看时：
 //   BROWSER_HEADLESS=0 node scripts/tests/test-browser-visible.mjs
 const headless = process.env.BROWSER_HEADLESS !== "0" && process.env.BROWSER_HEADLESS !== "false";
 const configuredBaseUrl = process.env.BASE_URL?.trim();
-const baseUrl = (configuredBaseUrl || "http://127.0.0.1:5173").replace(/\/$/, "");
+const configuredPort = process.env.BROWSER_PORT?.trim() || "5173";
+const serverPort = Number(configuredPort);
+if (!configuredBaseUrl && (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65_535)) {
+  throw new Error(`BROWSER_PORT must be an integer between 1 and 65535, got ${configuredPort}`);
+}
+const baseUrl = (configuredBaseUrl || `http://127.0.0.1:${serverPort}`).replace(/\/$/, "");
 const artifactRoot = path.join(root, "artifacts", "browser-qa");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const runRoot = path.join(artifactRoot, runId);
 const screenshots = [];
-
-if (!existsSync(chromeExecutable)) {
-  throw new Error(`Chrome executable not found at ${chromeExecutable}. Set CHROME_PATH to a visible Chrome binary.`);
-}
 
 const fixture = [
   { q: "导线的主要作用是什么？", a: ["传输电能", "装饰线路", "储存电能", "测量温度"], ans: "A" },
@@ -67,10 +68,17 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForServer(url, timeoutMs = 30_000) {
+async function waitForServer(url, timeoutMs = 30_000, processRef, isReady = () => true) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
+    if (processRef?.exitCode !== null) {
+      throw new Error(`Development server exited before becoming ready (code ${processRef.exitCode ?? "signal"})`);
+    }
+    if (!isReady()) {
+      await wait(100);
+      continue;
+    }
     try {
       const response = await fetch(url);
       if (response.ok || response.status < 500) return;
@@ -85,14 +93,19 @@ async function waitForServer(url, timeoutMs = 30_000) {
 async function startDevServerIfNeeded() {
   if (configuredBaseUrl) return;
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  devServer = spawn(npm, ["run", "dev", "--", "--host", "127.0.0.1"], {
+  let viteReady = false;
+  devServer = spawn(npm, ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(serverPort), "--strictPort"], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, BROWSER: "none" },
   });
-  devServer.stdout?.on("data", (chunk) => process.stdout.write(`[vite] ${chunk}`));
+  devServer.stdout?.on("data", (chunk) => {
+    const text = chunk.toString();
+    if (/Local:\s/.test(text)) viteReady = true;
+    process.stdout.write(`[vite] ${text}`);
+  });
   devServer.stderr?.on("data", (chunk) => process.stderr.write(`[vite] ${chunk}`));
-  await waitForServer(`${baseUrl}/`);
+  await waitForServer(`${baseUrl}/`, 30_000, devServer, () => viteReady);
 }
 
 function visibleLocator(page, locator, description) {
