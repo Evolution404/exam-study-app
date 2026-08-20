@@ -26,16 +26,20 @@ export async function checkpointFromProjection(
     const gc = reclaimableTombstonesV7(tombstones, options.tombstoneGc);
     tombstones = gc.keep;
   }
-  // Direct construction: the old spread of createSyncCheckpointV7() read and
-  // deep-cloned all 16 tables out of IndexedDB, then discarded every field —
-  // up to three wasted full snapshots per sync.
+  // Serialize the explicit wire schema instead of spreading the internal
+  // projection object. ChangeSetProjectionV7 intentionally carries aliases
+  // such as bankQuestionMemberships (and reducer-only metadata such as
+  // attemptRoundIds); leaking those into checkpoint JSON duplicates data and
+  // makes a hydrate/rebuild produce a structurally different checkpoint even
+  // when every persisted entity is identical.
   const checkpoint: SyncCheckpointV7 = {
     formatVersion: 7,
     generatedAt: new Date().toISOString(),
     cursors: { ...cursors },
     state: {
-      ...projection,
-      tombstones,
+      banks: projection.banks,
+      bankFolders: projection.bankFolders,
+      questions: projection.questions,
       memberships: projection.memberships,
       imageAssets: projection.imageAssets.map((asset) => ({
         id: asset.id,
@@ -45,6 +49,16 @@ export async function checkpointFromProjection(
         height: asset.height,
         remote: asset.remote,
       })),
+      attempts: projection.attempts,
+      attemptStats: projection.attemptStats,
+      attemptDailyStats: projection.attemptDailyStats,
+      notes: projection.notes,
+      practiceRuns: projection.practiceRuns,
+      practiceRunStats: projection.practiceRunStats,
+      questionGroups: projection.questionGroups,
+      reviewRounds: projection.reviewRounds,
+      reviewRoundProgress: projection.reviewRoundProgress,
+      tombstones,
     },
     counts: {
       banks: projection.banks.length,

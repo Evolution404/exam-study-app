@@ -5,6 +5,7 @@ import {
   SYNC_V7_MAX_SEGMENT_BYTES,
   SYNC_V7_OBJECT_PREFIX,
   SYNC_V7_SEGMENT_PREFIX,
+  SYNC_V8_HISTORY_PREFIX,
   SYNC_V7_HEAD_PATH,
   assertSyncV7Path,
   validateSyncHeadV7,
@@ -95,6 +96,11 @@ export interface SyncV7ImmutablePutResult {
   created: boolean;
   idempotent: boolean;
   status: number;
+}
+
+export interface SyncV7RemoteEntry {
+  path: string;
+  blobSha: string;
 }
 
 export interface SyncV7BlobExpectation {
@@ -330,6 +336,46 @@ export class GitHubV7Remote {
     return sha;
   }
 
+  /** List immutable files in a bounded v7 maintenance namespace. */
+  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX | typeof SYNC_V8_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
+    const kind: SyncV7DescriptorKind = prefix === SYNC_V7_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_V7_SEGMENT_PREFIX ? "segment" : "history";
+    const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+    const response = await this.request(withRef(contentPath(this.owner, this.repo, directory), this.branch));
+    if (response.status === 404) return [];
+    this.requireOk(response, `list immutable ${directory}`);
+    const value = parseJson(await response.text(), `list immutable ${directory}`);
+    if (!Array.isArray(value)) throw new GitHubV7RemoteError(`list immutable ${directory}`, 200, "GitHub returned an invalid directory listing");
+    const entries: SyncV7RemoteEntry[] = [];
+    for (const item of value) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const path = getString((item as { path?: unknown }).path);
+      const blobSha = getString((item as { sha?: unknown }).sha);
+      const type = getString((item as { type?: unknown }).type);
+      if (!path || !blobSha || (type !== undefined && type !== "file")) continue;
+      assertSyncV7Path(path, kind);
+      assertSha1(blobSha, "listed immutable blobSha");
+      entries.push({ path, blobSha });
+    }
+    return entries;
+  }
+
+  /** Delete an immutable path only when its Git blob SHA still matches. */
+  async deleteImmutablePath(path: string, blobSha: string): Promise<boolean> {
+    const kind = inferKind(path);
+    if (kind !== "checkpoint" && kind !== "segment" && kind !== "object" && kind !== "history") throw new TypeError("sync GC cannot delete assets");
+    assertSyncV7Path(path, kind);
+    assertSha1(blobSha, "immutable delete blobSha");
+    const response = await this.request(contentPath(this.owner, this.repo, path), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: `sync(v7): gc ${path}`, sha: blobSha, branch: this.branch }),
+    });
+    if (response.status === 404) return false;
+    if (response.status === 409 || response.status === 422) return false;
+    this.requireOk(response, `delete immutable ${path}`);
+    return true;
+  }
+
   async readHead(cache?: SyncV7HeadCache | SyncHeadV7): Promise<SyncV7HeadReadResult> {
     const previous = normalizeCache(cache);
     const headers = new Headers();
@@ -507,6 +553,7 @@ function inferKind(path: string): SyncV7DescriptorKind {
   if (path.startsWith(SYNC_V7_ASSET_PREFIX)) return "asset";
   if (path.startsWith(SYNC_V7_CHECKPOINT_PREFIX)) return "checkpoint";
   if (path.startsWith(SYNC_V7_OBJECT_PREFIX)) return "object";
+  if (path.startsWith(SYNC_V8_HISTORY_PREFIX)) return "history";
   if (path.startsWith(SYNC_V7_SEGMENT_PREFIX)) return "segment";
   throw new TypeError("immutable v7 path must be in a known namespace");
 }
