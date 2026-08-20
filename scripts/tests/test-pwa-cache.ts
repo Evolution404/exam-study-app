@@ -37,7 +37,7 @@ assert.match(headers, /\/manifest\.webmanifest[\s\S]*Cache-Control: no-cache, mu
 assert.match(headers, /\/icons\/\*[\s\S]*Cache-Control: no-cache, must-revalidate/, "fixed-name PWA icons must revalidate after deployment");
 assert.match(headers, /\/assets\/\*[\s\S]*Cache-Control: public, max-age=31536000, immutable/, "content-hashed assets remain safely immutable");
 assert.match(previewSmoke, /npm run build/, "PWA smoke must exercise a production build");
-assert.match(previewSmoke, /run", "preview/, "PWA smoke must exercise Vite preview");
+assert.match(previewSmoke, /viteCli, "preview"/, "PWA smoke must exercise Vite preview directly so CI can terminate it reliably");
 assert.match(previewSmoke, /navigator\.serviceWorker\.controller/, "PWA smoke must verify an active service worker controls the preview page");
 assert.match(previewSmoke, /shijuan-v10/, "PWA smoke must verify the versioned service-worker cache");
 
