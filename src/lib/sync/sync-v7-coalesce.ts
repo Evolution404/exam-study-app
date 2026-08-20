@@ -12,6 +12,7 @@ import {
   type SyncV7SegmentDescriptor,
 } from "./sync-v7-head";
 import { uploadedDescriptor } from "./sync-v7-upload";
+import { gcSyncV7Remote } from "./sync-v7-gc";
 
 /**
  * Re-pack the hot window into fewer segments once this many have accumulated,
@@ -84,5 +85,6 @@ export async function maybeCoalesceHotWindow(client: GitHubV7Remote, cache: Sync
   const plan = createSyncV7PublicationPlan({ expectedHead: head, expectedHeadSha: cache.blobSha, head: nextHead, segments: segmentFiles });
   const published = await client.publish(plan);
   if (!published.ok) return null;
+  try { await gcSyncV7Remote(client, head, published.cache, { checkpointChanged: false }); } catch { /* best-effort */ }
   return published.cache;
 }

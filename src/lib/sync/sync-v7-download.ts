@@ -2,13 +2,14 @@ import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
 import type { GitHubV7Remote } from "./github-v7-remote";
 import { SYNC_V7_DOWNLOAD_CONCURRENCY, descriptorEqual, mapWithConcurrency } from "./sync-v7-context";
 import type { RemoteCacheV7 } from "./sync-v7-cache";
-import { parseSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { decodeRemoteCheckpoint } from "./sync-v8-history";
 import { decodeSyncV7Segment, type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head";
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse
  *  decision directly against a remote head + an arbitrary cached view. */
-export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean }> {
+export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8 }> {
   if (!head.checkpoint) throw new Error("v7 远端缺少初始化检查点。");
   // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
   //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
@@ -39,6 +40,9 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   const totalBytes = Math.max(1, checkpointBytes + segmentBytes);
   let doneBytes = 0;
   let checkpoint: SyncCheckpointV7;
+  let archivedAttempts = 0;
+  let archivedPracticeRuns = 0;
+  let remoteCheckpointFormat: 7 | 8 = 7;
   if (canReuse) {
     checkpoint = cached!.checkpoint;
   } else {
@@ -47,7 +51,11 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
       ? `实际 ${megabytes(head.checkpoint.storedSize)} / 解压后 ${megabytes(head.checkpoint.size)}`
       : `解压后 ${megabytes(head.checkpoint.size)}`;
     onStep?.(0.01, `正在下载检查点（${sizeLabel}）`);
-    checkpoint = parseSyncCheckpointV7(await client.readBlob(head.checkpoint));
+    const decoded = await decodeRemoteCheckpoint(client, await client.readBlob(head.checkpoint));
+    checkpoint = decoded.checkpoint;
+    archivedAttempts = decoded.archivedAttempts;
+    archivedPracticeRuns = decoded.archivedPracticeRuns;
+    remoteCheckpointFormat = decoded.remoteFormatVersion;
   }
   if (!canReuse) {
     doneBytes += checkpointBytes;
@@ -74,5 +82,5 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   });
   // Flatten in wire order (generation/ordinal) — completion order is irrelevant.
   for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]!);
-  return { checkpoint, changes, reusedCache: canReuse };
+  return { checkpoint, changes, reusedCache: canReuse, archivedAttempts, archivedPracticeRuns, remoteCheckpointFormat };
 }

@@ -16,25 +16,17 @@ import {
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { AppSelect } from "@/app/ui/app-select";
 import { Hint } from "@/app/ui/hint";
-import type { ChangeSetMutationV7, ChangeSetV7 } from "@/lib/sync/change-set-v7";
+import type {
+  ChangeSetMutationV7,
+  ChangeSetV7,
+  SyncPendingChangeEdit,
+  SyncQueueItem,
+} from "@/lib/sync/sync-application";
 import "@/app/styles/sync-events.css";
 
-export type SyncChangeSetStateV7 = "pending" | "claimed" | "blocked" | "committed";
-
-export interface SyncChangeSetItemV7 {
-  changeSet: ChangeSetV7;
-  state: SyncChangeSetStateV7;
-  blockers?: readonly string[];
-  dependentChangeSetIds?: readonly string[];
-  editable?: boolean;
-  cancellable?: boolean;
-  statusMessage?: string;
-}
-
-export type SyncChangeSetTypedEditV7 =
-  | { kind: "note.upserted"; mutationIndex: number; content: string }
-  | { kind: "bank.update"; mutationIndex: number; name: string; displayName: string; description: string }
-  | { kind: "question.upsert"; mutationIndex: number; stem: string; answer: string; tags: string[] };
+export type SyncChangeSetStateV7 = SyncQueueItem["state"];
+export type SyncChangeSetItemV7 = SyncQueueItem;
+export type SyncChangeSetTypedEditV7 = SyncPendingChangeEdit;
 
 export interface SyncEventProgressV7 {
   label: string;
@@ -276,8 +268,6 @@ export function SyncEventManager({
       setDeleteTarget(undefined);
       setCascadeDependents(false);
     } catch (error) {
-      // 有依赖但未勾选级联删除时，库会拒绝并给出指引（如“请选择同时删除”）；
-      // 捕获后内联显示，避免弹窗静默失败。
       setDeleteError(error instanceof Error ? error.message : "删除失败，请重试。");
     }
   }

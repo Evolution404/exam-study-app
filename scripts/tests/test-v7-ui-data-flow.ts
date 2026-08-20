@@ -150,15 +150,19 @@ assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
 assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
-// 自动同步不卡界面：空闲期触发（去抖 + requestIdleCallback）、待同步计数独立轻量订阅、
-// 本地归并逐条让出主线程且派生只跑一次。
-assert.match(study, /requestIdleCallback/, "自动同步应等浏览器空闲帧再触发，不撞答题反馈动画");
-assert.match(study, /dbV7\.changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "待同步计数应独立轻量订阅，不与全表统计绑定");
+// 自动同步不卡界面：空闲调度与队列计数均下沉到同步 application/runtime，
+// React 只订阅轻量公开接口；本地归并仍逐条让出主线程且派生只跑一次。
+const syncRuntimeSource = readFileSync(new URL("../../src/lib/sync/sync-runtime.ts", import.meta.url), "utf8");
+const syncApplicationSource = readFileSync(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
+assert.match(study, /syncRuntime\.scheduleAutomaticSync/, "AppShell 应把自动同步调度委托给 runtime");
+assert.match(syncRuntimeSource, /requestIdleCallback/, "runtime 应等浏览器空闲帧再触发自动同步，不撞答题反馈动画");
+assert.match(study, /syncApplication\.pendingCount\(\)/, "待同步计数应通过 application 轻量订阅，不与全表统计绑定");
+assert.match(syncApplicationSource, /changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "application 内部保留索引化轻量待同步计数");
 const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-v7-orchestrator.ts", import.meta.url), "utf8");
 assert.match(syncOrchestrator, /yieldToMainIfVisible/, "本地归并应逐条让出主线程");
 assert.match(syncOrchestrator, /applyChangeSetToOwnedProjectionV7/, "本地归并应走浅信封单次派生路径（不再每条全量克隆）");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
-assert.match(study, /restoreLastRemoteCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复完成态应留出可见时间");
+assert.match(study, /syncApplication\.restoreCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复经 application boundary 完成后仍应留出可见时间");
 
 assert.match(componentStyles, /\.delete-choice-list>button span\{[^}]*font-size:14px/, "删除题库选项标题应保持可读字号");
 assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hover/, "删除题库选项应提供悬浮反馈");

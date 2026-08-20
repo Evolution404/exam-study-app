@@ -34,6 +34,7 @@ import {
   saveRemoteCache,
 } from "./sync-v7-cache";
 import { maybeCoalesceHotWindow } from "./sync-v7-coalesce";
+import { gcSyncV7Remote } from "./sync-v7-gc";
 import { downloadRemoteV7 } from "./sync-v7-download";
 import {
   checkpointFromProjection,
@@ -43,7 +44,8 @@ import {
   replayRemoteResilient,
   saveQueueBase,
 } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createSyncCheckpointV7, type SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createRemoteCheckpointV8, encodeSyncCheckpointV8, gcSyncV8HistoryRemote } from "./sync-v8-history";
 import {
   SYNC_V7_CHECKPOINT_PREFIX,
   SYNC_V7_SEGMENT_PREFIX,
@@ -76,8 +78,9 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
   report(callback, "prepare", "正在初始化 v7 热窗口", 4, 6);
-  const checkpoint = await createSyncCheckpointV7();
-  const bytes = encodeSyncCheckpointV7(checkpoint);
+  const localCheckpoint = await createSyncCheckpointV7();
+  const checkpoint = await createRemoteCheckpointV8(client, localCheckpoint);
+  const bytes = encodeSyncCheckpointV8(checkpoint);
   const digest = await sha256(bytes);
   const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
   const descriptor: SyncV7Descriptor = { ...(await uploadedDescriptor(client, path, bytes, "checkpoint")), generation: 0 };
@@ -97,10 +100,12 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   if (!confirmed.initialized) throw new Error("v7 初始化冲突，请重试。");
   if (confirmed.cache.blobSha !== committed.blobSha) return confirmed.cache;
   await saveHeadCache(settings, committed.cache);
-  await saveRemoteCache(settings, checkpoint, committed.cache);
+  // Local recovery cache remains a fully hydrated v7 projection; only the
+  // remote immutable checkpoint is bounded format 8.
+  await saveRemoteCache(settings, localCheckpoint, committed.cache);
   const covered = await listChangeSetsV7(["pending", "blocked"]);
   if (covered.length) await dbV7.changeSets.bulkPut(covered.map((record) => ({ ...record, state: "committed" as const, committedAt: now })));
-  await saveQueueBase(await projectionFromCheckpoint(checkpoint));
+  await saveQueueBase(await projectionFromCheckpoint(localCheckpoint));
   await saveInstalledHead(settings, installFingerprint(committed.cache));
   return committed.cache;
 }
@@ -303,8 +308,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           nextSegments = mergeSyncV7Segments(read.head.segments, newSegments, read.head.vaultId);
         } else {
           report(progress, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", bandPercent(bands.upload!, 0.5), bandPercent(bands.upload!, 0.7));
-          const checkpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors }, { tombstoneGc: { devices: read.head.devices ?? {}, headCursors: { ...read.head.cursors, ...aggregateCursors }, selfDeviceId: getV7DeviceId() } });
-          const bytes = encodeSyncCheckpointV7(checkpoint);
+          const fullCheckpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors }, { tombstoneGc: { devices: read.head.devices ?? {}, headCursors: { ...read.head.cursors, ...aggregateCursors }, selfDeviceId: getV7DeviceId() } });
+          const checkpoint = await createRemoteCheckpointV8(client, fullCheckpoint);
+          const bytes = encodeSyncCheckpointV8(checkpoint);
           const digest = await sha256(bytes);
           const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
           const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
@@ -334,6 +340,12 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
       await saveInstalledHead(settings, installFingerprint(committed.cache));
       await saveInstalledCursors(settings, nextHead.cursors);
+      // The head CAS is durable before any deletion. Sweep only files unreachable
+      // from the current/previous head; failures are maintenance-only.
+      try { await gcSyncV7Remote(client, read.head, committed.cache, { checkpointChanged: compaction.required }); } catch { /* best-effort */ }
+      if (compaction.required) {
+        try { await gcSyncV8HistoryRemote(client, read.head, committed.cache); } catch { /* best-effort */ }
+      }
       // The push is already durable. Coalescing is a best-effort maintenance write
       // (re-packs many small segments into fewer); isolate its failures so a
       // transient error never reverts the committed change-sets above.
@@ -400,7 +412,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   await saveInstalledCursors(settings, read.head.cursors);
   await pruneCommittedChangeSets(read.head.cursors);
   report(callback, "complete", "v7 远端恢复完成", 100);
-  return { pulled: downloaded.changes.length, formatVersion: 7 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: 0, archivedPracticeRuns: 0 };
+  return { pulled: downloaded.changes.length, formatVersion: 7 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns };
 }
 
 export const restoreFromGitHub = restoreFullHistoryFromGitHub;

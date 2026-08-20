@@ -8,7 +8,7 @@ import {
   SyncEventManager,
   type SyncEventManagerProps,
 } from "@/app/sync/sync-event-manager";
-import type { SyncHotWindowState } from "@/lib/sync/github-sync";
+import type { SyncHotWindowState } from "@/lib/sync/sync-application";
 
 export interface SyncEventDrawerProps extends Omit<SyncEventManagerProps, "showBatchSections" | "className" | "statusPanel"> {
   open: boolean;

@@ -72,6 +72,7 @@ const syncV7 = read("src/lib/sync/github-sync-v7.ts");
 const syncV7Head = read("src/lib/sync/sync-v7-head.ts");
 const syncV7Remote = read("src/lib/sync/github-v7-remote.ts");
 const syncV7Checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+const syncV8History = read("src/lib/sync/sync-v8-history.ts");
 if (fs.existsSync(path.join(root, "src/lib/sync/sync-v6-head.ts")) || fs.existsSync(path.join(root, "src/lib/sync/sync-v6-checkpoint.ts"))) {
   fail("sync-v6 head/checkpoint 文件必须删除，统一使用 sync-v7-checkpoint");
 }
@@ -89,8 +90,10 @@ if (!/SYNC_V7_HEAD_PATH\s*=\s*["']sync\/v7\/head\.json["']/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
   || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
   || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
+  || !/SYNC_V8_CHECKPOINT_FORMAT\s*=\s*8/.test(syncV8History)
+  || !/createRemoteCheckpointV8/.test(syncV8History)
   || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
-  fail("公开同步入口必须使用 v7 固定 head、v7 checkpoint 格式、严格热窗口和 GitHub v7 transport");
+  fail("公开同步入口必须使用 v7 固定 head/热窗口 transport，并以 format 8 bounded checkpoint + history archive 写远端");
 }
 
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
@@ -99,6 +102,14 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
   if (/\bimageUrl\b|题目图片地址/.test(source)) fail(`${file} 不得使用公开图片 URL 字段`);
 }
 
+// React/UI 层只依赖稳定的 sync-application / sync-runtime 边界；GitHub
+// transport、credentials、change-set queue 和 v7 protocol 都属于同步实现细节。
+for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
+  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-v7)?|github-credentials|github-v7-remote|change-set-v7(?:-queue)?|sync-v7-[^"']+)["']/.test(source)) {
+    fail(`${file} 不得直接依赖同步实现；请通过 sync-application / sync-runtime`);
+  }
+}
+
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：独立数据库 v7 命名空间、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);
+console.log(`架构检查通过：独立数据库 v7 命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v7 namespace/head/checkpoint。`);

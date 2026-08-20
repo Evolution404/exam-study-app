@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const studyApp = read("src/app/shell/app-shell.tsx");
+const syncRuntime = read("src/lib/sync/sync-runtime.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
@@ -68,7 +69,9 @@ assert.match(styles, /\.result-group-toggle\{[^}]*cursor:pointer\}/, "题型分�
 assert.match(styles, /\.result-question-groups>section\.collapsed \.result-group-toggle>svg\{transform:rotate\(-90deg\)\}/, "折叠态分组箭头应旋转指示");
 assert.match(styles, /\.result-filters \.result-overview-trigger\{margin-left:auto/, "题目总览入口应停在筛选行右端");
 
-assert.match(studyApp, /quickSyncAction\.current\(\{ silent: true \}\)/, "automatic sync must use the silent path");
+assert.match(studyApp, /syncRuntime\.scheduleAutomaticSync\(\{/, "automatic sync must be delegated to the runtime scheduler");
+assert.match(syncRuntime, /void this\.sync\(\)\.catch\(\(error\) => options\.onError\?\.\(error\)\)/, "automatic runtime sync must remain silent by omitting the UI progress callback");
+assert.doesNotMatch(syncRuntime, /setQuickSyncing|setQuickSyncProgress|setNotice/, "sync runtime must not own visible React feedback state");
 // 用户显式点同步后刷新可见练习会话（对齐远端合并作答、跳到最后一题）是产品需求；
 // 但后台定期拉取不得静默重建/跳题打扰答题，且无新作答时不得偏离当前题。
 assert.match(studyApp, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSync/, "quick sync must refresh the visible practice session after a pull");
@@ -91,4 +94,4 @@ assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs \|\|
 assert.match(studyApp, /rebuildAttemptStatsFromAttemptsV7\(\)/, "启动时必须执行一次性 attemptStats 重建（为旧数据补作答时间）");
 assert.match(practiceView, /难度按作答时间与作答间隔动态估计/, "练习页难度 chip 应有 Hint 说明难度估计口径");
 
-console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, silent sync and one-source resume cards");
+console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, runtime-silent sync and one-source resume cards");
