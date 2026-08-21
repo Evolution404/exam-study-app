@@ -674,6 +674,12 @@ async function runDesktop(page, mockServer) {
   await clickButton(page, "同步");
   await expectText(page, "GitHub 同步");
   await expectText(page, "清除本机所有数据");
+  await expectText(page, "同步时间起点");
+  const historyStartInput = page.locator('.history-sync-range-card input[type="date"]');
+  await historyStartInput.fill("2025-01-01");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("github-settings") ?? "{}").historySyncStart), "2025-01-01", "sync history start must persist on the current device");
+  await clickTextButton(page, "同步全部历史");
+  assert.equal(await historyStartInput.inputValue(), "", "all-history action clears the device lower bound");
   assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "desktop sync view must expose the site-data reset button");
   const settingsCard = page.locator(".settings-card").first();
   const fields = settingsCard.locator("input");
@@ -837,6 +843,8 @@ async function runMobile(page, mockServer) {
   await expectText(page, "答题配置");
   const syncHeading = page.getByRole("heading", { name: "GitHub 同步" });
   await syncHeading.scrollIntoViewIfNeeded();
+  await expectText(page, "同步时间起点");
+  assert.ok(await page.locator('.mobile-sync-settings .history-sync-range-card input[type="date"]').isVisible(), "mobile sync settings expose the history start date");
   const clearDataHeading = page.getByRole("heading", { name: "清除本机所有数据" });
   await clearDataHeading.scrollIntoViewIfNeeded();
   assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "mobile preferences must expose the site-data reset button");

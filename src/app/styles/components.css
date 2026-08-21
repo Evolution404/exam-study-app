@@ -569,7 +569,9 @@ html[data-theme="dark"] ::placeholder{color:#77847c;opacity:1}
 .clear-data-card .restore-icon{color:var(--color-danger);background:var(--color-surface)}
 .clear-data-card .section-kicker{color:var(--color-danger)}
 .clear-data-card .danger-button{border-color:var(--color-danger);color:var(--color-danger);background:var(--color-surface)}
+.history-sync-range-controls{display:flex;align-items:end;gap:8px}.history-sync-range-controls label{min-width:170px;color:var(--color-text-muted);font-size:11px;font-weight:700}.history-sync-range-controls input{width:100%;min-height:42px;margin-top:6px;border:1px solid var(--color-border);border-radius:10px;padding:8px 10px;color:var(--color-text);background:var(--color-surface)}.history-sync-range-controls button{white-space:nowrap}
 @media(max-width:760px){.sync-readiness{margin-top:-4px}.clear-data-card{margin-top:24px}}
+@media(max-width:760px){.history-sync-range-controls{grid-column:1/-1;width:100%;align-items:stretch;flex-direction:column}.history-sync-range-controls label{width:100%}.history-sync-range-controls button{width:100%}}
 
 /* Home dashboard refinements: keep scope selection, actions and metrics easy to scan. */
 .home-bank-grid.single-bank{grid-template-columns:1fr}

@@ -1,6 +1,7 @@
 import type { AttemptV7, PracticeRunV7 } from "../db/v7-types";
 import type { ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { finalizeRebasedProjectionV7 } from "./change-set-v7-projection";
+import { filterProjectionHistoryV7, historyTimestampIncluded, normalizeHistorySyncStart } from "./history-sync-range";
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
 import { descriptorPath, sha256 } from "./sync-v7-context";
 import { checkpointFromProjection } from "./sync-v7-checkpoint-bridge";
@@ -80,7 +81,13 @@ export interface HydratedRemoteCheckpoint {
   checkpoint: SyncCheckpointV7;
   archivedAttempts: number;
   archivedPracticeRuns: number;
+  skippedArchivedAttempts: number;
+  skippedArchivedPracticeRuns: number;
   remoteFormatVersion: 7 | 8;
+}
+
+export interface SyncHistoryReadOptions {
+  historySyncStart?: string;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -288,20 +295,29 @@ function parseHistoryChunk<T>(bytes: Uint8Array, kind: "attempts" | "practiceRun
   return value.items as T[];
 }
 
-async function readHistoryItems<T>(client: GitHubV7Remote, descriptors: readonly SyncV8HistoryDescriptor[], kind: "attempts" | "practiceRuns"): Promise<T[]> {
+async function readHistoryItems<T extends AttemptV7 | PracticeRunV7>(client: GitHubV7Remote, descriptors: readonly SyncV8HistoryDescriptor[], kind: "attempts" | "practiceRuns", historySyncStart?: string): Promise<{ items: T[]; skipped: number }> {
   const result: T[] = [];
+  let skipped = 0;
+  const selected = descriptors.filter((descriptor) => {
+    if (!historySyncStart || !descriptor.lastAt || descriptor.lastAt.slice(0, 10) >= historySyncStart) return true;
+    skipped += descriptor.count;
+    return false;
+  });
   // Keep archive downloads bounded even for very old vaults.
   const concurrency = 4;
-  for (let offset = 0; offset < descriptors.length; offset += concurrency) {
-    const batch = descriptors.slice(offset, offset + concurrency);
+  for (let offset = 0; offset < selected.length; offset += concurrency) {
+    const batch = selected.slice(offset, offset + concurrency);
     const chunks = await Promise.all(batch.map(async (descriptor) => {
       const items = parseHistoryChunk<T>(await client.readBlob(descriptor), kind);
       if (items.length !== descriptor.count) throw new Error(`远程 v8 ${kind} 历史分块计数不匹配。`);
-      return items;
+      if (!historySyncStart) return items;
+      const kept = items.filter((item) => historyTimestampIncluded(kind === "attempts" ? (item as AttemptV7).createdAt : (item as PracticeRunV7).startedAt, historySyncStart));
+      skipped += items.length - kept.length;
+      return kept;
     }));
     chunks.forEach((items) => result.push(...items));
   }
-  return result;
+  return { items: result, skipped };
 }
 
 export async function createRemoteCheckpointV8(
@@ -357,26 +373,33 @@ export async function createRemoteCheckpointV8(
   return checkpoint;
 }
 
-export async function hydrateSyncCheckpointV8(client: GitHubV7Remote, checkpoint: SyncCheckpointV8): Promise<SyncCheckpointV7> {
+async function hydrateSyncCheckpointV8WithStats(client: GitHubV7Remote, checkpoint: SyncCheckpointV8, options: SyncHistoryReadOptions = {}): Promise<{ checkpoint: SyncCheckpointV7; archivedAttempts: number; archivedPracticeRuns: number; skippedArchivedAttempts: number; skippedArchivedPracticeRuns: number }> {
   validateSyncCheckpointV8(checkpoint);
+  const historySyncStart = normalizeHistorySyncStart(options.historySyncStart);
   let archivedAttempts: AttemptV7[] = [];
   let archivedPracticeRuns: PracticeRunV7[] = [];
+  let skippedArchivedAttempts = 0;
+  let skippedArchivedPracticeRuns = 0;
   if (checkpoint.history.index) {
     const index = parseHistoryIndex(await client.readBlob(checkpoint.history.index));
     if (index.counts.attempts !== checkpoint.history.archivedAttempts || index.counts.practiceRuns !== checkpoint.history.archivedPracticeRuns) {
       throw new Error("远程 v8 历史索引总数与检查点不一致。");
     }
-    [archivedAttempts, archivedPracticeRuns] = await Promise.all([
-      readHistoryItems<AttemptV7>(client, index.attempts, "attempts"),
-      readHistoryItems<PracticeRunV7>(client, index.practiceRuns, "practiceRuns"),
+    const [attemptResult, runResult] = await Promise.all([
+      readHistoryItems<AttemptV7>(client, index.attempts, "attempts", historySyncStart),
+      readHistoryItems<PracticeRunV7>(client, index.practiceRuns, "practiceRuns", historySyncStart),
     ]);
+    archivedAttempts = attemptResult.items;
+    archivedPracticeRuns = runResult.items;
+    skippedArchivedAttempts = attemptResult.skipped;
+    skippedArchivedPracticeRuns = runResult.skipped;
   }
 
   const attemptMap = new Map<string, AttemptV7>();
   for (const item of [...archivedAttempts, ...checkpoint.state.attempts]) attemptMap.set(item.id, item);
   const runMap = new Map<string, PracticeRunV7>();
   for (const item of [...archivedPracticeRuns, ...checkpoint.state.practiceRuns]) runMap.set(item.id, item);
-  if (attemptMap.size !== checkpoint.counts.totalAttempts || runMap.size !== checkpoint.counts.totalPracticeRuns) {
+  if (!historySyncStart && (attemptMap.size !== checkpoint.counts.totalAttempts || runMap.size !== checkpoint.counts.totalPracticeRuns)) {
     throw new Error("远程 v8 历史水合后记录数与检查点不一致。");
   }
 
@@ -385,27 +408,34 @@ export async function hydrateSyncCheckpointV8(client: GitHubV7Remote, checkpoint
     attempts: chronologicalAttempts([...attemptMap.values()]),
     practiceRuns: chronologicalRuns([...runMap.values()]),
   };
-  const finalized = finalizeRebasedProjectionV7(projection);
+  const finalized = filterProjectionHistoryV7(finalizeRebasedProjectionV7(projection), historySyncStart);
   const full = await checkpointFromProjection(finalized, checkpoint.cursors);
   full.generatedAt = checkpoint.generatedAt;
   validateSyncCheckpointV7(full);
-  return full;
+  return { checkpoint: full, archivedAttempts: archivedAttempts.length, archivedPracticeRuns: archivedPracticeRuns.length, skippedArchivedAttempts, skippedArchivedPracticeRuns };
 }
 
-export async function decodeRemoteCheckpoint(client: GitHubV7Remote, bytes: Uint8Array): Promise<HydratedRemoteCheckpoint> {
+export async function hydrateSyncCheckpointV8(client: GitHubV7Remote, checkpoint: SyncCheckpointV8, options: SyncHistoryReadOptions = {}): Promise<SyncCheckpointV7> {
+  return (await hydrateSyncCheckpointV8WithStats(client, checkpoint, options)).checkpoint;
+}
+
+export async function decodeRemoteCheckpoint(client: GitHubV7Remote, bytes: Uint8Array, options: SyncHistoryReadOptions = {}): Promise<HydratedRemoteCheckpoint> {
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
   if (isRecord(header) && header.formatVersion === 8) {
     const checkpoint = parseSyncCheckpointV8(bytes);
+    const hydrated = await hydrateSyncCheckpointV8WithStats(client, checkpoint, options);
     return {
-      checkpoint: await hydrateSyncCheckpointV8(client, checkpoint),
-      archivedAttempts: checkpoint.history.archivedAttempts,
-      archivedPracticeRuns: checkpoint.history.archivedPracticeRuns,
+      ...hydrated,
       remoteFormatVersion: 8,
     };
   }
-  return { checkpoint: parseSyncCheckpointV7(bytes), archivedAttempts: 0, archivedPracticeRuns: 0, remoteFormatVersion: 7 };
+  const checkpoint = parseSyncCheckpointV7(bytes);
+  const historySyncStart = normalizeHistorySyncStart(options.historySyncStart);
+  if (!historySyncStart) return { checkpoint, archivedAttempts: 0, archivedPracticeRuns: 0, skippedArchivedAttempts: 0, skippedArchivedPracticeRuns: 0, remoteFormatVersion: 7 };
+  const filtered = filterProjectionHistoryV7({ ...checkpoint.state, memberships: checkpoint.state.memberships, imageAssets: checkpoint.state.imageAssets }, historySyncStart);
+  return { checkpoint: await checkpointFromProjection(filtered, checkpoint.cursors), archivedAttempts: 0, archivedPracticeRuns: 0, skippedArchivedAttempts: checkpoint.state.attempts.length - filtered.attempts.length, skippedArchivedPracticeRuns: checkpoint.state.practiceRuns.length - filtered.practiceRuns.length, remoteFormatVersion: 7 };
 }
 
 async function collectHistoryReachability(client: GitHubV7Remote, checkpointDescriptor: SyncV7Descriptor | null, keep: Set<string>): Promise<void> {

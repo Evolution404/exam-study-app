@@ -143,6 +143,7 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 | 事件管理（展开/编辑/删除/批量抽屉） | browser-management | 自动 |
 | 本地/远端恢复、清除数据 | 未覆盖 | 限制（危险路径，需用户确认；UI 入口已断言存在） |
 | 同步协议/合并/去重 | 集成测试（test-sync-integration 等） | 自动 |
+| 设备同步时间起点：过滤历史、题库完整、远端保留、扩大范围补回 | test-sync-history-range / test-sync-v8-history | 自动 |
 
 #### 删除竞争状态（跨设备 + 练习中）
 

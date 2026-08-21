@@ -4,12 +4,13 @@ import { SYNC_V7_DOWNLOAD_CONCURRENCY, descriptorEqual, mapWithConcurrency } fro
 import type { RemoteCacheV7 } from "./sync-v7-cache";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
 import { decodeRemoteCheckpoint } from "./sync-v8-history";
+import { normalizeHistorySyncStart } from "./history-sync-range";
 import { decodeSyncV7Segment, type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head";
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse
  *  decision directly against a remote head + an arbitrary cached view. */
-export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8 }> {
+export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void, options: { historySyncStart?: string } = {}): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; skippedArchivedAttempts: number; skippedArchivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8; historySyncStart?: string }> {
   if (!head.checkpoint) throw new Error("v8 远端缺少初始化检查点。");
   // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
   //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
@@ -23,7 +24,8 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   //  tier 2 — checkpoint descriptor changed (real compaction): download the new
   //           checkpoint and every segment, replay from scratch.
   const cachedHead = cached?.head.head;
-  const checkpointReusable = Boolean(cached && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint));
+  const historySyncStart = normalizeHistorySyncStart(options.historySyncStart);
+  const checkpointReusable = Boolean(cached && cached.historySyncStart === historySyncStart && cachedHead?.checkpoint && descriptorEqual(cachedHead.checkpoint, head.checkpoint));
   const canReuse = checkpointReusable;
   const coveredCursors = checkpointReusable ? (cached!.checkpoint.cursors ?? {}) : {};
   const cachedSegmentPaths = new Set((cachedHead?.segments ?? []).map((item) => item.path));
@@ -42,6 +44,8 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   let checkpoint: SyncCheckpointV7;
   let archivedAttempts = 0;
   let archivedPracticeRuns = 0;
+  let skippedArchivedAttempts = 0;
+  let skippedArchivedPracticeRuns = 0;
   let remoteCheckpointFormat: 7 | 8 = 7;
   if (canReuse) {
     checkpoint = cached!.checkpoint;
@@ -51,10 +55,12 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
       ? `实际 ${megabytes(head.checkpoint.storedSize)} / 解压后 ${megabytes(head.checkpoint.size)}`
       : `解压后 ${megabytes(head.checkpoint.size)}`;
     onStep?.(0.01, `正在下载检查点（${sizeLabel}）`);
-    const decoded = await decodeRemoteCheckpoint(client, await client.readBlob(head.checkpoint));
+    const decoded = await decodeRemoteCheckpoint(client, await client.readBlob(head.checkpoint), { historySyncStart });
     checkpoint = decoded.checkpoint;
     archivedAttempts = decoded.archivedAttempts;
     archivedPracticeRuns = decoded.archivedPracticeRuns;
+    skippedArchivedAttempts = decoded.skippedArchivedAttempts;
+    skippedArchivedPracticeRuns = decoded.skippedArchivedPracticeRuns;
     remoteCheckpointFormat = decoded.remoteFormatVersion;
   }
   if (!canReuse) {
@@ -82,5 +88,5 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   });
   // Flatten in wire order (generation/ordinal) — completion order is irrelevant.
   for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]!);
-  return { checkpoint, changes, reusedCache: canReuse, archivedAttempts, archivedPracticeRuns, remoteCheckpointFormat };
+  return { checkpoint, changes, reusedCache: canReuse, archivedAttempts, archivedPracticeRuns, skippedArchivedAttempts, skippedArchivedPracticeRuns, remoteCheckpointFormat, historySyncStart };
 }

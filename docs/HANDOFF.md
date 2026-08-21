@@ -51,6 +51,7 @@ docs/          # 项目文档
 - `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
 - 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v8/assets/<sha256>.<ext>`。
 - 同步固定 head：`sync/v8/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
+- `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v8 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
 - `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v8。
 - 一次性远端迁移使用 `npm run migrate:vault:v8 -- --owner <owner> --repo <repo> --branch main`；先加 `--verify` 预检。迁移固定旧 v7 head SHA、严格回放热分段、复制资产、发布 v8 有界检查点，并保留旧 `sync/v7` 数据。

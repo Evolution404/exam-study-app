@@ -3,8 +3,9 @@ import type { GitHubSettings } from "../../types/types";
 import type { SyncV7HeadCache } from "./github-v7-remote";
 import { cacheKey } from "./sync-v7-context";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { historySyncStartFor } from "./history-sync-range";
 
-export type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV7; head: SyncV7HeadCache };
+export type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV7; head: SyncV7HeadCache; historySyncStart?: string };
 
 export async function loadHeadCache(settings: GitHubSettings): Promise<SyncV7HeadCache | undefined> {
   return (await dbV7.syncMeta.get(cacheKey(settings, "head")))?.value as SyncV7HeadCache | undefined;
@@ -15,7 +16,8 @@ export async function saveHeadCache(settings: GitHubSettings, cache: SyncV7HeadC
 }
 
 export async function saveRemoteCache(settings: GitHubSettings, checkpoint: SyncCheckpointV7, head: SyncV7HeadCache): Promise<void> {
-  await dbV7.syncMeta.put({ key: cacheKey(settings, "checkpoint"), value: { cachedAt: new Date().toISOString(), checkpoint, head }, updatedAt: new Date().toISOString() });
+  const historySyncStart = historySyncStartFor(settings);
+  await dbV7.syncMeta.put({ key: cacheKey(settings, "checkpoint"), value: { cachedAt: new Date().toISOString(), checkpoint, head, ...(historySyncStart ? { historySyncStart } : {}) }, updatedAt: new Date().toISOString() });
 }
 
 export async function loadRemoteCache(settings: GitHubSettings): Promise<RemoteCacheV7 | undefined> {

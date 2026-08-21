@@ -3,6 +3,7 @@
 export const testGroups = {
   unit: [
     "test:active-elapsed",
+    "test:history-sync-range",
     "test:notice-tone",
     "test:shortcuts",
     "test:xlsx",
@@ -44,6 +45,7 @@ export const testGroups = {
     "test:sync-download-concurrency",
     "test:sync-replay-perf",
     "test:sync-install-fingerprint",
+    "test:sync-history-range",
     "test:sync-tombstone-gc",
     "test:sync-multidevice-checkpoints",
     "test:sync-fresh-install-contract",

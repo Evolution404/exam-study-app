@@ -124,6 +124,9 @@ assert.ok(incremental.changes.length >= 26, `应拉到二轮事件（实际 ${in
 const freshChanges = incremental.changes.filter((change) => change.localSequence > (bCached.checkpoint.cursors[change.deviceId] ?? 0));
 assert.ok(freshChanges.length >= 26, `增量下载应包含全部二轮新事件（实际 ${freshChanges.length}）`);
 
+const changedHistoryRange = await downloadRemoteV7(remote, secondHead, bCached as never, undefined, { historySyncStart: "2026-01-01" });
+assert.equal(changedHistoryRange.reusedCache, false, "同步时间起点改变后不得复用覆盖范围不同的本地检查点");
+
 // tier 3：检查点更换（真压实）→ 全量下载。~115 KB/题（低于 128 KiB 卸载阈值，
 // 保持 inline），60 题 ≈ 7 MB > 4 MiB 触发压实。
 const heavyBank = await createBankV7("压实题库");

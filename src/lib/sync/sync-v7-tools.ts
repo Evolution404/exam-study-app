@@ -19,6 +19,7 @@ import { hydrateSyncV7Events } from "./sync-v7-payload";
 import { uploadedDescriptor } from "./sync-v7-upload";
 import { installFingerprint } from "./sync-v7-watermark";
 import { withSyncLock } from "./sync-lock";
+import { filterProjectionHistoryV7, historySyncStartFor } from "./history-sync-range";
 
 export async function getGitHubLogin(token: string, apiBaseUrl = "https://api.github.com"): Promise<string> {
   const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/user`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
@@ -30,6 +31,7 @@ export async function getGitHubLogin(token: string, apiBaseUrl = "https://api.gi
 
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = await loadRemoteCache(settings);
+  if (value?.historySyncStart !== historySyncStartFor(settings)) return null;
   return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const } : null;
 }
 
@@ -87,12 +89,14 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
     report(callback, "prepare", "正在检查本地 v7 恢复记录", 4, 8);
     const value = await loadRemoteCache(settings);
     if (!value) throw new Error("本机还没有可恢复的 v7 记录。");
+    if (value.historySyncStart !== historySyncStartFor(settings)) throw new Error("同步时间起点已经改变，请先从远端同步以建立新的本地恢复记录。");
     // 缓存恢复仍允许用户明确丢弃快照时已有的待同步变更，但只允许丢弃
     // 恢复开始时的那一批。若下载/重建期间出现新编辑，事务守卫会拒绝，
     // 避免把刚发生的本地修改连同队列一起吞掉。
     const queueSnapshot = await listChangeSetsV7();
     report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
-    const installed = await restoreV7Checkpoint(value.checkpoint.state, { queueGuard: queueSnapshot, clearChangeSets: true });
+    const filtered = filterProjectionHistoryV7(await projectionFromCheckpoint(value.checkpoint), historySyncStartFor(settings));
+    const installed = await restoreV7Checkpoint(filtered, { queueGuard: queueSnapshot, clearChangeSets: true });
     if (!installed) throw new Error("恢复期间检测到新的本地更改，请重试。");
     await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
     await saveHeadCache(settings, value.head);

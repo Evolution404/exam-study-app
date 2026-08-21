@@ -25,6 +25,7 @@ export function loadGitHubSettings(): GitHubSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(settingsKey) ?? "{}") as Partial<GitHubSettings>;
     const settings = { ...DEFAULT_GITHUB_SETTINGS, ...saved } as GitHubSettings;
+    if (settings.historySyncStart && !/^\d{4}-\d{2}-\d{2}$/.test(settings.historySyncStart)) delete settings.historySyncStart;
     // Migrate the former same-origin default on GitHub Pages. It cannot be a
     // working intentional choice there because GitHub Pages serves static files only.
     if (resolveDefaultGitHubApiBaseUrl() === GITHUB_PAGES_RELAY && (!saved.apiBaseUrl || saved.apiBaseUrl === "/api-github")) settings.apiBaseUrl = GITHUB_PAGES_RELAY;
@@ -35,7 +36,9 @@ export function loadGitHubSettings(): GitHubSettings {
 }
 
 export function saveGitHubSettings(settings: GitHubSettings) {
-  localStorage.setItem(settingsKey, JSON.stringify(settings));
+  const normalized = { ...settings };
+  if (!normalized.historySyncStart || !/^\d{4}-\d{2}-\d{2}$/.test(normalized.historySyncStart)) delete normalized.historySyncStart;
+  localStorage.setItem(settingsKey, JSON.stringify(normalized));
 }
 
 export function loadGitHubToken() {

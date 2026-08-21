@@ -233,4 +233,6 @@ export interface GitHubSettings {
   branch: string;
   /** Optional edge proxy that forwards api.github.com (e.g. a Cloudflare Worker). */
   apiBaseUrl?: string;
+  /** Device-local lower bound for practice history synchronization (YYYY-MM-DD). */
+  historySyncStart?: string;
 }

@@ -106,6 +106,14 @@ try {
   assert.deepEqual(new Set(hydrated.state.practiceRuns.map((item) => item.id)), new Set(runs.map((item) => item.id)), "hydration restores every archived + recent run");
   assert.ok(hydrated.state.attemptStats.length > 0, "lifetime derived statistics are rebuilt after full history hydration");
 
+  const readsBeforeWindowedHydration = server.stats.blobReads;
+  const windowed = await hydrateSyncCheckpointV8(client, bounded, { historySyncStart: "2026-01-05" });
+  validateSyncCheckpointV7(windowed);
+  assert.deepEqual(windowed.state.attempts.map((item) => item.id), ["attempt-4", "attempt-5", "attempt-6", "attempt-7"], "history start filters attempts before the selected date");
+  assert.deepEqual(windowed.state.practiceRuns.map((item) => item.id), ["run-2", "run-3"], "history start filters runs before the selected date");
+  assert.equal(server.stats.blobReads - readsBeforeWindowedHydration, 3, "windowed hydration reads only the index and two boundary/relevant chunks");
+  assert.equal(windowed.state.attemptStats[0]?.total, 4, "derived statistics are rebuilt from the selected device history window");
+
   // Publish the bounded checkpoint and prove dedicated history GC preserves its
   // reachable index/chunks while removing an unrelated orphan history object.
   const checkpointPath = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest(boundedBytes));
