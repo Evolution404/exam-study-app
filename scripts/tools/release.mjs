@@ -105,6 +105,10 @@ async function waitForDeployment(repository, sha) {
 
 async function verifyGitHubPages(repository, sha) {
   const baseUrl = `https://${repository.owner.toLowerCase()}.github.io/${repository.repo}/`;
+  // The production bundler constant-folds __APP_COMMIT_SHA__.slice(0, 12), so
+  // the emitted bundle intentionally contains the displayed short SHA rather
+  // than the complete 40-character value.
+  const deployedVersion = sha.slice(0, 12);
   const deadline = Date.now() + 2 * 60_000;
   while (Date.now() < deadline) {
     const cacheBust = `release=${sha.slice(0, 12)}-${Date.now()}`;
@@ -117,7 +121,7 @@ async function verifyGitHubPages(repository, sha) {
         return asset.ok ? asset.text() : "";
       }));
       const sw = await fetch(`${baseUrl}sw.js?${cacheBust}`, { headers: { "Cache-Control": "no-cache" } });
-      if (sources.some((source) => source.includes(sha)) && sw.ok) return baseUrl;
+      if (sources.some((source) => source.includes(deployedVersion)) && sw.ok) return baseUrl;
     }
     await wait(10_000);
   }

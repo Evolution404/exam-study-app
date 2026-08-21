@@ -22,7 +22,9 @@ assert.match(release, /\["run", "test:full"\]/, "发布前必须执行全量测�
 assert.match(release, /\["run", "test:pwa-smoke"\]/, "发布前必须执行真实 PWA smoke");
 assert.match(release, /\["push", "origin", "main"\]/, "发布应推送 main");
 assert.match(release, /run\) => run\.head_sha === sha/, "发布必须等待当前提交对应的部署任务");
-assert.match(release, /source\.includes\(sha\)/, "发布必须核验线上构建包含当前提交版本");
+assert.match(release, /const deployedVersion = sha\.slice\(0, 12\)/, "线上版本探针应匹配构建产物实际保留的 12 位提交版本");
+assert.match(release, /source\.includes\(deployedVersion\)/, "发布必须核验线上构建包含当前提交版本");
+assert.doesNotMatch(release, /source\.includes\(sha\)/, "线上版本探针不得要求已被构建器常量折叠移除的完整 SHA");
 assert.match(release, /RELEASE_DRY_RUN/, "发布应支持无外部写入的预检模式");
 
 console.log("release workflow assertions passed: bounded staging, full verification, push and deployment checks");
