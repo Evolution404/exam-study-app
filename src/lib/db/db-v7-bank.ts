@@ -81,7 +81,7 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
     updatedAt: values.updatedAt ?? timestamp,
     deviceId: values.deviceId ?? getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.banks.put(bank);
     await enqueueChangeSetV7([{ kind: "bank.create", bank }], timestamp);
   });
@@ -104,7 +104,7 @@ export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7,
     updatedAt: nowIso(),
     deviceId: getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.banks.put(updated);
     await enqueueChangeSetV7([{ kind: "bank.update", bank: updated, previous: current }], updated.updatedAt);
   });
@@ -121,7 +121,7 @@ export async function reorderBanksV7(bankIds: readonly string[], folderId?: stri
   const updatedAt = nowIso();
   const deviceId = getV7DeviceId();
   const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.banks.bulkPut(rows);
     await enqueueChangeSetV7(rows.map((bank) => ({ kind: "bank.update", bank })), updatedAt);
   });
@@ -142,7 +142,7 @@ export async function saveBankFolderV7(input: Pick<BankFolderV7, "name" | "descr
     updatedAt,
     deviceId: getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.bankFolders, dbV7.tombstones, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.bankFolders, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.bankFolders.put(folder);
     await dbV7.tombstones.delete(tombstoneKey("bankFolder", folder.id));
     await enqueueChangeSetV7([{ kind: "bankFolder.save", folder }], updatedAt);

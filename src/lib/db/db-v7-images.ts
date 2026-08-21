@@ -38,7 +38,7 @@ export async function putImageAssetV7(asset: ImageAsset): Promise<ImageAsset> {
   const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...asset, blob: undefined });
   // 保留已缓存的 blob：调用方只写 descriptor 时不应清掉本地图片缓存。
   const stored = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
-  await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.imageAssets.put(stored ? { ...asset, blob: stored } : asset);
     if (asset.remote && descriptorChanged) {
       const createdAt = nowIso();

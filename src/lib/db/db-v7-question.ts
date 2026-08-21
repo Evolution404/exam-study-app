@@ -107,7 +107,7 @@ export async function createQuestionV7(bankId: string, draft: QuestionDraftV7): 
     updatedAt: timestamp,
     deviceId,
   };
-  await dbV7.transaction("rw", [dbV7.questions, dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.questions, dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
     if (!existing) await dbV7.questions.put(question);
     const currentMembership = await dbV7.bankQuestionMemberships.get(membership.key);
     await saveMembershipInTx(currentMembership ? { ...currentMembership, updatedAt: timestamp, deviceId } : membership);
@@ -133,7 +133,7 @@ export async function updateQuestionV7(questionId: string, changes: Partial<Ques
     favorite: changes.favorite ?? current.favorite,
   };
   const updated = questionFromDraft(current.id, draft, timestamp, getV7DeviceId());
-  await dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.questions.put(updated);
     await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
   });
@@ -578,7 +578,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
     }
   }
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes], async () => {
+  await dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes, dbV7.syncMeta], async () => {
     await dbV7.banks.put(bank);
     for (const item of materialised) {
       // Existing content is user-owned and already semantically identical;
@@ -619,7 +619,7 @@ export async function saveNoteV7(questionId: string, content: string): Promise<N
     deviceId: getV7DeviceId(),
   };
   if (old?.content === content) return old;
-  await dbV7.transaction("rw", [dbV7.notes, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.notes, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.notes.put(note);
     const pendingChange = await dbV7.changeSets.where("state").equals("pending").filter((record) => record.mutations.some((mutation) => mutation.kind === "note.upserted" && mutation.note.questionId === questionId)).first();
     if (pendingChange) await dbV7.changeSets.delete(pendingChange.id);
@@ -651,7 +651,7 @@ export async function saveQuestionGroupV7(input: Pick<QuestionGroupV7, "name" | 
     updatedAt,
     deviceId: getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.questionGroups, dbV7.tombstones, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.questionGroups, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.questionGroups.put(group);
     await dbV7.tombstones.delete(tombstoneKey("questionGroup", group.id));
     await enqueueChangeSetV7([{ kind: "questionGroup.saved", group }], updatedAt);

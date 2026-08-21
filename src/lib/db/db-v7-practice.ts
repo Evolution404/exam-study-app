@@ -59,7 +59,7 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
     lastAnsweredIndex: input.lastAnsweredIndex,
     reviewRoundId: input.reviewRoundId,
   };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.practiceRuns.put(run);
     await updatePracticeRunStatsInTx(undefined, run);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run }], timestamp);
@@ -70,7 +70,7 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
 export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRunV7> {
   const current = await dbV7.practiceRuns.get(run.id);
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV7.practiceRuns.put(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run: updated }], updated.updatedAt);
@@ -137,7 +137,7 @@ export async function createReviewRoundV7(input: Pick<ReviewRound, "name" | "ban
     updatedAt: timestamp,
     deviceId: getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.reviewRounds.put(round);
     await enqueueChangeSetV7([{ kind: "review.round.saved", round }], timestamp);
   });
@@ -155,7 +155,7 @@ export async function updateReviewRoundV7(roundId: string, changes: Partial<Pick
     updatedAt: nowIso(),
     deviceId: getV7DeviceId(),
   };
-  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.reviewRounds.put(updated);
     await enqueueChangeSetV7([{ kind: "review.round.saved", round: updated }], updated.updatedAt);
   });
@@ -174,7 +174,7 @@ export async function completeReviewRoundV7(roundId: string, finalQuestionIds?: 
   if (!current) throw new Error("复习轮次不存在或已被删除。");
   if (current.status === "completed" || current.status === "archived") return current;
   const targets = finalQuestionIds ? uniqueStrings(finalQuestionIds) : await getReviewRoundQuestionIdsV7(roundId);
-  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
     const completed = await completeRoundInTx(current, targets);
     await enqueueChangeSetV7([{ kind: "review.round.completed", round: completed }], completed.updatedAt);
     return completed;
@@ -186,7 +186,7 @@ export async function archiveReviewRoundV7(roundId: string): Promise<ReviewRound
   if (!current) throw new Error("复习轮次不存在或已被删除。");
   if (current.status === "archived") return current;
   const updated: ReviewRound = { ...current, status: "archived", updatedAt: nowIso(), deviceId: getV7DeviceId() };
-  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
     await dbV7.reviewRounds.put(updated);
     await enqueueChangeSetV7([{ kind: "review.round.archived", round: updated }], updated.updatedAt);
   });
@@ -208,7 +208,7 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
     abandonedAt: status === "abandoned" ? updatedAt : undefined,
     revision: current.revision + 1,
   };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets], async () => {
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     await updatePracticeRunStatsInTx(current, updated);
     await dbV7.practiceRuns.put(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
@@ -362,7 +362,7 @@ export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Prom
   return dbV7.transaction("rw", [
     dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.practiceRuns,
     dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
-    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.changeSets,
+    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     // Re-read the authoritative run after the write transaction has acquired
     // its lock. Two answers submitted concurrently must merge their answers

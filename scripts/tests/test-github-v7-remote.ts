@@ -136,6 +136,27 @@ const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byte
 assert.deepEqual([...loaded], [...segmentBytes]);
 await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
 
+// Streamed blob reads must expose intermediate wire-byte progress instead of
+// jumping only after response.arrayBuffer() has consumed the entire payload.
+const progressPayload = bytes("checkpoint-progress-is-streamed");
+const progressPath = `${SYNC_V7_ASSET_PREFIX}${digest(progressPayload)}.bin`;
+const progressReports: Array<[number, number]> = [];
+const progressRemote = new GitHubV7Remote({
+  owner, repo, branch, token, vaultId, apiBaseUrl: "https://progress.github.test", retryDelayMs: 0,
+  fetch: async () => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(progressPayload.slice(0, 5));
+      controller.enqueue(progressPayload.slice(5, 17));
+      controller.enqueue(progressPayload.slice(17));
+      controller.close();
+    },
+  }), { status: 200, headers: { "Content-Length": String(progressPayload.byteLength) } }),
+});
+const progressLoaded = await progressRemote.readBlob(sha1("e"), { size: progressPayload.byteLength, storedSize: progressPayload.byteLength, sha256: digest(progressPayload), path: progressPath }, { onProgress: (loadedBytes, totalBytes) => progressReports.push([loadedBytes, totalBytes]) });
+assert.deepEqual([...progressLoaded], [...progressPayload]);
+assert.deepEqual(progressReports.map(([loadedBytes]) => loadedBytes), [5, 17, progressPayload.byteLength], "流式读取应逐块报告已下载字节");
+assert.ok(progressReports.every(([, totalBytes]) => totalBytes === progressPayload.byteLength), "流式进度应携带稳定总字节数");
+
 const largeAsset = new Uint8Array(1_100_000); largeAsset.fill(0x5a);
 const assetPath = `${SYNC_V7_ASSET_PREFIX}${digest(largeAsset)}.webp`;
 const asset = await remote.putImmutable({ path: assetPath, bytes: largeAsset, kind: "asset", sha256: digest(largeAsset), size: largeAsset.byteLength });

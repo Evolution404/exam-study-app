@@ -175,13 +175,30 @@ async function withSequenceLock<T>(operation: () => Promise<T>): Promise<T> {
  * Gaps are harmless when a surrounding domain transaction later aborts.
  */
 export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number> {
+  const current = Dexie.currentTransaction;
+  if (current?.active && current.db === dbV7 && current.mode === "readwrite") {
+    if (!current.storeNames.includes(dbV7.syncMeta.name)) {
+      throw new Error("分配同步序号的业务事务必须包含 syncMeta，禁止在 Safari 中启动嵌套写事务。");
+    }
+    const key = `shijuan-study-v7-sequence:${deviceId}`;
+    const legacyKey = `shijuan-study-v6-sequence:${deviceId}`;
+    const row = await dbV7.syncMeta.get(key);
+    const persisted = Number(row?.value) || 0;
+    const legacy = typeof localStorage !== "undefined" ? Number(localStorage.getItem(legacyKey)) || Number(localStorage.getItem(key)) || 0 : 0;
+    const value = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(legacy) ? legacy : 0) + 1;
+    await dbV7.syncMeta.put({ key, value, updatedAt: nowIso() });
+    sequenceCounter = Math.max(sequenceCounter, value);
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, String(value));
+    return value;
+  }
   return withSequenceLock(async () => {
     const key = `shijuan-study-v7-sequence:${deviceId}`;
     const legacyKey = `shijuan-study-v6-sequence:${deviceId}`;
-    // Use an independent IndexedDB read/write transaction so callers can
-    // reserve a sequence while already inside their domain transaction (which
-    // includes changeSets but not syncMeta). IDB serializes this key across
-    // tabs even when Web Locks is unavailable.
+    // Outside a domain transaction, reserve through a short independent
+    // transaction. Domain transactions include syncMeta and use the branch
+    // above: Safari serializes all read/write transactions at database level,
+    // so awaiting an independent syncMeta write from inside another write
+    // transaction would deadlock the entire local app.
     const allocated = await Dexie.ignoreTransaction(() => dbV7.transaction("rw", dbV7.syncMeta, async () => {
       const row = await dbV7.syncMeta.get(key);
       const persisted = Number(row?.value) || 0;

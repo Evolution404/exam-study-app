@@ -42,6 +42,23 @@ async function freshClient(deviceId: string): Promise<void> {
   await resetV7Database();
 }
 
+// --- 阶段零：单个热窗口也必须与检查点同时开始 -----------------------------
+// 多分段本身就能形成并发，不能证明检查点没有被串行等待。独立仓库只放一个
+// segment；新设备峰值必须达到 2（checkpoint + segment）。
+const parallelSettings = { ...settings, repo: "checkpoint-parallel-vault" };
+await freshClient("parallel-source");
+await syncWithGitHub(parallelSettings, "qa-token");
+const parallelBank = await createBankV7("检查点并行题库");
+await createQuestionV7(parallelBank.id, question("检查点与单个热窗口必须并行"));
+await syncWithGitHub(parallelSettings, "qa-token");
+server.setBlobLatency(30);
+server.stats.blobReads = 0;
+server.stats.maxConcurrentBlobReads = 0;
+await freshClient("parallel-target");
+try { await syncWithGitHub(parallelSettings, "qa-token"); }
+finally { server.setBlobLatency(0); }
+assert.equal(server.stats.maxConcurrentBlobReads, 2, `单 segment 首次拉取应同时下载 checkpoint（实测峰值 ${server.stats.maxConcurrentBlobReads}）`);
+
 // --- 阶段一：device-a 建立多分段热窗口 -------------------------------------
 await freshClient("device-a");
 await syncWithGitHub(settings, "qa-token");

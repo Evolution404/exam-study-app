@@ -110,6 +110,13 @@ export interface SyncV7BlobExpectation {
    *  DEFLATE envelope and are inflated before the integrity check; assets and
    *  unknown paths are verified as raw bytes. */
   path?: string;
+  /** Actual compressed wire size when known. */
+  storedSize?: number;
+}
+
+export interface SyncV7BlobReadOptions {
+  /** Reports raw network bytes as the response stream is consumed. */
+  onProgress?: (loadedBytes: number, totalBytes: number) => void;
 }
 
 export class GitHubV7RemoteError extends Error {
@@ -478,11 +485,12 @@ export class GitHubV7Remote {
 
   uploadImmutable = this.putImmutable.bind(this) as GitHubV7Remote["putImmutable"];
 
-  async readBlob(blobSha: string, expected: SyncV7BlobExpectation): Promise<Uint8Array>;
-  async readBlob(descriptor: SyncV7Descriptor): Promise<Uint8Array>;
-  async readBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expected?: SyncV7BlobExpectation): Promise<Uint8Array> {
+  async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+  async readBlob(descriptor: SyncV7Descriptor, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+  async readBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expectedOrOptions?: SyncV7BlobExpectation | SyncV7BlobReadOptions, options?: SyncV7BlobReadOptions): Promise<Uint8Array> {
     const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
-    const expectation = typeof blobShaOrDescriptor === "string" ? expected : blobShaOrDescriptor;
+    const expectation = typeof blobShaOrDescriptor === "string" ? expectedOrOptions as SyncV7BlobExpectation | undefined : blobShaOrDescriptor;
+    const readOptions = typeof blobShaOrDescriptor === "string" ? options : expectedOrOptions as SyncV7BlobReadOptions | undefined;
     if (!blobSha || !expectation) throw new TypeError("blob SHA, size and sha256 are required");
     const path = typeof blobShaOrDescriptor === "string" ? expectation.path : blobShaOrDescriptor.path;
     if (typeof blobShaOrDescriptor !== "string") {
@@ -497,7 +505,31 @@ export class GitHubV7Remote {
     this.requireOk(response, `read blob ${blobSha}`);
     // Inflate the DEFLATE envelope (when the object carries one) BEFORE the
     // integrity check: size and sha256 always describe the logical JSON bytes.
-    const raw = new Uint8Array(await response.arrayBuffer());
+    const contentLength = Number(response.headers.get("content-length"));
+    const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+      ? contentLength
+      : expectation.storedSize ?? expectation.size;
+    let raw: Uint8Array;
+    if (!response.body) {
+      raw = new Uint8Array(await response.arrayBuffer());
+      readOptions?.onProgress?.(raw.byteLength, totalBytes);
+    } else {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let loadedBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value?.byteLength) continue;
+        chunks.push(value);
+        loadedBytes += value.byteLength;
+        readOptions?.onProgress?.(loadedBytes, totalBytes);
+      }
+      raw = new Uint8Array(loadedBytes);
+      let offset = 0;
+      for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
+      if (!loadedBytes) readOptions?.onProgress?.(0, totalBytes);
+    }
     let content: Uint8Array;
     try {
       content = isJsonSyncPath(path) ? await decodeSyncV7JsonBytes(raw) : raw;

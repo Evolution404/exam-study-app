@@ -52,6 +52,7 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 | 文件夹新建 / 题库移入 | browser-management | 自动 |
 | 编辑题库（改名/文件夹/说明） | browser-management | 自动 |
 | JSON / Excel 导入 | browser-desktop | 自动 |
+| Safari 导入写入链路（含同步序号事务约束） | test-safari-idb | 自动 |
 | 模板下载（Web Share 不可用回退下载） | browser-mobile | 自动 |
 | 批量移除 → 未归档 / 隐藏未归档 | browser-management | 自动 |
 | 活动范围（近 90 天 / 自定义日期） | browser-desktop | 自动 |
@@ -97,6 +98,7 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 | 功能操作 | 覆盖位置 | 状态 |
 |---|---|---|
 | 单选/多选/判断/计算作答反馈 | browser-desktop, browser-history | 自动 |
+| Safari 导入 → 建立练习 → 提交答案（下一题前置写入） | test-safari-idb | 自动 |
 | 个人解析 note 自动保存 | browser-desktop, browser-management | 自动 |
 | 题目总览（聚焦、进度、跳题） | browser-desktop, browser-mobile | 自动 |
 | 计算题精度判定 | browser-desktop | 自动 |
@@ -138,6 +140,8 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 |---|---|---|
 | 401 失败提示（错误语调） | browser-desktop, browser-mobile | 自动 |
 | 手动同步 → 热窗口（检查点/分段/热字节） | browser-desktop | 自动 |
+| 检查点与热窗口并行下载（共享并发上限） | test-sync-download-concurrency | 自动 |
+| 检查点响应流字节进度连续上报 | test-sync-v7-protocol / test-sync-progress | 自动 |
 | 幂等二次同步 | browser-desktop | 自动 |
 | 跨设备双向合并（第二设备拉取） | browser-mobile（依赖 desktop） | 自动 |
 | 事件管理（展开/编辑/删除/批量抽屉） | browser-management | 自动 |

@@ -37,6 +37,7 @@ export const testGroups = {
   ],
   integration: [
     "test:db-v7",
+    "test:safari-idb",
     "test:checkpoint-extra",
     "test:sync-mock",
     "test:sync-integration",

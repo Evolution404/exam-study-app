@@ -12,6 +12,7 @@ import { hydrateSyncV7Events } from "./sync-v7-payload";
  *  decision directly against a remote head + an arbitrary cached view. */
 export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void, options: { historySyncStart?: string } = {}): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; skippedArchivedAttempts: number; skippedArchivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8; historySyncStart?: string }> {
   if (!head.checkpoint) throw new Error("v8 远端缺少初始化检查点。");
+  const checkpointDescriptor = head.checkpoint;
   // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
   //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
   //           (original checkpoint + every segment replayed at save time) is a
@@ -36,43 +37,54 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   };
   // Weight the download steps by their actual bytes so a many-segment pull
   // advances the bar per segment instead of stalling on one flat report.
-  const checkpointBytes = canReuse ? 0 : head.checkpoint.size;
+  const checkpointBytes = canReuse ? 0 : checkpointDescriptor.storedSize ?? checkpointDescriptor.size;
   const pendingSegments = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal).filter((descriptor) => !(canReuse && segmentCovered(descriptor)));
-  const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + descriptor.size, 0);
+  const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + (descriptor.storedSize ?? descriptor.size), 0);
   const totalBytes = Math.max(1, checkpointBytes + segmentBytes);
-  let doneBytes = 0;
-  let checkpoint: SyncCheckpointV7;
-  let archivedAttempts = 0;
-  let archivedPracticeRuns = 0;
-  let skippedArchivedAttempts = 0;
-  let skippedArchivedPracticeRuns = 0;
-  let remoteCheckpointFormat: 7 | 8 = 7;
-  if (canReuse) {
-    checkpoint = cached!.checkpoint;
-  } else {
+  let checkpointLoadedBytes = 0;
+  let completedSegmentBytes = 0;
+  const combinedFraction = () => (checkpointLoadedBytes + completedSegmentBytes) / totalBytes;
+  const checkpointPromise = canReuse ? Promise.resolve({
+    checkpoint: cached!.checkpoint,
+    archivedAttempts: 0,
+    archivedPracticeRuns: 0,
+    skippedArchivedAttempts: 0,
+    skippedArchivedPracticeRuns: 0,
+    remoteCheckpointFormat: 7 as const,
+  }) : (async () => {
     const megabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    const sizeLabel = head.checkpoint.storedSize !== undefined
-      ? `实际 ${megabytes(head.checkpoint.storedSize)} / 解压后 ${megabytes(head.checkpoint.size)}`
-      : `解压后 ${megabytes(head.checkpoint.size)}`;
+    const sizeLabel = checkpointDescriptor.storedSize !== undefined
+      ? `实际 ${megabytes(checkpointDescriptor.storedSize)} / 解压后 ${megabytes(checkpointDescriptor.size)}`
+      : `解压后 ${megabytes(checkpointDescriptor.size)}`;
     onStep?.(0.01, `正在下载检查点（${sizeLabel}）`);
-    const decoded = await decodeRemoteCheckpoint(client, await client.readBlob(head.checkpoint), { historySyncStart });
-    checkpoint = decoded.checkpoint;
-    archivedAttempts = decoded.archivedAttempts;
-    archivedPracticeRuns = decoded.archivedPracticeRuns;
-    skippedArchivedAttempts = decoded.skippedArchivedAttempts;
-    skippedArchivedPracticeRuns = decoded.skippedArchivedPracticeRuns;
-    remoteCheckpointFormat = decoded.remoteFormatVersion;
-  }
-  if (!canReuse) {
-    doneBytes += checkpointBytes;
-    onStep?.(doneBytes / totalBytes, "检查点已下载");
-  }
+    const bytes = await client.readBlob(checkpointDescriptor, {
+      onProgress: (loaded, total) => {
+        const ratio = Math.max(0, Math.min(1, total > 0 ? loaded / total : 0));
+        checkpointLoadedBytes = checkpointBytes * ratio;
+        onStep?.(combinedFraction(), `正在下载检查点（${sizeLabel}）${Math.round(ratio * 100)}%`);
+      },
+    });
+    checkpointLoadedBytes = checkpointBytes;
+    onStep?.(combinedFraction(), "检查点已下载");
+    const decoded = await decodeRemoteCheckpoint(client, bytes, { historySyncStart });
+    return {
+      checkpoint: decoded.checkpoint,
+      archivedAttempts: decoded.archivedAttempts,
+      archivedPracticeRuns: decoded.archivedPracticeRuns,
+      skippedArchivedAttempts: decoded.skippedArchivedAttempts,
+      skippedArchivedPracticeRuns: decoded.skippedArchivedPracticeRuns,
+      remoteCheckpointFormat: decoded.remoteFormatVersion,
+    };
+  })();
   // Segments download through a bounded-concurrency pool: each lane fetches,
   // decodes and digest-verifies whole segments; per-segment progress reports
   // accumulate monotonic byte counts, so the bar never moves backwards.
   let doneSegments = 0;
   const changes: ChangeSetV7[] = [];
-  const segmentChanges = await mapWithConcurrency(pendingSegments, SYNC_V7_DOWNLOAD_CONCURRENCY, async (descriptor) => {
+  // Reserve one lane for the checkpoint so both sources begin immediately
+  // without exceeding the existing overall network concurrency budget.
+  const segmentConcurrency = canReuse ? SYNC_V7_DOWNLOAD_CONCURRENCY : Math.max(1, SYNC_V7_DOWNLOAD_CONCURRENCY - 1);
+  const segmentChangesPromise = mapWithConcurrency(pendingSegments, segmentConcurrency, async (descriptor) => {
     const segment = decodeSyncV7Segment<ChangeSetV7>(await client.readBlob(descriptor), { vaultId: head.vaultId, generation: descriptor.generation, ordinal: descriptor.ordinal });
     // Offloaded events arrive as thin stubs; resolve their bodies to full
     // change-sets before the integrity check + projection, so the reducer and
@@ -81,12 +93,13 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
     for (const change of resolved) {
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
     }
-    doneBytes += descriptor.size;
+    completedSegmentBytes += descriptor.storedSize ?? descriptor.size;
     doneSegments += 1;
-    onStep?.(doneBytes / totalBytes, `正在下载热窗口分段（${doneSegments}/${pendingSegments.length}）`);
+    onStep?.(combinedFraction(), `正在下载热窗口分段（${doneSegments}/${pendingSegments.length}）`);
     return resolved;
   });
+  const [checkpointResult, segmentChanges] = await Promise.all([checkpointPromise, segmentChangesPromise]);
   // Flatten in wire order (generation/ordinal) — completion order is irrelevant.
   for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]!);
-  return { checkpoint, changes, reusedCache: canReuse, archivedAttempts, archivedPracticeRuns, skippedArchivedAttempts, skippedArchivedPracticeRuns, remoteCheckpointFormat, historySyncStart };
+  return { ...checkpointResult, changes, reusedCache: canReuse, historySyncStart };
 }
