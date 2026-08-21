@@ -72,6 +72,8 @@ assert.match(searchViewSource, /<AppSelect[^>]*className="search-content-scope"[
 assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*搜索字段[\s\S]*search-match-group search-mode-group[\s\S]*匹配方式/, "搜索字段与匹配方式必须分成有标题的独立分组");
 assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
 assert.match(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "快速搜索未展开或无输入时不得加载题库");
+assert.match(quickSearchSource, /if \(!enabled \|\| !bankIds\.length\) return undefined;/, "快速搜索一旦启用就应加载题库数据，不能受防抖关键词初值阻断");
+assert.doesNotMatch(quickSearchSource, /if \(!enabled \|\| !bankIds\.length \|\| !normalizedQuery\)/, "刷新后的首次搜索不得因防抖关键词尚未更新而永久停留在加载态");
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
 
 console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and progress overrides");

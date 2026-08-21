@@ -381,6 +381,18 @@ async function createBlankBank(page, name) {
 }
 
 async function assertSearchFilterInteractions(page, contextName) {
+  // 刷新后首次输入时，防抖关键词的初值为空。题库加载不能依赖该初值，
+  // 否则 useLiveQuery 不会在防抖结束后重跑，界面会一直停在“正在搜索”。
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  const quickQuery = page.getByLabel("快速正则搜索题目、选项、标签或解析");
+  await quickQuery.fill("巡视");
+  await page.locator(".search-results").waitFor({ state: "visible" });
+  await page.getByText("快速正则结果", { exact: true }).waitFor({ state: "visible" });
+  await page.getByText(/共 \d+ 道匹配题目/).waitFor({ state: "visible" });
+  assert.equal(await page.getByText("正在搜索…", { exact: true }).count(), 0, "first quick search after reload must leave the loading state");
+  await page.getByRole("button", { name: "清除搜索" }).click();
+
   const quickScope = page.getByLabel("快速搜索范围");
   assert.equal(await page.locator('select[aria-label="快速搜索范围"]').count(), 0, "quick search scope must not use the native select menu");
   assert.ok(await quickScope.evaluate((element) => element.classList.contains("app-select-trigger")), "quick search scope must use the shared custom trigger");

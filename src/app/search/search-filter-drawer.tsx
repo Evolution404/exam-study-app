@@ -213,7 +213,7 @@ export function SearchFilterDrawer({
               </div>
               <button className="search-filter-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>{moreOpen ? "收起统计条件" : "更多统计条件"}<span>{moreOpen ? "−" : "+"}</span></button>
               {moreOpen && <div className="search-filter-more-fields">
-                <RangeFields label="难度" min={filters.difficultyMin} max={filters.difficultyMax} minPlaceholder="最低 0" maxPlaceholder="最高 100" onMin={(difficultyMin) => patch({ difficultyMin })} onMax={(difficultyMax) => patch({ difficultyMax })} maxValue={100} />
+                <RangeFields label="个人难度" min={filters.difficultyMin} max={filters.difficultyMax} minPlaceholder="最低 0" maxPlaceholder="最高 100" onMin={(difficultyMin) => patch({ difficultyMin })} onMax={(difficultyMax) => patch({ difficultyMax })} maxValue={100} />
                 <RangeFields label="总作答次数" min={filters.attemptsMin} max={filters.attemptsMax} minPlaceholder="至少" maxPlaceholder="最多" onMin={(attemptsMin) => patch({ attemptsMin })} onMax={(attemptsMax) => patch({ attemptsMax })} />
                 <RangeFields label="错误次数" min={filters.wrongMin} max={filters.wrongMax} minPlaceholder="至少" maxPlaceholder="最多" onMin={(wrongMin) => patch({ wrongMin })} onMax={(wrongMax) => patch({ wrongMax })} />
                 <div className="search-filter-date-range"><span>最后作答日期</span><div><input aria-label="最后作答开始" type="date" value={filters.lastFrom} onChange={(event) => patch({ lastFrom: event.currentTarget.value })} /><input aria-label="最后作答结束" type="date" value={filters.lastTo} onChange={(event) => patch({ lastTo: event.currentTarget.value })} /></div></div>

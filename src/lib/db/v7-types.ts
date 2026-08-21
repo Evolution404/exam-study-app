@@ -156,6 +156,14 @@ export interface ReviewRoundProgress {
   wrong: number;
   firstAttemptAt: string;
   latestAttemptAt: string;
+  /** Optional on legacy rows; new/rebuilt rows carry the same evidence as global stats. */
+  giveUps?: number;
+  totalElapsedMs?: number;
+  firstAttemptCorrect?: boolean;
+  hasBeenWrong?: boolean;
+  currentCorrectStreak?: number;
+  correctStreakAfterWrong?: number;
+  recentOutcomes?: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
 }
 
 /** v7 only adds an optional review-round association to the existing run. */

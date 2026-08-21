@@ -7,14 +7,19 @@
 
 # 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
 HEADLESS ?= 1
+MSG ?= chore: publish verified updates
+export RELEASE_MESSAGE := $(MSG)
 
-.PHONY: help install dev mock build clean preview template-xlsx lint typecheck test test-full test-fast test-unit test-source test-integration test-sync test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight
+.PHONY: help doctor status install ci dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
 	@echo ""
 	@echo "环境与开发："
+	@echo "  make doctor                 检查 Node/npm/Git 与依赖是否就绪"
+	@echo "  make status                 查看分支、远端、最近提交和工作区状态"
 	@echo "  make install                安装依赖（npm install）"
+	@echo "  make ci                     严格按锁文件安装依赖（npm ci）"
 	@echo "  make dev                    启动开发服务器（vite）"
 	@echo "  make mock                   启动内存 mock GitHub 服务器（手动验证同步中转地址）"
 	@echo "  make build                  构建产物（vite build）"
@@ -25,6 +30,9 @@ help: ## 显示本帮助
 	@echo "代码检查："
 	@echo "  make lint                   ESLint"
 	@echo "  make typecheck              TypeScript 类型检查"
+	@echo "  make test-architecture      架构、样式和测试注册门禁"
+	@echo "  make test-pwa               PWA 源码与缓存边界测试"
+	@echo "  make test-pwa-smoke         生产构建 + 真实 Service Worker 冒烟"
 	@echo ""
 	@echo "测试（逻辑 / 源码断言 / 集成 / 快测 / 完整 / 全量）："
 	@echo "  make test-unit              纯逻辑测试（快捷键、导入、筛选、同步 payload 等）"
@@ -35,6 +43,7 @@ help: ## 显示本帮助
 	@echo "  make test-sync              同步模块测试"
 	@echo "  make test                   完整 CI 测试（含构建，不含浏览器）"
 	@echo "  make test-full              全量 = test + 浏览器全部场景"
+	@echo "  make verify                 发布级验证 = 全量测试 + PWA smoke"
 	@echo ""
 	@echo "浏览器测试（默认 headless 后台运行；HEADLESS=0 或 make test-browser-visible 开可见 Chrome）："
 	@echo "  make test-browser           全部场景分组（受 HEADLESS 控制）"
@@ -47,9 +56,31 @@ help: ## 显示本帮助
 	@echo "  make test-browser-search    搜索与批量操作"
 	@echo "  make test-browser-history   练习记录与结果"
 	@echo "  make test-browser-inflight  练习中删除题目/题库（竞争状态）"
+	@echo ""
+	@echo "发布："
+	@echo '  make release-check          执行发布预检和全部验证，但不提交、不推送'
+	@echo '  make release MSG="fix: ..." 一键验证、提交、推送 main、等待部署并核验线上版本'
+	@echo '  make publish MSG="fix: ..." 与 make release 相同'
+
+doctor: ## 检查本地开发环境
+	@command -v git >/dev/null || { echo "缺少 git"; exit 1; }
+	@command -v node >/dev/null || { echo "缺少 node"; exit 1; }
+	@command -v npm >/dev/null || { echo "缺少 npm"; exit 1; }
+	@node -e 'const major=Number(process.versions.node.split(".")[0]);if(major<22){console.error(`需要 Node >=22，当前 $${process.versions.node}`);process.exit(1)}console.log(`Node $${process.versions.node}`)'
+	@npm --version
+	@test -d node_modules || { echo "依赖尚未安装，请先运行 make ci"; exit 1; }
+	@echo "开发环境检查通过"
+
+status: ## 查看 Git 与发布状态
+	@git status --short --branch
+	@git remote -v
+	@git log -5 --oneline
 
 install: ## 安装依赖
 	npm install
+
+ci: ## 严格按锁文件安装依赖
+	npm ci
 
 dev: ## 启动开发服务器
 	npm run dev
@@ -82,6 +113,10 @@ test: ## 完整 CI 测试（含构建，不含浏览器）
 test-full: ## 全量测试（含浏览器全部场景，受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:full
 
+verify: ## 发布级验证（全量测试 + 真实 PWA smoke）
+	BROWSER_HEADLESS=$(HEADLESS) npm run test:full
+	npm run test:pwa-smoke
+
 test-fast: ## 快测（不含构建与浏览器）
 	npm run test:fast
 
@@ -96,6 +131,15 @@ test-integration: ## 集成测试
 
 test-sync: ## 同步模块测试
 	npm run test:sync
+
+test-architecture: ## 架构、样式和测试注册门禁
+	npm run test:architecture
+
+test-pwa: ## PWA 源码与缓存边界测试
+	npm run test:pwa
+
+test-pwa-smoke: ## 生产构建与真实 Service Worker 冒烟
+	npm run test:pwa-smoke
 
 test-browser: ## 浏览器全部场景分组（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser
@@ -126,3 +170,11 @@ test-browser-history: ## 浏览器：练习记录与结果场景（受 HEADLESS 
 
 test-browser-inflight: ## 浏览器：练习中删除题目/题库的竞争状态（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:inflight
+
+release-check: ## 发布预演：完整验证但不提交或推送
+	RELEASE_DRY_RUN=1 BROWSER_HEADLESS=$(HEADLESS) node scripts/tools/release.mjs
+
+release: ## 一键验证、提交、推送 main 并等待部署；可用 MSG 覆盖提交说明
+	BROWSER_HEADLESS=$(HEADLESS) node scripts/tools/release.mjs
+
+publish: release ## release 的易记别名

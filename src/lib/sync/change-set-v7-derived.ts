@@ -105,9 +105,20 @@ function deriveRoundProgress(projection: ChangeSetProjectionV7): ReviewRoundProg
     for (const roundId of roundIds) {
       if (!roundsById.has(roundId)) fail(`作答 ${attempt.id} 引用了不存在的轮次 ${roundId}`);
       const key = `${roundId}:${attempt.questionId}`;
-      const current = grouped.get(key) ?? { key, roundId, questionId: attempt.questionId, attempts: 0, correct: 0, wrong: 0, firstAttemptAt: attempt.createdAt, latestAttemptAt: attempt.createdAt };
+      const current = grouped.get(key) ?? {
+        key, roundId, questionId: attempt.questionId, attempts: 0, correct: 0, wrong: 0,
+        firstAttemptAt: attempt.createdAt, latestAttemptAt: attempt.createdAt,
+        giveUps: 0, totalElapsedMs: 0, firstAttemptCorrect: attempt.correct,
+        hasBeenWrong: false, currentCorrectStreak: 0, correctStreakAfterWrong: 0, recentOutcomes: [],
+      };
       current.attempts += 1;
       if (attempt.correct) current.correct += 1; else current.wrong += 1;
+      current.giveUps = (current.giveUps ?? 0) + (attempt.selected ? 0 : 1);
+      current.totalElapsedMs = (current.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs || 0);
+      current.hasBeenWrong = Boolean(current.hasBeenWrong) || !attempt.correct;
+      current.currentCorrectStreak = attempt.correct ? (current.currentCorrectStreak ?? 0) + 1 : 0;
+      current.correctStreakAfterWrong = current.hasBeenWrong ? current.currentCorrectStreak : 0;
+      current.recentOutcomes = [...(current.recentOutcomes ?? []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }].slice(-32);
       if (attempt.createdAt < current.firstAttemptAt) current.firstAttemptAt = attempt.createdAt;
       if (attempt.createdAt > current.latestAttemptAt) current.latestAttemptAt = attempt.createdAt;
       grouped.set(key, current);

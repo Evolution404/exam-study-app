@@ -187,7 +187,7 @@ export const modeLabels = {
   randomAll: "全量随机练习",
   wrong: "错题模式",
   favorite: "收藏题模式",
-  difficult: "难题优先",
+  difficult: "优先复习",
   tag: "标签模式",
   advanced: "高级筛选",
 };

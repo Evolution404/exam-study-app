@@ -71,8 +71,12 @@ const answer = (eventId: string, correct: boolean): PracticeAnswerV7 => ({ selec
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-1", false), answer: answer("event-1", false), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
 assert.deepEqual(projection.attemptStats[0], { questionId: "question-1", total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 10, firstAttemptAt: at, firstAttemptCorrect: false, latestAttemptAt: at, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: "attempt-1", createdAt: at, correct: false, elapsedMs: 10 }] });
 assert.equal(projection.reviewRoundProgress[0].wrong, 1);
+assert.deepEqual(projection.reviewRoundProgress[0].recentOutcomes, [{ id: "attempt-1", createdAt: at, correct: false, elapsedMs: 10 }], "同步派生轮次进度应保留与全局统计一致的作答证据");
+assert.equal(projection.reviewRoundProgress[0].hasBeenWrong, true);
+assert.equal(projection.reviewRoundProgress[0].currentCorrectStreak, 0);
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.updated", attempt: attempt("attempt-1", true), answer: answer("event-2", true), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
 assert.equal(projection.attemptStats[0].correct, 1);
+assert.equal(projection.reviewRoundProgress[0].currentCorrectStreak, 1);
 projection = reduceChangeSetV7(projection, await cs([{ kind: "practice.answer.deleted", attemptId: "attempt-1", runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
 assert.equal(projection.attemptStats.length, 0);
 assert.equal(projection.reviewRoundProgress.length, 0);

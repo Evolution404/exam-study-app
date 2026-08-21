@@ -277,6 +277,10 @@ try {
         { a: 1, b: 0 },
         "轮次进度应区分对错",
       );
+      assert.equal(byQuestion.get(q1.id)?.recentOutcomes?.length, 1, "轮次同步后应保留个人难度证据");
+      assert.equal(byQuestion.get(q1.id)?.currentCorrectStreak, 1);
+      assert.equal(byQuestion.get(q2.id)?.hasBeenWrong, true);
+      assert.equal(byQuestion.get(q2.id)?.totalElapsedMs, 120);
     });
     console.log("scenario 7 passed: 复习轮次进度与完成状态跨设备一致");
   }

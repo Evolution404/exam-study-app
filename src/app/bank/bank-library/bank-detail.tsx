@@ -148,7 +148,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
         <DashboardMetric icon={<NotebookPen />} label="个人解析" value={dashboard.noted} detail="题库属性 · 不受时间范围影响" onClick={() => openQuestions("noted")} />
         <DashboardMetric icon={<Tag />} label="已打标签" value={dashboard.tagged} detail={`${dashboard.tags.length} 个标签 · 不受时间范围影响`} onClick={() => openQuestions("tagged")} />
         <DashboardMetric icon={<FileText />} label="未做题目" value={dashboard.unattempted} detail={`${progressScopeLabel}尚无作答`} onClick={() => openQuestions("unattempted")} />
-        <DashboardMetric icon={<Gauge />} label="平均难度" value={dashboard.averageDifficulty} suffix="/100" detail={`根据${progressScopeLabel}作答动态计算`} onClick={() => openQuestions("difficult")} />
+        <DashboardMetric icon={<Gauge />} label="平均个人难度" value={dashboard.averageDifficulty} suffix="/100" detail={`根据${progressScopeLabel}作答动态计算`} onClick={() => openQuestions("difficult")} />
       </section>
 
       <div className="bank-dashboard-grid">
@@ -171,7 +171,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
       </div>
 
       <div className="bank-dashboard-grid">
-        <section className="bank-dashboard-panel"><PanelTitle icon={<BarChart3 />} eyebrow="题目构成" title="题型与动态难度" /><Distribution label="单选" count={dashboard.types.单选} total={dashboard.total} color="#527f67" /><Distribution label="多选" count={dashboard.types.多选} total={dashboard.total} color="#be8059" /><Distribution label="判断" count={dashboard.types.判断} total={dashboard.total} color="#758b9d" /><Distribution label="计算" count={dashboard.types.计算} total={dashboard.total} color="#8b6f9d" /><div className="bank-distribution-separator" /><Distribution label="容易" count={dashboard.difficulty.easy} total={dashboard.attempted} color="#6b9b7d" /><Distribution label="中等" count={dashboard.difficulty.medium} total={dashboard.attempted} color="#d5a151" /><Distribution label="困难" count={dashboard.difficulty.hard} total={dashboard.attempted} color="#be6651" /></section>
+        <section className="bank-dashboard-panel"><PanelTitle icon={<BarChart3 />} eyebrow="题目构成" title="题型与个人动态难度" /><Distribution label="单选" count={dashboard.types.单选} total={dashboard.total} color="#527f67" /><Distribution label="多选" count={dashboard.types.多选} total={dashboard.total} color="#be8059" /><Distribution label="判断" count={dashboard.types.判断} total={dashboard.total} color="#758b9d" /><Distribution label="计算" count={dashboard.types.计算} total={dashboard.total} color="#8b6f9d" /><div className="bank-distribution-separator" /><Distribution label="容易" count={dashboard.difficulty.easy} total={dashboard.attempted} color="#6b9b7d" /><Distribution label="中等" count={dashboard.difficulty.medium} total={dashboard.attempted} color="#d5a151" /><Distribution label="困难" count={dashboard.difficulty.hard} total={dashboard.attempted} color="#be6651" /></section>
         <section className="bank-dashboard-panel"><PanelTitle icon={<AlertTriangle />} eyebrow="复习优先级" title="下一步该看什么" /><div className="bank-priority-grid">
           <PriorityButton label="当前错题" count={dashboard.priorities.wrong} onClick={() => openQuestions("wrong")} />
           <PriorityButton label="错两次及以上" count={dashboard.priorities.repeatWrong} onClick={() => openQuestions("repeatWrong")} />

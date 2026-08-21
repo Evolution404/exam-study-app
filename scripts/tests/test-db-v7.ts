@@ -100,6 +100,11 @@ const reviewRun = await createPracticeRunV7({ bankIds: [importedA.id], questionI
 for (const questionId of dynamicTargets) {
   await recordPracticeAnswerV7({ runId: reviewRun.id, questionId, selected: ["A"], correct: true, reviewRoundId: round.id });
 }
+const roundEvidence = await dbV7.reviewRoundProgress.get(`${round.id}:${dynamicTargets[0]}`);
+assert.equal(roundEvidence?.recentOutcomes?.length, 1, "轮次进度应保存个人难度所需的作答证据");
+assert.equal(roundEvidence?.firstAttemptCorrect, true);
+assert.equal(roundEvidence?.currentCorrectStreak, 1);
+assert.equal(roundEvidence?.giveUps, 0);
 const completed = await dbV7.reviewRounds.get(round.id);
 assert.equal(completed?.status, "completed", "all dynamic targets auto-complete the bound round");
 assert.ok(completed?.finalQuestionIds?.length, "completed round captures its final target set");

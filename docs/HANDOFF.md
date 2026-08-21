@@ -1,6 +1,6 @@
 # 项目交接文档
 
-> 更新时间：2026-08-20（Asia/Shanghai）
+> 更新时间：2026-08-21（Asia/Shanghai）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
@@ -47,6 +47,8 @@ docs/          # 项目文档
 - 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
 - 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
 - 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。
+- 个人难度以有效作答时间、作答间隔和本机成熟历史校准；后台、编辑器、题目总览不计时，速度基线只吸收有效正确作答。未作答固定为 50。
+- `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
 - 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v8/assets/<sha256>.<ext>`。
 - 同步固定 head：`sync/v8/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
@@ -62,6 +64,8 @@ docs/          # 项目文档
   `src/lib/sync/github-v7-remote.ts`, `src/lib/sync/github-sync-v7.ts`, `src/lib/sync/github-sync.ts`
 - 进度与轮次：`src/lib/practice/progress-scope.ts`, `src/app/practice/progress-scope-setting.tsx`,
   `src/app/practice/review-round-manager.tsx`, `src/app/practice/practice-setup.tsx`
+- 难度与有效计时：`src/lib/practice/practice-metrics.ts`, `src/lib/practice/active-elapsed-time.ts`,
+  `src/app/shell/views/practice.tsx`
 - 富内容与图片：`src/lib/io/image-assets.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/io/image-dimensions.ts`,
   `src/app/bank/content-block-editor.tsx`, `src/app/bank/content-block-renderer.tsx`, `src/app/ui/asset-image.tsx`
 - 导入导出：`src/lib/io/xlsx-import.ts`, `src/lib/io/xlsx-export.ts`, `src/lib/question/question-bank-file-import.ts`,
@@ -102,19 +106,13 @@ make test                    # 完整 CI（含构建，不含浏览器）
 make test-full               # 全量测试（含浏览器全部场景，默认 headless）
 make test-browser-visible    # 可见 Chrome 跑全部浏览器场景
 make test-browser-search     # 只跑搜索场景
+make release-check           # 发布预检：全量测试 + PWA smoke，不提交、不推送
+make release MSG="fix: ..." # 一键验证、提交、推送 main、等待 Actions 并核验线上版本
 ```
 
-推送 `main` 会触发 `.github/workflows/deploy-pages.yml`：
+`make release` 会自动选择未占用的浏览器/PWA 测试端口，只暂存执行前展示的精确文件列表；若本地 `main` 落后远端、测试失败、部署失败或线上构建版本未更新，流程会停止并给出明确原因。常规发布优先使用该入口，不再手工拼接测试、提交、推送和部署检查命令。
 
-```bash
-git status --short
-make test-full
-git add -A
-git commit -m "..."
-git push origin main
-```
-
-部署后应运行：
+推送 `main` 会触发 `.github/workflows/deploy-pages.yml`。如果只需独立核验线上缓存，可运行：
 
 ```bash
 curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-study-app/'

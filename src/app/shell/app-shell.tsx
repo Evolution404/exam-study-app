@@ -607,7 +607,13 @@ export function AppShell() {
     questions = TYPE_ORDER.flatMap((type) => {
       const group = questions.filter((question) => question.type === type);
       if (filter.order === "random") return shuffle(group);
-      if (filter.order === "difficulty") return group.sort((a, b) => (attemptMetrics.get(b.id)?.difficulty ?? 50) - (attemptMetrics.get(a.id)?.difficulty ?? 50));
+      if (filter.order === "difficulty") return group.sort((a, b) => {
+        const left = attemptMetrics.get(a.id);
+        const right = attemptMetrics.get(b.id);
+        return (right?.reviewPriority ?? 50) - (left?.reviewPriority ?? 50)
+          || (right?.personalDifficulty ?? 50) - (left?.personalDifficulty ?? 50)
+          || a.id.localeCompare(b.id);
+      });
       return group;
     });
     if (filter.limit && !limitApplied) questions = questions.slice(0, filter.limit);

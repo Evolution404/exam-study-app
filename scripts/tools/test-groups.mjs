@@ -2,6 +2,7 @@
 // package.json 的 test:unit / test:source / test:integration 不再各自罗列。
 export const testGroups = {
   unit: [
+    "test:active-elapsed",
     "test:notice-tone",
     "test:shortcuts",
     "test:xlsx",
@@ -24,6 +25,7 @@ export const testGroups = {
   source: [
     "test:architecture",
     "test:pwa",
+    "test:release-workflow",
     "test:relay",
     "test:modal",
     "test:answer-ui",

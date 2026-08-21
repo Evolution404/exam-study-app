@@ -69,7 +69,7 @@ function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, o
   // 题库只随题库范围变化查询一次；输入词不再触发 IndexedDB 查询/映射，
   // 避免数据量大时每次按键都做异步重查询干扰输入框光标。
   const data = useLiveQuery(async () => {
-    if (!enabled || !bankIds.length || !normalizedQuery) return undefined;
+    if (!enabled || !bankIds.length) return undefined;
     const [views, notes] = await Promise.all([
       listQuestionViewsForBanksV7(bankIds),
       dbV7.notes.toArray(),

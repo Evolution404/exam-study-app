@@ -3,9 +3,11 @@ import {
   addAttemptToDailyStats,
   attemptGapFactor,
   buildAttemptStats,
+  calibrateDifficultyLearningRate,
   calculateDifficulty,
   difficultyFromOutcomes,
   needsWrongReview,
+  reviewPriorityFromDifficulty,
   runActivityAt,
   statsNeedWrongReview,
   summarizeAttemptStats,
@@ -125,6 +127,22 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(stats.get("q1")!.recentOutcomes?.length, 3, "rolling 窗口内的作答应生成 outcomes 序列");
   assert.equal(stats.get("q1")!.recentOutcomes?.[0].elapsedMs, 10);
   assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes, undefined);
+  const roundWithEvidence: ReviewRoundProgress = {
+    ...round("r2", "q1", 2, 2, 0),
+    giveUps: 0,
+    totalElapsedMs: 28_000,
+    firstAttemptCorrect: true,
+    hasBeenWrong: false,
+    currentCorrectStreak: 2,
+    correctStreakAfterWrong: 0,
+    recentOutcomes: [
+      { id: "r2:a1", createdAt: at(-2), correct: true, elapsedMs: 20_000 },
+      { id: "r2:a2", createdAt: at(-1), correct: true, elapsedMs: 8_000 },
+    ],
+  };
+  const roundEvidenceStats = buildScopedQuestionStats(["q1"], { type: "round", roundId: "r2" }, [], [roundWithEvidence], T0).get("q1")!;
+  assert.equal(roundEvidenceStats.recentOutcomes?.length, 2, "新轮次投影应携带与普通练习一致的难度证据");
+  assert.equal(summarizeAttemptStats(scopedStatsToLegacyAttemptStats(roundEvidenceStats), T0).difficulty, 23, "轮次个人难度应与同一作答序列的普通练习口径一致");
   assert.equal(scopedStatsToLegacyAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
   const q1 = stats.get("q1")!;
   assert.equal(q1.total, 3, "窗口内 3 条（-2/-1/0）");
@@ -280,10 +298,27 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     outcome(0, false, 20_000),
     outcome(13, true, 8_000),
     outcome(26, true, 6_000),
-  ), [68, 44, 29], "错后隔天连对应渐进恢复难度");
+  ), [68, 47, 40], "错误耗时不进入速度基线，错后正确先按中性证据渐进恢复");
+
+  assert.equal(
+    difficultyFromOutcomes([outcome(0, false, 2_000), outcome(13, true, 8_000), outcome(26, true, 6_000)]),
+    difficultyFromOutcomes([outcome(0, false, 600_000), outcome(13, true, 8_000), outcome(26, true, 6_000)]),
+    "错误和不会的耗时不得改变后续正确作答的速度基线",
+  );
 
   // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。
   assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");
+
+  // 有 12 条以上本机历史时用 walk-forward Brier score 在有界候选中校准学习率；
+  // 短历史保持默认参数，未作答仍固定为 50。
+  assert.deepEqual(calibrateDifficultyLearningRate([outcome(0, true, 20_000)]), { learningRate: 0.35, samples: 0, brierScore: null });
+  const alternating = Array.from({ length: 12 }, (_, index) => outcome(index * 13, index % 2 === 0, index % 2 === 0 ? 8_000 : 20_000));
+  assert.equal(calibrateDifficultyLearningRate(alternating).learningRate, 0.25, "反复波动的成熟历史应选择更稳健的学习率");
+  assert.equal(difficultyFromOutcomes([]), 50, "本地校准不得改变未作答默认 50");
+
+  assert.equal(reviewPriorityFromDifficulty(80, null, Date.parse(T1)), 50, "未作答复习优先级继续默认 50");
+  assert.equal(reviewPriorityFromDifficulty(80, Date.parse(T1), Date.parse(T1)), 56, "刚作答时优先级主要来自个人难度");
+  assert.equal(reviewPriorityFromDifficulty(20, Date.parse(T1), Date.parse(T1) + 30 * DAY), 44, "长时间未复习应提高低难度题的复习优先级");
 
   // 中位基准抗离群：一次 10 分钟（接电话）后，8s 仍明显快于中位、恢复下降。
   assert.deepEqual(trajectory(

@@ -91,7 +91,7 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 | 全量顺序练习 | browser-desktop, browser-history, browser-review | 自动 |
 | 绑定复习轮次（自动选中轮次题库） | browser-review | 自动 |
 | 高级筛选（题型/状态/标签/统计/关键词/日期） | browser-review（轮次进度口径） | 部分自动 |
-| 其余模式（全量随机/错题重练/收藏/按难度/标签） | 仅单元测试（test-review-scope-ui 等） | 部分 |
+| 其余模式（全量随机/错题重练/收藏/复习优先/标签） | 单元测试（含个人难度、有效计时、复习优先排序） | 部分 |
 
 ### 3.7 作答
 | 功能操作 | 覆盖位置 | 状态 |

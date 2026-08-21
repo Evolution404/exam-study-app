@@ -299,6 +299,23 @@ function validateStats(state: SyncCheckpointV7State, questions: Set<string>, att
     ["attempts", "correct", "wrong"].forEach((field) => assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`));
     assertDate(progress.firstAttemptAt, `state.reviewRoundProgress[${index}].firstAttemptAt`);
     assertDate(progress.latestAttemptAt, `state.reviewRoundProgress[${index}].latestAttemptAt`);
+    for (const field of ["giveUps", "totalElapsedMs", "currentCorrectStreak", "correctStreakAfterWrong"] as const) {
+      if (progress[field] !== undefined) assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`);
+    }
+    for (const field of ["firstAttemptCorrect", "hasBeenWrong"] as const) {
+      if (progress[field] !== undefined && typeof progress[field] !== "boolean") fail(`state.reviewRoundProgress[${index}].${field} must be boolean`);
+    }
+    if (progress.recentOutcomes !== undefined) {
+      assertArray(progress.recentOutcomes, `state.reviewRoundProgress[${index}].recentOutcomes`);
+      progress.recentOutcomes.forEach((outcome, outcomeIndex) => {
+        if (!isRecord(outcome)) fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}] must be an object`);
+        assertString(outcome.id, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].id`);
+        if (!attempts.has(outcome.id)) fail(`state.reviewRoundProgress[${index}] references missing attempt ${outcome.id}`);
+        assertDate(outcome.createdAt, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
+        if (typeof outcome.correct !== "boolean") fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
+        if (outcome.elapsedMs !== undefined) assertSafeInt(outcome.elapsedMs, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
+      });
+    }
   });
 }
 
@@ -447,7 +464,7 @@ function cloneState(state: V7RestoreState & { memberships?: BankQuestionMembersh
     practiceRunStats: state.practiceRunStats.map((item) => ({ ...item })),
     questionGroups: state.questionGroups.map((item) => ({ ...item, items: item.items.map((entry) => ({ ...entry })) })),
     reviewRounds: state.reviewRounds.map((item) => ({ ...item, bankIds: [...item.bankIds], finalQuestionIds: item.finalQuestionIds ? [...item.finalQuestionIds] : undefined })),
-    reviewRoundProgress: state.reviewRoundProgress.map((item) => ({ ...item })),
+    reviewRoundProgress: state.reviewRoundProgress.map((item) => ({ ...item, recentOutcomes: item.recentOutcomes?.map((outcome) => ({ ...outcome })) })),
     tombstones: state.tombstones.map((item) => ({ ...item })),
   };
 }

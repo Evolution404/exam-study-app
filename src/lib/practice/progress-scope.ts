@@ -32,9 +32,8 @@ export interface ScopedQuestionStats {
   hasBeenWrong: boolean;
   currentCorrectStreak: number;
   correctStreakAfterWrong: number;
-  /** 窗口内最近作答序列（含作答时间），供时间/间隔感知的难度 v2 使用；
-   *  round 口径只有聚合行，无法重建，保持缺省。 */
-  recentOutcomes?: Array<{ correct: boolean; createdAt: string; elapsedMs?: number }>;
+  /** 窗口内最近作答序列（含作答时间），供时间/间隔感知的个人难度使用。 */
+  recentOutcomes?: Array<{ id?: string; correct: boolean; createdAt: string; elapsedMs?: number }>;
 }
 
 export interface ScopedAttemptSummary {
@@ -203,11 +202,15 @@ export function buildScopedQuestionStats(
         total: row.attempts,
         correct: row.correct,
         wrong: row.wrong,
+        giveUps: row.giveUps,
+        totalElapsedMs: row.totalElapsedMs,
         firstAttemptAt: row.firstAttemptAt,
+        firstAttemptCorrect: row.firstAttemptCorrect,
         latestAttemptAt: row.latestAttemptAt,
-        hasBeenWrong: row.wrong > 0,
-        currentCorrectStreak: row.wrong === 0 ? row.correct : 0,
-        correctStreakAfterWrong: 0,
+        hasBeenWrong: row.hasBeenWrong ?? row.wrong > 0,
+        currentCorrectStreak: row.currentCorrectStreak ?? (row.wrong === 0 ? row.correct : 0),
+        correctStreakAfterWrong: row.correctStreakAfterWrong ?? 0,
+        recentOutcomes: row.recentOutcomes,
       }]));
   }
 
@@ -257,7 +260,7 @@ export function buildScopedQuestionStats(
       hasBeenWrong,
       currentCorrectStreak,
       correctStreakAfterWrong: hasBeenWrong ? currentCorrectStreak : 0,
-      recentOutcomes: ordered.slice(-32).map((row) => ({ correct: row.correct, createdAt: row.createdAt, elapsedMs: Math.max(0, row.elapsedMs || 0) })),
+      recentOutcomes: ordered.slice(-32).map((row) => ({ id: row.id, correct: row.correct, createdAt: row.createdAt, elapsedMs: Math.max(0, row.elapsedMs || 0) })),
     });
   }
   return result;
@@ -304,8 +307,9 @@ export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQu
  * Bridge a scoped per-question stats row back into the legacy `AttemptStats`
  * shape so existing helpers (`summarizeAttemptStats`, `calculateDifficulty`)
  * work on date-range-filtered data.  The rolling/lifetime path now carries a
- * `recentOutcomes` window for the time-aware difficulty; the round scope only
- * has aggregates and leaves it empty (count-based fallback).
+ * `recentOutcomes` window for the time-aware personal difficulty. New round
+ * projections carry the same evidence; legacy aggregate-only rows still use
+ * the count-based fallback.
  */
 export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bankId = ""): AttemptStats {
   return {
@@ -322,6 +326,6 @@ export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bank
     hasBeenWrong: stats.hasBeenWrong,
     correctStreakAfterWrong: stats.correctStreakAfterWrong,
     currentCorrectStreak: stats.currentCorrectStreak,
-    recentOutcomes: (stats.recentOutcomes ?? []).map((outcome, index) => ({ id: `${stats.questionId}:${index}`, ...outcome })),
+    recentOutcomes: (stats.recentOutcomes ?? []).map((outcome, index) => ({ ...outcome, id: outcome.id ?? `${stats.questionId}:${index}` })),
   };
 }

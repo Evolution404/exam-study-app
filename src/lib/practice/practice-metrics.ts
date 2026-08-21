@@ -5,21 +5,27 @@ export interface AttemptSummary {
   correct: number;
   wrong: number;
   latest: number | null;
+  /** Personal mastery risk shown to the user; kept as `difficulty` for compatibility. */
   difficulty: number;
+  personalDifficulty: number;
+  /** Scheduling score: personal difficulty plus time-since-review risk. */
+  reviewPriority: number;
 }
 
 export function calculateDifficulty(total: number, wrong: number) {
   return Math.round((wrong + 1) / (total + 2) * 100);
 }
 
-// ===== 难度 v2：时间感知 + 间隔感知的掌握度 EMA =====
+// ===== 个人难度 v3：有效时间 + 间隔感知 + 本机校准的掌握度 EMA =====
 // 设计（2026-08 用户确认）：
 // 1. 「快速做对」相对这道题自己的历史中位作答时间判定（≤0.6× 快 / >1.2× 慢），
 //    不用按题型的固定阈值——计算题慢是常态，和自己比才公平。
 // 2. 间隔权重按秒级连续对数插值（10 分钟内 0.2 → 12 小时满权重）：刚刷过就
 //    再做对多半是瞬时记忆，只给很低权重；隔约半天以上才算完整证据。
 // 3. 做错不降权（退步信号恒满学习率）：防瞬时记忆把难度虚高，但不放过退步。
-// 难度 = (1 − mastery) × 100，mastery 从 0.5 出发（未作答 = 50）。
+// 4. 速度基线只吸收 1 秒–20 分钟内的正确作答；成熟历史用 walk-forward
+//    Brier score 在有界候选中校准学习率，不上传数据、不增加置信度字段。
+// 个人难度 = (1 − mastery) × 100，mastery 从 0.5 出发（未作答 = 50）。
 
 export interface DifficultyOutcome {
   correct: boolean;
@@ -40,6 +46,11 @@ const QUALITY_FIRST_CORRECT = 0.9;
 const QUALITY_LEGACY_CORRECT = 0.85;
 const BASELINE_WINDOW = 8;
 const BASELINE_MIN_ELAPSED_MS = 1_000;
+const BASELINE_MAX_ELAPSED_MS = 20 * 60_000;
+const CALIBRATION_MIN_OUTCOMES = 12;
+const LEARNING_RATE_CANDIDATES = [0.25, 0.3, DIFFICULTY_LEARNING_RATE, 0.4, 0.45] as const;
+const REVIEW_RECENCY_START_MS = 12 * 60 * 60_000;
+const REVIEW_RECENCY_FULL_MS = 30 * 24 * 60 * 60_000;
 
 function medianOf(values: readonly number[]) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -57,17 +68,17 @@ export function attemptGapFactor(gapSeconds: number) {
 function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {
   if (!outcome.correct) return 0;
   if (baselineMs == null) return QUALITY_FIRST_CORRECT;
-  if (outcome.elapsedMs == null) return QUALITY_LEGACY_CORRECT;
+  if (!validBaselineElapsed(outcome.elapsedMs)) return QUALITY_LEGACY_CORRECT;
   if (outcome.elapsedMs <= FAST_BASELINE_RATIO * baselineMs) return QUALITY_FAST;
   if (outcome.elapsedMs <= SLOW_BASELINE_RATIO * baselineMs) return QUALITY_NORMAL;
   return QUALITY_SLOW;
 }
 
-/**
- * 由作答结果序列（按时间升序处理）估计 0–100 难度。序列为空返回 50。
- * 兼容缺 elapsedMs 的旧数据：不计入基准，做对按 0.85 中性质量计。
- */
-export function difficultyFromOutcomes(outcomes: readonly DifficultyOutcome[]) {
+function validBaselineElapsed(elapsedMs: number | undefined): elapsedMs is number {
+  return elapsedMs !== undefined && Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;
+}
+
+function modelDifficultyFromOutcomes(outcomes: readonly DifficultyOutcome[], learningRate: number) {
   const ordered = [...outcomes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   let mastery = 0.5;
   let previousAt: number | null = null;
@@ -80,9 +91,11 @@ export function difficultyFromOutcomes(outcomes: readonly DifficultyOutcome[]) {
       ? Math.max(0, (createdAt - previousAt) / 1_000)
       : Number.POSITIVE_INFINITY;
     const factor = outcome.correct ? attemptGapFactor(gapSeconds) : 1;
-    mastery += DIFFICULTY_LEARNING_RATE * factor * (quality - mastery);
+    mastery += learningRate * factor * (quality - mastery);
     if (Number.isFinite(createdAt)) previousAt = createdAt;
-    if (outcome.elapsedMs != null && outcome.elapsedMs >= BASELINE_MIN_ELAPSED_MS) {
+    // 速度基线只吸收有效的正确作答。错误/不会仍影响掌握度，但不会污染
+    // 后续“快于自己常态”的判定；过短和超长旧记录按无计时数据处理。
+    if (outcome.correct && validBaselineElapsed(outcome.elapsedMs)) {
       baselineTimes.push(outcome.elapsedMs);
       if (baselineTimes.length > BASELINE_WINDOW) baselineTimes.shift();
     }
@@ -90,7 +103,57 @@ export function difficultyFromOutcomes(outcomes: readonly DifficultyOutcome[]) {
   return Math.round((1 - mastery) * 100);
 }
 
-export function summarizeAttempts(attempts: Attempt[]): AttemptSummary {
+export interface DifficultyCalibration {
+  learningRate: number;
+  samples: number;
+  brierScore: number | null;
+}
+
+/**
+ * Locally calibrate the bounded EMA learning rate with walk-forward Brier
+ * score. Short histories keep the product default; no telemetry or confidence
+ * state is introduced, and an unseen question still starts at 50.
+ */
+export function calibrateDifficultyLearningRate(outcomes: readonly DifficultyOutcome[]): DifficultyCalibration {
+  const ordered = [...outcomes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (ordered.length < CALIBRATION_MIN_OUTCOMES) return { learningRate: DIFFICULTY_LEARNING_RATE, samples: 0, brierScore: null };
+  let best = { learningRate: DIFFICULTY_LEARNING_RATE, samples: ordered.length - 1, brierScore: Number.POSITIVE_INFINITY };
+  for (const learningRate of LEARNING_RATE_CANDIDATES) {
+    let squaredError = 0;
+    for (let index = 1; index < ordered.length; index += 1) {
+      const predictedCorrect = 1 - modelDifficultyFromOutcomes(ordered.slice(0, index), learningRate) / 100;
+      const actual = ordered[index].correct ? 1 : 0;
+      squaredError += (predictedCorrect - actual) ** 2;
+    }
+    const brierScore = squaredError / (ordered.length - 1);
+    const improves = brierScore < best.brierScore - Number.EPSILON;
+    const equallyGoodButCloserToDefault = Math.abs(brierScore - best.brierScore) <= Number.EPSILON
+      && Math.abs(learningRate - DIFFICULTY_LEARNING_RATE) < Math.abs(best.learningRate - DIFFICULTY_LEARNING_RATE);
+    if (improves || equallyGoodButCloserToDefault) best = { learningRate, samples: ordered.length - 1, brierScore };
+  }
+  return best;
+}
+
+/**
+ * 由作答结果序列（按时间升序处理）估计 0–100 难度。序列为空返回 50。
+ * 兼容缺 elapsedMs 的旧数据：不计入基准，做对按 0.85 中性质量计。
+ */
+export function difficultyFromOutcomes(outcomes: readonly DifficultyOutcome[]) {
+  const calibration = calibrateDifficultyLearningRate(outcomes);
+  return modelDifficultyFromOutcomes(outcomes, calibration.learningRate);
+}
+
+export function reviewPriorityFromDifficulty(difficulty: number, latest: number | null, referenceTime: number | Date = Date.now()) {
+  if (latest === null) return 50;
+  const referenceMs = referenceTime instanceof Date ? referenceTime.getTime() : referenceTime;
+  const ageMs = Math.max(0, referenceMs - latest);
+  const recencyRisk = ageMs <= REVIEW_RECENCY_START_MS ? 0
+    : ageMs >= REVIEW_RECENCY_FULL_MS ? 100
+      : 100 * Math.log(ageMs / REVIEW_RECENCY_START_MS) / Math.log(REVIEW_RECENCY_FULL_MS / REVIEW_RECENCY_START_MS);
+  return Math.round(0.7 * Math.max(0, Math.min(100, difficulty)) + 0.3 * recencyRisk);
+}
+
+export function summarizeAttempts(attempts: Attempt[], referenceTime: number | Date = Date.now()): AttemptSummary {
   let correct = 0;
   let wrong = 0;
   let latest: number | null = null;
@@ -101,7 +164,8 @@ export function summarizeAttempts(attempts: Attempt[]): AttemptSummary {
     if (Number.isFinite(createdAt) && (latest === null || createdAt > latest)) latest = createdAt;
   });
   const total = correct + wrong;
-  return { total, correct, wrong, latest, difficulty: difficultyFromOutcomes(attempts) };
+  const personalDifficulty = difficultyFromOutcomes(attempts);
+  return { total, correct, wrong, latest, difficulty: personalDifficulty, personalDifficulty, reviewPriority: reviewPriorityFromDifficulty(personalDifficulty, latest, referenceTime) };
 }
 
 export function createAttemptStats(attempt: Attempt): AttemptStats {
@@ -158,11 +222,11 @@ export function buildAttemptStats(attempts: Attempt[]) {
   return result;
 }
 
-export function summarizeAttemptStats(stats?: AttemptStats): AttemptSummary {
-  if (!stats) return { total: 0, correct: 0, wrong: 0, latest: null, difficulty: calculateDifficulty(0, 0) };
+export function summarizeAttemptStats(stats?: AttemptStats, referenceTime: number | Date = Date.now()): AttemptSummary {
+  if (!stats) return { total: 0, correct: 0, wrong: 0, latest: null, difficulty: 50, personalDifficulty: 50, reviewPriority: 50 };
   const latest = new Date(stats.latestAttemptAt).getTime();
-  // 难度 v2：有作答结果序列时按时间/间隔感知 EMA 估计；序列为空（round 口径
-  // 聚合、尚未重建的旧本地行）回退终身错误率，保证展示不跳变。
+  // 新统计（含轮次）按有效时间/间隔感知 EMA 估计；尚未重建的旧聚合行
+  // 没有 recentOutcomes 时回退终身错误率，保证旧数据可读且展示不跳变。
   const difficulty = stats.recentOutcomes?.length
     ? difficultyFromOutcomes(stats.recentOutcomes)
     : calculateDifficulty(stats.total, stats.wrong);
@@ -172,6 +236,8 @@ export function summarizeAttemptStats(stats?: AttemptStats): AttemptSummary {
     wrong: stats.wrong,
     latest: Number.isFinite(latest) ? latest : null,
     difficulty,
+    personalDifficulty: difficulty,
+    reviewPriority: reviewPriorityFromDifficulty(difficulty, Number.isFinite(latest) ? latest : null, referenceTime),
   };
 }
 

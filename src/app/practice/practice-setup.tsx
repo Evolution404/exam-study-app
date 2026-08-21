@@ -58,7 +58,7 @@ const presetCards: PresetCard[] = [
   { id: "randomAll", title: "全量随机练习", detail: "全部题目随机排列", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "all" } },
   { id: "wrong", title: "练习错题", detail: "集中练习当前口径下的错题", icon: RotateCcw, kind: "start", combo: { status: "wrong", order: "sequential", amount: "all" } },
   { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star, kind: "start", combo: { status: "favorite", order: "sequential", amount: "all" } },
-  { id: "difficult", title: "难题优先", detail: "按终身动态难度值排序", icon: Gauge, kind: "start", combo: { status: "all", order: "difficulty", amount: "all" } },
+  { id: "difficult", title: "优先复习", detail: "综合个人难度与距上次作答时间排序", icon: Gauge, kind: "start", combo: { status: "all", order: "difficulty", amount: "all" } },
   { id: "tag", title: "标签模式", detail: "按知识标签练习", icon: Tags, kind: "configure" },
 ];
 
@@ -72,7 +72,7 @@ const statusOptions: Array<{ id: V7PracticeFilter["status"]; label: string }> = 
 const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
   { id: "sequential", label: "题库顺序" },
   { id: "random", label: "随机" },
-  { id: "difficulty", label: "难度优先" },
+  { id: "difficulty", label: "复习优先" },
 ];
 
 const questionTypes: QuestionTypeV7[] = ["单选", "多选", "判断", "计算"];
@@ -205,7 +205,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     if (filter.status === "wrong") parts.push("错题");
     else if (filter.status === "unanswered") parts.push("未做过");
     else if (filter.status === "favorite") parts.push("收藏");
-    parts.push(filter.order === "random" ? "随机" : filter.order === "difficulty" ? "难度优先" : "题库顺序");
+    parts.push(filter.order === "random" ? "随机" : filter.order === "difficulty" ? "复习优先" : "题库顺序");
     if (amount === "custom") parts.push(`${requestedRandomCount} 题`);
     else if (amount === "default") parts.push(`${groupSize} 题`);
     else parts.push("不限题量");
