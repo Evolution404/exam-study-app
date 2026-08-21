@@ -381,6 +381,27 @@ async function createBlankBank(page, name) {
 }
 
 async function assertSearchFilterInteractions(page, contextName) {
+  const quickScope = page.getByLabel("快速搜索范围");
+  assert.equal(await page.locator('select[aria-label="快速搜索范围"]').count(), 0, "quick search scope must not use the native select menu");
+  assert.ok(await quickScope.evaluate((element) => element.classList.contains("app-select-trigger")), "quick search scope must use the shared custom trigger");
+  await quickScope.click();
+  const quickScopePopup = page.locator(".quick-search-scope-content");
+  await quickScopePopup.waitFor({ state: "visible" });
+  const quickScopeStyle = await quickScopePopup.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const checked = element.querySelector('[role="option"][data-state="checked"]');
+    return {
+      borderRadius: Number.parseFloat(style.borderRadius),
+      boxShadow: style.boxShadow,
+      background: style.backgroundColor,
+      checkedBackground: checked ? getComputedStyle(checked).backgroundColor : "",
+    };
+  });
+  assert.ok(quickScopeStyle.borderRadius >= 10, "custom search scope menu must keep the app's rounded surface");
+  assert.notEqual(quickScopeStyle.boxShadow, "none", "custom search scope menu must keep the app's elevated surface");
+  assert.notEqual(quickScopeStyle.checkedBackground, quickScopeStyle.background, "selected search scope must use the app's highlighted option style");
+  await page.keyboard.press("Escape");
+
   await clickButton(page, "进入搜索主页");
   await expectText(page, "搜索题库");
   const geometry = await page.evaluate(() => {
@@ -391,11 +412,22 @@ async function assertSearchFilterInteractions(page, contextName) {
   assert.deepEqual(geometry.search, geometry.filter, "search and filter actions must have identical geometry and alignment");
   await clickTextButton(page, "筛选");
   assert.equal(await page.locator(".search-filter-drawer-footer").count(), 0, "filter drawer must not render a duplicate clear/apply footer");
-  const segmentColors = await page.evaluate(() => ({
-    scope: getComputedStyle(document.querySelector(".search-scope-modes")).backgroundColor,
-    keyword: getComputedStyle(document.querySelector(".search-filter-segments")).backgroundColor,
-  }));
-  assert.equal(segmentColors.scope, segmentColors.keyword, "scope and keyword segmented controls must share one background style");
+  await expectText(page, "搜索字段");
+  await expectText(page, "匹配方式");
+  const matchGroups = await page.evaluate(() => {
+    const field = document.querySelector(".search-field-group");
+    const mode = document.querySelector(".search-mode-group");
+    const fieldBox = field?.getBoundingClientRect();
+    const modeBox = mode?.getBoundingClientRect();
+    return {
+      fieldBackground: field ? getComputedStyle(field).backgroundColor : "",
+      modeBackground: mode ? getComputedStyle(mode).backgroundColor : "",
+      fieldBottom: fieldBox?.bottom ?? 0,
+      modeTop: modeBox?.top ?? 0,
+    };
+  });
+  assert.notEqual(matchGroups.fieldBackground, matchGroups.modeBackground, "search fields and match mode must use distinct visual surfaces");
+  assert.ok(matchGroups.modeTop > matchGroups.fieldBottom, "match mode must be a separate group below search fields");
   await page.getByRole("radio", { name: "错题" }).click();
   const activeCountText = await page.locator(".search-filter-drawer-header span").innerText();
   assert.match(activeCountText, /已设置 [1-9]\d* 项/, "choosing a filter must immediately update the active count");
@@ -1268,19 +1300,25 @@ async function runSearchBatch(page) {
   // 关键词搜索 + 题型标签
   await clickButton(page, "进入搜索主页");
   await expectText(page, "搜索题库");
+  const contentScopeTrigger = page.getByLabel("搜索内容范围");
+  assert.equal(await page.locator('select[aria-label="搜索内容范围"]').count(), 0, "search page scope must not use the native select menu");
+  assert.ok(await contentScopeTrigger.evaluate((element) => element.classList.contains("app-select-trigger")), "search page scope must use the shared custom trigger");
   await page.getByLabel("搜索题库").fill("巡视");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“巡视”找到 \d+ 道题/);
   await capture(page, contextName, "search-results");
   // 内容范围必须真正限制匹配字段：该词只在第二题选项中出现，题干范围不得命中。
   await page.getByLabel("搜索题库").fill("按规程");
-  await page.getByLabel("搜索内容范围").selectOption("options");
+  await contentScopeTrigger.click();
+  await page.getByRole("option", { name: "选项", exact: true }).click();
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“按规程”找到 1 道题/);
-  await page.getByLabel("搜索内容范围").selectOption("stem");
+  await contentScopeTrigger.click();
+  await page.getByRole("option", { name: "题干", exact: true }).click();
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“按规程”找到 0 道题/);
-  await page.getByLabel("搜索内容范围").selectOption("all");
+  await contentScopeTrigger.click();
+  await page.getByRole("option", { name: "全部", exact: true }).click();
   await page.getByLabel("搜索题库").fill("巡视");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /“巡视”找到 \d+ 道题/);

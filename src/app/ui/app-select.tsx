@@ -17,10 +17,11 @@ export interface AppSelectProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  contentClassName?: string;
   id?: string;
 }
 
-export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, id }: AppSelectProps) {
+export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id }: AppSelectProps) {
   return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
     <Select.Trigger id={id} className={["app-select-trigger", className].filter(Boolean).join(" ")} aria-label={ariaLabel}>
       <Select.Value placeholder={placeholder} />
@@ -28,7 +29,7 @@ export function AppSelect({ value, onValueChange, options, ariaLabel, placeholde
     </Select.Trigger>
     <Select.Portal>
       <Select.Content
-        className="app-select-content"
+        className={["app-select-content", contentClassName].filter(Boolean).join(" ")}
         position="popper"
         sideOffset={6}
         collisionPadding={16}

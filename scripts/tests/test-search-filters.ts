@@ -14,6 +14,9 @@ import type { BankV7 } from "../../src/lib/db/v7-types";
 
 const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const quickSearchSource = fs.readFileSync(new URL("../../src/app/search/quick-search.tsx", import.meta.url), "utf8");
+const searchDrawerSource = fs.readFileSync(new URL("../../src/app/search/search-filter-drawer.tsx", import.meta.url), "utf8");
+const appSelectSource = fs.readFileSync(new URL("../../src/app/ui/app-select.tsx", import.meta.url), "utf8");
+const componentStyles = fs.readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
 const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
 const preferencesViewSource = [
   fs.readFileSync(new URL("../../src/app/shell/views/preferences-view.tsx", import.meta.url), "utf8"),
@@ -61,6 +64,13 @@ assert.match(preferencesViewSource, /v8 远端协议和热窗口增量同步/, "
 assert.doesNotMatch(preferencesViewSource, /开启后使用 v7 事件/, "配置页不得残留旧 v7 同步文案");
 assert.match(searchViewSource, /搜索内容范围/, "搜索页应提供题干、选项、解析和全部范围");
 assert.match(quickSearchSource, /快速搜索范围/, "顶栏快速搜索应提供内容范围选择");
+assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏搜索范围不得退回操作系统原生下拉框");
+assert.doesNotMatch(searchViewSource, /<select[^>]*className="search-content-scope"/, "搜索页范围不得退回操作系统原生下拉框");
+assert.match(appSelectSource, /contentClassName\?: string/, "通用下拉框应允许场景化调整弹层尺寸而不重造原生控件");
+assert.match(quickSearchSource, /<AppSelect[^>]*className="quick-search-scope"[^>]*contentClassName="search-scope-select-content quick-search-scope-content"/, "顶栏范围应复用项目通用下拉框样式");
+assert.match(searchViewSource, /<AppSelect[^>]*className="search-content-scope"[^>]*contentClassName="search-scope-select-content"/, "搜索页范围应复用项目通用下拉框样式");
+assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*搜索字段[\s\S]*search-match-group search-mode-group[\s\S]*匹配方式/, "搜索字段与匹配方式必须分成有标题的独立分组");
+assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
 assert.match(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "快速搜索未展开或无输入时不得加载题库");
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
 

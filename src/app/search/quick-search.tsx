@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, LoaderCircle, Search, X } from "lucide-react";
 import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
+import { AppSelect } from "@/app/ui/app-select";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
@@ -50,7 +51,7 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   return <div ref={boxRef} className={`searchbox ${open && draft.trim() ? "results-open" : ""}`}>
     <Hint label="搜索主页与高级筛选"><button className="search-page-trigger" aria-label="进入搜索主页" onClick={() => openSearch()}><Search size={17} /></button></Hint>
     <input aria-label="快速正则搜索题目、选项、标签或解析" value={draft} onFocus={() => { setOpen(true); }} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setDraft(""); setOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />
-    <select aria-label="快速搜索范围" className="quick-search-scope" value={contentScope} onChange={(event) => { setContentScope(event.currentTarget.value as SearchContentScope); setOpen(true); }}>{SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select>
+    <AppSelect ariaLabel="快速搜索范围" className="quick-search-scope" contentClassName="search-scope-select-content quick-search-scope-content" value={contentScope} onValueChange={(value) => { setContentScope(value as SearchContentScope); setOpen(true); }} options={SEARCH_CONTENT_SCOPE_OPTIONS} />
     {draft && <button className="search-clear" aria-label="清除搜索" onClick={() => { setDraft(""); setOpen(false); }}><X size={15} /></button>}
     <QuickSearchResults enabled={open && Boolean(draft.trim())} query={draft} contentScope={contentScope} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />
   </div>;

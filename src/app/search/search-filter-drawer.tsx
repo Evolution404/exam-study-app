@@ -184,12 +184,20 @@ export function SearchFilterDrawer({
 
             <section className="search-filter-section">
               <h3>内容匹配</h3>
-              <div className="search-filter-segments search-content-scope-segments" role="radiogroup" aria-label="搜索内容范围">
-                {SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <button key={value} role="radio" aria-checked={filters.contentScope === value} className={filters.contentScope === value ? "active" : ""} onClick={() => patch({ contentScope: value })}>{label}</button>)}
-              </div>
-              <div className="search-filter-segments" role="radiogroup" aria-label="关键词方式">
-                <button role="radio" aria-checked={filters.keywordMode === "regex"} className={filters.keywordMode === "regex" ? "active" : ""} onClick={() => patch({ keywordMode: "regex" })}>正则表达式</button>
-                <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>
+              <div className="search-match-groups">
+                <div className="search-match-group search-field-group">
+                  <div className="search-match-group-title"><strong>搜索字段</strong><span>限定关键词出现的位置</span></div>
+                  <div className="search-filter-segments search-content-scope-segments" role="radiogroup" aria-label="搜索内容范围">
+                    {SEARCH_CONTENT_SCOPE_OPTIONS.map(({ value, label }) => <button key={value} role="radio" aria-checked={filters.contentScope === value} className={filters.contentScope === value ? "active" : ""} onClick={() => patch({ contentScope: value })}>{label}</button>)}
+                  </div>
+                </div>
+                <div className="search-match-group search-mode-group">
+                  <div className="search-match-group-title"><strong>匹配方式</strong><span>选择普通文本或正则语法</span></div>
+                  <div className="search-filter-segments" role="radiogroup" aria-label="关键词方式">
+                    <button role="radio" aria-checked={filters.keywordMode === "regex"} className={filters.keywordMode === "regex" ? "active" : ""} onClick={() => patch({ keywordMode: "regex" })}>正则表达式</button>
+                    <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>
+                  </div>
+                </div>
               </div>
               <div className="search-filter-select-row">
                 <label htmlFor="search-filter-tag">用户标签<AppSelect id="search-filter-tag" ariaLabel="用户标签" value={filters.tag} onValueChange={(tag) => patch({ tag })} options={[{ value: "all", label: "全部标签" }, ...tags.map((tag) => ({ value: tag, label: tag }))]} /></label>

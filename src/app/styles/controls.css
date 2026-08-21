@@ -74,7 +74,7 @@
   user-select: none;
 }
 .app-select-item[data-highlighted] { color: var(--color-text); background: var(--color-primary-soft); }
-.app-select-item[data-state="checked"] { color: var(--color-text); font-weight: 700; }
+.app-select-item[data-state="checked"] { color: var(--color-primary); background: var(--color-primary-soft); font-weight: 700; }
 .app-select-item[data-disabled] { opacity: .4; cursor: not-allowed; }
 .app-select-indicator { position: absolute; right: 10px; display: grid; place-items: center; color: var(--color-primary); }
 .app-select-scroll-button { height: 28px; display: grid; place-items: center; color: var(--color-text-muted); background: var(--color-surface); }

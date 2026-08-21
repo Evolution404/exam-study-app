@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+const indexHtml = read("index.html");
 const serviceWorker = read("public/sw.js");
 const studyApp = read("src/app/shell/app-shell.tsx");
 const shellHelpers = read("src/app/shell/helpers.ts");
@@ -14,6 +15,7 @@ const errorBoundary = read("src/app/error-boundary.tsx");
 const headers = read("public/_headers");
 const previewSmoke = read("scripts/tests/test-pwa-preview.mjs");
 
+assert.match(indexHtml, /<meta name="viewport" content="[^"]*maximum-scale=1\.0[^"]*user-scalable=no[^"]*"\s*\/>/, "mobile viewport must keep zoom disabled");
 assert.match(serviceWorker, /const CACHE = "shijuan-v10"/);
 assert.match(serviceWorker, /const NAVIGATION_TIMEOUT_MS = 1200/);
 assert.match(serviceWorker, /const APP_REQUEST_TIMEOUT_MS = 8000/, "non-navigation app requests need a longer network budget than the navigation cut-off");
@@ -40,6 +42,7 @@ assert.match(previewSmoke, /npm run build/, "PWA smoke must exercise a productio
 assert.match(previewSmoke, /viteCli, "preview"/, "PWA smoke must exercise Vite preview directly so CI can terminate it reliably");
 assert.match(previewSmoke, /navigator\.serviceWorker\.controller/, "PWA smoke must verify an active service worker controls the preview page");
 assert.match(previewSmoke, /shijuan-v10/, "PWA smoke must verify the versioned service-worker cache");
+assert.match(previewSmoke, /user-scalable=no/, "PWA smoke must verify that the production page keeps mobile zoom disabled");
 
 // 代理一致性由 test-github-relay-consistency 专门验证。这里只保留 PWA 边界：
 // 同源 /api-github 请求必须绕过 Service Worker，避免被缓存或离线回退。

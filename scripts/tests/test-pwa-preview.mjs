@@ -110,6 +110,7 @@ async function runSmoke() {
         swOk: swResponse.ok,
         swVersioned: /shijuan-v10/.test(swText),
         baseCached: Boolean(baseResponse),
+        viewportContent: document.querySelector('meta[name="viewport"]')?.getAttribute("content") ?? "",
       };
     });
     assert.equal(smoke.controller, true, "preview page must be controlled by the service worker after reload");
@@ -118,6 +119,8 @@ async function runSmoke() {
     assert.equal(smoke.swOk, true, "preview must serve sw.js");
     assert.equal(smoke.swVersioned, true, "preview must serve the versioned service worker source");
     assert.equal(smoke.baseCached, true, "service worker install must cache the app shell");
+    assert.match(smoke.viewportContent, /(?:^|,\s*)maximum-scale=1\.0(?:,|$)/, "production viewport must cap the scale at 1.0");
+    assert.match(smoke.viewportContent, /(?:^|,\s*)user-scalable=no(?:,|$)/, "production viewport must keep mobile zoom disabled");
     await context.close();
   } finally {
     await browser.close();
