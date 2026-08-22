@@ -144,58 +144,23 @@ jobs:
             echo "::warning::缓存清理未生效：${MSG}"
           fi
 
-  # These jobs intentionally have the same single dependency and therefore run
-  # concurrently after the current Pages deploy completes.
-  fast_check:
-    name: Fast checks (post-deploy)
-    runs-on: ubuntu-latest
-    needs: deploy
-    steps:
-      - name: Checkout current commit
-        uses: actions/checkout@v6
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install
-        run: npm ci
-      - name: Fast checks
-        run: npm run test:fast
-
-  pwa_smoke:
-    name: PWA smoke (post-deploy)
-    runs-on: ubuntu-latest
-    needs: deploy
-    steps:
-      - name: Checkout current commit
-        uses: actions/checkout@v6
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install
-        run: npm ci
-      - name: Install Playwright Chromium
-        run: npm exec -- playwright-core install --with-deps chromium
-      - name: PWA preview smoke
-        run: npm run test:pwa-smoke
-
-  # Publish the native build only after the same commit has reached both web
-  # targets and passed the post-deploy checks. SideStore signs this IPA on the
-  # device, so the runner never receives Apple certificates or credentials.
+  # The native release shares only the common build gate with both web deploys.
+  # All three production targets therefore publish concurrently.
   ios_release:
     name: Build and publish SideStore IPA
     runs-on: macos-15
-    needs: [deploy_cloudflare, fast_check, pwa_smoke]
+    needs: build
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.tag }}
+      previous_release_tag: ${{ steps.previous-release.outputs.tag }}
     env:
       GH_TOKEN: ${{ github.token }}
       IOS_VERSION_PREFIX: "1.0"
     steps:
-      - name: Checkout verified commit
+      - name: Checkout current commit
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -224,6 +189,22 @@ jobs:
             echo "- Tag: \`${tag}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Record previous SideStore release
+        id: previous-release
+        shell: bash
+        env:
+          CURRENT_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          releases_file="$RUNNER_TEMP/releases.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases_file"
+          previous_tag="$(jq -r --arg current "$CURRENT_TAG" '[.[] | select(.draft == false and (.tag_name | startswith("ios-v")) and .tag_name != $current)][0].tag_name // empty' "$releases_file")"
+          echo "tag=${previous_tag}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$previous_tag" ]]; then
+            echo "测试失败时将恢复 SideStore latest 到 ${previous_tag}"
+          else
+            echo "::warning::未找到此前 SideStore Release；首次发布失败时没有可恢复的 IPA"
+          fi
       - name: Build unsigned SideStore IPA
         shell: bash
         run: |
@@ -268,7 +249,8 @@ jobs:
                 --draft=false \
                 --latest
             else
-              echo "Release ${RELEASE_TAG} 已发布；保持不可变并继续线上验证。"
+              echo "Release ${RELEASE_TAG} 已发布；保持资产不可变并重新设为 latest。"
+              gh release edit "$RELEASE_TAG" --latest
             fi
           else
             gh release create "$RELEASE_TAG" \
@@ -281,8 +263,61 @@ jobs:
               artifacts/ios/sidestore-source.json
             gh release edit "$RELEASE_TAG" --draft=false --latest
           fi
+
+  # These checks intentionally share the same three dependencies and therefore
+  # run concurrently only after GitHub Pages, Cloudflare Pages and IPA publish.
+  fast_check:
+    name: Fast checks (post-deploy)
+    runs-on: ubuntu-latest
+    needs: [deploy, deploy_cloudflare, ios_release]
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Fast checks
+        run: npm run test:fast
+
+  pwa_smoke:
+    name: PWA smoke (post-deploy)
+    runs-on: ubuntu-latest
+    needs: [deploy, deploy_cloudflare, ios_release]
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npm exec -- playwright-core install --with-deps chromium
+      - name: PWA preview smoke
+        run: npm run test:pwa-smoke
+
+  sidestore_smoke:
+    name: SideStore smoke (post-deploy)
+    runs-on: ubuntu-latest
+    needs: [deploy, deploy_cloudflare, ios_release]
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Verify Cloudflare SideStore endpoints
-        run: node scripts/tools/verify-sidestore-release.mjs --version "${{ steps.version.outputs.version }}"
+        run: node scripts/tools/verify-sidestore-release.mjs --version "${{ needs.ios_release.outputs.version }}"
 
   # A Pages deployment is rolled back only when it succeeded and a post-
   # deployment verification failed. If the initial build/deploy failed, this
@@ -293,8 +328,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.deploy.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure') }}
-    needs: [build, deploy, fast_check, pwa_smoke]
+    if: ${{ always() && needs.deploy.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure' || needs.sidestore_smoke.result == 'failure') }}
+    needs: [build, deploy, fast_check, pwa_smoke, sidestore_smoke]
     steps:
       - name: Checkout rollback commit
         uses: actions/checkout@v6
@@ -330,8 +365,8 @@ jobs:
   rollback_cloudflare:
     name: Roll back Cloudflare Pages
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.deploy.result == 'success' && needs.deploy_cloudflare.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure') && needs.deploy_cloudflare.outputs.previous_deployment_id != '' }}
-    needs: [deploy, deploy_cloudflare, fast_check, pwa_smoke]
+    if: ${{ always() && needs.deploy.result == 'success' && needs.deploy_cloudflare.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure' || needs.sidestore_smoke.result == 'failure') && needs.deploy_cloudflare.outputs.previous_deployment_id != '' }}
+    needs: [deploy, deploy_cloudflare, fast_check, pwa_smoke, sidestore_smoke]
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -372,3 +407,29 @@ jobs:
             MSG=$(jq -r '.errors[0].message // "未知错误"' <<<"$BODY")
             echo "::warning::回退后的缓存清理未生效：${MSG}"
           fi
+
+  # Release assets remain immutable. A failed version is rolled back by moving
+  # GitHub's latest pointer to the previously published tag, which immediately
+  # restores both stable SideStore proxy URLs without deleting history.
+  rollback_ios_release:
+    name: Roll back SideStore IPA
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.ios_release.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure' || needs.sidestore_smoke.result == 'failure') && needs.ios_release.outputs.previous_release_tag != '' }}
+    needs: [ios_release, fast_check, pwa_smoke, sidestore_smoke]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PREVIOUS_RELEASE_TAG: ${{ needs.ios_release.outputs.previous_release_tag }}
+    steps:
+      - name: Restore previous SideStore latest release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$PREVIOUS_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest
+          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')"
+          if [[ "$latest_tag" != "$PREVIOUS_RELEASE_TAG" ]]; then
+            echo "SideStore latest 回退失败：期望 ${PREVIOUS_RELEASE_TAG}，实际 ${latest_tag}" >&2
+            exit 1
+          fi
+          echo "SideStore latest 已恢复到 ${PREVIOUS_RELEASE_TAG}；失败版本资产保留用于诊断"

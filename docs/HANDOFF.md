@@ -149,13 +149,13 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-study-app/sw.js'
 ```
 
-GitHub Actions 的发布顺序是“先部署、后验证”：`build` 只安装依赖、构建并上传带 `current` 名称的产物，GitHub Pages 部署完成后，`fast-check` 与 `pwa_smoke` 两个 job 并行执行。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
+GitHub Actions 的发布顺序是“三端并行发布、统一验证”：公共 `build` 只安装依赖、构建并上传带 `current` 名称的产物；随后 GitHub Pages、Cloudflare Pages 与 `ios_release` 只依赖该公共构建，因此三路并行发布。同一提交的三端发布完成后，`fast-check`、`pwa_smoke` 与 `sidestore_smoke` 三个 job 并行验证。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
 
 Pages 发布链固定使用原生 Node 24 的 `actions/configure-pages@v6`、`actions/upload-pages-artifact@v5` 与 `actions/deploy-pages@v5`；当前部署和回退部署必须同步升级，禁止退回会触发 Node 20 弃用警告的旧主版本。
 
-Web 与 Cloudflare 验证通过后，`ios_release` 在 `macos-15` Runner 上为同一提交生成无签名 IPA。版本固定为 `1.0.<main 提交数>`，构建号为提交数；随后创建不可变 GitHub Release，并发布 `shijuan.ipa` 与 `sidestore-source.json`。Cloudflare Pages Function 在 `learn.980923.xyz` 提供稳定反向代理：更新源 `https://learn.980923.xyz/sidestore/source.json`、IPA `https://learn.980923.xyz/sidestore/shijuan.ipa`。工作流最后必须从这两个公网端点读回当前版本，否则发布任务失败。SideStore 只需添加一次更新源，后续每次推送 `main` 都会在网站验证通过后出现新版。
+`ios_release` 在 `macos-15` Runner 上与两个网页目标并行，为同一提交生成无签名 IPA。版本固定为 `1.0.<main 提交数>`，构建号为提交数；随后创建不可变 GitHub Release，并发布 `shijuan.ipa` 与 `sidestore-source.json`。Cloudflare Pages Function 在 `learn.980923.xyz` 提供稳定反向代理：更新源 `https://learn.980923.xyz/sidestore/source.json`、IPA `https://learn.980923.xyz/sidestore/shijuan.ipa`。三端发布后，`sidestore_smoke` 必须从这两个公网端点读回当前版本，否则发布任务失败。SideStore 只需添加一次更新源，后续每次推送 `main` 都会自动出现新版。
 
-Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若配置了 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，验证失败时通过官方 `/deployments/{deployment_id}/rollback` API 恢复此前版本，并清理边缘缓存；缺少凭据或无法取得旧 ID 时安全跳过 Cloudflare 回退，不影响 GitHub Pages 的回退判断。
+Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA 发布前会记录此前最新的非草稿 Release 标签。三项发布后验证任一失败时，GitHub Pages 重建旧提交，Cloudflare 通过官方 `/deployments/{deployment_id}/rollback` API 恢复此前版本并清理边缘缓存，SideStore 则把 GitHub Release 的 `latest` 指针恢复到此前标签。失败 IPA 的不可变资产仍保留用于诊断，不会删除。Cloudflare 缺少凭据/旧 deployment ID 或首次 IPA 发布没有旧标签时，对应目标安全跳过回退，不影响其他目标的回退判断。
 
 ## 8. 已知非阻断项
 

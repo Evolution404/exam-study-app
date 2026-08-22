@@ -61,10 +61,14 @@ assert.equal((await onRequest({ request: new Request(SIDESTORE_SOURCE_URL, { met
 
 const workflow = read(".github/workflows/deploy-pages.yml");
 assert.match(workflow, /ios_release:[\s\S]*runs-on: macos-15/, "iOS release must use a pinned macOS runner");
-assert.match(workflow, /needs: \[deploy_cloudflare, fast_check, pwa_smoke\]/, "IPA must wait for web deployments and checks");
+assert.match(workflow, /ios_release:[\s\S]*?needs: build\n/, "IPA must publish in parallel with both web targets after the common build");
+assert.match(workflow, /previous_release_tag: \$\{\{ steps\.previous-release\.outputs\.tag \}\}/, "IPA release must preserve the previous latest tag");
+assert.match(workflow, /startsWith\("ios-v"\)|startswith\("ios-v"\)/, "IPA rollback source must ignore unrelated repository releases");
 assert.match(workflow, /make ios-ipa[\s\S]*IOS_MARKETING_VERSION/, "workflow must build the existing unsigned IPA target with an explicit version");
 assert.match(workflow, /gh release create[\s\S]*gh release upload[\s\S]*--latest/, "workflow must publish versioned GitHub Release assets");
-assert.match(workflow, /verify-sidestore-release\.mjs/, "workflow must verify the Cloudflare update endpoints");
+assert.match(workflow, /sidestore_smoke:[\s\S]*needs: \[deploy, deploy_cloudflare, ios_release\][\s\S]*verify-sidestore-release\.mjs --version "\$\{\{ needs\.ios_release\.outputs\.version \}\}"/, "SideStore endpoints must be verified after all three targets publish");
+assert.match(workflow, /rollback_ios_release:[\s\S]*needs\.sidestore_smoke\.result == 'failure'[\s\S]*gh release edit "\$PREVIOUS_RELEASE_TAG" --repo "\$GITHUB_REPOSITORY" --latest/, "any post-deploy test failure must restore the previous latest IPA without deleting assets");
+assert.doesNotMatch(workflow, /rollback_ios_release:[\s\S]*gh release delete/, "IPA rollback must preserve immutable release history");
 
 const makefile = read("Makefile");
 assert.match(makefile, /MARKETING_VERSION="\$\(IOS_MARKETING_VERSION\)"/, "IPA build must accept a marketing-version override");
@@ -73,4 +77,4 @@ assert.match(makefile, /CURRENT_PROJECT_VERSION="\$\(IOS_BUILD_NUMBER\)"/, "IPA 
 const routes = JSON.parse(read("public/_routes.json"));
 assert.deepEqual(routes.include, ["/api-github/*", "/sidestore/*"]);
 
-console.log("iOS release tests passed: deterministic source metadata, Cloudflare relay, versioned IPA build and gated release workflow");
+console.log("iOS release tests passed: deterministic source metadata, Cloudflare relay, parallel publish, online smoke and latest-pointer rollback");
