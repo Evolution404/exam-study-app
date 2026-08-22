@@ -19,6 +19,7 @@ import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, shouldCancelQuickSyncMove }
 import type { ActivePractice, GitHubSettings } from "@/types/types";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { classifyNoticeTone } from "@/lib/practice/notice-tone";
+import { persistConfigValue } from "@/platform/persistent-config";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
 import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
@@ -344,9 +345,13 @@ export function AppShell() {
     setNotice("已恢复上次练习");
   }
 
-  function updatePreferences(value: PracticePreferences) {
+  async function updatePreferences(value: PracticePreferences): Promise<void> {
     setPreferences(value);
-    localStorage.setItem("study-v7-preferences", JSON.stringify(value));
+    try {
+      await persistConfigValue("study-v7-preferences", JSON.stringify(value));
+    } catch (error) {
+      setNotice(error instanceof Error ? `配置保存失败：${error.message}` : "配置保存失败");
+    }
   }
 
   // 用户显式点同步拉取后刷新进行中的练习：另一设备对同一 run 的作答已合并进

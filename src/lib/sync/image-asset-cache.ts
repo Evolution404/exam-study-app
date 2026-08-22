@@ -9,6 +9,7 @@ import { clearImageCacheV7, dbV7, getImageAssetBlobV7, getImageAssetDescriptorV7
 import { sha256Blob } from "../io/image-assets";
 import { createGitHubV7Remote } from "./github-v7-remote";
 import type { GitHubSettings } from "../../types/types";
+import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 
 export { clearImageCacheV7, getImageAssetBlobV7 };
 
@@ -22,15 +23,17 @@ export async function getImageCacheStatsV7() {
   };
 }
 
-export async function downloadImageAssetV7(settings: GitHubSettings, token: string, assetId: string): Promise<Blob> {
+export async function downloadImageAssetV7(settings: GitHubSettings, token: string, assetId: string, options: { fetch?: typeof fetch; transport?: GitHubTransport } = {}): Promise<Blob> {
   const descriptor = await getImageAssetDescriptorV7(assetId);
   if (!descriptor?.remote) throw new Error("图片 descriptor 缺少远端资产路径。");
+  const transport = options.transport ?? getGitHubTransport();
   const bytes = await createGitHubV7Remote({
     owner: settings.owner,
     repo: settings.repo,
     branch: settings.branch?.trim() || "main",
     token,
-    apiBaseUrl: settings.apiBaseUrl,
+    apiBaseUrl: resolveGitHubApiBaseUrl(settings.apiBaseUrl, transport),
+    fetch: options.fetch ?? transport.fetch,
   }).readBlob(descriptor.remote.blobSha, { size: descriptor.remote.size, sha256: descriptor.remote.sha256 });
   const blob = new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType });
   if (blob.size !== descriptor.size || await sha256Blob(blob) !== descriptor.id) throw new Error("远端图片完整性校验失败。");
@@ -38,10 +41,10 @@ export async function downloadImageAssetV7(settings: GitHubSettings, token: stri
   return blob;
 }
 
-export async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string): Promise<number> {
+export async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport } = {}): Promise<number> {
   const assets = await dbV7.imageAssets.toArray();
   let downloaded = 0;
-  for (const asset of assets) if (!asset.blob) { await downloadImageAssetV7(settings, token, asset.id); downloaded += 1; }
+  for (const asset of assets) if (!asset.blob) { await downloadImageAssetV7(settings, token, asset.id, options); downloaded += 1; }
   return downloaded;
 }
 

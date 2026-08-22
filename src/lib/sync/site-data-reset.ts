@@ -1,10 +1,14 @@
 import { V7_DATABASE_NAME, dbV7 } from "../db/db-v7";
+import { getPlatformEnvironment } from "../../platform/environment";
+import { clearPersistentConfig } from "../../platform/persistent-config";
+import { clearGitHubCredentials } from "./github-credentials";
 
 function deleteCookie(name: string, path: string, domain?: string) {
   document.cookie = `${name}=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}${domain ? `; domain=${domain}` : ""}; SameSite=Lax`;
 }
 
 function clearSiteCookies() {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
   const names = document.cookie.split(";").map((item) => item.split("=")[0]?.trim()).filter(Boolean) as string[];
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const paths = new Set(["/", window.location.pathname]);
@@ -38,18 +42,23 @@ const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "study-v6-preferences
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {
-  const registrations = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistrations() : [];
-  await Promise.all(registrations.map((registration) => registration.unregister()));
-  if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
+  const native = getPlatformEnvironment().native;
+  // WKWebView does not register the PWA worker and its Cache API is not part
+  // of the app's durable content contract; only Web/PWA clears these surfaces.
+  if (!native) {
+    const registrations = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistrations() : [];
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
+  }
 
   dbV7.close();
-  const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+  const databases = typeof indexedDB !== "undefined" && typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
   // The reset action is deliberately broader than normal v7 startup: it is
   // the one user-authorised path that also removes an abandoned legacy DB.
   const names = new Set([V7_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
-  clearSiteCookies();
+  if (!native) clearSiteCookies();
 }
 
 /** Clear every client-side persistence surface available to this origin. */
@@ -57,6 +66,10 @@ export async function clearAllSiteData() {
   await wipeServiceWorkersCachesDatabasesAndCookies();
   localStorage.clear();
   sessionStorage.clear();
+  if (getPlatformEnvironment().native) {
+    await clearGitHubCredentials();
+    await clearPersistentConfig();
+  }
 }
 
 /**
@@ -66,7 +79,9 @@ export async function clearAllSiteData() {
  */
 export async function clearSiteDataExceptConfig() {
   const snapshot = new Map<string, string>();
+  const native = getPlatformEnvironment().native;
   for (const key of CONFIG_LOCAL_STORAGE_KEYS) {
+    if (native && key === "github-token") continue;
     const value = localStorage.getItem(key);
     if (value !== null) snapshot.set(key, value);
   }

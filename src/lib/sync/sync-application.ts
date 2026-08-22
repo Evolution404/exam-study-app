@@ -20,10 +20,12 @@ import {
 import {
   loadGitHubSettings,
   loadGitHubToken,
+  resolveConfiguredGitHubApiBaseUrl,
   resolveDefaultGitHubApiBaseUrl,
   saveGitHubSettings,
   saveGitHubToken,
 } from "./github-credentials";
+import { getGitHubTransport } from "../../platform/github-transport";
 import {
   dependentChangeSetIdsV7,
   type ChangeSetMutationV7,
@@ -87,35 +89,36 @@ class SyncApplication {
     return { settings, token, ready: Boolean(settings.repo && token) };
   }
 
-  saveSettings(settings: GitHubSettings): void {
-    saveGitHubSettings(settings);
+  saveSettings(settings: GitHubSettings): Promise<void> {
+    return saveGitHubSettings(settings);
   }
 
-  saveToken(token: string): void {
-    saveGitHubToken(token);
+  saveToken(token: string): Promise<void> {
+    return saveGitHubToken(token);
   }
 
   async resolveConnection(settings = loadGitHubSettings(), token = loadGitHubToken()): Promise<{ settings: GitHubSettings; token: string }> {
     if (!settings.repo || !token) throw new Error("请先在配置页面填写 GitHub 令牌和仓库信息");
-    const resolved = settings.owner ? settings : { ...settings, owner: await getGitHubLogin(token, settings.apiBaseUrl) };
-    saveGitHubSettings(resolved);
-    saveGitHubToken(token);
+    const transport = getGitHubTransport();
+    const resolved = settings.owner ? { ...settings, apiBaseUrl: resolveConfiguredGitHubApiBaseUrl(settings.apiBaseUrl) } : { ...settings, owner: await getGitHubLogin(token, settings.apiBaseUrl, { transport }), apiBaseUrl: resolveConfiguredGitHubApiBaseUrl(settings.apiBaseUrl) };
+    await saveGitHubSettings(resolved);
+    await saveGitHubToken(token);
     return { settings: resolved, token };
   }
 
   async syncNow(callback?: SyncProgressCallback): Promise<SyncRunResult> {
     const { settings, token } = await this.resolveConnection();
-    return syncWithGitHub(settings, token, callback);
+    return syncWithGitHub(settings, token, callback, { transport: getGitHubTransport() });
   }
 
   async pullNow(callback?: SyncProgressCallback): Promise<SyncRunResult> {
     const { settings, token } = await this.resolveConnection();
-    return pullFromGitHub(settings, token, callback);
+    return pullFromGitHub(settings, token, callback, { transport: getGitHubTransport() });
   }
 
   async restoreRemote(callback?: SyncProgressCallback): Promise<SyncRestoreResult> {
     const { settings, token } = await this.resolveConnection();
-    return restoreFullHistoryFromGitHub(settings, token, callback);
+    return restoreFullHistoryFromGitHub(settings, token, callback, { transport: getGitHubTransport() });
   }
 
   restoreCache(settings = loadGitHubSettings(), callback?: SyncProgressCallback): Promise<SyncCacheRestoreResult> {
@@ -140,12 +143,12 @@ class SyncApplication {
 
   async downloadImageAsset(assetId: string): Promise<void> {
     const { settings, token } = await this.resolveConnection();
-    await downloadImageAssetInternal(settings, token, assetId);
+    await downloadImageAssetInternal(settings, token, assetId, { transport: getGitHubTransport() });
   }
 
   async downloadAllImageAssets(): Promise<number> {
     const { settings, token } = await this.resolveConnection();
-    return downloadAllImageAssetsInternal(settings, token);
+    return downloadAllImageAssetsInternal(settings, token, { transport: getGitHubTransport() });
   }
 
   ensureQueueBase(): Promise<void> {

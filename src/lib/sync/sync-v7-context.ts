@@ -1,6 +1,7 @@
 import { GitHubV7Remote } from "./github-v7-remote";
 import type { SyncV7Descriptor } from "./sync-v7-head";
 import type { GitHubSettings } from "../../types/types";
+import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;
@@ -54,9 +55,19 @@ export function cacheKey(settings: GitHubSettings, suffix: string): string { ret
  * fault-injecting fetch to exercise network-error / retry paths through the full
  * sync loop without touching the mock server. Production callers omit it.
  */
-export type SyncWithGitHubOptions = { fetch?: typeof fetch };
+export type SyncWithGitHubOptions = { fetch?: typeof fetch; transport?: GitHubTransport };
 
-export function remote(settings: GitHubSettings, token: string, fetchImpl?: SyncWithGitHubOptions["fetch"]): GitHubV7Remote { return new GitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: branch(settings), token, apiBaseUrl: settings.apiBaseUrl, vaultId: vaultId(settings), ...(fetchImpl ? { fetch: fetchImpl } : {}) }); }
+export function remote(settings: GitHubSettings, token: string, fetchImpl?: SyncWithGitHubOptions["fetch"], transport = getGitHubTransport()): GitHubV7Remote {
+  return new GitHubV7Remote({
+    owner: settings.owner,
+    repo: settings.repo,
+    branch: branch(settings),
+    token,
+    apiBaseUrl: resolveGitHubApiBaseUrl(settings.apiBaseUrl, transport),
+    vaultId: vaultId(settings),
+    fetch: fetchImpl ?? transport.fetch,
+  });
+}
 
 export async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));

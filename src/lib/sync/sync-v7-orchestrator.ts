@@ -78,8 +78,8 @@ function yieldToMainIfVisible(): Promise<boolean> {
   return new Promise<boolean>((resolve) => window.setTimeout(() => resolve(true), 0));
 }
 
-async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"]): Promise<SyncV7HeadCache> {
-  const client = remote(settings, token, fetchImpl);
+async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions): Promise<SyncV7HeadCache> {
+  const client = remote(settings, token, options?.fetch, options?.transport);
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
   report(callback, "prepare", "正在初始化 v8 热窗口", 4, 6);
@@ -122,12 +122,12 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
 }
 
 async function syncWithGitHubInternal(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
-  const client = remote(settings, token, options?.fetch);
+  const client = remote(settings, token, options?.fetch, options?.transport);
   const historySyncStart = historySyncStartFor(settings);
   const progress = monotonicProgress(callback);
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
-  if (!read.initialized) { await initialize(settings, token, callback, options?.fetch); read = await client.readHead(); }
+  if (!read.initialized) { await initialize(settings, token, callback, options); read = await client.readHead(); }
   if (!read.initialized) throw new Error("无法初始化 v8 远端。请先执行 v7→v8 数据仓库迁移。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
@@ -438,7 +438,7 @@ export async function syncWithGitHub(settings: GitHubSettings, token: string, ca
 
 export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
   return withSyncLock(async () => {
-    const client = remote(settings, token, options?.fetch);
+    const client = remote(settings, token, options?.fetch, options?.transport);
     const read = await client.readHead();
     if (!read.initialized) throw new Error("远端还没有 v8 数据。");
     // B1: restore wipes the whole local change-set queue. Guard against silently
@@ -473,7 +473,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
 }
 
 export const restoreFromGitHub = restoreFullHistoryFromGitHub;
-export const pullFromGitHub = async (settings: GitHubSettings, token: string, callback?: SyncProgressCallback) => syncWithGitHub(settings, token, callback);
-export const initializeGitHubVault = (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"]) => withSyncLock(() => initialize(settings, token, callback, fetchImpl));
+export const pullFromGitHub = async (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) => syncWithGitHub(settings, token, callback, options);
+export const initializeGitHubVault = (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"], transport?: SyncWithGitHubOptions["transport"]) => withSyncLock(() => initialize(settings, token, callback, { ...(fetchImpl ? { fetch: fetchImpl } : {}), ...(transport ? { transport } : {}) }));
 
-export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}) { await syncWithGitHub(settings, token); const rows = (await dbV7.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }
+export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}, syncOptions?: SyncWithGitHubOptions) { await syncWithGitHub(settings, token, undefined, syncOptions); const rows = (await dbV7.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }

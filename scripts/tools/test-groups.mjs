@@ -24,6 +24,10 @@ export const testGroups = {
     "test:image-assets",
     "test:build-target",
     "test:platform-environment",
+    "test:platform-transport",
+    "test:secure-credentials",
+    "test:persistent-config",
+    "test:platform-lifecycle",
   ],
   source: [
     "test:architecture",

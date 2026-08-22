@@ -5,6 +5,7 @@
  * stays free of business logic and can be imported by every sibling module.
  */
 import Dexie, { type EntityTable } from "dexie";
+import { queueConfigMirror } from "../../platform/persistent-config";
 import type { ChangeSetQueueRecordV7 } from "./db-v7-change-sets";
 import type {
   AttemptDailyStatsV7,
@@ -140,6 +141,7 @@ export function getV7DeviceId(): string {
       value = makeV7Id("device");
     }
     localStorage.setItem(key, value);
+    queueConfigMirror(key, value);
   }
   return value;
 }

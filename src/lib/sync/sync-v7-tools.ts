@@ -20,9 +20,12 @@ import { uploadedDescriptor } from "./sync-v7-upload";
 import { installFingerprint } from "./sync-v7-watermark";
 import { withSyncLock } from "./sync-lock";
 import { filterProjectionHistoryV7, historySyncStartFor } from "./history-sync-range";
+import { getGitHubTransport, resolveGitHubApiBaseUrl } from "../../platform/github-transport";
 
-export async function getGitHubLogin(token: string, apiBaseUrl = "https://api.github.com"): Promise<string> {
-  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/user`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
+export async function getGitHubLogin(token: string, apiBaseUrl?: string, options?: SyncWithGitHubOptions): Promise<string> {
+  const transport = options?.transport ?? getGitHubTransport();
+  const base = resolveGitHubApiBaseUrl(apiBaseUrl, transport).replace(/\/$/, "");
+  const response = await (options?.fetch ?? transport.fetch)(`${base}/user`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
   if (!response.ok) throw new Error(`GitHub 请求失败（${response.status}）`);
   const value = await response.json() as { login?: unknown };
   if (typeof value.login !== "string" || !value.login) throw new Error("GitHub 未返回登录名。");
@@ -107,7 +110,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
   });
 }
 
-export async function verifyGitHubVault(settings: GitHubSettings, token: string, options?: SyncWithGitHubOptions) { return (await remote(settings, token, options?.fetch).readHead()).initialized ? 7 as const : 0 as const; }
+export async function verifyGitHubVault(settings: GitHubSettings, token: string, options?: SyncWithGitHubOptions) { return (await remote(settings, token, options?.fetch, options?.transport).readHead()).initialized ? 7 as const : 0 as const; }
 export async function getSyncStats() { const checkpoint = await createSyncCheckpointV7(); return { ...checkpoint.counts, pendingEvents: (await listChangeSetsV7(["pending", "blocked"])).length }; }
 
 export interface MigrateVaultResult {
@@ -147,7 +150,7 @@ export interface MigrateVaultResult {
  * `migrated: false` with a reason and touches nothing.
  */
 export async function migrateVaultToCompressed(settings: GitHubSettings, token: string, onProgress?: (label: string) => void, options?: SyncWithGitHubOptions & { verifyOnly?: boolean }): Promise<MigrateVaultResult> {
-  const client = remote(settings, token, options?.fetch);
+  const client = remote(settings, token, options?.fetch, options?.transport);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const read = await client.readHead();
     if (!read.initialized) throw new Error("远端还没有 v7 数据，无需迁移。");
@@ -239,7 +242,7 @@ export interface BackfillStoredSizeResult {
  * and retry (≤4); concurrent writers are never overwritten.
  */
 export async function backfillVaultStoredSizes(settings: GitHubSettings, token: string, onProgress?: (label: string) => void, options?: SyncWithGitHubOptions): Promise<BackfillStoredSizeResult> {
-  const client = remote(settings, token, options?.fetch);
+  const client = remote(settings, token, options?.fetch, options?.transport);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const read = await client.readHead();
     if (!read.initialized) throw new Error("远端还没有 v7 数据，无需补填。");

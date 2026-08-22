@@ -120,6 +120,21 @@ for (const { file, source } of activeSyncSources) {
   if (/sync\/v7\//.test(source) && !["sync-v7-checkpoint.ts", "sync-v7-head.ts"].includes(file)) fail(`${file} 不得访问旧 v7 远端 namespace；兼容读取只能留在一次性迁移模块`);
 }
 
+// Every production GitHub request receives the shared fetch-compatible
+// transport from the platform/context seam. Keep raw fetch calls out of sync
+// implementations so owner lookup, restore and lazy image reads cannot drift
+// onto a second network path. The low-level remote owns only its injected
+// fetch fallback; the platform adapter owns globalThis.fetch itself.
+const rawFetchAllowed = new Set(["github-v7-remote.ts"]);
+for (const { file, source } of activeSyncSources) {
+  if (rawFetchAllowed.has(file)) continue;
+  if (/(?:globalThis\.)?fetch\s*\(/.test(source)) fail(`${file} 不得绕过 GitHubTransport 使用裸 fetch，请从 sync-v7-context 注入 transport.fetch`);
+}
+const transportSource = read("src/platform/github-transport.ts");
+if (!/defaultApiBaseUrl/.test(transportSource) || !/GITHUB_RELAY_URL/.test(transportSource) || !/globalThis\.fetch/.test(transportSource)) {
+  fail("GitHub transport 必须集中定义 fetch-compatible adapter、Relay 默认地址和 globalThis.fetch 入口");
+}
+
 if (/study-current-bank["']/.test(appSources.map(({ source }) => source).join("\n"))) fail("客户端不得读取旧版单题库配置键");
 for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
   if (/from ["']@\/lib\/db["']/.test(source)) fail(`${file} 不得读取旧本地数据库`);

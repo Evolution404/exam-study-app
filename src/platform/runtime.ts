@@ -1,6 +1,9 @@
 import { StatusBar, Style } from "@capacitor/status-bar";
 import type { PlatformEnvironment } from "./environment";
 import { getPlatformEnvironment } from "./environment";
+import { bootstrapSecureCredentials } from "./secure-credentials";
+import { hydratePersistentConfig } from "./persistent-config";
+import { initializeLifecycle } from "./lifecycle";
 
 export interface ServiceWorkerContainerLike {
   register(scriptURL: string, options?: RegistrationOptions): Promise<ServiceWorkerRegistration>;
@@ -43,7 +46,16 @@ export const platformRuntime = {
   initialize(): Promise<PlatformEnvironment> {
     if (!initialized) {
       const environment = getPlatformEnvironment();
-      initialized = initializeNativeRuntime(environment).then(() => environment);
+      initialized = (async () => {
+        // Keep this order stable: synchronous legacy getters read mirrors after
+        // Preferences/Keychain hydration, and lifecycle timers must not start
+        // until both credential and config bootstraps have completed.
+        await hydratePersistentConfig(environment);
+        await bootstrapSecureCredentials(environment);
+        await initializeLifecycle(environment);
+        await initializeNativeRuntime(environment);
+        return environment;
+      })();
     }
     return initialized;
   },

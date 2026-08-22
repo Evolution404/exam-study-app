@@ -20,9 +20,31 @@ export interface PeriodicPullOptions {
 class SyncRuntime {
   private inFlight: Promise<SyncRunResult> | null = null;
   private lastAutomaticSyncAt = 0;
+  private appActive = true;
+  private periodicPull: { options: PeriodicPullOptions; timer?: ReturnType<typeof setInterval> } | null = null;
+  private lastPeriodicPullAt = 0;
 
   isBusy(): boolean {
     return this.inFlight !== null;
+  }
+
+  isAppActive(): boolean {
+    return this.appActive;
+  }
+
+  /** Called by the native App lifecycle adapter. */
+  setAppActive(active: boolean): void {
+    if (this.appActive === active) return;
+    this.appActive = active;
+    if (!active) {
+      this.stopPeriodicTimer();
+      return;
+    }
+    this.startPeriodicTimer();
+    const periodic = this.periodicPull;
+    if (periodic && periodic.options.enabled && Date.now() - this.lastPeriodicPullAt >= Math.max(1, periodic.options.seconds) * 1_000) {
+      void this.executePeriodicPull(periodic.options);
+    }
   }
 
   private run(operation: () => Promise<SyncRunResult>): Promise<SyncRunResult> {
@@ -53,7 +75,7 @@ class SyncRuntime {
     let idleHandle: number | undefined;
     let cancelled = false;
     const execute = () => {
-      if (cancelled || this.isBusy()) return;
+      if (cancelled || !this.appActive || this.isBusy()) return;
       this.lastAutomaticSyncAt = Date.now();
       void this.sync().catch((error) => options.onError?.(error));
     };
@@ -71,18 +93,39 @@ class SyncRuntime {
   }
 
   startPeriodicPull(options: PeriodicPullOptions): () => void {
-    if (!options.enabled) return () => undefined;
-    const intervalMs = Math.max(1, options.seconds) * 1_000;
-    const execute = async () => {
-      if (options.blocked?.() || this.isBusy() || !syncApplication.getConnection().ready) return;
-      try {
-        await this.pull();
-      } catch (error) {
-        options.onError?.(error);
-      }
+    this.stopPeriodicTimer();
+    this.periodicPull = options.enabled ? { options } : null;
+    if (options.enabled && this.lastPeriodicPullAt === 0) this.lastPeriodicPullAt = Date.now();
+    this.startPeriodicTimer();
+    const current = this.periodicPull;
+    return () => {
+      if (this.periodicPull !== current) return;
+      this.stopPeriodicTimer();
+      this.periodicPull = null;
     };
-    const timer = window.setInterval(() => void execute(), intervalMs);
-    return () => window.clearInterval(timer);
+  }
+
+  private stopPeriodicTimer(): void {
+    const timer = this.periodicPull?.timer;
+    if (timer !== undefined) clearInterval(timer);
+    if (this.periodicPull) this.periodicPull.timer = undefined;
+  }
+
+  private startPeriodicTimer(): void {
+    const periodic = this.periodicPull;
+    if (!periodic || !periodic.options.enabled || !this.appActive || periodic.timer !== undefined) return;
+    const intervalMs = Math.max(1, periodic.options.seconds) * 1_000;
+    periodic.timer = setInterval(() => void this.executePeriodicPull(periodic.options), intervalMs);
+  }
+
+  private async executePeriodicPull(options: PeriodicPullOptions): Promise<void> {
+    if (!this.appActive || options.blocked?.() || this.isBusy() || !syncApplication.getConnection().ready) return;
+    this.lastPeriodicPullAt = Date.now();
+    try {
+      await this.pull();
+    } catch (error) {
+      options.onError?.(error);
+    }
   }
 }
 
