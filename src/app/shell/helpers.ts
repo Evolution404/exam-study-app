@@ -11,6 +11,8 @@ import type { AttemptStatsV7, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-
 import type { V7PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
+import { isNativeApp } from "@/platform/environment";
+import { platformHaptics } from "@/platform/haptics";
 
 export type Question = QuestionViewModel;
 export type QuestionType = QuestionTypeV7;
@@ -161,7 +163,7 @@ export function balancedRandomSample(questions: Question[], limit: number) {
 }
 
 export function playAnswerFeedback(correct: boolean, preferences: PracticePreferences) {
-  if (preferences.feedbackHaptics && "vibrate" in navigator) navigator.vibrate(correct ? 35 : [45, 35, 45]);
+  if (preferences.feedbackHaptics) void platformHaptics.answer(correct);
   if (!preferences.feedbackSound) return;
   try {
     const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -287,6 +289,7 @@ export function settleWithTimeout<T>(promise: Promise<T>, timeoutMs: number) {
 }
 
 export async function updateServiceWorkerWithinTimeout() {
+  if (isNativeApp()) return;
   if (!("serviceWorker" in navigator)) return;
   const registration = await settleWithTimeout(navigator.serviceWorker.getRegistration(), 300);
   if (!registration) return;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarRange, Cloud, CloudDownload, DatabaseBackup, GitBranch, LoaderCircle, Trash2 } from "lucide-react";
+import { CalendarRange, Cloud, CloudDownload, DatabaseBackup, Eye, EyeOff, GitBranch, LoaderCircle, Trash2 } from "lucide-react";
 import { syncApplication, type SyncProgress } from "@/lib/sync/sync-application";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { clearAllSiteData, clearSiteDataExceptConfig, reloadAsFreshSite } from "@/lib/sync/site-data-reset";
@@ -11,6 +11,7 @@ import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
 export function SyncView({ pending, onNotice, onRestored }: { pending: number; onNotice: (message: string) => void; onRestored: (message: string) => void }) {
   const [settings, setSettings] = useState(() => syncApplication.getConnection().settings);
   const [token, setToken] = useState(() => syncApplication.getConnection().token);
+  const [tokenVisible, setTokenVisible] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoringCache, setRestoringCache] = useState(false);
@@ -30,9 +31,34 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
   const hotWindow = useLiveQuery(() => syncApplication.getHotWindow(settings), [settings]) ?? null;
   const lastCache = useLiveQuery(() => syncApplication.getLastRemoteCache(settings), [settings]) ?? null;
 
+  function publicErrorMessage(error: unknown, fallback: string) {
+    const message = error instanceof Error ? error.message.trim() : "";
+    // Native credential adapters must never surface a token-bearing exception
+    // through React's notice channel, even if a plugin includes input values
+    // in its diagnostic text.
+    if (!message || (token && message.includes(token))) return fallback;
+    return message;
+  }
+
+  async function persistSettings(next: typeof settings) {
+    try {
+      await syncApplication.saveSettings(next);
+    } catch {
+      throw new Error("同步配置保存失败，请重试");
+    }
+  }
+
+  async function persistToken(next: string) {
+    try {
+      await syncApplication.saveToken(next);
+    } catch {
+      throw new Error("GitHub 令牌保存失败，请重试");
+    }
+  }
+
   async function resolveSettings() {
-    syncApplication.saveSettings(settings);
-    syncApplication.saveToken(token);
+    await persistSettings(settings);
+    await persistToken(token);
     const resolved = await syncApplication.resolveConnection(settings, token);
     setSettings(resolved.settings);
     return resolved.settings;
@@ -40,12 +66,12 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
 
   function updateSettings(next: typeof settings) {
     setSettings(next);
-    syncApplication.saveSettings(next);
+    void persistSettings(next).catch((error: unknown) => onNotice(publicErrorMessage(error, "同步配置保存失败，请重试")));
   }
 
   function updateToken(next: string) {
     setToken(next);
-    syncApplication.saveToken(next);
+    void persistToken(next).catch((error: unknown) => onNotice(publicErrorMessage(error, "GitHub 令牌保存失败，请重试")));
   }
 
   async function sync() {
@@ -60,7 +86,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
         : `接收 ${result.pulled} 组操作`;
       onNotice(`v${result.formatVersion} 同步完成：上传 ${result.pushed} 组操作，${received}${result.migrated ? "，云端已升级到最新格式" : ""}${result.compacted ? "，已生成新检查点" : ""}${result.coalesced ? "，已合并热窗口分段" : ""}${result.remaining ? `，本地待上传 ${result.remaining} 组操作` : ""}${result.deferred ? `，还有 ${result.deferred} 个远程增量页待下次同步` : ""}`);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "同步失败");
+      onNotice(publicErrorMessage(error, "同步失败"));
     } finally { setSyncing(false); setOperationProgress(undefined); }
   }
 
@@ -76,7 +102,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
       setOperationProgress(undefined);
       onRestored(`已从本机缓存恢复 ${result.counts.questions} 道题及对应学习记录。`);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "本地缓存恢复失败");
+      onNotice(publicErrorMessage(error, "本地缓存恢复失败"));
       setRestoringCache(false);
       setOperationProgress(undefined);
     }
@@ -95,7 +121,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
       setOperationProgress(undefined);
       onRestored(successMessage);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "远程恢复失败");
+      onNotice(publicErrorMessage(error, "远程恢复失败"));
       setRestoring(false);
       setOperationProgress(undefined);
     }
@@ -127,7 +153,7 @@ export function SyncView({ pending, onNotice, onRestored }: { pending: number; o
 
   return <>
     <div className="page-heading compact"><div><p className="eyebrow">无需自建服务器</p><h1>GitHub 同步</h1><p>使用私有仓库保存资料库快照与增量记录。</p></div></div>
-    <div className="settings-grid"><section className="settings-card sync-connection-card"><div className="settings-title"><span><GitBranch /></span><div><h2>连接私有仓库</h2><p>令牌会持久保存在此设备的浏览器中，直到你主动清除；不会写入题库或同步到远端资料库。</p></div></div><label>仓库所有者<input value={settings.owner} onChange={(event) => updateSettings({ ...settings, owner: event.target.value.trim() })} placeholder="github-username" /></label><label>仓库名称<input value={settings.repo} onChange={(event) => updateSettings({ ...settings, repo: event.target.value.trim() })} placeholder="exam-study-vault" /></label><div className="field-row"><label>分支<input value={settings.branch} onChange={(event) => updateSettings({ ...settings, branch: event.target.value })} placeholder="main" /></label><label>细粒度令牌<input type="password" value={token} onChange={(event) => updateToken(event.target.value)} placeholder="github_pat_…" /></label></div><label>{`同步中转地址（当前部署默认 ${defaultApiBaseUrl}）`}<input value={settings.apiBaseUrl ?? ""} onChange={(event) => updateSettings({ ...settings, apiBaseUrl: event.target.value.trim() || undefined })} placeholder={defaultApiBaseUrl} /></label><div className={`sync-readiness ${ready ? "ready" : ""}`} role="status"><span aria-hidden="true" />{ready ? "连接信息已填写，可以开始同步" : "填写仓库所有者与令牌后即可同步"}</div><button className="primary full" disabled={!ready || syncing} onClick={sync}>{syncing ? <LoaderCircle className="spin" size={18} /> : <Cloud size={18} />}{syncing ? "正在合并…" : `立即同步${pending ? `（${pending}）` : ""}`}</button>{hotWindow && <SyncHotWindowPanel hotWindow={hotWindow} syncedAt={lastCache?.cachedAt} />}</section>
+    <div className="settings-grid"><section className="settings-card sync-connection-card"><div className="settings-title"><span><GitBranch /></span><div><h2>连接私有仓库</h2><p>令牌会安全保存在此设备（Web 使用浏览器存储，iOS 使用 Keychain），直到你主动清除；不会写入题库或同步到远端资料库。</p></div></div><label>仓库所有者<input value={settings.owner} onChange={(event) => updateSettings({ ...settings, owner: event.target.value.trim() })} placeholder="github-username" /></label><label>仓库名称<input value={settings.repo} onChange={(event) => updateSettings({ ...settings, repo: event.target.value.trim() })} placeholder="exam-study-vault" /></label><div className="field-row"><label>分支<input value={settings.branch} onChange={(event) => updateSettings({ ...settings, branch: event.target.value })} placeholder="main" /></label><label>细粒度令牌<div className="sync-token-field"><input type={tokenVisible ? "text" : "password"} autoComplete="current-password" value={token} onChange={(event) => updateToken(event.target.value)} placeholder="github_pat_…" /><button type="button" className="icon-button" aria-label={tokenVisible ? "隐藏 GitHub 令牌" : "显示 GitHub 令牌"} aria-pressed={tokenVisible} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label></div><label>{`同步中转地址（当前部署默认 ${defaultApiBaseUrl}）`}<input value={settings.apiBaseUrl ?? ""} onChange={(event) => updateSettings({ ...settings, apiBaseUrl: event.target.value.trim() || undefined })} placeholder={defaultApiBaseUrl} /></label><div className={`sync-readiness ${ready ? "ready" : ""}`} role="status"><span aria-hidden="true" />{ready ? "连接信息已填写，可以开始同步" : "填写仓库所有者与令牌后即可同步"}</div><button className="primary full" disabled={!ready || syncing} onClick={sync}>{syncing ? <LoaderCircle className="spin" size={18} /> : <Cloud size={18} />}{syncing ? "正在合并…" : `立即同步${pending ? `（${pending}）` : ""}`}</button>{hotWindow && <SyncHotWindowPanel hotWindow={hotWindow} syncedAt={lastCache?.cachedAt} />}</section>
       <section className="guide-card"><span className="section-kicker">首次设置</span><h2>三步建立同步资料库</h2><ol><li><span>1</span><div><strong>新建私有仓库</strong><p>建议命名 exam-study-vault，并创建 README。</p></div></li><li><span>2</span><div><strong>创建细粒度令牌</strong><p>只授权该仓库的 Contents 读写权限。</p></div></li><li><span>3</span><div><strong>在每台设备连接</strong><p>首次拉取后，题库和学习记录会自动合并。</p></div></li></ol></section></div>
     <section className="restore-card history-sync-range-card"><div className="restore-icon"><CalendarRange /></div><div><span className="section-kicker">本设备历史范围</span><h2>同步时间起点</h2><p>当前同步：{historyRangeLabel}。题库、题目、解析和笔记始终完整同步；更早的练习与作答保留在远端，不下载到本设备。</p></div><div className="history-sync-range-controls"><label>起始日期<input type="date" max={today} value={settings.historySyncStart ?? ""} onChange={(event) => updateSettings({ ...settings, historySyncStart: event.target.value || undefined })} /></label><button type="button" className="secondary" disabled={!settings.historySyncStart} onClick={() => updateSettings({ ...settings, historySyncStart: undefined })}>同步全部历史</button></div></section>
     <section className="restore-card data-restore-card"><div className="restore-icon"><DatabaseBackup /></div><div><span className="section-kicker">数据恢复</span><h2>选择恢复来源</h2><p>{lastCache ? `本地快照保存于 ${new Date(lastCache.cachedAt).toLocaleString("zh-CN")}；也可以从 GitHub 重新获取完整数据。` : "成功同步后会保存本地快照；也可以随时从 GitHub 重新获取完整数据。"}</p></div><div className="restore-card-actions"><button className="secondary" disabled={!lastCache || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("cache")}>{restoringCache ? <LoaderCircle className="spin" size={18} /> : <DatabaseBackup size={18} />}{restoringCache ? "恢复中…" : "本地恢复"}</button><button className="secondary" disabled={!ready || syncing || restoring || restoringCache} onClick={() => setRestorePrompt("remote")}>{restoring ? <LoaderCircle className="spin" size={18} /> : <CloudDownload size={18} />}{restoring ? "恢复中…" : "远端恢复"}</button></div></section>

@@ -3,10 +3,20 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { buildQuestionBankXlsx, buildQuestionBankZip, collectExportImages, downloadExport, questionExportJson, sanitizeFileName } from "@/lib/question/question-bank-export";
+import { isNativeApp } from "@/platform/environment";
+import { platformFileService } from "@/platform/files";
 import { bankTitle, type Bank, type Note, type Question } from "./bank-library-shared";
 
 export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: { bank: Bank; questions: Question[]; notes: Note[]; onClose: () => void; onNotice: (message: string) => void }) {
   const [busy, setBusy] = useState<"excel" | "json" | null>(null);
+  async function saveExport(filename: string, blob: Blob) {
+    if (isNativeApp()) {
+      await platformFileService.downloadExport(filename, blob);
+      return;
+    }
+    await downloadExport(filename, blob);
+  }
+
   async function exportBank(format: "excel" | "json") {
     setBusy(format);
     try {
@@ -15,13 +25,13 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
       const { images, missing } = await collectExportImages(questions);
       if (format === "excel") {
         const bytes = buildQuestionBankXlsx(questions, noteMap, images);
-        await downloadExport(`${baseName}.xlsx`, new Blob([bytes.slice()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+        await saveExport(`${baseName}.xlsx`, new Blob([bytes.slice()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
       } else if (images.size) {
         const bytes = buildQuestionBankZip(bankTitle(bank), questions, noteMap, images);
-        await downloadExport(`${baseName}.zip`, new Blob([bytes.slice()], { type: "application/zip" }));
+        await saveExport(`${baseName}.zip`, new Blob([bytes.slice()], { type: "application/zip" }));
       } else {
         const text = questionExportJson(bankTitle(bank), questions, noteMap);
-        await downloadExport(`${baseName}.json`, new Blob([text], { type: "application/json" }));
+        await saveExport(`${baseName}.json`, new Blob([text], { type: "application/json" }));
       }
       onClose();
       const label = format === "excel" ? "Excel" : images.size ? "压缩包（JSON + 图片）" : "JSON";

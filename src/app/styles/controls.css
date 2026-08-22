@@ -79,6 +79,10 @@
 .app-select-indicator { position: absolute; right: 10px; display: grid; place-items: center; color: var(--color-primary); }
 .app-select-scroll-button { height: 28px; display: grid; place-items: center; color: var(--color-text-muted); background: var(--color-surface); }
 
+.sync-token-field { display: flex; align-items: center; gap: 6px; }
+.sync-token-field input { min-width: 0; flex: 1; }
+.sync-token-field .icon-button { flex: none; width: 38px; height: 38px; }
+
 .select-preference .app-select-trigger { width: min(190px, 40vw); flex: none; }
 .question-manager > header .app-select-trigger { min-width: 0; }
 
