@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   buildOptimizationAttempts,
   cacheOccupancyStats,
@@ -22,6 +23,12 @@ async function expectReject(action: () => Promise<unknown>, pattern: RegExp): Pr
 }
 
 const source = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "image/jpeg" });
+
+const imageCacheSettingSource = await readFile(new URL("../../src/app/shell/views/image-cache-setting.tsx", import.meta.url), "utf8");
+const syncApplicationSource = await readFile(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
+assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: ImageCacheDownloadProgressCallback\)/, "sync facade must expose image cache progress");
+assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
+assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");
 
 // The shared pool must preserve order, cap active work and stop claiming new
 // items after the first worker error.  This protects import/export/image-cache

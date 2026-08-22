@@ -26,6 +26,7 @@ import {
   saveGitHubToken,
 } from "./github-credentials";
 import { getGitHubTransport } from "../../platform/github-transport";
+import type { ImageCacheDownloadProgressCallback } from "./image-asset-cache";
 import {
   dependentChangeSetIdsV7,
   type ChangeSetMutationV7,
@@ -146,9 +147,9 @@ class SyncApplication {
     await downloadImageAssetInternal(settings, token, assetId, { transport: getGitHubTransport() });
   }
 
-  async downloadAllImageAssets(): Promise<number> {
+  async downloadAllImageAssets(onProgress?: ImageCacheDownloadProgressCallback): Promise<number> {
     const { settings, token } = await this.resolveConnection();
-    return downloadAllImageAssetsInternal(settings, token, { transport: getGitHubTransport() });
+    return downloadAllImageAssetsInternal(settings, token, { transport: getGitHubTransport(), onProgress });
   }
 
   ensureQueueBase(): Promise<void> {
