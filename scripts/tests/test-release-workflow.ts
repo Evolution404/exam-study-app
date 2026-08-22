@@ -41,7 +41,7 @@ const fastCheckJob = deployWorkflow.slice(
 );
 const pwaSmokeJob = deployWorkflow.slice(
   deployWorkflow.indexOf("  pwa_smoke:"),
-  deployWorkflow.indexOf("  # A Pages deployment", deployWorkflow.indexOf("  pwa_smoke:")),
+  deployWorkflow.indexOf("  ios_release:", deployWorkflow.indexOf("  pwa_smoke:")),
 );
 
 assert.match(buildJob, /name: Upload current artifact[\s\S]*?name: current/, "部署前构建必须上传 current 产物");

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Only the same-origin GitHub API proxy is a Function; everything else is static.",
-  "include": ["/api-github/*"],
+  "description": "Only the GitHub API and SideStore release proxies are Functions; everything else is static.",
+  "include": ["/api-github/*", "/sidestore/*"],
   "exclude": []
 }

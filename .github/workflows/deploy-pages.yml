@@ -182,6 +182,108 @@ jobs:
       - name: PWA preview smoke
         run: npm run test:pwa-smoke
 
+  # Publish the native build only after the same commit has reached both web
+  # targets and passed the post-deploy checks. SideStore signs this IPA on the
+  # device, so the runner never receives Apple certificates or credentials.
+  ios_release:
+    name: Build and publish SideStore IPA
+    runs-on: macos-15
+    needs: [deploy_cloudflare, fast_check, pwa_smoke]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IOS_VERSION_PREFIX: "1.0"
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Resolve deterministic iOS version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="$(git rev-list --count HEAD)"
+          version="${IOS_VERSION_PREFIX}.${build_number}"
+          tag="ios-v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## iOS Release"
+            echo
+            echo "- Version: \`${version}\`"
+            echo "- Tag: \`${tag}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build unsigned SideStore IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          make ios-ipa \
+            IOS_MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            IOS_BUILD_NUMBER="${{ steps.version.outputs.build_number }}" \
+            IOS_ICLOUD_DIR="$RUNNER_TEMP/no-icloud"
+      - name: Generate SideStore source
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_file="$RUNNER_TEMP/ios-release-notes.md"
+          {
+            echo "与网站提交 ${GITHUB_SHA::12} 同步发布。"
+            echo
+            git log -1 --pretty=%B
+          } > "$notes_file"
+          node scripts/tools/generate-sidestore-source.mjs \
+            --ipa artifacts/ios/shijuan.ipa \
+            --output artifacts/ios/sidestore-source.json \
+            --version "${{ steps.version.outputs.version }}" \
+            --date "$(git show -s --format=%cs HEAD)" \
+            --notes-file "$notes_file"
+          cp "$notes_file" artifacts/ios/release-notes.md
+      - name: Publish immutable GitHub Release assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-draft" 2>/dev/null; then
+            if [ "$(cat "$RUNNER_TEMP/release-draft")" = "true" ]; then
+              gh release upload "$RELEASE_TAG" \
+                artifacts/ios/shijuan.ipa \
+                artifacts/ios/sidestore-source.json \
+                --clobber
+              gh release edit "$RELEASE_TAG" \
+                --title "拾卷 iOS ${RELEASE_VERSION}" \
+                --notes-file artifacts/ios/release-notes.md \
+                --draft=false \
+                --latest
+            else
+              echo "Release ${RELEASE_TAG} 已发布；保持不可变并继续线上验证。"
+            fi
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "拾卷 iOS ${RELEASE_VERSION}" \
+              --notes-file artifacts/ios/release-notes.md \
+              --draft
+            gh release upload "$RELEASE_TAG" \
+              artifacts/ios/shijuan.ipa \
+              artifacts/ios/sidestore-source.json
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi
+      - name: Verify Cloudflare SideStore endpoints
+        run: node scripts/tools/verify-sidestore-release.mjs --version "${{ steps.version.outputs.version }}"
+
   # A Pages deployment is rolled back only when it succeeded and a post-
   # deployment verification failed. If the initial build/deploy failed, this
   # job is skipped because no new Pages version was successfully published.

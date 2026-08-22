@@ -194,8 +194,8 @@ assert.equal(corsPreflight.headers.get("access-control-allow-methods"), "GET, HE
 assert.equal(corsPreflight.headers.get("access-control-allow-headers"), "authorization, x-github-api-version, accept, content-type, if-none-match", "CORS request-header allowlist must stay minimal");
 assert.equal(corsPreflight.headers.get("access-control-expose-headers"), "etag, last-modified, content-length, x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset", "CORS expose list must include all sync response headers");
 
-// Pages 路由只覆盖 /api-github/*，其他路径不得挂函数。
-assert.deepEqual(routes.include, ["/api-github/*"], "functions route only the API proxy path");
+// Pages 路由只覆盖同步 API 与公开 SideStore 发行资产代理。
+assert.deepEqual(routes.include, ["/api-github/*", "/sidestore/*"], "functions route only the API and SideStore proxy paths");
 assert.deepEqual(routes.exclude, [], "no other path runs as a function");
 
 // GitHub Pages cannot run Functions, so its advertised public build must use

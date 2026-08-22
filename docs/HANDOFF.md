@@ -131,10 +131,11 @@ make ios-setup
 make ios-open
 make ios-run IOS_TARGET="你的模拟器或已连接设备名称"
 make ios-build-simulator
+make ios-ipa
 make verify-ios
 ```
 
-`ios-run` 要求显式 `IOS_TARGET`；`ios-build-simulator` 使用 `CODE_SIGNING_ALLOWED=NO`。首次 `ios-open` 后在 Xcode 选择自己的 Apple ID / Personal Team 并启用 Automatically manage signing。当前没有经过验证的 unsigned IPA / SideStore 目标，稳定路线是 Xcode 重新签名；不要把这项便利路径当作已验收能力。
+`ios-run` 要求显式 `IOS_TARGET`；`ios-build-simulator` 使用 `CODE_SIGNING_ALLOWED=NO`。首次 `ios-open` 后在 Xcode 选择自己的 Apple ID / Personal Team 并启用 Automatically manage signing。`make ios-ipa` 生成 `artifacts/ios/shijuan.ipa`，允许通过 `IOS_MARKETING_VERSION` 与 `IOS_BUILD_NUMBER` 覆盖并校验包内版本，供 SideStore 在设备端重新签名。
 
 `make release` 会自动选择未占用的浏览器/PWA 测试端口，只暂存执行前展示的精确文件列表；若本地 `main` 落后远端、测试失败、部署失败或线上构建版本未更新，流程会停止并给出明确原因。常规发布优先使用该入口，不再手工拼接测试、提交、推送和部署检查命令。
 
@@ -147,6 +148,8 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 
 GitHub Actions 的发布顺序是“先部署、后验证”：`build` 只安装依赖、构建并上传带 `current` 名称的产物，GitHub Pages 部署完成后，`fast-check` 与 `pwa_smoke` 两个 job 并行执行。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
 
+Web 与 Cloudflare 验证通过后，`ios_release` 在 `macos-15` Runner 上为同一提交生成无签名 IPA。版本固定为 `1.0.<main 提交数>`，构建号为提交数；随后创建不可变 GitHub Release，并发布 `shijuan.ipa` 与 `sidestore-source.json`。Cloudflare Pages Function 在 `learn.980923.xyz` 提供稳定反向代理：更新源 `https://learn.980923.xyz/sidestore/source.json`、IPA `https://learn.980923.xyz/sidestore/shijuan.ipa`。工作流最后必须从这两个公网端点读回当前版本，否则发布任务失败。SideStore 只需添加一次更新源，后续每次推送 `main` 都会在网站验证通过后出现新版。
+
 Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若配置了 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，验证失败时通过官方 `/deployments/{deployment_id}/rollback` API 恢复此前版本，并清理边缘缓存；缺少凭据或无法取得旧 ID 时安全跳过 Cloudflare 回退，不影响 GitHub Pages 的回退判断。
 
 ## 8. 已知非阻断项
@@ -157,7 +160,7 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若�
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
 - iOS Personal Team 签名、覆盖安装数据保持、深色模式、横竖屏、前后台 catch-up、文件 Share Sheet、真实 haptics 和多设备交叉同步需要连接 Xcode/真机按 `docs/TESTING.md` 手工检查；浏览器 e2e 不能替代它们。
-- SideStore / unsigned IPA 尚未验证，也没有稳定 Makefile 目标；本任务不创建证书、不部署 Relay、不发布 App。
+- SideStore IPA 由 GitHub Actions 无签名构建，设备端仍需 SideStore 与用户 Apple ID 完成重新签名；免费账号的签名有效期与可安装 App 数量限制不由本项目改变。
 
 ## 9. 新任务第一步
 

@@ -42,6 +42,7 @@
     "test:pwa": "tsx scripts/tests/test-pwa-cache.ts",
     "test:pwa-smoke": "node scripts/tests/test-pwa-preview.mjs",
     "test:release-workflow": "tsx scripts/tests/test-release-workflow.ts",
+    "test:ios-release": "node scripts/tests/test-ios-release.mjs",
     "test:relay": "tsx scripts/tests/test-github-relay-consistency.ts",
     "test:shortcuts": "tsx scripts/tests/test-keyboard-shortcuts.ts",
     "test:xlsx": "tsx scripts/tests/test-xlsx-import.ts && tsx scripts/tests/test-xlsx-export.ts && tsx scripts/tests/test-question-images.ts",

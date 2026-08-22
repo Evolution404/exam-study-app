@@ -211,6 +211,7 @@ CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 
 | Web / native / iOS 平台检测 | `npm run test:platform-environment` | 自动 |
 | Web 注册 Service Worker、native 不注册 | `npm run test:platform-service-worker` | 自动 |
 | Capacitor 资源同步与 iOS Simulator 无签名编译 | `make ios-build-simulator` | 需本机 Xcode |
+| SideStore Source、Cloudflare 发行代理与远程发布门禁 | `npm run test:ios-release` | 自动 |
 | Keychain 凭据、Preferences mirror、lifecycle、Haptics、Filesystem、Share | `make verify-ios` 的平台专项测试 + 真机 checklist | 部分自动，真机必须手测 |
 | iOS 默认 Relay、自定义 Relay、无静默直连 | transport/同步测试 + 真机 Relay checklist | 部分自动，真实网络需手测 |
 
@@ -259,7 +260,7 @@ CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 
 | 跨标签页并发同步 | **限制**：仅同 realm 串行（模块级互斥），跨标签页需 Web Locks | `syncWithGitHub` 的 B5 互斥只覆盖单 realm；浏览器多标签页另议 |
 | 检查点 >32MiB 缩放悬崖 | **限制**：特征化记录 | `putImmutable` 对超限检查点抛错，分块/归档裁剪不在范围 |
 | iOS 前后台、Keychain、Share Sheet、真实 haptics 与设备安装 | **限制**：真机 checklist | 需要 Xcode/个人签名和真实设备，自动化浏览器无法模拟系统能力 |
-| SideStore / unsigned IPA | **限制**：未验证 | 当前没有稳定 `ios-ipa-unsigned` Makefile 目标；稳定路线是 Xcode + Personal Team |
+| SideStore 设备端重签名与覆盖安装数据保持 | **限制**：真机手测 | CI 负责无签名 IPA、Release、Source 与 Cloudflare 代理；Apple ID 重签名仍只能在真实设备验证 |
 | iOS Native HTTP | **限制**：未启用 | WKWebView `fetch` 兼容路径经统一 transport 访问默认/自定义 Relay |
 | Relay 真实部署状态 | **限制**：不在本任务自动部署 | 代码合同与本地测试可验证；Worker/Pages 发布需单独授权和线上核验 |
 
@@ -281,10 +282,11 @@ make ios-setup               # 检查 Xcode，构建并同步 Capacitor iOS 工�
 make ios-open                # 构建后打开 Xcode，首次在其中完成 Team 签名
 make ios-run IOS_TARGET="…"  # 运行到明确指定的模拟器/真机
 make ios-build-simulator     # 无签名编译 iOS Simulator
+make ios-ipa                 # 生成 SideStore 可重签的无签名 IPA
 make verify-ios              # iOS build + 平台专项测试 + Simulator 编译
 ```
 
-`make ios-run` 不接受空 target；`make ios-build-simulator` 和 `make verify-ios` 依赖 macOS/Xcode。不要将 `make release`、Relay 部署或任何 Apple 签名操作作为本地测试的隐含步骤。
+`make ios-run` 不接受空 target；`make ios-build-simulator`、`make ios-ipa` 和 `make verify-ios` 依赖 macOS/Xcode。推送 `main` 后，网站验证通过才会远程发布对应 IPA；GitHub Actions 不持有 Apple 证书，最终签名由 SideStore 在设备端完成。
 
 ## 7. PWA 构建、预览与部署缓存
 

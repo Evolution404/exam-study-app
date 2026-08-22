@@ -19,10 +19,13 @@ IOS_IPA_DERIVED_DATA ?= artifacts/ios/DerivedData
 IOS_IPA_STAGING ?= artifacts/ios/ipa-staging
 IOS_IPA_OUTPUT ?= artifacts/ios/shijuan.ipa
 IOS_BUNDLE_ID ?= com.evolution404.shijuan
+IOS_MARKETING_VERSION ?=
+IOS_BUILD_NUMBER ?=
 IOS_ICLOUD_DIR ?= $(HOME)/Library/Mobile Documents/com~apple~CloudDocs
 IOS_ICLOUD_IPA ?= $(IOS_ICLOUD_DIR)/$(notdir $(IOS_IPA_OUTPUT))
 IOS_SERVE_PORT ?= 8765
 XCODE_ENV = DEVELOPER_DIR="$(XCODE_DEVELOPER_DIR)"
+IOS_XCODE_VERSION_ARGS = $(if $(strip $(IOS_MARKETING_VERSION)),MARKETING_VERSION="$(IOS_MARKETING_VERSION)",) $(if $(strip $(IOS_BUILD_NUMBER)),CURRENT_PROJECT_VERSION="$(IOS_BUILD_NUMBER)",)
 
 .PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator ios-ipa ios-serve verify-ios
 
@@ -241,11 +244,15 @@ ios-ipa: ios-build ## 生成 SideStore 可重签的无签名真机 IPA
 	@rm -rf "$(IOS_IPA_STAGING)"
 	@mkdir -p "$(IOS_IPA_DERIVED_DATA)" "$(IOS_IPA_STAGING)/Payload" "$(dir $(IOS_IPA_OUTPUT))"
 	@echo "构建无签名 iPhoneOS $(IOS_IPA_CONFIGURATION) App..."
-	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_IPA_CONFIGURATION)" -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$(IOS_IPA_DERIVED_DATA)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_IPA_CONFIGURATION)" -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$(IOS_IPA_DERIVED_DATA)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" $(IOS_XCODE_VERSION_ARGS) build
 	@APP_PATH="$(IOS_IPA_DERIVED_DATA)/Build/Products/$(IOS_IPA_CONFIGURATION)-iphoneos/App.app"; \
 		test -d "$$APP_PATH" || { echo "找不到真机构建产物：$$APP_PATH"; exit 1; }; \
 		BUNDLE_ID=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$APP_PATH/Info.plist" 2>/dev/null || true); \
 		test "$$BUNDLE_ID" = "$(IOS_BUNDLE_ID)" || { echo "Bundle ID 校验失败：期望 $(IOS_BUNDLE_ID)，实际 $$BUNDLE_ID"; exit 1; }; \
+		APP_VERSION=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$$APP_PATH/Info.plist" 2>/dev/null || true); \
+		APP_BUILD=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$$APP_PATH/Info.plist" 2>/dev/null || true); \
+		if test -n "$(IOS_MARKETING_VERSION)"; then test "$$APP_VERSION" = "$(IOS_MARKETING_VERSION)" || { echo "版本校验失败：期望 $(IOS_MARKETING_VERSION)，实际 $$APP_VERSION"; exit 1; }; fi; \
+		if test -n "$(IOS_BUILD_NUMBER)"; then test "$$APP_BUILD" = "$(IOS_BUILD_NUMBER)" || { echo "构建号校验失败：期望 $(IOS_BUILD_NUMBER)，实际 $$APP_BUILD"; exit 1; }; fi; \
 		/usr/bin/ditto "$$APP_PATH" "$(IOS_IPA_STAGING)/Payload/App.app"; \
 		rm -f "$(IOS_IPA_STAGING)/Payload/App.app/embedded.mobileprovision"; \
 		rm -f "$(IOS_IPA_OUTPUT)"; \
@@ -253,7 +260,7 @@ ios-ipa: ios-build ## 生成 SideStore 可重签的无签名真机 IPA
 		/usr/bin/unzip -tq "$(IOS_IPA_OUTPUT)" >/dev/null; \
 		/usr/bin/unzip -Z1 "$(IOS_IPA_OUTPUT)" | grep -qx 'Payload/App.app/Info.plist' || { echo "IPA 结构校验失败：缺少 Payload/App.app/Info.plist"; exit 1; }; \
 		rm -rf "$(IOS_IPA_STAGING)"; \
-		echo "SideStore IPA 已生成：$(IOS_IPA_OUTPUT)"; \
+		echo "SideStore IPA 已生成：$(IOS_IPA_OUTPUT)（$$APP_VERSION / $$APP_BUILD）"; \
 		ls -lh "$(IOS_IPA_OUTPUT)"
 	@if test -d "$(IOS_ICLOUD_DIR)"; then \
 		/bin/cp -f "$(IOS_IPA_OUTPUT)" "$(IOS_ICLOUD_IPA)"; \
