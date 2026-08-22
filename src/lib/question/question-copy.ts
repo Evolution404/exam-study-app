@@ -5,6 +5,7 @@
  * 选项字母由 displayOrder（练习页选项打乱）映射为用户实际看到的显示字母，
  * 不传则按原始字母输出（题目详情页与正文渲染顺序一致）。
  */
+import { formatCalculationAnswers } from "./question-utils";
 
 export interface QuestionCopySource {
   type: string;
@@ -29,7 +30,7 @@ function resolveOrder(question: QuestionCopySource, displayOrder?: number[]): nu
 }
 
 export function displayedAnswer(question: QuestionCopySource, optionOrder: number[]): string {
-  if (question.type === "计算") return question.answer;
+  if (question.type === "计算") return formatCalculationAnswers(question.answer);
   return question.answer
     .split("")
     .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
@@ -41,7 +42,7 @@ export function displayedAnswer(question: QuestionCopySource, optionOrder: numbe
 
 /** 「字母. 选项文本」逐项格式（练习页作答反馈仍使用；复制文本已改为纯字母）。 */
 export function answerText(question: QuestionCopySource, optionOrder: number[]): string {
-  if (question.type === "计算") return question.answer;
+  if (question.type === "计算") return formatCalculationAnswers(question.answer);
   return question.answer
     .split("")
     .map((letter) => letter.charCodeAt(0) - 65)
@@ -55,7 +56,7 @@ export function answerText(question: QuestionCopySource, optionOrder: number[]):
  *  按显示位置排序拼接，与「正确答案：AB」的多选字母格式一致；计算题为输入值。 */
 function wrongSelectionText(question: QuestionCopySource, order: number[], wrongSelection: string[]): string {
   if (!wrongSelection.length) return "我的选择：不会";
-  if (question.type === "计算") return `我的选择：${wrongSelection[0]}`;
+  if (question.type === "计算") return `我的选择：${formatCalculationAnswers(wrongSelection)}`;
   return `我的选择：${wrongSelection
     .map((letter) => letter.charCodeAt(0) - 65)
     .map((originalIndex) => order.indexOf(originalIndex))

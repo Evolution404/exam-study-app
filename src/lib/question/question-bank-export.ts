@@ -3,7 +3,7 @@
  * contains images — a zip bundle (bank.json + images/).
  *
  * Both formats round-trip through the v7 import path: Excel uses the app's own
- * template columns (题干 / 题型 / 答案 / 标签 / 解析 / 选项A… / 图片1…), embedding
+ * template columns (题干 / 题型 / 标签 / 解析 / 答案1… / 选项A… / 图片1…), embedding
  * images as WPS DISPIMG cell images, and the zip bundle carries structured
  * content blocks plus content-addressed image files.
  */
@@ -11,6 +11,7 @@ import type { ContentBlock } from "../db/v7-types";
 import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
+import { calculationAnswers } from "./question-utils";
 
 export interface ExportQuestionInput {
   id: string;
@@ -40,7 +41,7 @@ export function imagePlaceholder(index: number): string {
 
 export const IMAGE_PLACEHOLDER_PATTERN = /【图([0-9]+)】/g;
 
-const HEADER = ["题干", "题型", "答案", "标签", "解析"];
+const HEADER = ["题干", "题型", "标签", "解析"];
 /** Display sizing for exported cell images: fit within 200×280 px. */
 const IMAGE_DISPLAY_WIDTH_PX = 200;
 const IMAGE_DISPLAY_MAX_HEIGHT_PX = 280;
@@ -51,6 +52,12 @@ function optionColumns(questions: readonly ExportQuestionInput[]): number {
   // The importer requires at least A、B two option columns, so an all-计算题
   // bank must still export those two empty columns to remain re-importable.
   return Math.max(2, questions.reduce((max, question) => Math.max(max, question.options.length), 0));
+}
+
+function answerColumns(questions: readonly ExportQuestionInput[]): number {
+  return Math.max(1, questions.reduce((max, question) => question.type === "计算"
+    ? Math.max(max, calculationAnswers(question.answer).length)
+    : max, 1));
 }
 
 function imageDisplaySize(data: ExportImageData): { width: number; height: number } {
@@ -97,6 +104,7 @@ export interface QuestionExportSheetPlan {
  *  placeholders in the text and =DISPIMG() formulas in the trailing 图片N
  *  columns.  Images missing from `images` degrade to caption/alt text. */
 export function questionExportSheetPlan(questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>, images: ReadonlyMap<string, ExportImageData>): QuestionExportSheetPlan {
+  const answerCount = answerColumns(questions);
   const optionCount = optionColumns(questions);
   const perQuestionImages = questions.map((question) => {
     const stem = question.content ? blocksToPlaceholderText(question.content, images) : { text: question.stem, images: [] as string[] };
@@ -114,16 +122,18 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
     };
   });
   const imageColumnCount = perQuestionImages.reduce((max, item) => Math.max(max, item.images.length), 0);
-  const columns = optionCount + imageColumnCount;
-  const header = [...HEADER, ...Array.from({ length: optionCount }, (_, index) => String.fromCharCode(65 + index)), ...Array.from({ length: imageColumnCount }, (_, index) => `图片${index + 1}`)];
+  const columns = answerCount + optionCount + imageColumnCount;
+  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: optionCount }, (_, index) => String.fromCharCode(65 + index)), ...Array.from({ length: imageColumnCount }, (_, index) => `图片${index + 1}`)];
 
   const rowHeights: number[] = [];
   const columnWidths = new Array<number>(HEADER.length + columns).fill(0);
-  for (let index = 0; index < imageColumnCount; index += 1) columnWidths[HEADER.length + optionCount + index] = 10;
+  for (let index = 0; index < imageColumnCount; index += 1) columnWidths[HEADER.length + answerCount + optionCount + index] = 10;
 
   const rows = perQuestionImages.map((item, questionIndex) => {
     const question = questions[questionIndex];
-    const base = [item.stemText || question.stem, question.type, question.answer, question.tags.join("、"), notes.get(question.id) ?? ""];
+    const base = [item.stemText || question.stem, question.type, question.tags.join("、"), notes.get(question.id) ?? ""];
+    const sourceAnswers = question.type === "计算" ? calculationAnswers(question.answer) : [question.answer];
+    const answers = Array.from({ length: answerCount }, (_, index) => sourceAnswers[index] ?? "");
     const options = Array.from({ length: optionCount }, (_, index) => item.optionTexts[index]?.text ?? "");
     const imageCells = Array.from({ length: imageColumnCount }, (_, index) => {
       const assetId = item.images[index];
@@ -134,10 +144,10 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
       const data = images.get(assetId)!;
       const display = imageDisplaySize(data);
       rowHeight = Math.max(rowHeight, Math.ceil(display.height * POINTS_PER_PX) + 8);
-      columnWidths[HEADER.length + optionCount + imageIndex] = Math.max(columnWidths[HEADER.length + optionCount + imageIndex], Math.round(display.width * COLUMN_CHARS_PER_PX * 10) / 10);
+      columnWidths[HEADER.length + answerCount + optionCount + imageIndex] = Math.max(columnWidths[HEADER.length + answerCount + optionCount + imageIndex], Math.round(display.width * COLUMN_CHARS_PER_PX * 10) / 10);
     });
     rowHeights.push(rowHeight);
-    return [...base, ...options, ...imageCells];
+    return [...base, ...answers, ...options, ...imageCells];
   });
 
   const usedAssetIds = [...new Set(perQuestionImages.flatMap((item) => item.images))];
@@ -146,12 +156,15 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
 
 /** Build the 题库 sheet rows without images (legacy text-only shape). */
 export function questionExportRows(questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>): string[][] {
+  const answerCount = answerColumns(questions);
   const columns = optionColumns(questions);
-  const header = [...HEADER, ...Array.from({ length: columns }, (_, index) => String.fromCharCode(65 + index))];
+  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: columns }, (_, index) => String.fromCharCode(65 + index))];
   const rows = questions.map((question) => {
-    const base = [question.stem, question.type, question.answer, question.tags.join("、"), notes.get(question.id) ?? ""];
+    const base = [question.stem, question.type, question.tags.join("、"), notes.get(question.id) ?? ""];
+    const sourceAnswers = question.type === "计算" ? calculationAnswers(question.answer) : [question.answer];
+    const answers = Array.from({ length: answerCount }, (_, index) => sourceAnswers[index] ?? "");
     const options = Array.from({ length: columns }, (_, index) => question.options[index] ?? "");
-    return [...base, ...options];
+    return [...base, ...answers, ...options];
   });
   return [header, ...rows];
 }
@@ -173,11 +186,12 @@ const INSTRUCTIONS: string[][] = [
   ["拾卷 · 题库 Excel 导出说明"],
   ["适用项目", "拾卷（exam-study-app）本地优先刷题 PWA"],
   ["本文件由题库导出生成，可直接改回本 App 重新导入。"],
-  ["题干", "必填。支持普通文字，以及 $...$ 行内公式和 $$...$$ 独立公式。"],
+  ["题干", "必填。支持普通文字、公式、图片和计算题填空占位符。多空计算题必须依次写【空1】【空2】…。"],
   ["题型", "必填，只能填写：单选、多选、判断、计算。"],
-  ["答案", "单选填一个字母；多选填多个字母（如 AC）；判断填 A/正确 或 B/错误；计算题填标准数值（如 12.5、-3、1e6）。"],
+  ["答案列", "所有题至少填写“答案1”。选择题只用答案1；计算题按填空顺序分别填写答案1、答案2…，不得断列。"],
   ["标签", "可选。多个标签使用中文逗号、英文逗号或顿号分隔。"],
   ["解析", "可选。该题的个人解析，导入时会写回为本机笔记。"],
+  ["多空计算题", "例如题干“电流为【空1】A，功率为【空2】W”，就在答案1、答案2分别填写两个标准数值；每空独立应用误差比例，全部正确才算整题正确。"],
   ["选项", "单选、多选、判断题从 A 列开始连续填写，不得断列；判断题必须依次为“正确、错误”。计算题不要填写选项。"],
   ["图片", "题干或选项中的图片按出现顺序编号为【图1】【图2】…，对应“图片1、图片2…”列中嵌入的单元格图片。"],
   ["图片查看", "嵌入图片需用 WPS Office 打开查看；Microsoft Excel 不支持该格式，会显示公式文字但题目数据完整。"],
@@ -242,7 +256,7 @@ export function questionExportJson(name: string, questions: readonly ExportQuest
         type: question.type,
         stem: question.stem,
         options: question.options,
-        answer: question.answer,
+        answer: question.type === "计算" ? calculationAnswers(question.answer) : question.answer,
         tags: question.tags,
         ...(note ? { note } : {}),
       };
@@ -276,7 +290,7 @@ export function questionExportBundle(name: string, questions: readonly ExportQue
         type: question.type,
         content,
         options,
-        answer: question.answer,
+        answer: question.type === "计算" ? calculationAnswers(question.answer) : question.answer,
         tags: question.tags,
         ...(note ? { note } : {}),
       };

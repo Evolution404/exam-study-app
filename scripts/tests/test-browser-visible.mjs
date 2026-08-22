@@ -29,7 +29,7 @@ const fixture = [
   { q: "哪些做法有助于安全巡视？", a: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], ans: ["A", "B"] },
   { q: "巡视前应确认天气和现场风险。", a: ["正确", "错误"], ans: "A" },
   { q: "发现异常后，最合适的第一步是什么？", a: ["立即离开并隐瞒", "按流程记录并报告", "自行拆除设备", "等待下次巡视"], ans: "B" },
-  { q: "图片所示数值允许 1% 误差时，计算结果是多少？", type: "计算", a: [], ans: "10" },
+  { q: "图片所示数值允许 1% 误差时，计算结果是【空1】，其两倍是【空2】。", type: "计算", a: [], ans: ["10", "20"] },
 ];
 const fixtureFile = {
   name: "送电线路工-初级工.json",
@@ -51,10 +51,10 @@ const excelFixtureFile = {
   buffer: XLSX.write((() => {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["题干", "题型", "答案", "标签", "解析", "A", "B", "C"],
-      ["Excel 导入后的第一道题是什么？", "单选", "A", "Excel", "", "通过校验", "跳过校验", "无法判断"],
-      ["Excel 导入支持多选吗？", "多选", "AB", "Excel", "", "支持", "可以", "不支持"],
-      ["Excel 计算题的标准答案是多少？", "计算", "10", "Excel，计算", ""],
+      ["题干", "题型", "标签", "解析", "答案1", "答案2", "A", "B", "C"],
+      ["Excel 导入后的第一道题是什么？", "单选", "Excel", "", "A", "", "通过校验", "跳过校验", "无法判断"],
+      ["Excel 导入支持多选吗？", "多选", "Excel", "", "AB", "", "支持", "可以", "不支持"],
+      ["Excel 计算题的标准答案是【空1】，其两倍是【空2】。", "计算", "Excel，计算", "", "10", "20"],
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "题库");
     return workbook;
@@ -582,8 +582,9 @@ async function runDesktop(page, mockServer) {
   await calculation.click();
   await waitForQuestion(page, 5);
   await page.locator(".asset-image img").waitFor({ state: "visible" });
-  const earlyCalculationAnswer = page.getByRole("spinbutton", { name: "计算题答案" });
+  const earlyCalculationAnswer = page.getByRole("spinbutton", { name: "第1空答案" });
   await earlyCalculationAnswer.fill("10.05");
+  await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20.1");
   await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickButton(page, "打开题目总览");
@@ -1497,9 +1498,10 @@ async function runHistoryResult(page) {
   await answerCurrentQuestion(page, [0]);
   await expectText(page, "回答正确");
   await clickTextButton(page, "下一题");
-  // 5 图片（计算 10）→ 对
+  // 5 图片（计算 10、20）→ 对
   await waitForQuestion(page, 5, 5);
-  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第1空答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20");
   await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickTextButton(page, "查看本次结果");
@@ -1649,7 +1651,8 @@ async function runHistoryResult(page) {
   await expectText(page, "回答正确");
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 5, 5);
-  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第1空答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20");
   await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickTextButton(page, "查看本次结果");
@@ -1716,7 +1719,8 @@ async function runPracticeSetupComboQA(page) {
   await expectText(page, "回答正确");
   await clickTextButton(page, "下一题");
   await waitForQuestion(page, 5, 5);
-  await page.getByRole("spinbutton", { name: "计算题答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第1空答案" }).fill("10");
+  await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20");
   await clickTextButton(page, "确认答案");
   await expectText(page, "回答正确");
   await clickButton(page, "暂停并返回首页");

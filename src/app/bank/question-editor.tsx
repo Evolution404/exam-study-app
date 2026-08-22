@@ -13,6 +13,8 @@ import { ModalPortal } from "@/app/ui/modal-portal";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockEditor } from "@/app/bank/content-block-editor";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { CalculationContentRenderer } from "@/app/practice/calculation-content-renderer";
+import { calculationAnswers, MAX_CALCULATION_BLANKS, normalizeCalculationAnswer, validateCalculationBlankLayout } from "@/lib/question/question-utils";
 
 /** Changes accepted by v7 question update/create callers. */
 export type QuestionChanges = QuestionDraftV7;
@@ -64,7 +66,7 @@ function defaultOptions(type: QuestionTypeV7): ContentBlock[][] {
 }
 
 function normalizeAnswer(type: QuestionTypeV7, answer: string): string {
-  if (type === "计算") return answer.trim();
+  if (type === "计算") return normalizeCalculationAnswer(answer);
   return [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, "").split(""))].sort().join("");
 }
 
@@ -129,7 +131,12 @@ export function QuestionEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const answerText = useMemo(() => normalizeAnswer(type, answer), [answer, type]);
+  const answerText = useMemo(() => type === "计算" ? "" : normalizeAnswer(type, answer), [answer, type]);
+  const calculationAnswerValues = useMemo(() => type === "计算" ? calculationAnswers(answer) : [], [answer, type]);
+
+  function updateCalculationAnswer(index: number, value: string) {
+    setAnswer(calculationAnswerValues.map((item, itemIndex) => itemIndex === index ? value : item).join("\n"));
+  }
 
   function changeType(value: QuestionTypeV7) {
     setType(value);
@@ -173,10 +180,11 @@ export function QuestionEditor({
       setSaving(true);
       setError("");
       const normalizedOptions = type === "计算" ? [] : options;
-      const normalizedAnswer = normalizeAnswer(type, answer);
+      const normalizedAnswer = type === "计算" ? normalizeCalculationAnswer(calculationAnswerValues) : normalizeAnswer(type, answer);
       if (!deriveContentText(content).trim() && !content.some((block) => block.type === "image")) throw new Error("题干不能为空。");
       if (type !== "计算" && normalizedOptions.length < 2) throw new Error("至少需要两个选项。");
       if (!normalizedAnswer) throw new Error("请填写正确答案。");
+      if (type === "计算") validateCalculationBlankLayout(deriveContentText(content), normalizedAnswer);
       // Forward the personal note only when it changed; callers persist it to
       // the resolved question id (which may differ in a shared-question split).
       const notePayload = note !== initialNote ? note : undefined;
@@ -201,12 +209,12 @@ export function QuestionEditor({
     <div className="editor-body">
       <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionTypeV7)} options={questionTypes.map((value) => ({ value, label: value }))} /></label>
       <div className="editor-rich-field"><div className="editor-label"><span>题干</span><small>文本、公式与本地图片可混排；图片不会接受 URL。</small></div><ContentBlockEditor value={content} onChange={setContent} prepareImage={prepareImage} loadAsset={loadImageAssetV7} /></div>
-      {type === "计算" ? <label>标准数值答案<input aria-label="计算题标准答案" type="number" inputMode="decimal" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="例如：12.5" /><small>答题时按配置页设置的相对误差比例判定。</small></label> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案；每个选项支持文本、公式和图片。</small></div>
+      {type === "计算" ? <section className="calculation-answer-editor"><div className="editor-label"><span>各空标准答案</span><small>在题干对应位置依次写入【空1】【空2】；每个空独立按误差比例判定。</small></div><div>{calculationAnswerValues.map((value, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} type="number" inputMode="decimal" value={value} onChange={(event) => updateCalculationAnswer(index, event.currentTarget.value)} placeholder={index === 0 ? "例如：11.0" : "例如：968.0"} />{calculationAnswerValues.length > 1 && index === calculationAnswerValues.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setAnswer(calculationAnswerValues.slice(0, -1).join("\n"))}><Trash2 size={15} /></button>}</label>)}</div>{calculationAnswerValues.length < MAX_CALCULATION_BLANKS && <button type="button" className="add-option" onClick={() => setAnswer([...calculationAnswerValues, ""].join("\n"))}><Plus size={16} />添加填空</button>}</section> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案；每个选项支持文本、公式和图片。</small></div>
         <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAssetV7} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
         {type !== "判断" && options.length < 8 && <button type="button" className="add-option" onClick={addOption}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>
       <label>个人解析<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="写下错因、口诀或区分条件…" rows={4} /><small>支持 Markdown 与 LaTeX 公式；保存时与题目一起写入，可在做题页继续编辑。</small></label>
-      <div className="editor-preview"><span>预览</span><ContentBlockRenderer blocks={content} loadAsset={loadImageAssetV7} /></div>
+      <div className="editor-preview"><span>预览</span>{type === "计算" ? <CalculationContentRenderer blocks={content} answerCount={calculationAnswerValues.length} loadAsset={loadImageAssetV7} /> : <ContentBlockRenderer blocks={content} loadAsset={loadImageAssetV7} />}</div>
       {error && <p className="editor-error">{error}</p>}
     </div>
     <footer><button className="secondary" onClick={onCancel}>取消</button><button className="primary" disabled={saving} onClick={() => void save()}><Save size={17} />{saving ? "保存中…" : submitLabel}</button></footer>

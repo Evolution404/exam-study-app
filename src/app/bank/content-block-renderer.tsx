@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import { MathText } from "@/app/ui/math-text";
-import type { ContentBlock } from "@/lib/db/v7-types";
+import type { ContentBlock, TextContentBlock } from "@/lib/db/v7-types";
 import { AssetImage, type LoadAsset, type RetryAsset } from "@/app/ui/asset-image";
 
 export interface ContentBlockRendererProps {
@@ -11,6 +12,9 @@ export interface ContentBlockRendererProps {
   emptyLabel?: string;
   /** Called by the image placeholder's retry button after a cache miss. */
   retryAsset?: RetryAsset;
+  /** Optional specialised renderer for text blocks (for example inline
+   * calculation blanks). Images and block ordering remain shared here. */
+  renderTextBlock?: (block: TextContentBlock) => ReactNode;
 }
 /** Render text and local image blocks in their authored order. */
 export function ContentBlockRenderer({
@@ -21,6 +25,7 @@ export function ContentBlockRenderer({
   imageClassName,
   emptyLabel = "暂无内容",
   retryAsset,
+  renderTextBlock,
 }: ContentBlockRendererProps) {
   const rootClassName = `content-block-renderer${className ? ` ${className}` : ""}`;
   if (!blocks.length) return <div className={rootClassName} data-empty="true" aria-label={emptyLabel} />;
@@ -29,7 +34,9 @@ export function ContentBlockRenderer({
     <div className={rootClassName}>
       {blocks.map((block) => {
         if (block.type === "text") {
-          return <MathText key={block.id} text={block.text} languageText={languageText} />;
+          return renderTextBlock
+            ? <span className="content-block-custom-text" key={block.id}>{renderTextBlock(block)}</span>
+            : <MathText key={block.id} text={block.text} languageText={languageText} />;
         }
         return (
           <figure className="content-block-image" key={block.id}>

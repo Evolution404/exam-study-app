@@ -5,6 +5,7 @@ const MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_QUESTIONS = 20_000;
 const MAX_OPTIONS = 24;
 const MAX_IMAGES_PER_QUESTION = 12;
+const MAX_ANSWER_COLUMNS = 12;
 
 /** A cell image recovered from `xl/cellimages.xml`, keyed by its DISPIMG id. */
 export interface WorkbookImage {
@@ -31,6 +32,7 @@ export interface QuestionWorkbook {
 
 const DISPIMG_PATTERN = /^=DISPIMG\("([^"]+)",1\)$/;
 const IMAGE_HEADER_PATTERN = /^图片([1-9][0-9]*)$/;
+const ANSWER_HEADER_PATTERN = /^答案([1-9][0-9]*)$/;
 
 export interface XlsxValidationIssue {
   row: number;
@@ -212,7 +214,7 @@ function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
       const reference = xmlAttribute(cellMatch[1], "r") ?? "";
       const index = columnIndex(reference);
       if (index < 0) continue;
-      if (index > 4 + MAX_OPTIONS + MAX_IMAGES_PER_QUESTION) fail(`第 ${rowNumber} 行包含过多列，最多支持 ${MAX_OPTIONS} 个选项和 ${MAX_IMAGES_PER_QUESTION} 张图片。`);
+      if (index > 3 + MAX_ANSWER_COLUMNS + MAX_OPTIONS + MAX_IMAGES_PER_QUESTION) fail(`第 ${rowNumber} 行包含过多列，最多支持 ${MAX_ANSWER_COLUMNS} 个答案、${MAX_OPTIONS} 个选项和 ${MAX_IMAGES_PER_QUESTION} 张图片。`);
       cells[index] = cellText(cellMatch[1], cellMatch[2] ?? "", sharedStrings).trim();
     }
     rows[rowNumber - 1] = cells;
@@ -284,13 +286,22 @@ function duplicateKey(stem: string, options: string[], imageIds: string[]) {
 export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<string, WorkbookImage> = new Map()): ImportedQuestionRow[] {
   const header = rows[0]?.map((value) => value?.trim() ?? "") ?? [];
   const issues: XlsxValidationIssue[] = [];
-  const requiredHeaders = ["题干", "题型", "答案", "标签", "解析"];
+  const requiredHeaders = ["题干", "题型", "标签", "解析"];
   if (requiredHeaders.some((value, index) => header[index] !== value)) {
-    throw new XlsxImportError("题库表头无效，请使用本项目下载的最新模板且不要修改第一行。", [{ row: 1, message: "A–E 列必须依次为“题干、题型、答案、标签、解析”。" }]);
+    throw new XlsxImportError("题库表头无效，请使用本项目下载的最新模板且不要修改第一行。", [{ row: 1, message: "A–D 列必须依次为“题干、题型、标签、解析”。" }]);
   }
+  let headerCursor = 4;
+  let declaredAnswerColumns = 0;
+  for (; headerCursor < header.length && header[headerCursor]; headerCursor += 1) {
+    const match = header[headerCursor].match(ANSWER_HEADER_PATTERN);
+    if (!match) break;
+    if (Number(match[1]) !== declaredAnswerColumns + 1) issues.push({ row: 1, message: "答案列必须从“答案1”开始连续编号。" });
+    declaredAnswerColumns += 1;
+  }
+  if (!declaredAnswerColumns) issues.push({ row: 1, message: "模板至少需要“答案1”列。" });
+  if (declaredAnswerColumns > MAX_ANSWER_COLUMNS) issues.push({ row: 1, message: `计算题最多支持 ${MAX_ANSWER_COLUMNS} 个答案列。` });
   let declaredOptionColumns = 0;
-  let headerCursor = 5;
-  // Option headers run A、B、C… until the first 图片N header (or a blank cell).
+  // Option headers run A、B、C… after all 答案N columns, followed by 图片N.
   for (; headerCursor < header.length && header[headerCursor] && !IMAGE_HEADER_PATTERN.test(header[headerCursor]); headerCursor += 1) {
     const expected = String.fromCharCode(65 + declaredOptionColumns);
     if (header[headerCursor].toUpperCase() !== expected) issues.push({ row: 1, message: `${expected} 选项列的表头必须是“${expected}”。` });
@@ -308,17 +319,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
   }
   if (declaredImageColumns > MAX_IMAGES_PER_QUESTION) issues.push({ row: 1, message: `每题最多支持 ${MAX_IMAGES_PER_QUESTION} 张图片。` });
   if (header.slice(headerCursor).some(Boolean)) issues.push({ row: 1, message: "选项表头必须从 A 开始连续填写。" });
-  // Option usage only counts text cells — DISPIMG formula cells belong to the
-  // trailing image columns and must not widen the option region.
-  let usedOptionColumns = 0;
-  for (const source of rows.slice(1)) {
-    for (let index = 5; index < (source?.length ?? 0); index += 1) {
-      const value = source[index]?.trim() ?? "";
-      if (!value || DISPIMG_PATTERN.test(value) || IMAGE_HEADER_PATTERN.test(header[index] ?? "")) continue;
-      usedOptionColumns = Math.max(usedOptionColumns, index - 4);
-    }
-  }
-  const optionColumns = Math.max(declaredOptionColumns, usedOptionColumns);
+  const optionColumns = declaredOptionColumns;
   if (optionColumns > MAX_OPTIONS) issues.push({ row: 1, message: `每题最多支持 ${MAX_OPTIONS} 个选项。` });
   const questions: ImportedQuestionRow[] = [];
   const seen = new Map<string, number>();
@@ -328,29 +329,37 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     const row = index + 1;
     const stem = source[0]?.trim() ?? "";
     const typeText = source[1]?.trim() ?? "";
-    const answerText = source[2]?.trim() ?? "";
-    const tags = (source[3] ?? "").split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean);
-    const note = source[4]?.trim() ?? "";
+    const tags = (source[2] ?? "").split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean);
+    const note = source[3]?.trim() ?? "";
+    const answerCells = source.slice(4, 4 + declaredAnswerColumns).map((value) => value?.trim() ?? "");
     if (!stem) issues.push({ row, message: "题干不能为空。" });
     if (stem.startsWith("示例·") || stem.includes("（填好后删）")) issues.push({ row, message: "请删除模板自带的示例题。" });
     const type = (["单选", "多选", "判断", "计算"] as const).find((item) => item === typeText);
     if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断或计算。" });
-    if (!answerText) issues.push({ row, message: "答案不能为空。" });
-    const optionCells = source.slice(5, 5 + optionColumns).map((value) => value?.trim() ?? "");
+    if (!answerCells[0]) issues.push({ row, message: "答案1不能为空。" });
+    const optionStart = 4 + declaredAnswerColumns;
+    const optionCells = source.slice(optionStart, optionStart + optionColumns).map((value) => value?.trim() ?? "");
     const lastOption = optionCells.findLastIndex(Boolean);
     const options = lastOption >= 0 ? optionCells.slice(0, lastOption + 1) : [];
-    let answer = answerText;
+    let answer = answerCells[0] ?? "";
     if (type === "计算") {
       if (options.some(Boolean)) issues.push({ row, message: "计算题不需要填写选项列。" });
-      try { answer = normalizeCalculationAnswer(answerText); }
+      const lastAnswer = answerCells.findLastIndex(Boolean);
+      const calculationAnswerCells = lastAnswer >= 0 ? answerCells.slice(0, lastAnswer + 1) : [];
+      if (calculationAnswerCells.some((value) => !value)) issues.push({ row, message: "计算题的答案列之间不能留空。" });
+      try {
+        answer = normalizeCalculationAnswer(calculationAnswerCells);
+        validateCalculationBlankLayout(stem, answer);
+      }
       catch (error) { issues.push({ row, message: error instanceof Error ? error.message : "计算题答案无效。" }); }
     } else {
+      if (answerCells.slice(1).some(Boolean)) issues.push({ row, message: "选择题和判断题只填写“答案1”，其余答案列必须留空。" });
       if (options.length < 2) issues.push({ row, message: "选择题和判断题至少需要两个选项。" });
       const gap = options.findIndex((value) => !value);
       if (gap >= 0) issues.push({ row, message: `${String.fromCharCode(65 + gap)} 选项为空，选项之间不能断列。` });
       if (new Set(options).size !== options.length) issues.push({ row, message: "同一道题不能包含内容完全相同的选项。" });
-      answer = normalizedAnswer(answerText, options);
-      if (!/^[A-Z]+$/.test(answer)) issues.push({ row, message: `无法识别答案“${answerText}”，请填写选项字母。` });
+      answer = normalizedAnswer(answerCells[0] ?? "", options);
+      if (!/^[A-Z]+$/.test(answer)) issues.push({ row, message: `无法识别答案“${answerCells[0] ?? ""}”，请填写选项字母。` });
       else {
         const letters = [...answer];
         if (new Set(letters).size !== letters.length) issues.push({ row, message: "答案中包含重复字母。" });
@@ -362,7 +371,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     // Trailing image columns hold =DISPIMG("ID_…",1) formulas; map each cell
     // to its workbook image and keep the ids in placeholder order.
     const imageIds: string[] = [];
-    const imageCells = source.slice(5 + optionColumns, 5 + optionColumns + Math.max(declaredImageColumns, MAX_IMAGES_PER_QUESTION));
+    const imageCells = source.slice(optionStart + optionColumns, optionStart + optionColumns + Math.max(declaredImageColumns, MAX_IMAGES_PER_QUESTION));
     for (const cell of imageCells) {
       const value = cell?.trim() ?? "";
       if (!value) continue;
@@ -407,4 +416,4 @@ export function importFileName(fileName: string) {
   return `${name}.json`;
 }
 import type { QuestionType } from "../../types/types";
-import { normalizeCalculationAnswer } from "../question/question-utils";
+import { normalizeCalculationAnswer, validateCalculationBlankLayout } from "../question/question-utils";

@@ -1,6 +1,7 @@
 import { dbV7, getBankQuestionJoinsV7 } from "./db-v7";
 import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
 import type { BankQuestionMembership, BankV7, ContentBlock, QuestionV7 } from "./v7-types";
+import { formatCalculationAnswers } from "../question/question-utils";
 
 /**
  * A presentation-only join.  Bank identity and ordering remain membership
@@ -36,7 +37,7 @@ export function questionPlainViewV7(question: QuestionV7): QuestionPlainViewV7 {
 }
 
 export function questionAnswerTextV7(question: QuestionV7): string {
-  if (question.type === "计算") return question.answer;
+  if (question.type === "计算") return formatCalculationAnswers(question.answer);
   return [...question.answer]
     .map((letter) => question.options[letter.charCodeAt(0) - 65])
     .filter((blocks): blocks is ContentBlock[] => Boolean(blocks))

@@ -134,7 +134,7 @@ assert.match(renderer, /renderItems/, "嵌套列表递归渲染");
 assert.match(practiceView, /note-panel-view/, "答题面板有渲染态视图");
 assert.match(practiceView, /setNoteEditing\(true\)/, "点击渲染态进入编辑");
 assert.match(practiceView, /onBlur=\{\(\) => \{ if \(effectiveDraft\.trim\(\)\) setNoteEditing\(false\); \}\}/, "失焦且非空时回到渲染态");
-assert.match(practiceView, /lastNoteQuestionId\.current !== question\.id[\s\S]{0,120}setNoteEditing\(false\)/, "换题重置编辑态（渲染期调整，非 effect 内 setState）");
+assert.match(practiceView, /noteEditingQuestionId === question\.id/, "编辑态绑定题目 ID，换题后不会沿用上一题状态");
 assert.match(practiceView, /aria-label="编辑解析，支持 Markdown 与 LaTeX"/, "渲染态可聚焦可无障碍进入编辑");
 assert.match(editor, /支持 Markdown 与 LaTeX 公式/, "编辑器提示文案更新");
 assert.match(styles, /\.note-markdown h4\{font-size:13\.5px\}/, "标题层级拉开字号");

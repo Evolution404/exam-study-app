@@ -154,7 +154,7 @@ await resetV7Database();
 {
   const plan = questionExportSheetPlan(imageQuestions, notes, images);
   assert.equal(plan.imageColumnCount, 2, "单题最多图片数决定图片列数（q3 有 2 张）");
-  assert.deepEqual(plan.rows[0], ["题干", "题型", "答案", "标签", "解析", "A", "B", "C", "D", "图片1", "图片2"], "图片列追加在选项之后");
+  assert.deepEqual(plan.rows[0], ["题干", "题型", "标签", "解析", "答案1", "A", "B", "C", "D", "图片1", "图片2"], "图片列追加在选项之后");
   assert.equal(plan.rows[1][0], "图中①处部件是【图1】？", "题干图片写为占位符");
   assert.equal(plan.rows[1][9], `=DISPIMG("ID_${idA}",1)`, "图片1 列写入 DISPIMG 公式");
   assert.equal(plan.rows[1][10], "", "第二张图列为空");
@@ -308,14 +308,14 @@ await resetV7Database();
 
   // Excel 表格校验：图片列只接受嵌入图片。
   assert.throws(() => parseQuestionBankTable([
-    ["题干", "题型", "答案", "标签", "解析", "A", "B", "图片1"],
-    ["文字占位", "单选", "A", "", "", "甲", "乙", "不是图片"],
+    ["题干", "题型", "标签", "解析", "答案1", "A", "B", "图片1"],
+    ["文字占位", "单选", "", "", "A", "甲", "乙", "不是图片"],
   ]), (error: unknown) => (error as { issues?: Array<{ message: string }> }).issues?.some((issue) => /图片列只能包含嵌入图片/.test(issue.message)), "图片列的纯文字应校验失败");
 
   // 图片列表头必须从 图片1 连续编号。
   assert.throws(() => parseQuestionBankTable([
-    ["题干", "题型", "答案", "标签", "解析", "A", "B", "图片2"],
-    ["跳号", "单选", "A", "", "", "甲", "乙", ""],
+    ["题干", "题型", "标签", "解析", "答案1", "A", "B", "图片2"],
+    ["跳号", "单选", "", "", "A", "甲", "乙", ""],
   ]), (error: unknown) => (error as { issues?: Array<{ message: string }> }).issues?.some((issue) => /图片1、图片2/.test(issue.message)), "图片列表头跳号应校验失败");
   console.log("5. 占位符与表头校验边界通过");
 }

@@ -41,8 +41,8 @@ import type {
 } from "./v7-types";
 
 function normalizeAnswer(type: QuestionTypeV7, input: string | readonly string[]): string {
+  if (type === "计算") return normalizeCalculationAnswer(input);
   const raw = Array.isArray(input) ? input.join("") : String(input);
-  if (type === "计算") return normalizeCalculationAnswer(raw);
   return uniqueStrings([...raw.toUpperCase().replace(/[^A-Z]/g, "")]).sort().join("");
 }
 
@@ -490,7 +490,7 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
   const optionTexts = options.map((option) => typeof option === "string" ? option : deriveContentText(option));
   const rawType = rowString(record, "type", "questionType", "题型").trim();
   const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";
-  const answer = Array.isArray(rawAnswer) ? rawAnswer.map(String).join("") : String(rawAnswer);
+  const answer = Array.isArray(rawAnswer) ? rawAnswer.map(String).join(rawType === "计算" ? "\n" : "") : String(rawAnswer);
   const type: QuestionTypeV7 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算"
     ? rawType
     : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"

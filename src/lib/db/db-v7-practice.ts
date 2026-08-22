@@ -356,7 +356,9 @@ async function progressForAnswerInTx(roundId: string, questionId: string, attemp
  * are committed in one transaction and exactly one domain event is emitted.
  */
 export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Promise<{ attempt: AttemptV7; answer: PracticeAnswerV7 }> {
-  const selected = uniqueStrings(Array.isArray(input.selected) ? [...input.selected] : [input.selected]);
+  // Calculation blanks are positional and may legitimately contain the same
+  // value more than once, so answer state must preserve order and duplicates.
+  const selected = (Array.isArray(input.selected) ? [...input.selected] : [input.selected]).map(String);
   const timestamp = input.createdAt ?? nowIso();
   const selectedAnswer = selected.join("");
   return dbV7.transaction("rw", [

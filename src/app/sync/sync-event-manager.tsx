@@ -210,7 +210,9 @@ function TypedMutationEditor({
     </>}
     {mutation.kind === "question.upsert" && <>
       <label>题干文字<textarea required value={questionStem} onChange={(event) => setQuestionStem(event.target.value)} rows={5} /></label>
-      <label>答案<input required value={questionAnswer} onChange={(event) => setQuestionAnswer(event.target.value)} /></label>
+      {mutation.question.type === "计算"
+        ? <label>各空答案（每行一个）<textarea required value={questionAnswer} onChange={(event) => setQuestionAnswer(event.target.value)} rows={Math.max(2, questionAnswer.split("\n").length)} /></label>
+        : <label>答案<input required value={questionAnswer} onChange={(event) => setQuestionAnswer(event.target.value)} /></label>}
       <label>标签<input value={questionTags} onChange={(event) => setQuestionTags(event.target.value)} placeholder="多个标签用逗号分隔" /></label>
       <p className="sync-event-editor-note">这里只修改简化文字字段；图片和公式块保持不变，由业务层重新生成 change-set 摘要。</p>
     </>}

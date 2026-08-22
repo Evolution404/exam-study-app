@@ -48,6 +48,10 @@ const calcFull = buildQuestionCopyText(calculation, { includeAnswer: true, wrong
 assert.match(calcFull, /正确答案：10/, "计算题正确答案为数值");
 assert.match(calcFull, /我的选择：9\.8/, "计算题我的选择为输入值");
 assert.doesNotMatch(calcFull, /答案内容/, "计算题同样不输出答案内容行");
+const multiBlankCalculation = { type: "计算", stem: "电流【空1】A，功率【空2】W", options: [] as string[], answer: "11\n968" };
+const multiBlankCopy = buildQuestionCopyText(multiBlankCalculation, { includeAnswer: true, wrongSelection: ["10.8", "950"] });
+assert.match(multiBlankCopy, /正确答案：第1空：11；第2空：968/, "多空计算题应按位置显示全部标准答案");
+assert.match(multiBlankCopy, /我的选择：第1空：10\.8；第2空：950/, "多空计算题应按位置显示全部输入");
 
 // 7) 判断题走选择题路径（两个选项）。
 const judge = { type: "判断", stem: "巡视前应确认天气和现场风险。", options: ["正确", "错误"], answer: "A" };

@@ -300,5 +300,21 @@ await oldCheck.close();
   assert.ok(importEvent, "目标导入应发出携带目标题库的 question.import 变更集");
   await assert.rejects(() => importQuestionBankV7("x.json", targetRows, { targetBankId: "bank_missing" }), /目标题库不存在/, "目标库被删时应明确报错");
 }
+
+// 多空计算题的标准答案与作答都按位置保存；相同数值不能被去重。
+{
+  const calculationBank = await createBankV7("多空计算题");
+  const calculationQuestion = await createQuestionV7(calculationBank.id, {
+    type: "计算",
+    stem: "两个结果分别为【空1】和【空2】",
+    options: [],
+    answer: ["1", "1"],
+  });
+  assert.equal(calculationQuestion.answer, "1\n1");
+  const calculationRun = await createPracticeRunV7({ bankId: calculationBank.id, questionIds: [calculationQuestion.id] });
+  const submitted = await recordPracticeAnswerV7({ runId: calculationRun.id, questionId: calculationQuestion.id, selected: ["1", "1"], correct: true });
+  assert.deepEqual(submitted.answer.selected, ["1", "1"], "重复数值必须保留为两个位置答案");
+  assert.deepEqual((await dbV7.practiceRuns.get(calculationRun.id))?.answers[calculationQuestion.id]?.selected, ["1", "1"]);
+}
 await dbV7.delete();
 console.log("v7 database tests passed: namespace, joins, import, split, rounds, answers, deletion and image cache");
