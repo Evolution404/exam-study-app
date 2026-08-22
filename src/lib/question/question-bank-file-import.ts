@@ -1,6 +1,6 @@
 import { importQuestionBankV7, putImageAssetV7 } from "../db/db-v7";
-import { importFileName, parseQuestionBankWorkbook, type WorkbookImage } from "../io/xlsx-import";
-import { parseQuestionBankZip } from "./question-bank-bundle";
+import { importFileName, type WorkbookImage } from "../io/xlsx-import";
+import { importParseWorker } from "../io/import-worker-client";
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
 import type { BankV7, ImageAsset } from "../db/v7-types";
@@ -54,20 +54,24 @@ async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookIma
 
 export async function importQuestionBankFile(file: File, options?: { targetBankId?: string }): Promise<{ bank: BankV7; importedCount: number; type: QuestionBankFileType }> {
   const type = detectQuestionBankFileType(file);
-  if (type === "xlsx") {
-    const { rows, images } = await parseQuestionBankWorkbook(await file.arrayBuffer(), {
-      collapseVisualLineBreaks: isVisualWrapExtractionSource(file.name),
-    });
-    const referencedIds = new Set(rows.flatMap((row) => row.images ?? []));
-    const { mapping: assetByDispimg, assets } = await materializeWorkbookImages(images, referencedIds);
-    for (const row of rows) {
-      if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
+  if (type === "xlsx" || type === "zip") {
+    // Parsing runs in the shared module worker; only image materialisation
+    // and the Dexie import remain on the main thread.
+    const parsed = await importParseWorker.parse(file, type === "xlsx"
+      ? { kind: "xlsx", collapseVisualLineBreaks: isVisualWrapExtractionSource(file.name) }
+      : { kind: "zip" });
+    if (parsed.kind === "xlsx") {
+      const { rows, images } = parsed;
+      const referencedIds = new Set(rows.flatMap((row) => row.images ?? []));
+      const { mapping: assetByDispimg, assets } = await materializeWorkbookImages(images, referencedIds);
+      for (const row of rows) {
+        if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
+      }
+      const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });
+      return { bank, importedCount: bank.importedCount, type };
     }
-    const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });
-    return { bank, importedCount: bank.importedCount, type };
-  }
-  if (type === "zip") {
-    const bundle = await parseQuestionBankZip(await file.arrayBuffer());
+    if (parsed.kind !== "zip") throw new Error("导入解析结果类型不匹配，请重试。");
+    const bundle = parsed.bundle;
     const assets = await mapWithConcurrency(bundle.images, QUESTION_BANK_IMAGE_IMPORT_CONCURRENCY, async (image) => {
       const stored = await storeImageAsset(image.bytes, image.mimeType, image.width, image.height);
       const { blob: _blob, ...descriptor } = stored;
@@ -78,12 +82,9 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
     return { bank, importedCount: bank.importedCount, type };
   }
   if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 128 MB 上限。");
-  let raw: unknown;
-  try {
-    raw = JSON.parse(await file.text());
-  } catch {
-    throw new Error("JSON 文件内容无法解析，请检查文件格式。");
-  }
+  const parsedJson = await importParseWorker.parse(file, { kind: "json" });
+  if (parsedJson.kind !== "json") throw new Error("导入解析结果类型不匹配，请重试。");
+  const raw: unknown = parsedJson.raw;
   const questionRows = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).questions)
