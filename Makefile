@@ -1,16 +1,16 @@
 # exam-study-app 常用命令一键入口
 # 用法：make <target>，输入 make 或 make help 查看全部目标。
-# 浏览器测试默认 headless 后台运行（不弹 Chrome 窗口）；需要肉眼观看时
+# 浏览器测试默认使用项目专用 Chromium 并在 headless 后台运行；需要肉眼观看时
 # 使用 `make test-browser-visible` 或 `make test-browser HEADLESS=0`。
 
 .DEFAULT_GOAL := help
 
-# 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chrome 窗口。
+# 浏览器测试模式：1 = headless 后台运行，0 = 可见 Chromium 窗口。
 HEADLESS ?= 1
 MSG ?= chore: publish verified updates
 export RELEASE_MESSAGE := $(MSG)
 
-.PHONY: help doctor status install ci dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish
+.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -20,6 +20,7 @@ help: ## 显示本帮助
 	@echo "  make status                 查看分支、远端、最近提交和工作区状态"
 	@echo "  make install                安装依赖（npm install）"
 	@echo "  make ci                     严格按锁文件安装依赖（npm ci）"
+	@echo "  make browser-install        安装与 Playwright 版本匹配的专用 Chromium"
 	@echo "  make dev                    启动开发服务器（vite）"
 	@echo "  make mock                   启动内存 mock GitHub 服务器（手动验证同步中转地址）"
 	@echo "  make build                  构建产物（vite build）"
@@ -45,7 +46,7 @@ help: ## 显示本帮助
 	@echo "  make test-full              全量 = test + 浏览器全部场景"
 	@echo "  make verify                 发布级验证 = 全量测试 + PWA smoke"
 	@echo ""
-	@echo "浏览器测试（默认 headless 后台运行；HEADLESS=0 或 make test-browser-visible 开可见 Chrome）："
+	@echo "浏览器测试（默认使用专用 Chromium 后台运行；HEADLESS=0 或 make test-browser-visible 打开窗口）："
 	@echo "  make test-browser           全部场景分组（受 HEADLESS 控制）"
 	@echo "  make test-browser-headless  全部场景分组（强制 headless）"
 	@echo "  make test-browser-visible   全部场景分组（强制可见 Chrome）"
@@ -81,6 +82,9 @@ install: ## 安装依赖
 
 ci: ## 严格按锁文件安装依赖
 	npm ci
+
+browser-install: ## 安装与 Playwright 版本匹配的专用 Chromium
+	npm run browser:install
 
 dev: ## 启动开发服务器
 	npm run dev
@@ -138,37 +142,37 @@ test-architecture: ## 架构、样式和测试注册门禁
 test-pwa: ## PWA 源码与缓存边界测试
 	npm run test:pwa
 
-test-pwa-smoke: ## 生产构建与真实 Service Worker 冒烟
+test-pwa-smoke: browser-install ## 生产构建与真实 Service Worker 冒烟
 	npm run test:pwa-smoke
 
-test-browser: ## 浏览器全部场景分组（受 HEADLESS 控制）
+test-browser: browser-install ## 浏览器全部场景分组（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser
 
-test-browser-headless: ## 浏览器全部场景分组（强制 headless）
+test-browser-headless: browser-install ## 浏览器全部场景分组（强制 headless）
 	BROWSER_HEADLESS=1 npm run test:browser
 
-test-browser-visible: ## 浏览器全部场景分组（强制可见 Chrome）
+test-browser-visible: browser-install ## 浏览器全部场景分组（强制可见 Chromium）
 	BROWSER_HEADLESS=0 npm run test:browser
 
-test-browser-desktop: ## 浏览器：桌面端场景（受 HEADLESS 控制）
+test-browser-desktop: browser-install ## 浏览器：桌面端场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:desktop
 
-test-browser-mobile: ## 浏览器：移动端场景（受 HEADLESS 控制，自动先跑 desktop 准备数据）
+test-browser-mobile: browser-install ## 浏览器：移动端场景（受 HEADLESS 控制，自动先跑 desktop 准备数据）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:mobile
 
-test-browser-management: ## 浏览器：题库/知识/事件管理场景（受 HEADLESS 控制）
+test-browser-management: browser-install ## 浏览器：题库/知识/事件管理场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:management
 
-test-browser-review: ## 浏览器：复习轮次场景（受 HEADLESS 控制）
+test-browser-review: browser-install ## 浏览器：复习轮次场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:review
 
-test-browser-search: ## 浏览器：搜索与批量操作场景（受 HEADLESS 控制）
+test-browser-search: browser-install ## 浏览器：搜索与批量操作场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:search
 
-test-browser-history: ## 浏览器：练习记录与结果场景（受 HEADLESS 控制）
+test-browser-history: browser-install ## 浏览器：练习记录与结果场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:history
 
-test-browser-inflight: ## 浏览器：练习中删除题目/题库的竞争状态（受 HEADLESS 控制）
+test-browser-inflight: browser-install ## 浏览器：练习中删除题目/题库的竞争状态（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:inflight
 
 release-check: ## 发布预演：完整验证但不提交或推送

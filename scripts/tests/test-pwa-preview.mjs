@@ -6,7 +6,7 @@ import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { resolveChromeExecutable } from "../tools/chrome-executable.mjs";
+import { launchProjectChromium } from "../tools/chrome-executable.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const portText = process.env.PWA_PREVIEW_PORT?.trim() || "4173";
@@ -85,8 +85,7 @@ async function runSmoke() {
   previewServer.stderr?.on("data", (chunk) => process.stderr.write(`[vite-preview] ${chunk}`));
   await waitForPreview(`${baseUrl}/`, previewServer);
 
-  const browser = await chromium.launch({
-    executablePath: resolveChromeExecutable(),
+  const browser = await launchProjectChromium(chromium, {
     headless: true,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });

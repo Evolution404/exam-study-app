@@ -25,6 +25,7 @@ export const testGroups = {
   ],
   source: [
     "test:architecture",
+    "test:browser-launch-config",
     "test:pwa",
     "test:release-workflow",
     "test:relay",

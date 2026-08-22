@@ -1,45 +1,31 @@
 import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 
 /**
- * Resolve a system Chromium/Chrome executable for Playwright-core.
- *
- * playwright-core intentionally does not download a browser. Keep the
- * override for local/CI installations, then use platform-specific well-known
- * paths and PATH lookup so browser smoke tests do not depend on a macOS path.
+ * Keep the browser process isolated from a developer's everyday Chrome.
+ * Playwright's bundled Chromium is the default; CHROME_PATH is an explicit
+ * escape hatch for debugging a particular external browser build.
  */
-export function resolveChromeExecutable() {
-  const configured = process.env.CHROME_PATH?.trim();
+export function resolveChromeLaunchOptions({ env = process.env, fileExists = existsSync } = {}) {
+  const configured = env.CHROME_PATH?.trim();
   if (configured) {
-    if (existsSync(configured)) return configured;
+    if (fileExists(configured)) return { executablePath: configured };
     throw new Error(`CHROME_PATH does not exist: ${configured}`);
   }
+  return {};
+}
 
-  const candidates = process.platform === "darwin"
-    ? [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-      "google-chrome",
-      "chromium",
-    ]
-    : process.platform === "win32"
-      ? [
-        process.env.PROGRAMFILES ? `${process.env.PROGRAMFILES}\\Google\\Chrome\\Application\\chrome.exe` : "",
-        process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe` : "",
-        "chrome.exe",
-        "msedge.exe",
-      ]
-      : ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser"];
-
-  for (const candidate of candidates.filter(Boolean)) {
-    if (existsSync(candidate)) return candidate;
-    if (candidate.includes("/") || candidate.includes("\\")) continue;
-    const lookup = spawnSync(process.platform === "win32" ? "where" : "which", [candidate], { encoding: "utf8" });
-    if (lookup.status === 0) {
-      const executable = lookup.stdout.trim().split(/\r?\n/)[0];
-      if (executable && existsSync(executable)) return executable;
-    }
+export async function launchProjectChromium(chromium, options = {}, resolverOptions) {
+  try {
+    return await chromium.launch({
+      timeout: 20_000,
+      ...options,
+      ...resolveChromeLaunchOptions(resolverOptions),
+    });
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `Unable to launch the project test browser. Run \`npm run browser:install\` to install the Playwright Chromium, or verify the explicit CHROME_PATH override. ${detail}`,
+      { cause },
+    );
   }
-
-  throw new Error("No Chrome/Chromium executable found. Install Chromium or set CHROME_PATH to its executable path.");
 }

@@ -104,10 +104,11 @@ docs/          # 项目文档
 make help                    # 全部命令
 make dev                     # 启动开发服务器
 make mock                    # 启动 mock GitHub 服务器
+make browser-install         # 安装项目专用 Playwright Chromium
 make test-fast               # 日常快测（不含构建）
 make test                    # 完整 CI（含构建，不含浏览器）
 make test-full               # 全量测试（含浏览器全部场景，默认 headless）
-make test-browser-visible    # 可见 Chrome 跑全部浏览器场景
+make test-browser-visible    # 可见专用 Chromium 跑全部浏览器场景
 make test-browser-search     # 只跑搜索场景
 make release-check           # 发布预检：全量测试 + PWA smoke，不提交、不推送
 make release MSG="fix: ..." # 一键验证、提交、推送 main、等待 Actions 并核验线上版本
@@ -130,6 +131,7 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若�
 
 - 构建已通过 vendor 分包将主入口降至 352 KiB（gzip 约 110 KiB），当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
 - 自动化覆盖 Chromium 桌面/手机视口；Safari、Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵。
+- 浏览器与 PWA 测试默认使用 `npm run browser:install` 安装的 Playwright Chromium；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
 

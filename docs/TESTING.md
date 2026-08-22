@@ -1,6 +1,6 @@
 # 测试体系与功能覆盖矩阵
 
-本文件梳理系统所有功能对应的测试，作为「每个界面操作都有测试可循」的可审计清单。测试不使用框架，全部为 `node/tsx + assert`（浏览器 e2e 用 `playwright-core` 驱动 Chrome，默认 headless；`BROWSER_HEADLESS=0` 或 `make test-browser-visible` 可开可见 Chrome）。
+本文件梳理系统所有功能对应的测试，作为「每个界面操作都有测试可循」的可审计清单。测试不使用框架，全部为 `node/tsx + assert`（浏览器 e2e 用 `playwright-core` 驱动与其版本匹配的专用 Chromium，默认 headless；`BROWSER_HEADLESS=0` 或 `make test-browser-visible` 可打开专用浏览器窗口）。
 
 ## 1. 测试层级总览
 
@@ -12,14 +12,14 @@
 | 快测 `fast` | `npm run test:fast` / `make test-fast` | 并行执行 unit + source + integration，再执行 typecheck + lint | 数秒–数十秒 | 否 |
 | 完整 CI `test` | `npm test` / `make test` | production build → `test:fast`（architecture、typecheck、lint、全部逻辑/源码/集成脚本） | 数十秒 | 是 |
 | 全量 `full` | `npm run test:full` / `make test-full` | 完整 CI + 浏览器全部场景（默认 headless，可用 `make test-browser-visible` 看可见浏览器） | 数分钟 | 是（+真实浏览器） |
-| 浏览器 smoke `e2e` | `npm run test:browser-smoke` | Ubuntu Chromium 桌面冒烟场景；端口严格固定，不能悄悄改连其他服务 | 数十秒 | 否 |
+| 浏览器 smoke `e2e` | `npm run test:browser-smoke` | Playwright Chromium 桌面冒烟场景；端口严格固定，不能悄悄改连其他服务 | 数十秒 | 否 |
 | PWA smoke `e2e` | `npm run test:pwa-smoke` | production build → Vite preview → 真实 Service Worker 安装、接管、版本化缓存与 app shell | 分钟级 | 是 |
 
 ## 2. 浏览器分组速查
 
 `scripts/tests/test-browser-visible.mjs` 由 `BROWSER_GROUPS` 环境变量选择场景分组（逗号分隔，缺省=全部）。每组独立浏览器上下文 + 独立 IndexedDB；共享一个进程内 mock GitHub 服务器，因此可做真实跨设备同步。
 
-浏览器 runner 会按操作系统从 PATH 查找 `google-chrome-stable`、`google-chrome`、`chromium` 或 `chromium-browser`；本机有多个浏览器时可用 `CHROME_PATH=/path/to/chrome` 指定。未提供 `BASE_URL` 时，runner 以 `BROWSER_PORT`（默认 `5173`）启动 Vite，并传入 `--strictPort`：端口已被占用会直接失败，不会接受其他服务的页面。需要并行运行时为每个 runner 传不同的 `BROWSER_PORT`；测试结束会回收它自己启动的进程。
+浏览器 runner 默认使用 `npm run browser:install` 安装的 Playwright Chromium，不会查找或启动用户日常使用的系统 Chrome；只有显式设置 `CHROME_PATH=/path/to/browser` 时才覆盖默认浏览器。浏览器启动超过 20 秒会快速失败并提示安装命令，不再等待 180 秒。未提供 `BASE_URL` 时，runner 以 `BROWSER_PORT`（默认 `5173`）启动 Vite，并传入 `--strictPort`：端口已被占用会直接失败，不会接受其他服务的页面。需要并行运行时为每个 runner 传不同的 `BROWSER_PORT`；测试结束会回收它自己启动的进程。
 
 | 分组 | 命令 | 覆盖 | 依赖 |
 |---|---|---|---|
@@ -31,7 +31,7 @@
 | `history` | `make test-browser-history` | 练习记录/结果：正确率、筛选、重练错题、继续/放弃/删除 | — |
 | `inflight` | `make test-browser-inflight` | 练习进行中删除当前题（自动跳过）/删光全部题（优雅结束）/删题库（置空会话，不丢答案） | — |
 
-CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu 上稳定复现的核心启动、导入、练习与同步路径；完整场景仍由 `test:full` 在发布前运行。
+CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu 上稳定复现的核心启动、导入、练习与同步路径；完整场景仍由 `test:full` 在发布前运行。
 
 ## 3. 功能覆盖矩阵
 
@@ -223,12 +223,13 @@ CI 的 Chromium smoke 使用 `BROWSER_GROUPS=desktop`，只验证可在 Ubuntu �
 make help                    # 全部命令
 make dev                     # 启动开发服务器
 make mock                    # 启动 mock GitHub 服务器
+make browser-install         # 安装项目专用 Playwright Chromium
 make test-fast               # 日常快测（不含构建）
 make test                    # 完整 CI
 make test-browser-search     # 只跑搜索场景
 make test-browser-mobile     # 移动端（自动先跑 desktop）
 make test-browser            # 全部浏览器场景
-CHROME_PATH=/usr/bin/chromium BROWSER_PORT=5174 npm run test:browser-smoke  # 指定浏览器和严格端口的 Ubuntu 冒烟
+CHROME_PATH=/path/to/browser BROWSER_PORT=5174 npm run test:browser-smoke  # 仅调试时显式覆盖浏览器
 PWA_PREVIEW_PORT=4174 npm run test:pwa-smoke  # production build + Vite preview + 真实 SW
 ```
 

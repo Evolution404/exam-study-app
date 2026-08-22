@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-const scripts = ["build", "test:fast"];
+const scripts = ["browser:install", "build", "test:fast"];
 
 function prefixChunk(prefix, chunk) {
   return chunk.toString().split("\n").map((line) => line.length ? `${prefix}${line}` : line).join("\n");

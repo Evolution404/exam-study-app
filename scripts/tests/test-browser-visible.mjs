@@ -6,10 +6,9 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import * as XLSX from "xlsx";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
-import { resolveChromeExecutable } from "../tools/chrome-executable.mjs";
+import { launchProjectChromium } from "../tools/chrome-executable.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const chromeExecutable = resolveChromeExecutable();
 // 默认后台 headless 运行，不弹出 Chrome 窗口打断操作；需要肉眼观看时：
 //   BROWSER_HEADLESS=0 node scripts/tests/test-browser-visible.mjs
 const headless = process.env.BROWSER_HEADLESS !== "0" && process.env.BROWSER_HEADLESS !== "false";
@@ -249,7 +248,12 @@ async function selectBankOnPracticeSetup(page) {
 
 async function answerCurrentQuestion(page, optionIndexes, confirm = false) {
   const options = page.locator(".options > button");
-  assert.ok(await options.count() >= Math.max(...optionIndexes) + 1, "expected answer options to be rendered");
+  const expectedOptionCount = Math.max(...optionIndexes) + 1;
+  await page.waitForFunction(
+    (minimum) => document.querySelectorAll(".options > button").length >= minimum,
+    expectedOptionCount,
+  );
+  assert.ok(await options.count() >= expectedOptionCount, "expected answer options to be rendered");
   for (const index of optionIndexes) await options.nth(index).click();
   const result = page.locator(".result-box");
   if (confirm && !(await result.isVisible().catch(() => false))) {
@@ -2224,8 +2228,7 @@ async function main() {
   // desktop sync pushes real data and the mobile sync pulls it back — a true
   // cross-device round-trip without any external network.
   const mockServer = await startMockGitHubServer();
-  const browser = await chromium.launch({
-    executablePath: chromeExecutable,
+  const browser = await launchProjectChromium(chromium, {
     headless,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
   });
@@ -2273,7 +2276,13 @@ async function main() {
     await mockServer.close();
     await browser.close();
   }
-  const manifest = { baseUrl, chromeExecutable, groups: ran, screenshots };
+  const manifest = {
+    baseUrl,
+    browserSource: process.env.CHROME_PATH?.trim() ? "CHROME_PATH" : "playwright",
+    browserVersion: browser.version(),
+    groups: ran,
+    screenshots,
+  };
   await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`Browser QA passed (${headless ? "headless" : "visible"}): ${ran.map((item) => `${item.key}(${item.screenshots})`).join(", ")} in ${path.relative(root, runRoot)}`);
 }

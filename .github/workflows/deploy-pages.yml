@@ -177,15 +177,8 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Install Chromium for PWA smoke
-        run: |
-          if command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y chromium
-            chromium --version
-          fi
+      - name: Install Playwright Chromium
+        run: npm exec -- playwright-core install --with-deps chromium
       - name: PWA preview smoke
         run: npm run test:pwa-smoke
 
