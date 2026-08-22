@@ -9,7 +9,16 @@ const commitSha = process.env.GITHUB_SHA?.trim() || execFileSync("git", ["rev-pa
 const commitTime = execFileSync("git", ["show", "-s", "--format=%cI", commitSha], { cwd: root, encoding: "utf8" }).trim();
 
 // Cloudflare Pages 构建环境注入 CF_PAGES=1，部署到根路径；GitHub Pages 用 /exam-study-app/ 子路径。
-const deployBase = process.env.CF_PAGES ? "/" : "/exam-study-app/";
+// Capacitor copies the built files into a local WKWebView, so its asset base
+// must be relative to the bundled index.html rather than either web deploy
+// path. Keep this decision at build time; runtime URL rewriting breaks the
+// static PWA and Pages deployments.
+export function resolveBuildBase(env: { APP_TARGET?: string; CF_PAGES?: string } = process.env) {
+  if (env.APP_TARGET === "ios") return "./";
+  return env.CF_PAGES ? "/" : "/exam-study-app/";
+}
+
+const deployBase = resolveBuildBase();
 
 export default defineConfig({
   base: deployBase,

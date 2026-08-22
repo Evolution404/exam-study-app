@@ -9,8 +9,14 @@
 HEADLESS ?= 1
 MSG ?= chore: publish verified updates
 export RELEASE_MESSAGE := $(MSG)
+XCODE_DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+IOS_PROJECT ?= ios/App/App.xcodeproj
+IOS_SCHEME ?= App
+IOS_TARGET ?=
+IOS_CONFIGURATION ?= Debug
+XCODE_ENV = DEVELOPER_DIR="$(XCODE_DEVELOPER_DIR)"
 
-.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish
+.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator verify-ios
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -62,6 +68,16 @@ help: ## 显示本帮助
 	@echo '  make release-check          执行发布预检和全部验证，但不提交、不推送'
 	@echo '  make release MSG="fix: ..." 一键验证、提交、推送 main、等待部署并核验线上版本'
 	@echo '  make publish MSG="fix: ..." 与 make release 相同'
+	@echo ""
+	@echo "iOS 原生（需要 macOS + Xcode；首次签名在 Xcode 内完成）："
+	@echo "  make ios-setup              安装依赖、检查 Xcode、构建并同步 iOS 工程（默认 SPM）"
+	@echo "  make ios-build              构建 iOS 相对路径资源并同步 Capacitor 工程"
+	@echo "  make ios-sync               将已有 dist 同步到 iOS 工程"
+	@echo "  make ios-open               构建并在 Xcode 打开 iOS 工程"
+	@echo "  make ios-run IOS_TARGET=... 构建并运行到明确指定的模拟器/设备"
+	@echo "  make ios-clean              使用 Xcode 清理 App target 构建产物"
+	@echo "  make ios-build-simulator    无签名编译 iOS Simulator target"
+	@echo "  make verify-ios             iOS 构建、同步、模拟器编译和平台专项测试"
 
 doctor: ## 检查本地开发环境
 	@command -v git >/dev/null || { echo "缺少 git"; exit 1; }
@@ -182,3 +198,37 @@ release: ## 一键验证、提交、推送 main 并等待部署；可用 MSG 覆
 	BROWSER_HEADLESS=$(HEADLESS) node scripts/tools/release.mjs
 
 publish: release ## release 的易记别名
+
+ios-setup: ## 安装依赖、检查 Xcode 并初始化 iOS 工程
+	@test -d node_modules || npm ci
+	@test -d "$(XCODE_DEVELOPER_DIR)" || { echo "找不到 Xcode Developer 目录：$(XCODE_DEVELOPER_DIR)"; exit 1; }
+	@$(XCODE_ENV) xcodebuild -version
+	npm run build:ios
+	@$(XCODE_ENV) npm run cap:sync:ios
+
+ios-build: ## 构建 iOS 资源并同步 Capacitor 工程
+	npm run build:ios
+	@$(XCODE_ENV) npm run cap:sync:ios
+
+ios-sync: ## 将已有 dist 同步到 iOS 工程
+	@$(XCODE_ENV) npm run cap:sync:ios
+
+ios-open: ios-build ## 构建并在 Xcode 打开 iOS 工程
+	@$(XCODE_ENV) npm run cap:open:ios
+
+ios-run: ## 运行到显式指定的 iOS target，不猜测设备
+	@test -n "$(IOS_TARGET)" || { echo "请显式设置 IOS_TARGET，例如 make ios-run IOS_TARGET='iPhone 17'"; exit 2; }
+	$(MAKE) ios-build
+	@$(XCODE_ENV) npx cap run ios --target "$(IOS_TARGET)" --configuration "$(IOS_CONFIGURATION)"
+
+ios-clean: ## 使用 Xcode 清理 iOS App target（不删除签名配置）
+	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_CONFIGURATION)" clean
+
+ios-build-simulator: ios-build ## 无签名编译 iOS Simulator target
+	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_CONFIGURATION)" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+verify-ios: ios-build ## iOS 构建、同步、模拟器编译和平台专项测试
+	npm run test:build-target
+	npm run test:platform-environment
+	npm run test:platform-service-worker
+	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_CONFIGURATION)" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build

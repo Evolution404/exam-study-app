@@ -22,6 +22,8 @@ export const testGroups = {
     "test:sync-v8-migration",
     "test:v7-domain",
     "test:image-assets",
+    "test:build-target",
+    "test:platform-environment",
   ],
   source: [
     "test:architecture",
@@ -35,6 +37,7 @@ export const testGroups = {
     "test:content-block-ui",
     "test:sync-event-ui",
     "test:v7-ui",
+    "test:platform-service-worker",
   ],
   integration: [
     "test:db-v7",

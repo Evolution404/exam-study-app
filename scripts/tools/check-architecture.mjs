@@ -12,6 +12,19 @@ const appSources = fs.readdirSync(path.join(root, "src/app"), { recursive: true 
   .filter((file) => typeof file === "string" && /\.(tsx?|css)$/.test(file))
   .map((file) => ({ file, source: read(path.join("src/app", file)) }));
 
+// Capacitor is an implementation detail of the platform adapter. Keeping the
+// import and runtime checks in src/platform prevents native assumptions from
+// leaking into UI, DB, practice, or synchronization code.
+const srcSources = fs.readdirSync(path.join(root, "src"), { recursive: true })
+  .filter((file) => typeof file === "string" && /\.(tsx?|ts)$/.test(file))
+  .map((file) => ({ file: `src/${file}`, source: read(path.join("src", file)) }));
+for (const { file, source } of srcSources) {
+  if (file.startsWith("src/platform/")) continue;
+  if (/@capacitor\//.test(source) || /\b(?:window\.)?Capacitor\./.test(source)) {
+    fail(`${file} 不得直接依赖 Capacitor；请通过 src/platform 适配层访问原生能力`);
+  }
+}
+
 for (const name of ["color-canvas", "color-surface", "color-surface-raised", "color-text", "color-text-muted", "color-border", "color-primary", "color-danger"]) {
   const definitions = tokens.match(new RegExp(`--${name}:`, "g"))?.length ?? 0;
   if (definitions !== 2) fail(`主题令牌 --${name} 必须同时定义日间和夜间值`);
