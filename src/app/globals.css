@@ -6,3 +6,36 @@
 @import "./styles/content-blocks.css";
 @import "./styles/review-scope.css";
 @import "./styles/hint.css";
+
+/*
+ * Native iOS search layout.
+ *
+ * Desktop/Web can afford the two-level sticky workspace (query + batch tools),
+ * but on an iPhone the batch toolbar grows to several rows and can cover almost
+ * half the viewport. Keep only the compact query/filter row sticky on native
+ * iOS; keep the batch actions in normal document flow. Also undo the mobile
+ * full-bleed negative margin so the query aligns with the result cards.
+ */
+@media (max-width: 760px) {
+  html[data-platform="ios"][data-native="true"] .search-home-query {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  html[data-platform="ios"][data-native="true"] .search-page.search-pinned .search-home-query {
+    border-top: 1px solid var(--color-border);
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+  }
+
+  html[data-platform="ios"][data-native="true"] .search-batch-bar {
+    position: relative;
+    top: auto;
+    z-index: 1;
+  }
+
+  html[data-platform="ios"][data-native="true"] .search-page.search-stuck .search-batch-bar {
+    border-top-left-radius: 13px;
+    border-top-right-radius: 13px;
+  }
+}
