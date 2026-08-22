@@ -62,7 +62,7 @@ assert.match(syncView, /<section className="restore-card data-restore-card">/, "
 assert.match(syncView, /setRestorePrompt\("cache"\)[\s\S]*?"本地恢复"/, "local recovery must use the four-character label");
 assert.match(syncView, /setRestorePrompt\("remote"\)[\s\S]*?"远端恢复"/, "remote recovery must use the four-character label");
 assert.match(syncView, /syncApplication\.restoreRemote\(setOperationProgress\)/, "UI remote recovery must go through the sync application boundary");
-assert.match(syncApplication, /return restoreFullHistoryFromGitHub\(settings, token, callback\)/, "the application boundary must preserve full remote recovery including history archives");
+assert.match(syncApplication, /return restoreFullHistoryFromGitHub\(settings, token, callback, \{ transport: getGitHubTransport\(\) \}\)/, "the application boundary must preserve full remote recovery including history archives through the shared transport");
 assert.doesNotMatch(syncView, /restoreFullHistoryFromGitHub|github-sync-v7|github-credentials/, "sync view must not bypass the application boundary");
 assert.doesNotMatch(syncView, /快速恢复|完整恢复|remoteFull/, "sync view must not expose obsolete fast/full recovery choices");
 assert.match(preferencesView, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
