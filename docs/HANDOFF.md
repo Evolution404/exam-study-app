@@ -1,6 +1,6 @@
 # 项目交接文档
 
-> 更新时间：2026-08-21（Asia/Shanghai）
+> 更新时间：2026-08-22（Asia/Shanghai）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
@@ -12,6 +12,8 @@
 - 公开客户端数据层：独立 IndexedDB `shijuan-study-v7`（首次启动自动从旧 `shijuan-study-v6` 迁移）。
 - 公开同步协议：Sync v8，唯一可变入口 `sync/v8/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
 - Service Worker 缓存版本：`shijuan-v10`。
+- 支持平台：Desktop Web/PWA 与 Capacitor 8 + WKWebView iOS native App；iOS 复用同一 React/Dexie/Sync v8 业务代码，Bundle ID 固定为 `com.evolution404.shijuan`。
+- iOS 构建：`APP_TARGET=ios` 使用 `./` 相对资源基路径；native 不注册 Service Worker，Native HTTP 未启用，网络仍走 WKWebView `fetch` 兼容路径。
 - 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
 
 ## 2. 目录结构
@@ -31,7 +33,9 @@ src/app/
   styles/      # theme-tokens.css, components.css, controls.css, content-blocks.css,
                # review-scope.css, sync-events.css, hint.css
 src/lib/       # 领域逻辑：db / sync / question / io / practice
+src/platform/  # Web/iOS 平台适配：环境、运行时、transport、凭据、配置、生命周期、文件与反馈
 proxy/         # GitHub API 转发代理源码
+ios/           # Capacitor 生成的 iOS 原生壳（不承载业务页面）
 functions/     # 构建生成：functions/api-github/[[path]].js（不要手写，由 emit-pages-relay 生成）
 scripts/
   tools/       # 构建/检查/生成工具
@@ -56,6 +60,8 @@ docs/          # 项目文档
 - `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v8 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
 - `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v8。
+- 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v8 wire、head CAS 和合并语义不因平台改变。
+- iOS 业务数据仍写 `shijuan-study-v7` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
 - 一次性远端迁移使用 `npm run migrate:vault:v8 -- --owner <owner> --repo <repo> --branch main`；先加 `--verify` 预检。迁移固定旧 v7 head SHA、严格回放热分段、复制资产、发布 v8 有界检查点，并保留旧 `sync/v7` 数据。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
@@ -79,6 +85,7 @@ docs/          # 项目文档
 - Pages Function 同源代理：Cloudflare Pages 默认 `同步中转地址 = /api-github`，源码 `proxy/pages-function.js`，构建生成 `functions/api-github/[[path]].js`。
 - 独立 Worker 跨域代理：GitHub Pages 默认 `同步中转地址 = https://sync.980923.xyz`，源码 `proxy/worker.js`，部署命令：
   `npx wrangler deploy --config proxy/wrangler.toml`。
+- iOS native 与 GitHub Pages 共用 `https://sync.980923.xyz` 默认 Relay；同步设置仍允许可信的自定义 Relay。Native HTTP 未启用，WKWebView fetch 通过统一 transport 访问 Relay。
 - 两个代理共用 `proxy/github-relay-common.js`，剥除头清单、上游地址、`redirect: manual` 和 `set-cookie` 处理必须保持一致。
 - GitHub Pages 只部署 `dist/`，不包含 Pages Function；Cloudflare Pages 部署 `dist/` + `functions/`。
 
@@ -93,6 +100,9 @@ docs/          # 项目文档
 5. 页面 CSS 使用主题令牌，不扩大硬编码颜色和 dark-mode 补丁预算。
 6. `tsconfig.json` 的 unused 检查必须保持开启。
 7. 修改前先看工作区，禁止 reset/checkout 覆盖用户或其他任务的改动。
+8. iOS native 不注册 Service Worker；业务层不得因为 native 环境复制一套题库、练习或同步实现。
+9. iOS Token 不落 `localStorage`；Keychain、Preferences、lifecycle、haptics、Filesystem、Share 只能经 `src/platform/` adapter 使用。
+10. Native HTTP 未启用；所有 GitHub 请求仍经统一 `GitHubTransport` 与默认/自定义 Relay，禁止错误时静默直连 GitHub。
 
 `scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `src/app/ui/hint.tsx` 的 `Hint` 组件。
 
@@ -114,6 +124,18 @@ make release-check           # 发布预检：全量测试 + PWA smoke，不提�
 make release MSG="fix: ..." # 一键验证、提交、推送 main、等待 Actions 并核验线上版本
 ```
 
+iOS 本地验证不依赖发布流程：
+
+```bash
+make ios-setup
+make ios-open
+make ios-run IOS_TARGET="你的模拟器或已连接设备名称"
+make ios-build-simulator
+make verify-ios
+```
+
+`ios-run` 要求显式 `IOS_TARGET`；`ios-build-simulator` 使用 `CODE_SIGNING_ALLOWED=NO`。首次 `ios-open` 后在 Xcode 选择自己的 Apple ID / Personal Team 并启用 Automatically manage signing。当前没有经过验证的 unsigned IPA / SideStore 目标，稳定路线是 Xcode 重新签名；不要把这项便利路径当作已验收能力。
+
 `make release` 会自动选择未占用的浏览器/PWA 测试端口，只暂存执行前展示的精确文件列表；若本地 `main` 落后远端、测试失败、部署失败或线上构建版本未更新，流程会停止并给出明确原因。常规发布优先使用该入口，不再手工拼接测试、提交、推送和部署检查命令。
 
 推送 `main` 会触发 `.github/workflows/deploy-pages.yml`。如果只需独立核验线上缓存，可运行：
@@ -134,7 +156,9 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若�
 - 浏览器与 PWA 测试默认使用 `npm run browser:install` 安装的 Playwright Chromium；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
+- iOS Personal Team 签名、覆盖安装数据保持、深色模式、横竖屏、前后台 catch-up、文件 Share Sheet、真实 haptics 和多设备交叉同步需要连接 Xcode/真机按 `docs/TESTING.md` 手工检查；浏览器 e2e 不能替代它们。
+- SideStore / unsigned IPA 尚未验证，也没有稳定 Makefile 目标；本任务不创建证书、不部署 Relay、不发布 App。
 
 ## 9. 新任务第一步
 
-> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v7 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。
+> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v7 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。

@@ -14,6 +14,8 @@
 | 全量 `full` | `npm run test:full` / `make test-full` | 完整 CI + 浏览器全部场景（默认 headless，可用 `make test-browser-visible` 看可见浏览器） | 数分钟 | 是（+真实浏览器） |
 | 浏览器 smoke `e2e` | `npm run test:browser-smoke` | Playwright Chromium 桌面冒烟场景；端口严格固定，不能悄悄改连其他服务 | 数十秒 | 否 |
 | PWA smoke `e2e` | `npm run test:pwa-smoke` | production build → Vite preview → 真实 Service Worker 安装、接管、版本化缓存与 app shell | 分钟级 | 是 |
+| iOS 平台边界 `platform` | `npm run test:build-target`、`npm run test:platform-environment`、`npm run test:platform-service-worker` | iOS 相对资源基路径、平台检测、native 不注册 Service Worker；不替代 Xcode/真机验收 | 秒级 | `build-target` 否 |
+| iOS 工程 `native` | `make ios-build-simulator` / `make verify-ios` | Capacitor 资源同步、原生模拟器无签名编译和平台专项测试 | 分钟级 | 是 |
 
 ## 2. 浏览器分组速查
 
@@ -201,7 +203,47 @@ CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 
 | 暂停返回首页 / 继续上次练习 | browser-mobile | 自动 |
 | 移动端同步设置卡片 | browser-mobile | 自动 |
 
-## 4. 已知限制与替代方式
+### 3.13 iOS native 平台
+
+| 功能/边界 | 覆盖位置 | 状态 |
+|---|---|---|
+| `APP_TARGET=ios` 使用 `./` 相对资源基路径 | `npm run test:build-target` | 自动 |
+| Web / native / iOS 平台检测 | `npm run test:platform-environment` | 自动 |
+| Web 注册 Service Worker、native 不注册 | `npm run test:platform-service-worker` | 自动 |
+| Capacitor 资源同步与 iOS Simulator 无签名编译 | `make ios-build-simulator` | 需本机 Xcode |
+| Keychain 凭据、Preferences mirror、lifecycle、Haptics、Filesystem、Share | `make verify-ios` 的平台专项测试 + 真机 checklist | 部分自动，真机必须手测 |
+| iOS 默认 Relay、自定义 Relay、无静默直连 | transport/同步测试 + 真机 Relay checklist | 部分自动，真实网络需手测 |
+
+## 4. iOS 真机验收清单
+
+以下项目不能由桌面 Chromium 或 iOS Simulator 完整替代。首次验收先执行 `make ios-open`，在 Xcode 选择自己的 Apple ID / Personal Team、启用 Automatically manage signing，再选择真实 iPhone Run。
+
+### 安装与数据
+
+- [ ] Personal Team 能安装，Bundle ID 为 `com.evolution404.shijuan`。
+- [ ] 覆盖安装后题库和练习仍在；强杀重开正常；深色模式、横竖屏和 safe area 正常。
+- [ ] Dexie `shijuan-study-v7` 重启保持；JSON、XLSX、ZIP 导入成功；题目图片正常显示。
+
+### Relay 与多设备
+
+- [ ] iOS 默认显示并使用 `https://sync.980923.xyz`，`/user`、首次 full restore、普通 pull/push、图片懒加载、compaction 后同步均成功。
+- [ ] 图片 GC 不因 Relay `DELETE` 405 失败；显式自定义 Relay 可用；Relay 出错不会静默改走 `https://api.github.com`。
+- [ ] 桌面修改题目后 iPhone pull 可见，反向也可见；两台设备同时修改不同内容时 CAS/retry 正常。
+
+### Token 与练习
+
+- [ ] native `localStorage` 没有 `github-token`；Keychain 有 token，重启无需重输。
+- [ ] “清除数据但保留配置”与完全重置的 token 语义符合设计；完全重置后 Keychain token 被删除。
+- [ ] 单选、多选、判断、计算题、左右滑动、长按快速同步、震动和声音反馈均通过。
+
+### 生命周期与文件
+
+- [ ] 前台自动同步；切后台不出现错误风暴；回前台自动 catch-up pull；连续切换不产生并发 sync。
+- [ ] XLSX 与 ZIP 导出能打开 Share Sheet，AirDrop 或 Files 至少一个目的地成功；Filesystem 导入可用。
+
+`make verify-ios` 只验证可自动化的 build、平台边界和模拟器编译，不等同于以上真机通过。
+
+## 5. 已知限制与替代方式
 
 | 交互 | 处理 | 原因 |
 |---|---|---|
@@ -216,8 +258,12 @@ CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 
 | 图片缓存执行 | **限制**：不自动执行 | 依赖大量真实图片资源 |
 | 跨标签页并发同步 | **限制**：仅同 realm 串行（模块级互斥），跨标签页需 Web Locks | `syncWithGitHub` 的 B5 互斥只覆盖单 realm；浏览器多标签页另议 |
 | 检查点 >32MiB 缩放悬崖 | **限制**：特征化记录 | `putImmutable` 对超限检查点抛错，分块/归档裁剪不在范围 |
+| iOS 前后台、Keychain、Share Sheet、真实 haptics 与设备安装 | **限制**：真机 checklist | 需要 Xcode/个人签名和真实设备，自动化浏览器无法模拟系统能力 |
+| SideStore / unsigned IPA | **限制**：未验证 | 当前没有稳定 `ios-ipa-unsigned` Makefile 目标；稳定路线是 Xcode + Personal Team |
+| iOS Native HTTP | **限制**：未启用 | WKWebView `fetch` 兼容路径经统一 transport 访问默认/自定义 Relay |
+| Relay 真实部署状态 | **限制**：不在本任务自动部署 | 代码合同与本地测试可验证；Worker/Pages 发布需单独授权和线上核验 |
 
-## 5. 常用命令
+## 6. 常用命令
 
 ```bash
 make help                    # 全部命令
@@ -231,9 +277,16 @@ make test-browser-mobile     # 移动端（自动先跑 desktop）
 make test-browser            # 全部浏览器场景
 CHROME_PATH=/path/to/browser BROWSER_PORT=5174 npm run test:browser-smoke  # 仅调试时显式覆盖浏览器
 PWA_PREVIEW_PORT=4174 npm run test:pwa-smoke  # production build + Vite preview + 真实 SW
+make ios-setup               # 检查 Xcode，构建并同步 Capacitor iOS 工程
+make ios-open                # 构建后打开 Xcode，首次在其中完成 Team 签名
+make ios-run IOS_TARGET="…"  # 运行到明确指定的模拟器/真机
+make ios-build-simulator     # 无签名编译 iOS Simulator
+make verify-ios              # iOS build + 平台专项测试 + Simulator 编译
 ```
 
-## 6. PWA 构建、预览与部署缓存
+`make ios-run` 不接受空 target；`make ios-build-simulator` 和 `make verify-ios` 依赖 macOS/Xcode。不要将 `make release`、Relay 部署或任何 Apple 签名操作作为本地测试的隐含步骤。
+
+## 7. PWA 构建、预览与部署缓存
 
 `npm run test:pwa` 是快速源码边界检查；`npm run test:pwa-smoke` 才会构建 Cloudflare Pages 根路径产物（`CF_PAGES=1`），启动带 `--strictPort` 的 `vite preview`，用真实 Chromium 打开页面并在 reload 后确认：页面由 `sw.js` 接管、`shijuan-v10` 缓存已安装、app shell 已进入 Cache Storage、服务 worker 源码来自预览产物。默认使用 `PWA_PREVIEW_PORT=4173`，需要并行运行时显式换端口。
 
