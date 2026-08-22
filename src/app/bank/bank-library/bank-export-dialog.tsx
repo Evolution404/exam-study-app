@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { ModalPortal } from "@/app/ui/modal-portal";
-import { buildQuestionBankXlsx, buildQuestionBankZip, collectExportImages, downloadExport, questionExportJson, questionPortableExportFormat, sanitizeFileName } from "@/lib/question/question-bank-export";
+import { collectExportImages, downloadExport, questionPortableExportFormat, sanitizeFileName } from "@/lib/question/question-bank-export";
+import { questionBankIoWorker } from "@/lib/io/io-worker-client";
 import { dbV7 } from "@/lib/db/db-v7";
 import { loadImageAssetV7 } from "@/app/bank/question-editor";
 import { isNativeApp } from "@/platform/environment";
@@ -35,17 +36,22 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
       if (format === "excel") {
         const { images, missing } = await collectExportImages(questions, { target: "excel", loadAsset: loadExportAsset });
         if (missing.length) throw new Error(`有 ${missing.length} 张题目图片无法读取，已取消导出。请先连接同步仓库并缓存图片后重试。`);
-        const bytes = buildQuestionBankXlsx(questions, noteMap, images);
-        await saveExport(`${baseName}.xlsx`, new Blob([bytes.slice()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+        // Image collection reads Dexie here; the workbook itself is built in
+        // the io worker so large banks do not freeze the dialog.
+        const built = await questionBankIoWorker.build({ kind: "xlsx", name: "", questions, notes: noteMap, images });
+        if (built.kind !== "xlsx") throw new Error("导出结果类型不匹配，请重试。");
+        await saveExport(`${baseName}.xlsx`, new Blob([built.bytes.slice()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
       } else {
         if (portableFormat === "zip") {
           const { images, missing } = await collectExportImages(questions, { target: "bundle", loadAsset: loadExportAsset });
           if (missing.length) throw new Error(`有 ${missing.length} 张题目原图无法读取，已取消打包。请先连接同步仓库并缓存图片后重试。`);
-          const bytes = buildQuestionBankZip(bankTitle(bank), questions, noteMap, images);
-          await saveExport(`${baseName}.zip`, new Blob([bytes.slice()], { type: "application/zip" }));
+          const built = await questionBankIoWorker.build({ kind: "zip", name: bankTitle(bank), questions, notes: noteMap, images });
+          if (built.kind !== "zip") throw new Error("导出结果类型不匹配，请重试。");
+          await saveExport(`${baseName}.zip`, new Blob([built.bytes.slice()], { type: "application/zip" }));
         } else {
-          const text = questionExportJson(bankTitle(bank), questions, noteMap);
-          await saveExport(`${baseName}.json`, new Blob([text], { type: "application/json" }));
+          const built = await questionBankIoWorker.build({ kind: "json", name: bankTitle(bank), questions, notes: noteMap });
+          if (built.kind !== "json") throw new Error("导出结果类型不匹配，请重试。");
+          await saveExport(`${baseName}.json`, new Blob([built.text], { type: "application/json" }));
         }
       }
       onClose();

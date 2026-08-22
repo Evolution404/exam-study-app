@@ -14,7 +14,7 @@ export const testGroups = {
     "test:progress-boundaries",
     "test:projection-edge",
     "test:search-filters",
-    "test:import-worker",
+    "test:io-worker",
     "test:review-scope-ui",
     "test:change-set-v7",
     "test:sync-payload",

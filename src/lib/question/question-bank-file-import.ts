@@ -1,6 +1,6 @@
 import { importQuestionBankV7, putImageAssetV7 } from "../db/db-v7";
 import { importFileName, type WorkbookImage } from "../io/xlsx-import";
-import { importParseWorker } from "../io/import-worker-client";
+import { questionBankIoWorker } from "../io/io-worker-client";
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
 import type { BankV7, ImageAsset } from "../db/v7-types";
@@ -57,7 +57,7 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
   if (type === "xlsx" || type === "zip") {
     // Parsing runs in the shared module worker; only image materialisation
     // and the Dexie import remain on the main thread.
-    const parsed = await importParseWorker.parse(file, type === "xlsx"
+    const parsed = await questionBankIoWorker.parse(file, type === "xlsx"
       ? { kind: "xlsx", collapseVisualLineBreaks: isVisualWrapExtractionSource(file.name) }
       : { kind: "zip" });
     if (parsed.kind === "xlsx") {
@@ -82,7 +82,7 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
     return { bank, importedCount: bank.importedCount, type };
   }
   if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 128 MB 上限。");
-  const parsedJson = await importParseWorker.parse(file, { kind: "json" });
+  const parsedJson = await questionBankIoWorker.parse(file, { kind: "json" });
   if (parsedJson.kind !== "json") throw new Error("导入解析结果类型不匹配，请重试。");
   const raw: unknown = parsedJson.raw;
   const questionRows = Array.isArray(raw)

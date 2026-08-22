@@ -66,7 +66,7 @@
     "test:progress-boundaries": "tsx scripts/tests/test-progress-metrics-boundaries.ts",
     "test:projection-edge": "tsx scripts/tests/test-projection-edge-cases.ts",
     "test:search-filters": "tsx scripts/tests/test-search-filters.ts",
-    "test:import-worker": "tsx scripts/tests/test-import-worker.ts",
+    "test:io-worker": "tsx scripts/tests/test-io-worker.ts",
     "test:modal": "tsx scripts/tests/test-modal-layering.ts",
     "test:v7-domain": "tsx scripts/tests/test-v7-domain.ts",
     "test:change-set-v7": "tsx scripts/tests/test-change-set-v7.ts",
