@@ -22,6 +22,11 @@ const platformRuntimeReady = platformRuntime.initialize();
 // registerServiceWorker preserves the existing `{ updateViaCache: "none" }`
 // contract for Web/PWA while runtime.ts gates native WKWebView.
 void dbV7Ready.then(() => platformRuntimeReady).then((environment) => {
+  // Native-only layout fixes need an explicit runtime marker. Keeping this on
+  // <html> avoids user-agent sniffing and leaves Web/PWA geometry untouched.
+  document.documentElement.dataset.platform = environment.platform;
+  document.documentElement.dataset.native = environment.native ? "true" : "false";
+
   root.render(
     <StrictMode>
       <AppErrorBoundary>
