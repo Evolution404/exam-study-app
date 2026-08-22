@@ -340,9 +340,17 @@ function defaultBrowserAdapter(): ImageAssetAdapter {
         image.onerror = () => reject(new Error("图片加载失败"));
         image.src = objectUrl;
       });
-      return { source: image, width: image.naturalWidth, height: image.naturalHeight };
-    } finally {
+      // WebKit may release the decoded backing store as soon as its object URL
+      // is revoked. Keep it alive until every canvas encoding attempt finishes.
+      return {
+        source: image,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        close: () => urlApi.revokeObjectURL(objectUrl),
+      };
+    } catch (error) {
       urlApi.revokeObjectURL(objectUrl);
+      throw error;
     }
   };
 

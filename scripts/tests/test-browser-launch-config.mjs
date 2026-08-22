@@ -48,13 +48,13 @@ await assert.rejects(
 const packageJson = JSON.parse(readProjectFile("package.json"));
 assert.equal(
   packageJson.scripts["browser:install"],
-  "playwright-core install chromium",
-  "the repository must expose one stable command for installing its matched Chromium",
+  "playwright-core install chromium webkit",
+  "the repository must expose one stable command for installing its matched Chromium and WebKit",
 );
 assert.match(
   readProjectFile("scripts/tools/run-test-full.mjs"),
   /const scripts = \["browser:install", "build", "test:fast"\]/,
-  "release-level browser tests must prepare Playwright Chromium first",
+  "release-level browser tests must prepare both Playwright engines first",
 );
 assert.match(
   readProjectFile("Makefile"),
@@ -67,4 +67,10 @@ assert.doesNotMatch(
   "the launcher must not restore automatic system-browser discovery",
 );
 
-console.log("browser launch config tests passed: isolated Playwright Chromium is the default");
+assert.match(
+  readProjectFile("scripts/tests/test-browser-visible.mjs"),
+  /BROWSER_ENGINE must be chromium or webkit/,
+  "browser QA must reject unknown engines instead of silently changing coverage",
+);
+
+console.log("browser launch config tests passed: isolated Chromium remains default and WebKit is selectable");

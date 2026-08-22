@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
+import { chromium, webkit } from "playwright-core";
 import * as XLSX from "xlsx";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 import { launchProjectChromium } from "../tools/chrome-executable.mjs";
@@ -12,6 +12,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 // 默认后台 headless 运行，不弹出 Chrome 窗口打断操作；需要肉眼观看时：
 //   BROWSER_HEADLESS=0 node scripts/tests/test-browser-visible.mjs
 const headless = process.env.BROWSER_HEADLESS !== "0" && process.env.BROWSER_HEADLESS !== "false";
+const browserEngineName = process.env.BROWSER_ENGINE?.trim() || "chromium";
+if (browserEngineName !== "chromium" && browserEngineName !== "webkit") {
+  throw new Error(`BROWSER_ENGINE must be chromium or webkit, got ${browserEngineName}`);
+}
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const configuredPort = process.env.BROWSER_PORT?.trim() || "5173";
 const serverPort = Number(configuredPort);
@@ -326,7 +330,13 @@ async function attachFixtureImage(page) {
   await stemEditor.getByRole("button", { name: /在文本块 .* 中选择图片/ }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles(path.join(root, "public/icons/app-icon-192.png"));
-  await stemEditor.locator(".content-block-editor-image").waitFor({ state: "visible" });
+  // Keep the assertion strict while allowing the asynchronous decode/resize
+  // pipeline to finish, and surface its own error instead of a vague timeout.
+  const imageResult = stemEditor.locator(".content-block-editor-image, .content-block-editor-error").first();
+  await imageResult.waitFor({ state: "visible", timeout: 30_000 });
+  if (await imageResult.evaluate((element) => element.classList.contains("content-block-editor-error"))) {
+    throw new Error(`Browser image preparation failed: ${await imageResult.innerText()}`);
+  }
   await clickButton(page, "保存修改");
   await page.getByRole("dialog", { name: "编辑题目" }).waitFor({ state: "hidden" });
 }
@@ -487,7 +497,11 @@ async function runDesktop(page, mockServer) {
   await capture(page, contextName, "bank-created-empty");
   await clickTextButton(page, "返回题库管理");
   await capture(page, contextName, "excel-imported");
-  await attachFixtureImage(page);
+  // Playwright's Linux WebKit port cannot structured-clone Blob values into
+  // IndexedDB (a minimal Blob put fails before application code runs). The
+  // Chromium suite retains the end-to-end image persistence regression; the
+  // WebKit smoke uses image-free desktop and mobile core scenarios instead.
+  if (browserEngineName !== "webkit") await attachFixtureImage(page);
 
   await clickButton(page, "配置");
   await expectText(page, "答题配置");
@@ -2312,10 +2326,12 @@ async function main() {
   // desktop sync pushes real data and the mobile sync pulls it back — a true
   // cross-device round-trip without any external network.
   const mockServer = await startMockGitHubServer();
-  const browser = await launchProjectChromium(chromium, {
-    headless,
-    args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
-  });
+  const browser = browserEngineName === "webkit"
+    ? await webkit.launch({ headless, timeout: 20_000 })
+    : await launchProjectChromium(chromium, {
+      headless,
+      args: ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage"],
+    });
 
   // BROWSER_GROUPS=desktop,mobile,management,review,search,history,practice-combo
   // (comma-separated; unset = all groups). Each group gets a fresh browser

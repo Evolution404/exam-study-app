@@ -20,9 +20,11 @@ jobs:
         run: npm run build
       - name: Fast checks
         run: npm run test:fast
-      - name: Install Playwright Chromium
-        run: npm exec -- playwright-core install --with-deps chromium
+      - name: Install Playwright browsers
+        run: npm exec -- playwright-core install --with-deps chromium webkit
       - name: Browser smoke (Playwright Chromium)
         run: npm run test:browser-smoke
+      - name: Browser smoke (Playwright WebKit)
+        run: npm run test:browser:webkit-smoke
       - name: PWA preview smoke
         run: npm run test:pwa-smoke
