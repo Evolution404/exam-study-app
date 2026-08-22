@@ -7,7 +7,7 @@ import { type QuestionViewModel } from "@/app/bank/question-editor";
 import type { BankQuickMode } from "@/app/bank/bank-library-view";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { ActivePractice } from "@/types/types";
-import type { AttemptStatsV7, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { AttemptOutcome, AttemptStatsV7, PracticeResponse, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import type { V7PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
@@ -31,7 +31,7 @@ export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
 
 export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
 export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV7(questionId); }
-export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
+export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
 export async function savePracticeProgress(session: ActivePractice) { const current = await dbV7.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
 export async function setPracticeRunStatus(runId: string, status: PracticeRunV7["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV7(runId, status, answers); }
 export async function deletePracticeRun(runId: string) { return deletePracticeRunV7(runId); }
@@ -194,7 +194,7 @@ export const modeLabels = {
   advanced: "高级筛选",
 };
 
-export const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
+export const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
 
 export function randomOptionOrder(question: Question, avoid?: number[]) {
   const original = question.options.map((_, index) => index);

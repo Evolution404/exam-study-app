@@ -17,6 +17,7 @@ import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
+import { stableQuestionOptionIds } from "../question/question-utils";
 import type {
   AttemptDailyStatsV7,
   AttemptStatsV7,
@@ -25,7 +26,20 @@ import type {
   PracticeRunV7,
   ReviewRound,
   ReviewRoundProgress,
+  AttemptOutcome,
+  PracticeResponse,
+  QuestionV7,
 } from "./v7-types";
+
+export type StructuredPracticeAnswerInputV7 = PracticeAnswerInputV7 & {
+  response?: PracticeResponse;
+  outcome?: AttemptOutcome;
+};
+
+function stableOptionIdForAnswer(question: QuestionV7, letter: string): string | undefined {
+  const index = letter.charCodeAt(0) - 65;
+  return stableQuestionOptionIds(question)[index];
+}
 
 /** internal，供兄弟模块使用 */
 export async function deriveRunQuestions(bankIds: string[]): Promise<string[]> {
@@ -355,7 +369,7 @@ async function progressForAnswerInTx(roundId: string, questionId: string, attemp
  * Submit one answer.  All local projections and the optional round progress
  * are committed in one transaction and exactly one domain event is emitted.
  */
-export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Promise<{ attempt: AttemptV7; answer: PracticeAnswerV7 }> {
+export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInputV7): Promise<{ attempt: AttemptV7; answer: PracticeAnswerV7 & { response?: PracticeResponse; outcome?: AttemptOutcome } }> {
   // Calculation blanks are positional and may legitimately contain the same
   // value more than once, so answer state must preserve order and duplicates.
   const selected = (Array.isArray(input.selected) ? [...input.selected] : [input.selected]).map(String);
@@ -387,6 +401,17 @@ export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Prom
     const deviceId = getV7DeviceId();
     const eventId = makeV7Id("answer");
     const sourceBankId = input.sourceBankId ?? input.bankId ?? run.bankIds[0];
+    const question = await dbV7.questions.get(input.questionId);
+    const outcome = input.outcome ?? (selected.length ? (input.correct ? "correct" : "incorrect") : "skipped");
+    const response: PracticeResponse | undefined = input.response ?? (question?.type === "简答"
+      ? { kind: "short", text: selected.join("\n") }
+      : question?.type === "填空"
+        ? { kind: "fill", values: selected }
+        : question?.type === "计算"
+          ? { kind: "calculation", values: selected }
+          : question
+            ? { kind: "choice", selectedOptionIds: selected.map((letter) => stableOptionIdForAnswer(question, letter)).filter((id): id is string => Boolean(id)) }
+            : undefined);
     const attempt: AttemptV7 = {
       id: makeV7Id("attempt"),
       runId: input.runId,
@@ -397,14 +422,18 @@ export async function recordPracticeAnswerV7(input: PracticeAnswerInputV7): Prom
       createdAt: timestamp,
       deviceId,
       ...(sourceBankId ? { sourceBankId } : {}),
+      ...(response ? { response } : {}),
+      outcome,
     };
-    const answer: PracticeAnswerV7 = {
+    const answer: PracticeAnswerV7 & { response?: PracticeResponse; outcome?: AttemptOutcome } = {
       selected,
       submitted: true,
       correct: Boolean(input.correct),
       updatedAt: timestamp,
       deviceId,
       eventId,
+      ...(response ? { response } : {}),
+      outcome,
     };
     const answers = { ...run.answers, [input.questionId]: answer };
     const lastSubmittedIndex = run.questionIds.reduce(

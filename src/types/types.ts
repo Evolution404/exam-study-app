@@ -1,4 +1,23 @@
-export type QuestionType = "判断" | "单选" | "多选" | "计算";
+export type QuestionType = "判断" | "单选" | "多选" | "计算" | "填空" | "简答";
+
+/**
+ * Structured answer data.  The legacy `answer` string remains on the public
+ * row for one release so old projections can still be displayed, but all new
+ * editors/importers/practice code should prefer this discriminated union.
+ */
+export type QuestionSolution =
+  | { kind: "choice"; correctOptionIds: string[] }
+  | { kind: "calculation"; blanks: Array<{ id: string; expected: number; tolerancePercent?: number }> }
+  | { kind: "fill"; blanks: Array<{ id: string; acceptedAnswers: string[] }> }
+  | { kind: "short"; referenceText: string };
+
+export type PracticeResponse =
+  | { kind: "choice"; selectedOptionIds: string[] }
+  | { kind: "calculation"; values: string[] }
+  | { kind: "fill"; values: string[] }
+  | { kind: "short"; text: string };
+
+export type AttemptOutcome = "correct" | "incorrect" | "skipped";
 
 export interface Bank {
   id: string;
@@ -35,6 +54,9 @@ export interface Question {
   normalizedStem: string;
   answer: string;
   options: string[];
+  /** Stable option identities; display letters are derived at render time. */
+  optionIds?: string[];
+  solution?: QuestionSolution;
   type: QuestionType;
   imageUrl?: string;
   tags: string[];
@@ -50,6 +72,8 @@ export interface PracticeAnswerState {
   selected: string[];
   submitted: boolean;
   correct?: boolean;
+  response?: PracticeResponse;
+  outcome?: AttemptOutcome;
   updatedAt?: string;
   deviceId?: string;
   eventId?: string;

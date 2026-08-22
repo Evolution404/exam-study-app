@@ -28,7 +28,7 @@ import {
   questionContentFingerprint,
   stripImagePlaceholders,
 } from "../question/question-content";
-import { normalizeCalculationAnswer } from "../question/question-utils";
+import { legacyAnswerForSolution, normalizeCalculationAnswer, questionSolution, stableOptionIdForBlocks } from "../question/question-utils";
 import type {
   BankQuestionMembership,
   BankV7,
@@ -38,11 +38,18 @@ import type {
   QuestionGroupV7,
   QuestionTypeV7,
   QuestionV7,
+  QuestionSolution,
   TombstoneV7,
 } from "./v7-types";
 
+export type StructuredQuestionDraftV7 = QuestionDraftV7 & {
+  optionIds?: string[];
+  solution?: QuestionSolution;
+};
+
 function normalizeAnswer(type: QuestionTypeV7, input: string | readonly string[]): string {
   if (type === "计算") return normalizeCalculationAnswer(input);
+  if (type === "填空" || type === "简答") return String(Array.isArray(input) ? input.join("\n") : input).trim();
   const raw = Array.isArray(input) ? input.join("") : String(input);
   return uniqueStrings([...raw.toUpperCase().replace(/[^A-Z]/g, "")]).sort().join("");
 }
@@ -66,17 +73,24 @@ function blocksFromOptions(options: QuestionDraftV7["options"]): ContentBlock[][
   });
 }
 
-function questionFromDraft(id: string, draft: QuestionDraftV7, timestamp: string, deviceId: string): QuestionV7 {
+function questionFromDraft(id: string, draft: StructuredQuestionDraftV7, timestamp: string, deviceId: string): QuestionV7 {
   const content = normalizeBlocks(draft.content ?? plainTextToContentBlocks(draft.stem ?? "", "stem-0"));
   const options = blocksFromOptions(draft.options);
-  const answer = normalizeAnswer(draft.type, draft.answer);
-  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, answer });
+  const optionIds = (draft.type === "判断" || draft.type === "单选" || draft.type === "多选")
+    ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : options.map((option) => stableOptionIdForBlocks(option)))
+    : [];
+  const suppliedSolution = draft.solution;
+  const solution = suppliedSolution ?? questionSolution({ type: draft.type, answer: normalizeAnswer(draft.type, draft.answer), options, optionIds });
+  const answer = suppliedSolution ? legacyAnswerForSolution(solution, optionIds) : normalizeAnswer(draft.type, draft.answer);
+  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, answer: `${answer}\u0000${JSON.stringify(solution)}` });
   return {
     id,
     type: draft.type,
     content,
     options,
     answer,
+    ...(optionIds.length ? { optionIds } : {}),
+    solution,
     tags: uniqueStrings(draft.tags ?? []),
     favorite: Boolean(draft.favorite),
     contentFingerprint,
@@ -90,7 +104,7 @@ async function findQuestionByFingerprint(fingerprint: string): Promise<QuestionV
 }
 
 /** Create content and attach it to a bank, sharing an existing exact match. */
-export async function createQuestionV7(bankId: string, draft: QuestionDraftV7): Promise<QuestionV7> {
+export async function createQuestionV7(bankId: string, draft: StructuredQuestionDraftV7): Promise<QuestionV7> {
   const bank = await dbV7.banks.get(bankId);
   if (!bank) throw new Error("题库不存在或已被删除。");
   const timestamp = nowIso();
@@ -121,15 +135,17 @@ export async function createQuestionV7(bankId: string, draft: QuestionDraftV7): 
   return question;
 }
 
-export async function updateQuestionV7(questionId: string, changes: Partial<QuestionDraftV7>): Promise<QuestionV7> {
+export async function updateQuestionV7(questionId: string, changes: Partial<StructuredQuestionDraftV7>): Promise<QuestionV7> {
   const current = await dbV7.questions.get(questionId);
   if (!current) throw new Error("题目不存在或已被删除。");
   const timestamp = nowIso();
-  const draft: QuestionDraftV7 = {
+  const draft: StructuredQuestionDraftV7 = {
     type: changes.type ?? current.type,
     content: changes.content ?? current.content,
     options: changes.options ?? current.options,
     answer: changes.answer ?? current.answer,
+    optionIds: changes.optionIds ?? current.optionIds,
+    solution: changes.solution ?? current.solution,
     tags: changes.tags ?? current.tags,
     favorite: changes.favorite ?? current.favorite,
   };
@@ -463,7 +479,7 @@ function importedBlocks(value: unknown): ContentBlock[] | undefined {
   return blocks;
 }
 
-function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
+function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | undefined {
   if (!row || typeof row !== "object") return undefined;
   const record = row as unknown as Record<string, unknown>;
   const imageIds = Array.isArray(record.images)
@@ -491,13 +507,17 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
   const optionTexts = options.map((option) => typeof option === "string" ? option : deriveContentText(option));
   const rawType = rowString(record, "type", "questionType", "题型").trim();
   const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";
-  const answer = Array.isArray(rawAnswer) ? rawAnswer.map(String).join(rawType === "计算" ? "\n" : "") : String(rawAnswer);
-  const type: QuestionTypeV7 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算"
+  const answer = Array.isArray(rawAnswer)
+    ? rawType === "填空" && rawAnswer.every((item) => Array.isArray(item))
+      ? rawAnswer.map((item) => (item as unknown[]).map(String).join("||")).join("\n")
+      : rawAnswer.map((item) => Array.isArray(item) ? item.map(String).join("||") : String(item)).join(rawType === "计算" || rawType === "填空" ? "\n" : "")
+    : String(rawAnswer);
+  const type: QuestionTypeV7 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算" || rawType === "填空" || rawType === "简答"
     ? rawType
     : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"
       ? "判断"
       : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
-  if (!answer.trim() || (type !== "计算" && options.length < 2)) return undefined;
+  if (!answer.trim() || (!["计算", "填空", "简答"].includes(type) && options.length < 2)) return undefined;
   const rawTags = record.tags ?? record["标签"];
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
   const note = rowString(record, "note", "analysis", "解析").trim();
@@ -506,6 +526,8 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
     ...(content ? { content } : { stem: cleanStem ?? stem }),
     options,
     answer,
+    ...(Array.isArray(record.optionIds) && record.optionIds.length === options.length ? { optionIds: record.optionIds.map(String) } : {}),
+    ...(record.solution && typeof record.solution === "object" ? { solution: record.solution as QuestionSolution } : {}),
     tags: uniqueStrings(tags),
     ...(note ? { note } : {}),
   };
@@ -523,7 +545,7 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
  */
 export async function importQuestionBankV7(fileName: string, raw: unknown, options?: { targetBankId?: string; imageAssets?: readonly ImageAsset[] }): Promise<BankV7 & { importedCount: number }> {
   const parsed = rawQuestionRows(raw);
-  const rows = parsed.rows.map(importDraft).filter((row): row is QuestionDraftV7 => Boolean(row));
+  const rows = parsed.rows.map(importDraft).filter((row): row is StructuredQuestionDraftV7 => Boolean(row));
   if (!rows.length) throw new Error("题库中没有可导入的有效题目。");
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();

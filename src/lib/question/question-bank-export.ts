@@ -7,19 +7,22 @@
  * images as WPS DISPIMG cell images, and the zip bundle carries structured
  * content blocks plus content-addressed image files.
  */
-import type { ContentBlock } from "../db/v7-types";
+import type { ContentBlock, QuestionSolution } from "../db/v7-types";
+import type { QuestionType } from "../../types/types";
 import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
 import { mapWithConcurrency } from "../async/bounded-concurrency";
-import { calculationAnswers } from "./question-utils";
+import { calculationAnswers, legacyAnswerForSolution, questionSolution, stableQuestionOptionIds } from "./question-utils";
 
 export interface ExportQuestionInput {
   id: string;
-  type: string;
+  type: QuestionType;
   stem: string;
   options: string[];
   answer: string;
+  optionIds?: string[];
+  solution?: QuestionSolution;
   tags: string[];
   /** Canonical stem blocks; image blocks become 【图N】 placeholders. */
   content?: ContentBlock[];
@@ -79,9 +82,22 @@ function optionColumns(questions: readonly ExportQuestionInput[]): number {
 }
 
 function answerColumns(questions: readonly ExportQuestionInput[]): number {
-  return Math.max(1, questions.reduce((max, question) => question.type === "计算"
-    ? Math.max(max, calculationAnswers(question.answer).length)
-    : max, 1));
+  return Math.max(1, questions.reduce((max, question) => {
+    if (question.type === "计算") return Math.max(max, calculationAnswers(question.answer).length);
+    if (question.type === "填空") {
+      const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
+      return solution.kind === "fill" ? Math.max(max, solution.blanks.length) : max;
+    }
+    return max;
+  }, 1));
+}
+
+function answerCells(question: ExportQuestionInput): string[] {
+  const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
+  if (solution.kind === "calculation") return solution.blanks.map((blank) => String(blank.expected));
+  if (solution.kind === "fill") return solution.blanks.map((blank) => blank.acceptedAnswers.join("||"));
+  if (solution.kind === "short") return [solution.referenceText];
+  return [legacyAnswerForSolution(solution, question.optionIds ?? stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: undefined }))];
 }
 
 function imageDisplaySize(data: ExportImageData): { width: number; height: number } {
@@ -157,7 +173,7 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
   const rows = perQuestionImages.map((item, questionIndex) => {
     const question = questions[questionIndex];
     const base = [item.stemText || question.stem, question.type, question.tags.join("、"), notes.get(question.id) ?? ""];
-    const sourceAnswers = question.type === "计算" ? calculationAnswers(question.answer) : [question.answer];
+    const sourceAnswers = answerCells(question);
     const answers = Array.from({ length: answerCount }, (_, index) => sourceAnswers[index] ?? "");
     const options = Array.from({ length: optionCount }, (_, index) => item.optionTexts[index]?.text ?? "");
     const imageCells = Array.from({ length: imageColumnCount }, (_, index) => {
@@ -186,7 +202,7 @@ export function questionExportRows(questions: readonly ExportQuestionInput[], no
   const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: columns }, (_, index) => columnLabel(index))];
   const rows = questions.map((question) => {
     const base = [question.stem, question.type, question.tags.join("、"), notes.get(question.id) ?? ""];
-    const sourceAnswers = question.type === "计算" ? calculationAnswers(question.answer) : [question.answer];
+    const sourceAnswers = answerCells(question);
     const answers = Array.from({ length: answerCount }, (_, index) => sourceAnswers[index] ?? "");
     const options = Array.from({ length: columns }, (_, index) => question.options[index] ?? "");
     return [...base, ...answers, ...options];
@@ -217,12 +233,14 @@ const INSTRUCTIONS: string[][] = [
   ["适用项目", "拾卷（exam-study-app）本地优先刷题 PWA"],
   ["本文件由题库导出生成，可直接改回本 App 重新导入。"],
   ["题干", "必填。支持普通文字、公式、图片和计算题填空占位符。多空计算题必须依次写【空1】【空2】…。"],
-  ["题型", "必填，只能填写：单选、多选、判断、计算。"],
+  ["题型", "必填，只能填写：单选、多选、判断、计算、填空、简答。"],
   ["答案列", "所有题至少填写“答案1”。选择题只用答案1；计算题按填空顺序分别填写答案1、答案2…，不得断列。"],
   ["标签", "可选。多个标签使用中文逗号、英文逗号或顿号分隔。"],
   ["解析", "可选。该题的个人解析，导入时会写回为本机笔记。"],
   ["多空计算题", "例如题干“电流为【空1】A，功率为【空2】W”，就在答案1、答案2分别填写两个标准数值；每空独立应用误差比例，全部正确才算整题正确。"],
-  ["选项", "单选、多选、判断题从 A 列开始连续填写，不得断列；判断题必须依次为“正确、错误”。计算题不要填写选项。"],
+  ["填空题", "每个答案列对应一个空；同一空可填写多个标准文本答案，用 || 分隔；最多 12 个空。"],
+  ["简答题", "答案1填写参考答案；练习时由用户自行标记正确、错误或跳过，不自动判定。"],
+  ["选项", "单选、多选、判断题从 A 列开始连续填写，不得断列；判断题必须依次为“正确、错误”。计算、填空、简答题不要填写选项。"],
   ["图片", "题干或选项中的图片按出现顺序编号为【图1】【图2】…，对应“图片1、图片2…”列中嵌入的单元格图片。"],
   ["图片查看", "嵌入图片需用 WPS Office 打开查看；Microsoft Excel 不支持该格式，会显示公式文字但题目数据完整。"],
   ["便携导出", "选择“导出 JSON / ZIP”：无图题库生成 JSON；含图题库生成包含 bank.json 与全部原图的 ZIP 压缩包。"],
@@ -286,7 +304,9 @@ export function questionExportJson(name: string, questions: readonly ExportQuest
         type: question.type,
         stem: question.stem,
         options: question.options,
-        answer: question.type === "计算" ? calculationAnswers(question.answer) : question.answer,
+        answer: question.type === "计算" || question.type === "填空" ? answerCells(question) : question.type === "简答" ? answerCells(question)[0] ?? "" : question.answer,
+        ...(question.optionIds ? { optionIds: question.optionIds } : {}),
+        ...(question.solution ? { solution: question.solution } : {}),
         tags: question.tags,
         ...(note ? { note } : {}),
       };
@@ -325,7 +345,9 @@ export function questionExportBundle(name: string, questions: readonly ExportQue
         type: question.type,
         content,
         options,
-        answer: question.type === "计算" ? calculationAnswers(question.answer) : question.answer,
+        answer: question.type === "计算" || question.type === "填空" ? answerCells(question) : question.type === "简答" ? answerCells(question)[0] ?? "" : question.answer,
+        ...(question.optionIds ? { optionIds: question.optionIds } : {}),
+        ...(question.solution ? { solution: question.solution } : {}),
         tags: question.tags,
         ...(note ? { note } : {}),
       };

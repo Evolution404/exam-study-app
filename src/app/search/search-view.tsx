@@ -27,7 +27,7 @@ import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/pr
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { createSearchWorkerClient } from "@/app/search/search-worker-client";
-import { searchIndexFingerprint } from "@/lib/question/search-matching";
+import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -291,7 +291,7 @@ export function SearchView({
   const searchPending = showResults && completedSearch?.key !== searchRequestKey;
   const result = completedSearch?.key === searchRequestKey
     ? completedSearch.result
-    : { ids: [], total: 0, counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: "" };
+    : { ids: [], total: 0, counts: emptyTypeCounts(), error: "" };
   const questionById = useMemo(() => new Map(appliedQuestions.map((question) => [question.id, question])), [appliedQuestions]);
   const resultEntries = result.ids.flatMap((id) => {
     const question = questionById.get(id);

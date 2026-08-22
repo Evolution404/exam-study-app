@@ -5,13 +5,17 @@
  * 选项字母由 displayOrder（练习页选项打乱）映射为用户实际看到的显示字母，
  * 不传则按原始字母输出（题目详情页与正文渲染顺序一致）。
  */
-import { formatCalculationAnswers } from "./question-utils";
+import { formatCalculationAnswers, legacyAnswerForSolution, questionSolution, stableQuestionOptionIds } from "./question-utils";
+import type { QuestionSolution } from "../db/v7-types";
+import type { QuestionType } from "../../types/types";
 
 export interface QuestionCopySource {
-  type: string;
+  type: QuestionType;
   stem: string;
   options: string[];
   answer: string;
+  optionIds?: string[];
+  solution?: QuestionSolution;
 }
 
 export interface QuestionCopyOptions {
@@ -30,8 +34,13 @@ function resolveOrder(question: QuestionCopySource, displayOrder?: number[]): nu
 }
 
 export function displayedAnswer(question: QuestionCopySource, optionOrder: number[]): string {
-  if (question.type === "计算") return formatCalculationAnswers(question.answer);
-  return question.answer
+  const solution = questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds, solution: question.solution });
+  if (solution.kind === "calculation") return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
+  if (solution.kind === "fill") return solution.blanks.map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`).join("；");
+  if (solution.kind === "short") return "参考答案：" + solution.referenceText;
+  const optionIds = stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds });
+  const answer = legacyAnswerForSolution(solution, optionIds);
+  return answer
     .split("")
     .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
     .filter((index) => index >= 0)
@@ -42,8 +51,13 @@ export function displayedAnswer(question: QuestionCopySource, optionOrder: numbe
 
 /** 「字母. 选项文本」逐项格式（练习页作答反馈仍使用；复制文本已改为纯字母）。 */
 export function answerText(question: QuestionCopySource, optionOrder: number[]): string {
-  if (question.type === "计算") return formatCalculationAnswers(question.answer);
-  return question.answer
+  const solution = questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds, solution: question.solution });
+  if (solution.kind === "calculation") return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
+  if (solution.kind === "fill") return solution.blanks.map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`).join("；");
+  if (solution.kind === "short") return "参考答案：" + solution.referenceText;
+  const optionIds = stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds });
+  const answer = legacyAnswerForSolution(solution, optionIds);
+  return answer
     .split("")
     .map((letter) => letter.charCodeAt(0) - 65)
     .map((originalIndex) => ({ originalIndex, displayIndex: optionOrder.indexOf(originalIndex) }))
@@ -57,6 +71,8 @@ export function answerText(question: QuestionCopySource, optionOrder: number[]):
 function wrongSelectionText(question: QuestionCopySource, order: number[], wrongSelection: string[]): string {
   if (!wrongSelection.length) return "我的选择：不会";
   if (question.type === "计算") return `我的选择：${formatCalculationAnswers(wrongSelection)}`;
+  if (question.type === "填空") return `我的选择：${wrongSelection.join("；")}`;
+  if (question.type === "简答") return `我的回答：${wrongSelection.join("\n")}`;
   return `我的选择：${wrongSelection
     .map((letter) => letter.charCodeAt(0) - 65)
     .map((originalIndex) => order.indexOf(originalIndex))

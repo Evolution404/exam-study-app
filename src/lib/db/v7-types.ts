@@ -3,7 +3,10 @@ import type {
   BankFolder as LegacyBankFolder,
   Note as LegacyNote,
   PracticeRun,
+  AttemptOutcome,
   QuestionGroup as LegacyQuestionGroup,
+  QuestionSolution,
+  PracticeResponse,
   QuestionType,
   SyncFile as LegacySyncFile,
   SyncMeta as LegacySyncMeta,
@@ -38,6 +41,7 @@ export interface TombstoneV7 extends Omit<LegacySyncTombstone, "entityType"> {
 
 /** The question kinds currently supported by the v7 content model. */
 export type QuestionTypeV7 = QuestionType;
+export type { AttemptOutcome, PracticeResponse, QuestionSolution };
 
 export interface TextContentBlock {
   id: string;
@@ -65,6 +69,10 @@ export interface QuestionV7 {
   content: ContentBlock[];
   options: ContentBlock[][];
   answer: string;
+  /** Stable option IDs aligned with `options`; never derive identity from A/B/C. */
+  optionIds?: string[];
+  /** Structured solution; `answer` is retained as a legacy projection. */
+  solution?: QuestionSolution;
   tags: string[];
   favorite?: boolean;
   contentFingerprint: string;
@@ -92,6 +100,8 @@ export interface AttemptV7 {
   createdAt: string;
   deviceId: string;
   sourceBankId?: string;
+  response?: PracticeResponse;
+  outcome?: AttemptOutcome;
 }
 
 /** Global (bank-independent) attempt projection keyed only by question id. */

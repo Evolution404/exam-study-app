@@ -12,7 +12,7 @@ import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { createSearchWorkerClient } from "@/app/search/search-worker-client";
-import { emptySearchFilterProjection, searchIndexFingerprint } from "@/lib/question/search-matching";
+import { emptySearchFilterProjection, emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 
 /**
  * Keep the topbar quick search on the input/update timing that originally
@@ -131,7 +131,7 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
   const searchPending = Boolean(normalizedQuery && data && completedSearch?.key !== searchRequestKey);
   const results = completedSearch?.key === searchRequestKey
     ? completedSearch.result
-    : { ids: [], total: 0, counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: "" };
+    : { ids: [], total: 0, counts: emptyTypeCounts(), error: "" };
   const items = results.ids.flatMap((id) => {
     const question = questionsById.get(id);
     return question ? [question] : [];

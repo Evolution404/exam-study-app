@@ -77,6 +77,16 @@ assert.deepEqual(questions, [
   { q: "电流【空1】A，功率【空2】W", ans: "11\n968", a: [], type: "计算", tags: ["计算"], note: "计算题解析" },
 ]);
 
+const structuredQuestions = parseQuestionBankTable([
+  ["题干", "题型", "标签", "解析", "答案1", "答案2", "A", "B"],
+  ["填空题【空1】、【空2】", "填空", "结构化", "", "电流||电流强度", "功率", "", ""],
+  ["简答题", "简答", "结构化", "", "参考答案", "", "", ""],
+]);
+assert.deepEqual(structuredQuestions, [
+  { q: "填空题【空1】、【空2】", ans: "电流||电流强度\n功率", a: [], type: "填空", tags: ["结构化"] },
+  { q: "简答题", ans: "参考答案", a: [], type: "简答", tags: ["结构化"] },
+]);
+
 const extendedOptions = parseQuestionBankTable([
   ["题干", "题型", "标签", "解析", "答案1", "A", "B", "C", "D", "E", "F", "G", "H", "I"],
   ["九选一", "单选", "", "", "I", "一", "二", "三", "四", "五", "六", "七", "八", "九"],

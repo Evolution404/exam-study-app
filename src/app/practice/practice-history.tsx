@@ -13,7 +13,7 @@ import { buildScopedQuestionStats, scopedStatsToLegacyAttemptStats, type Progres
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 
-const TYPE_ORDER: QuestionTypeV7[] = ["单选", "多选", "判断", "计算"];
+const TYPE_ORDER: QuestionTypeV7[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
 
 function runStats(run: PracticeRunV7) {
   const submitted = Object.values(run.answers).filter((answer) => answer.submitted);

@@ -76,7 +76,7 @@ const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
   { id: "difficulty", label: "复习优先" },
 ];
 
-const questionTypes: QuestionTypeV7[] = ["单选", "多选", "判断", "计算"];
+const questionTypes: QuestionTypeV7[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
 
 function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));

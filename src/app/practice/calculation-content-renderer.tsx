@@ -3,6 +3,8 @@ import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { MathText } from "@/app/ui/math-text";
 import type { ContentBlock, TextContentBlock } from "@/lib/db/v7-types";
 import { CALCULATION_BLANK_PATTERN, isCalculationAnswerCorrect } from "@/lib/question/question-utils";
+import { fillAnswersAreCorrect } from "@/lib/question/question-utils";
+import type { QuestionSolution } from "@/lib/db/v7-types";
 import type { LoadAsset } from "@/app/ui/asset-image";
 
 interface CalculationContentRendererProps {
@@ -82,4 +84,50 @@ export function CalculationContentRenderer({
     className={className}
     renderTextBlock={(block) => <Fragment>{renderTextBlock(block)}</Fragment>}
   />;
+}
+
+export interface FillContentRendererProps {
+  blocks: readonly ContentBlock[];
+  blankCount: number;
+  values?: readonly string[];
+  expected?: Extract<QuestionSolution, { kind: "fill" }>;
+  disabled?: boolean;
+  idPrefix?: string;
+  className?: string;
+  loadAsset?: LoadAsset;
+  onChange?: (index: number, value: string) => void;
+  onLastEnter?: () => void;
+}
+
+/** Text-input equivalent of CalculationContentRenderer for positional fill
+ * blanks.  It intentionally keeps author line breaks and only treats the
+ * explicit 【空N】 markers as interactive controls. */
+export function FillContentRenderer({ blocks, blankCount, values, expected, disabled = false, idPrefix = "fill-blank", className, loadAsset, onChange, onLastEnter }: FillContentRendererProps) {
+  function renderTextBlock(block: TextContentBlock) {
+    return splitCalculationText(block).map((part, partIndex) => {
+      if ("text" in part) return <MathText key={`${block.id}-text-${partIndex}`} text={part.text} />;
+      const index = part.blank;
+      if (index < 0 || index >= blankCount) return <span className="calculation-blank-invalid" key={`${block.id}-invalid-${partIndex}`}>【空{index + 1}】</span>;
+      const value = values?.[index] ?? "";
+      const resultClass = disabled && expected ? (fillAnswersAreCorrect(values ?? [], expected) ? " correct" : " wrong") : "";
+      return <input
+        id={`${idPrefix}-${index + 1}`}
+        className={`calculation-inline-input fill-inline-input${resultClass}`}
+        key={`${block.id}-blank-${index}`}
+        aria-label={`第${index + 1}空答案`}
+        type="text"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange?.(index, event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          const next = document.getElementById(`${idPrefix}-${index + 2}`) as HTMLInputElement | null;
+          if (next) next.focus();
+          else onLastEnter?.();
+        }}
+        placeholder={`第${index + 1}空`}
+      />;
+    });
+  }
+  return <ContentBlockRenderer blocks={blocks} loadAsset={loadAsset} className={className} renderTextBlock={(block) => <Fragment>{renderTextBlock(block)}</Fragment>} />;
 }

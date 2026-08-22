@@ -1,3 +1,5 @@
+import type { ContentBlock, QuestionSolution, QuestionV7 } from "../db/v7-types";
+
 /** Legacy v5-only URL normalizer retained for the read-only migration source. */
 export function normalizeQuestionImageUrl(value: string | undefined) {
   const input = value?.trim();
@@ -63,4 +65,120 @@ export function areCalculationAnswersCorrect(input: readonly string[], expected:
   const expectedAnswers = calculationAnswers(expected);
   return input.length === expectedAnswers.length
     && input.every((answer, index) => isCalculationAnswerCorrect(answer, expectedAnswers[index], tolerancePercent));
+}
+
+// ---------------------------------------------------------------------------
+// Structured question answers
+// ---------------------------------------------------------------------------
+
+export const MAX_FILL_BLANKS = 12;
+export const FILL_ACCEPTED_ANSWER_SEPARATOR = "||";
+
+/** Normalize a human-entered text answer without changing its display form. */
+export function normalizeFillAnswer(value: string): string {
+  return String(value).normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("zh-CN");
+}
+
+function splitAcceptedText(value: string): string[] {
+  return [...new Set(String(value)
+    .split(FILL_ACCEPTED_ANSWER_SEPARATOR)
+    .map(normalizeFillAnswer)
+    .filter(Boolean))];
+}
+
+/** Parse one legacy answer string into positional fill blanks.  Each line is
+ * one blank and `||` separates accepted answers for the same blank. */
+export function fillBlankAnswers(value: string | readonly string[]): string[][] {
+  const cells = Array.isArray(value) ? value.map(String) : String(value).split(/\r?\n/);
+  return cells.map(splitAcceptedText).filter((answers) => answers.length > 0);
+}
+
+export function serializeFillBlankAnswers(blanks: readonly (readonly string[])[]): string {
+  return blanks.map((answers) => [...new Set(answers.map(normalizeFillAnswer).filter(Boolean))].join(FILL_ACCEPTED_ANSWER_SEPARATOR)).join("\n");
+}
+
+export function normalizeFillSolution(value: string | readonly string[][] | readonly string[]): Extract<QuestionSolution, { kind: "fill" }> {
+  const blanks = typeof value !== "string"
+    ? value.map((answers, index) => {
+      const values = Array.isArray(answers) ? answers : [answers];
+      return { id: `blank-${index + 1}`, acceptedAnswers: [...new Set(values.map((answer) => normalizeFillAnswer(String(answer))).filter(Boolean))] };
+    })
+    : fillBlankAnswers(value).map((answers, index) => ({ id: `blank-${index + 1}`, acceptedAnswers: answers }));
+  if (!blanks.length || blanks.length > MAX_FILL_BLANKS || blanks.some((blank) => !blank.acceptedAnswers.length)) {
+    throw new Error(`填空题必须包含 1-${MAX_FILL_BLANKS} 个有效标准答案。`);
+  }
+  return { kind: "fill", blanks };
+}
+
+export function fillAnswersAreCorrect(input: readonly string[], expected: Extract<QuestionSolution, { kind: "fill" }>): boolean {
+  return input.length === expected.blanks.length && expected.blanks.every((blank, index) => {
+    const value = normalizeFillAnswer(input[index] ?? "");
+    return Boolean(value) && blank.acceptedAnswers.some((answer) => normalizeFillAnswer(answer) === value);
+  });
+}
+
+function hashToken(value: string): string {
+  // FNV-1a is sufficient here: this is an opaque stable UI identity, not a
+  // security hash. Keeping it local avoids async crypto in draft normalizing.
+  let hash = 0x811c9dc5;
+  for (const char of value) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function contentIdentity(blocks: readonly ContentBlock[]): string {
+  return blocks.map((block) => block.type === "text" ? `t:${normalizeFillAnswer(block.text)}` : `i:${block.assetId}`).join("|");
+}
+
+/** Generate IDs from option content rather than its rendered A/B/C letter. */
+export function stableQuestionOptionIds(question: Pick<QuestionV7, "options" | "optionIds">): string[] {
+  if (question.optionIds?.length === question.options.length && new Set(question.optionIds).size === question.optionIds.length && question.optionIds.every(Boolean)) {
+    return [...question.optionIds];
+  }
+  return question.options.map((option) => `option-${hashToken(contentIdentity(option))}`);
+}
+
+export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string {
+  return `option-${hashToken(contentIdentity(blocks))}`;
+}
+
+function calculationSolutionFromAnswer(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
+  const answers = calculationAnswers(value);
+  if (!answers.length || answers.length > MAX_CALCULATION_BLANKS || answers.some((answer) => !Number.isFinite(Number(answer)))) {
+    throw new Error(`计算题必须包含 1-${MAX_CALCULATION_BLANKS} 个有效数字答案。`);
+  }
+  return { kind: "calculation", blanks: answers.map((answer, index) => ({ id: `blank-${index + 1}`, expected: Number(answer) })) };
+}
+
+/** Single adapter from the legacy `answer` projection to structured data. */
+export function questionSolution(question: Pick<QuestionV7, "type" | "answer" | "options" | "optionIds" | "solution">): QuestionSolution {
+  if (question.solution) return question.solution;
+  if (question.type === "计算") return calculationSolutionFromAnswer(question.answer);
+  if (question.type === "填空") return normalizeFillSolution(question.answer);
+  if (question.type === "简答") return { kind: "short", referenceText: String(question.answer ?? "") };
+  const optionIds = stableQuestionOptionIds(question);
+  return {
+    kind: "choice",
+    correctOptionIds: [...new Set(String(question.answer).toUpperCase().replace(/[^A-Z]/g, "").split("")
+      .map((letter) => optionIds[letter.charCodeAt(0) - 65])
+      .filter((id): id is string => Boolean(id)))],
+  };
+}
+
+export function legacyAnswerForSolution(solution: QuestionSolution, optionIds: readonly string[] = []): string {
+  if (solution.kind === "choice") {
+    return solution.correctOptionIds.map((id) => {
+      const index = optionIds.indexOf(id);
+      return index >= 0 ? String.fromCharCode(65 + index) : "";
+    }).filter(Boolean).sort().join("");
+  }
+  if (solution.kind === "calculation") return solution.blanks.map((blank) => String(blank.expected)).join("\n");
+  if (solution.kind === "fill") return serializeFillBlankAnswers(solution.blanks.map((blank) => blank.acceptedAnswers));
+  return solution.referenceText;
+}
+
+export function shortAnswerSolution(referenceText: string): Extract<QuestionSolution, { kind: "short" }> {
+  return { kind: "short", referenceText: referenceText.trim() };
 }

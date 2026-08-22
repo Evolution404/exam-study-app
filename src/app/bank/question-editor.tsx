@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
-import type { ContentBlock, QuestionV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { ContentBlock, QuestionSolution, QuestionV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import type { QuestionDraftV7 } from "@/lib/db/db-v7";
 import { dbV7 } from "@/lib/db/db-v7";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";
@@ -14,11 +14,11 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockEditor } from "@/app/bank/content-block-editor";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer } from "@/app/practice/calculation-content-renderer";
-import { calculationAnswers, MAX_CALCULATION_BLANKS, normalizeCalculationAnswer, validateCalculationBlankLayout } from "@/lib/question/question-utils";
+import { calculationAnswers, fillBlankAnswers, legacyAnswerForSolution, MAX_CALCULATION_BLANKS, MAX_FILL_BLANKS, normalizeCalculationAnswer, normalizeFillSolution, questionSolution, stableQuestionOptionIds, shortAnswerSolution, validateCalculationBlankLayout } from "@/lib/question/question-utils";
 import { cleanVisualWrapQuestion } from "@/lib/question/imported-text-cleanup";
 
 /** Changes accepted by v7 question update/create callers. */
-export type QuestionChanges = QuestionDraftV7;
+export type QuestionChanges = QuestionDraftV7 & { solution?: QuestionSolution; optionIds?: string[] };
 
 /** Presentation-only join used by legacy-shaped layouts. Canonical content remains `canonical`. */
 export interface QuestionViewModel {
@@ -34,6 +34,8 @@ export interface QuestionViewModel {
   type: QuestionTypeV7;
   tags: string[];
   favorite?: boolean;
+  solution?: QuestionSolution;
+  optionIds?: string[];
 }
 
 export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName = "未归档题目", sortOrder = 0): QuestionViewModel {
@@ -52,10 +54,12 @@ export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName 
     type: canonical.type,
     tags: [...canonical.tags],
     favorite: canonical.favorite,
+    solution: canonical.solution,
+    optionIds: canonical.optionIds,
   };
 }
 
-const questionTypes: QuestionTypeV7[] = ["判断", "单选", "多选", "计算"];
+const questionTypes: QuestionTypeV7[] = ["判断", "单选", "多选", "计算", "填空", "简答"];
 
 function textBlocks(text: string, prefix: string): ContentBlock[] {
   return plainTextToContentBlocks(text, `${prefix}-0`);
@@ -63,12 +67,13 @@ function textBlocks(text: string, prefix: string): ContentBlock[] {
 
 function defaultOptions(type: QuestionTypeV7): ContentBlock[][] {
   if (type === "判断") return [textBlocks("正确", "option-0"), textBlocks("错误", "option-1")];
-  if (type === "计算") return [];
+  if (type === "计算" || type === "填空" || type === "简答") return [];
   return Array.from({ length: 4 }, (_, index) => textBlocks("", `option-${index}`));
 }
 
 function normalizeAnswer(type: QuestionTypeV7, answer: string): string {
   if (type === "计算") return normalizeCalculationAnswer(answer);
+  if (type === "填空" || type === "简答") return answer.trim();
   return [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, "").split(""))].sort().join("");
 }
 
@@ -121,6 +126,9 @@ export function QuestionEditor({
   const [options, setOptions] = useState<ContentBlock[][]>(question.options.map((blocks) => blocks.map((block) => ({ ...block }))));
   const [answer, setAnswer] = useState(question.answer);
   const [type, setType] = useState<QuestionTypeV7>(question.type);
+  const initialStructuredSolution = questionSolution(question);
+  const [fillBlanks, setFillBlanks] = useState<string[][]>(() => initialStructuredSolution.kind === "fill" ? initialStructuredSolution.blanks.map((blank) => [...blank.acceptedAnswers]) : fillBlankAnswers(question.answer));
+  const [shortReference, setShortReference] = useState(() => initialStructuredSolution.kind === "short" ? initialStructuredSolution.referenceText : "");
   const [tags, setTags] = useState(question.tags.join("，"));
   const [note, setNote] = useState(initialNote);
   // The existing note is loaded asynchronously by the shared editor (useLiveQuery),
@@ -148,6 +156,14 @@ export function QuestionEditor({
     } else if (value === "计算") {
       setOptions([]);
       setAnswer("");
+    } else if (value === "填空") {
+      setOptions([]);
+      setAnswer("");
+      setFillBlanks([[]]);
+    } else if (value === "简答") {
+      setOptions([]);
+      setAnswer("");
+      setShortReference("");
     } else if (type === "计算" || type === "判断") {
       setOptions(defaultOptions(value));
       setAnswer("A");
@@ -177,16 +193,36 @@ export function QuestionEditor({
     setAnswer(normalizeAnswer(type, answer.replace(String.fromCharCode(65 + index), "")));
   }
 
+  function updateFillBlank(index: number, value: string) {
+    setFillBlanks((current) => current.map((answers, answerIndex) => answerIndex === index ? value.split(/\s*\|\|\s*/).map((item) => item.trim()).filter(Boolean) : answers));
+  }
+
   async function save() {
     try {
       setSaving(true);
       setError("");
-      const normalizedOptions = type === "计算" ? [] : options;
-      const normalizedAnswer = type === "计算" ? normalizeCalculationAnswer(calculationAnswerValues) : normalizeAnswer(type, answer);
+      const normalizedOptions = type === "计算" || type === "填空" || type === "简答" ? [] : options;
+      let normalizedAnswer = "";
+      let solution: QuestionSolution;
+      if (type === "计算") {
+        normalizedAnswer = normalizeCalculationAnswer(calculationAnswerValues);
+        solution = questionSolution({ type, answer: normalizedAnswer, options: normalizedOptions });
+      } else if (type === "填空") {
+        solution = normalizeFillSolution(fillBlanks);
+        normalizedAnswer = legacyAnswerForSolution(solution);
+      } else if (type === "简答") {
+        solution = shortAnswerSolution(shortReference);
+        normalizedAnswer = solution.referenceText;
+      } else {
+        normalizedAnswer = normalizeAnswer(type, answer);
+        const optionIds = stableQuestionOptionIds({ options: normalizedOptions, optionIds: question.optionIds });
+        solution = { kind: "choice", correctOptionIds: [...normalizedAnswer].map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id)) };
+      }
       if (!deriveContentText(content).trim() && !content.some((block) => block.type === "image")) throw new Error("题干不能为空。");
-      if (type !== "计算" && normalizedOptions.length < 2) throw new Error("至少需要两个选项。");
+      if (!["计算", "填空", "简答"].includes(type) && normalizedOptions.length < 2) throw new Error("至少需要两个选项。");
       if (!normalizedAnswer) throw new Error("请填写正确答案。");
       if (type === "计算") validateCalculationBlankLayout(deriveContentText(content), normalizedAnswer);
+      if (type === "简答" && !shortReference.trim()) throw new Error("请填写参考答案。");
       // Forward the personal note only when it changed; callers persist it to
       // the resolved question id (which may differ in a shared-question split).
       const notePayload = note !== initialNote ? note : undefined;
@@ -195,6 +231,8 @@ export function QuestionEditor({
         content,
         options: normalizedOptions,
         answer: normalizedAnswer,
+        solution,
+        ...(type === "单选" || type === "多选" || type === "判断" ? { optionIds: stableQuestionOptionIds({ options: normalizedOptions, optionIds: question.optionIds }) } : {}),
         tags: tags.split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean),
       }, notePayload);
       // Shared-question editing may open a decision dialog without unmounting
@@ -211,7 +249,7 @@ export function QuestionEditor({
     <div className="editor-body">
       <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionTypeV7)} options={questionTypes.map((value) => ({ value, label: value }))} /></label>
       <div className="editor-rich-field"><div className="editor-label"><span>题干</span><small>文本、公式与本地图片可混排；图片不会接受 URL。</small></div><ContentBlockEditor value={content} onChange={setContent} prepareImage={prepareImage} loadAsset={loadImageAssetV7} /></div>
-      {type === "计算" ? <section className="calculation-answer-editor"><div className="editor-label"><span>各空标准答案</span><small>在题干对应位置依次写入【空1】【空2】；每个空独立按误差比例判定。</small></div><div>{calculationAnswerValues.map((value, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} type="number" inputMode="decimal" value={value} onChange={(event) => updateCalculationAnswer(index, event.currentTarget.value)} placeholder={index === 0 ? "例如：11.0" : "例如：968.0"} />{calculationAnswerValues.length > 1 && index === calculationAnswerValues.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setAnswer(calculationAnswerValues.slice(0, -1).join("\n"))}><Trash2 size={15} /></button>}</label>)}</div>{calculationAnswerValues.length < MAX_CALCULATION_BLANKS && <button type="button" className="add-option" onClick={() => setAnswer([...calculationAnswerValues, ""].join("\n"))}><Plus size={16} />添加填空</button>}</section> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案；每个选项支持文本、公式和图片。</small></div>
+      {type === "计算" ? <section className="calculation-answer-editor"><div className="editor-label"><span>各空标准答案</span><small>在题干对应位置依次写入【空1】【空2】；每个空独立按误差比例判定。</small></div><div>{calculationAnswerValues.map((value, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} type="number" inputMode="decimal" value={value} onChange={(event) => updateCalculationAnswer(index, event.currentTarget.value)} placeholder={index === 0 ? "例如：11.0" : "例如：968.0"} />{calculationAnswerValues.length > 1 && index === calculationAnswerValues.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setAnswer(calculationAnswerValues.slice(0, -1).join("\n"))}><Trash2 size={15} /></button>}</label>)}</div>{calculationAnswerValues.length < MAX_CALCULATION_BLANKS && <button type="button" className="add-option" onClick={() => setAnswer([...calculationAnswerValues, ""].join("\n"))}><Plus size={16} />添加填空</button>}</section> : type === "填空" ? <section className="fill-answer-editor"><div className="editor-label"><span>各空标准文本答案</span><small>每行一个空；同一空的多个可接受答案用 || 分隔，最多 {MAX_FILL_BLANKS} 个空。</small></div>{fillBlanks.map((answers, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} value={answers.join(" || ")} onChange={(event) => updateFillBlank(index, event.currentTarget.value)} placeholder="例如：电流 || 电流强度" />{fillBlanks.length > 1 && index === fillBlanks.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setFillBlanks((current) => current.slice(0, -1))}><Trash2 size={15} /></button>}</label>)}{fillBlanks.length < MAX_FILL_BLANKS && <button type="button" className="add-option" onClick={() => setFillBlanks((current) => [...current, []])}><Plus size={16} />添加填空</button>}</section> : type === "简答" ? <label>参考答案<textarea value={shortReference} onChange={(event) => setShortReference(event.target.value)} placeholder="输入用于记忆的参考答案；练习时由用户自行标记对错。" rows={5} /></label> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案；每个选项支持文本、公式和图片。</small></div>
         <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAssetV7} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
         {type !== "判断" && options.length < 8 && <button type="button" className="add-option" onClick={addOption}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>

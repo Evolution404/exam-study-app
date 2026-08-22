@@ -9,10 +9,17 @@ export type SearchKeywordMode = "plain" | "regex";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
 export type SearchNoteFilter = "all" | "with" | "without";
 export type SearchTagMatch = "any" | "all";
-export type SearchQuestionType = "单选" | "多选" | "判断" | "计算";
+export type SearchQuestionType = "单选" | "多选" | "判断" | "计算" | "填空" | "简答";
 export type SearchTypeTab = "全部" | SearchQuestionType;
 
-export const SEARCH_TYPE_ORDER: readonly SearchQuestionType[] = ["单选", "多选", "判断", "计算"];
+export const SEARCH_TYPE_ORDER: readonly SearchQuestionType[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
+
+/** Zeroed per-type counters, derived so new question types cannot be missed. */
+export function emptyTypeCounts(): Record<SearchQuestionType, number> {
+  const counts = {} as Record<SearchQuestionType, number>;
+  for (const type of SEARCH_TYPE_ORDER) counts[type] = 0;
+  return counts;
+}
 
 export const SEARCH_CONTENT_SCOPE_OPTIONS: Array<{ value: SearchContentScope; label: string }> = [
   { value: "all", label: "全部" },
@@ -145,7 +152,7 @@ function matchesTagSelection(questionTags: readonly string[], selectedTags: read
 }
 
 function countByType(questions: readonly SearchIndexQuestion[]): Record<SearchQuestionType, number> {
-  const counts: Record<SearchQuestionType, number> = { 单选: 0, 多选: 0, 判断: 0, 计算: 0 };
+  const counts = emptyTypeCounts();
   for (const question of questions) counts[question.type] += 1;
   return counts;
 }
@@ -179,7 +186,7 @@ function matchesFilters(question: SearchIndexQuestion, matcher: SearchMatcher, f
  */
 export function filterSearchIndex(questions: readonly SearchIndexQuestion[], request: SearchIndexRequest): SearchIndexResult {
   const matcher = createSearchMatcher(request.query, request.filters.keywordMode);
-  if (matcher.error) return { ids: [], total: 0, counts: { 单选: 0, 多选: 0, 判断: 0, 计算: 0 }, error: matcher.error };
+  if (matcher.error) return { ids: [], total: 0, counts: emptyTypeCounts(), error: matcher.error };
 
   const matched = questions.filter((question) => matchesFilters(question, matcher, request.filters));
   const counts = countByType(matched);

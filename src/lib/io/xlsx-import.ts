@@ -1,4 +1,6 @@
 import { collapseExtractedVisualLineBreaks } from "../question/imported-text-cleanup";
+import { normalizeCalculationAnswer, normalizeFillSolution, validateCalculationBlankLayout } from "../question/question-utils";
+import type { QuestionType } from "../../types/types";
 import { IMPORT_LIMITS } from "./import-limits";
 
 export const XLSX_IMPORT_LIMITS = IMPORT_LIMITS.xlsx;
@@ -376,8 +378,8 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     const answerCells = source.slice(4, 4 + declaredAnswerColumns).map((value) => value?.trim() ?? "");
     if (!stem) issues.push({ row, message: "题干不能为空。" });
     if (stem.startsWith("示例·") || stem.includes("（填好后删）")) issues.push({ row, message: "请删除模板自带的示例题。" });
-    const type = (["单选", "多选", "判断", "计算"] as const).find((item) => item === typeText);
-    if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断或计算。" });
+    const type = (["单选", "多选", "判断", "计算", "填空", "简答"] as const).find((item) => item === typeText);
+    if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断、计算、填空或简答。" });
     if (!answerCells[0]) issues.push({ row, message: "答案1不能为空。" });
     const optionStart = 4 + declaredAnswerColumns;
     const optionCells = source.slice(optionStart, optionStart + optionColumns).map((value) => importedText(value));
@@ -394,6 +396,20 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
         validateCalculationBlankLayout(stem, answer);
       }
       catch (error) { issues.push({ row, message: error instanceof Error ? error.message : "计算题答案无效。" }); }
+    } else if (type === "填空") {
+      if (options.some(Boolean)) issues.push({ row, message: "填空题不需要填写选项列。" });
+      const lastAnswer = answerCells.findLastIndex(Boolean);
+      const fillAnswerCells = lastAnswer >= 0 ? answerCells.slice(0, lastAnswer + 1) : [];
+      if (fillAnswerCells.some((value) => !value)) issues.push({ row, message: "填空题的答案列之间不能留空。" });
+      try {
+        answer = normalizeFillSolution(fillAnswerCells).blanks.map((blank) => blank.acceptedAnswers.join("||")).join("\n");
+      } catch (error) {
+        issues.push({ row, message: error instanceof Error ? error.message : "填空题答案无效。" });
+      }
+    } else if (type === "简答") {
+      if (options.some(Boolean)) issues.push({ row, message: "简答题不需要填写选项列。" });
+      if (answerCells.slice(1).some(Boolean)) issues.push({ row, message: "简答题只填写“答案1”，其余答案列必须留空。" });
+      answer = answerCells[0] ?? "";
     } else {
       if (answerCells.slice(1).some(Boolean)) issues.push({ row, message: "选择题和判断题只填写“答案1”，其余答案列必须留空。" });
       if (options.length < 2) issues.push({ row, message: "选择题和判断题至少需要两个选项。" });
@@ -435,7 +451,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
       if (previous) issues.push({ row, message: `与第 ${previous} 行题目重复。` });
       else seen.set(key, row);
     }
-    questions.push({ q: stem, ans: answer, a: type === "计算" ? [] : options, type: type ?? "单选", tags, ...(note ? { note } : {}), ...(imageIds.length ? { images: imageIds } : {}) });
+    questions.push({ q: stem, ans: answer, a: ["计算", "填空", "简答"].includes(type ?? "") ? [] : options, type: type ?? "单选", tags, ...(note ? { note } : {}), ...(imageIds.length ? { images: imageIds } : {}) });
   }
   if (!questions.length) issues.push({ row: 2, message: "题库中没有可导入的题目。" });
   if (questions.length > MAX_QUESTIONS) issues.push({ row: MAX_QUESTIONS + 2, message: `单次最多导入 ${MAX_QUESTIONS} 道题。` });
@@ -457,5 +473,3 @@ export function importFileName(fileName: string) {
   if (!name) fail("Excel 文件名不能为空，请先为题库文件命名。");
   return `${name}.json`;
 }
-import type { QuestionType } from "../../types/types";
-import { normalizeCalculationAnswer, validateCalculationBlankLayout } from "../question/question-utils";
