@@ -25,7 +25,7 @@ const head: SyncHeadV7 = {
 const headBytes = new TextEncoder().encode(JSON.stringify(head));
 const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
-const fakeFetch: typeof fetch = async (input, init = {}) => {
+const fakeFetch: typeof fetch = async (input) => {
   calls.push(String(input));
   const url = new URL(String(input));
   if (url.pathname === "/user") return new Response(JSON.stringify({ login: "owner" }), { status: 200 });
