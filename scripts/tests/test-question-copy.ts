@@ -93,9 +93,11 @@ assert.match(questionDetail, /\{isWrong && <X size=\{16\} \/>\}/, "做错选项�
 // ===== 静态断言：CSS token 化与旧暗色规则清除 =====
 
 const styles = await readFile("src/app/styles/components.css", "utf8");
+const copyButtonStyles = await readFile("src/app/ui/copy-question-button.module.css", "utf8");
 assert.match(styles, /\.question-meta \.question-meta-copy\{margin-left:auto/, "复制按钮容器应持有 margin-left:auto");
-assert.match(styles, /\.question-meta \.copy-question\.copied,\.search-question-detail \.copy-question\.copied\{color:var\(--color-surface-raised\);background:var\(--color-success\)\}/, "copied 态应走 success token");
-assert.match(styles, /\.question-meta \.copy-question\.error,\.search-question-detail \.copy-question\.error\{color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "error 态应走 danger token");
+assert.match(copyButtonStyles, /\.scope :global\(\.copy-question\.copied\)[\s\S]*color: var\(--color-surface-raised\);[\s\S]*background: var\(--color-success\);/, "copied 态应走 success token");
+assert.match(copyButtonStyles, /\.scope :global\(\.copy-question\.error\)[\s\S]*color: var\(--color-danger\);[\s\S]*background: var\(--color-danger-soft\);/, "error 态应走 danger token");
+assert.match(copyButtonStyles, /width: 30px;[\s\S]*height: 30px;/, "复制按钮视觉尺寸应紧凑为 30px");
 assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*copy-question/, "复制按钮不得依赖暗色前缀（token 自适应）");
 assert.match(styles, /\.search-detail-body>ol>li\.wrong\{border-color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "详情页做错选项标记应全 token 化");
 // 选项文字保持正文墨色（与做题界面一致）：answer/wrong 规则不得染文字色，只有状态图标着色。

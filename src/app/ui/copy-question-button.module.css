@@ -1,0 +1,41 @@
+.scope :global(.copy-question) {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-primary);
+  background: var(--color-surface-muted);
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+}
+
+.scope :global(.copy-question:hover) {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface-muted));
+}
+
+.scope :global(.copy-question:active) {
+  transform: scale(.94);
+}
+
+.scope :global(.copy-question:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.scope :global(.copy-question svg) {
+  width: 15px;
+  height: 15px;
+}
+
+.scope :global(.copy-question.copied) {
+  color: var(--color-surface-raised);
+  background: var(--color-success);
+}
+
+.scope :global(.copy-question.error) {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}

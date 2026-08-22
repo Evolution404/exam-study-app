@@ -1,3 +1,4 @@
+import "@/app/styles/review-scope.css";
 import { useId, useMemo, useState } from "react";
 import type { Bank } from "@/types/types";
 import type { ReviewRound, ReviewRoundStatus } from "@/lib/db/v7-types";

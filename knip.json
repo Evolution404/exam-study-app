@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.tsx",
+    "vite.config.ts",
+    "capacitor.config.ts",
+    "proxy/*.js",
+    "scripts/tools/*.{mjs,mts}",
+    "scripts/tests/*.{mjs,ts}"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "scripts/**/*.{mjs,mts,ts}",
+    "proxy/*.js"
+  ],
+  "ignore": [
+    "scripts/tests/test-browser-visible.mjs"
+  ],
+  "ignoreDependencies": [
+    "@capacitor/cli",
+    "@fontsource/noto-serif-sc"
+  ]
+}

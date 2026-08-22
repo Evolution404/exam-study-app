@@ -21,6 +21,10 @@
   --color-danger-soft: #fbf0eb;
   --color-overlay: #13231b99;
   --shadow-color: #1b352718;
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-deliberate: 240ms;
+  --motion-ease: cubic-bezier(.2, .8, .2, 1);
 
   /* Temporary aliases keep existing components on the same semantic contract. */
   --paper: var(--color-canvas);
@@ -33,6 +37,17 @@
   --white: var(--color-surface-raised);
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
+    transition-duration: 1ms;
+  }
 }
 
 html[data-theme="dark"] {

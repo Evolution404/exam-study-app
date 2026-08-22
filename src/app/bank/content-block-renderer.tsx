@@ -1,3 +1,4 @@
+import "@/app/styles/content-blocks.css";
 import type { ReactNode } from "react";
 import { MathText } from "@/app/ui/math-text";
 import type { ContentBlock, TextContentBlock } from "@/lib/db/v7-types";

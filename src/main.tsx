@@ -5,11 +5,14 @@ import { AppErrorBoundary, AppRecoveryScreen } from "./app/error-boundary";
 import { dbV7Ready } from "./lib/db/db-v7";
 import { platformRuntime, registerServiceWorker } from "./platform/runtime";
 import "./app/globals.css";
+import copyQuestionButtonStyles from "./app/ui/copy-question-button.module.css";
 // 标题衬线中文字体：构建时由 scripts/tools/subset-title-font.mjs 扫描静态文案自动子集化，
 // 只打包实际用到的字形（见 src/generated/，prebuild/predev 生成）。
 import "./generated/title-font.css";
 
 const rootElement = document.getElementById("root");
+// Scope the first incremental CSS-module migration around the existing app.
+document.documentElement.classList.add(copyQuestionButtonStyles.scope);
 if (!rootElement) throw new Error("应用根节点不存在");
 const root = createRoot(rootElement);
 

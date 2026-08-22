@@ -221,13 +221,7 @@ button { color:inherit; }
 .tag-question-preview > div { min-width:0; overflow-wrap:anywhere; }
 .tag-question-preview > div > * { min-width:0; max-width:100%; overflow-wrap:anywhere; }
 
-/* 复制题目小 icon 按钮（练习页 .question-meta 与题目详情页 header 共用）：
-   icon-button 基类提供 38px 骨架与居中，这里覆写为 34px 方形并全 token 上色，
-   昼夜自适应（copied/error 态也走 token，无需暗色前缀）。 */
 .question-meta .question-meta-copy{margin-left:auto;display:flex;align-items:center;gap:6px}
-.question-meta .copy-question,.search-question-detail .copy-question{width:34px;height:34px;padding:0;border:0;border-radius:9px;color:var(--color-primary);background:var(--color-surface-muted)}
-.question-meta .copy-question.copied,.search-question-detail .copy-question.copied{color:var(--color-surface-raised);background:var(--color-success)}
-.question-meta .copy-question.error,.search-question-detail .copy-question.error{color:var(--color-danger);background:var(--color-danger-soft)}
 .question-meta .edit-question-link { margin-left:0; }
 @media(max-width:760px){.question-meta .question-meta-copy,.question-meta .favorite-question{margin-left:0}}
 
