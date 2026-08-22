@@ -70,14 +70,16 @@ if (colorCount < legacyColorBudget || darkSelectorCount < legacyDarkSelectorBudg
 const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
-// The v7 schema lives in db-v7-core.ts; db-v7.ts is only a barrel that
+// The local schema lives in db-v7-core.ts; db-v7.ts is only a barrel that
 // re-exports that module's public surface.
 const dbV7Core = read("src/lib/db/db-v7-core.ts");
 const v7DatabaseVersions = [...dbV7Core.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
-const versionsAscending = v7DatabaseVersions.every((version, index) => index === 0 || version > v7DatabaseVersions[index - 1]);
-if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study-v7["']/.test(dbV7Core) || !/super\(V7_DATABASE_NAME\)/.test(dbV7Core)
-  || !v7DatabaseVersions.includes(1) || !v7DatabaseVersions.includes(2) || !versionsAscending) {
-  fail("公开客户端必须只使用独立 shijuan-study-v7 数据库命名空间，且 schema 版本包含 v7 队列升级并按升序演进");
+if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study["']/.test(dbV7Core) || !/super\(V7_DATABASE_NAME\)/.test(dbV7Core)
+  || v7DatabaseVersions.length !== 1 || v7DatabaseVersions[0] !== 1) {
+  fail("公开客户端必须使用全新 shijuan-study 数据库命名空间，schema 只声明一次且从版本 1 开始");
+}
+if (/shijuan-study-v6|migrateLegacy/.test(dbV7Core)) {
+  fail("本地数据库核心不得保留旧 schema 运行时兼容；内容只能通过 v9 远程恢复回来");
 }
 
 const sync = read("src/lib/sync/github-sync.ts");
@@ -151,4 +153,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：独立数据库 v7 命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v8 namespace/head/checkpoint。`);
+console.log(`架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v8 namespace/head/checkpoint。`);

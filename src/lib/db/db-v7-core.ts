@@ -29,7 +29,13 @@ import type {
   TombstoneV7,
 } from "./v7-types";
 
-export const V7_DATABASE_NAME = "shijuan-study-v7" as const;
+/**
+ * Fresh local namespace for this release train.  It intentionally shares no
+ * schema history with `shijuan-study-v7`: content returns through the v9
+ * remote restore, and the superseded local database is dropped only after
+ * that first successful restore (see the sync layer).
+ */
+export const V7_DATABASE_NAME = "shijuan-study" as const;
 
 export interface PracticeAnswerV7 {
   selected: string[];
@@ -128,20 +134,17 @@ export function makeV7Id(prefix = "v7"): string {
   return `${prefix}_${Date.now().toString(36)}_${idCounter.toString(36)}`;
 }
 
-const V7_LEGACY_DEVICE_ID_KEY = "shijuan-study-v6-device-id";
+const V7_DEVICE_ID_KEY = "shijuan-study-v7-device-id";
 
 export function getV7DeviceId(): string {
   if (typeof localStorage === "undefined") return "server-v7";
-  const key = "shijuan-study-v7-device-id";
-  let value: string | null = localStorage.getItem(key);
+  // The storage key keeps its historical name so an upgrading device reuses
+  // its sync identity instead of appearing as a brand-new collaborator.
+  let value: string | null = localStorage.getItem(V7_DEVICE_ID_KEY);
   if (!value) {
-    // 一次迁移：沿用 v6 时代的设备号，避免同步身份变化。
-    value = localStorage.getItem(V7_LEGACY_DEVICE_ID_KEY);
-    if (!value) {
-      value = makeV7Id("device");
-    }
-    localStorage.setItem(key, value);
-    queueConfigMirror(key, value);
+    value = makeV7Id("device");
+    localStorage.setItem(V7_DEVICE_ID_KEY, value);
+    queueConfigMirror(V7_DEVICE_ID_KEY, value);
   }
   return value;
 }
@@ -183,11 +186,12 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
       throw new Error("分配同步序号的业务事务必须包含 syncMeta，禁止在 Safari 中启动嵌套写事务。");
     }
     const key = `shijuan-study-v7-sequence:${deviceId}`;
-    const legacyKey = `shijuan-study-v6-sequence:${deviceId}`;
     const row = await dbV7.syncMeta.get(key);
     const persisted = Number(row?.value) || 0;
-    const legacy = typeof localStorage !== "undefined" ? Number(localStorage.getItem(legacyKey)) || Number(localStorage.getItem(key)) || 0 : 0;
-    const value = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(legacy) ? legacy : 0) + 1;
+    // The localStorage mirror survives the namespace swap and keeps allocated
+    // sequences monotonic even before the fresh database has any rows.
+    const mirrored = typeof localStorage !== "undefined" ? Number(localStorage.getItem(key)) || 0 : 0;
+    const value = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(mirrored) ? mirrored : 0) + 1;
     await dbV7.syncMeta.put({ key, value, updatedAt: nowIso() });
     sequenceCounter = Math.max(sequenceCounter, value);
     if (typeof localStorage !== "undefined") localStorage.setItem(key, String(value));
@@ -195,7 +199,6 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
   }
   return withSequenceLock(async () => {
     const key = `shijuan-study-v7-sequence:${deviceId}`;
-    const legacyKey = `shijuan-study-v6-sequence:${deviceId}`;
     // Outside a domain transaction, reserve through a short independent
     // transaction. Domain transactions include syncMeta and use the branch
     // above: Safari serializes all read/write transactions at database level,
@@ -204,8 +207,8 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
     const allocated = await Dexie.ignoreTransaction(() => dbV7.transaction("rw", dbV7.syncMeta, async () => {
       const row = await dbV7.syncMeta.get(key);
       const persisted = Number(row?.value) || 0;
-      const legacy = typeof localStorage !== "undefined" ? Number(localStorage.getItem(legacyKey)) || Number(localStorage.getItem(key)) || 0 : 0;
-      const current = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(legacy) ? legacy : 0);
+      const mirrored = typeof localStorage !== "undefined" ? Number(localStorage.getItem(key)) || 0 : 0;
+      const current = Math.max(sequenceCounter, Date.now() * 1000, Number.isSafeInteger(persisted) ? persisted : 0, Number.isSafeInteger(mirrored) ? mirrored : 0);
       const next = current + 1;
       await dbV7.syncMeta.put({ key, value: next, updatedAt: nowIso() });
       return next;
@@ -267,6 +270,9 @@ class V7StudyDatabase extends Dexie {
 
   constructor() {
     super(V7_DATABASE_NAME);
+    // Fresh schema, declared once at version 1: the change-set queue replaced
+    // the old event log before this namespace ever shipped, so no upgrade
+    // path from an earlier local schema exists or is kept.
     this.version(1).stores({
       banks: "id, sortOrder, folderId, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
@@ -282,114 +288,24 @@ class V7StudyDatabase extends Dexie {
       questionGroups: "id, type, updatedAt",
       reviewRounds: "id, status, updatedAt, startedAt",
       reviewRoundProgress: "key, roundId, questionId, latestAttemptAt",
-      events: "id, type, createdAt, deviceId, synced",
-      syncFiles: "path, sha, appliedAt",
-      tombstones: "key, entityType, entityId, deletedAt",
-      syncMeta: "key, updatedAt",
-    });
-    this.version(2).stores({
-      banks: "id, sortOrder, folderId, importedAt, updatedAt",
-      bankFolders: "id, sortOrder, updatedAt",
-      questions: "id, contentFingerprint, type, updatedAt, *tags",
-      bankQuestionMemberships: "key, bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder], [bankId+questionId]",
-      imageAssets: "id, mimeType, size",
-      attempts: "id, runId, questionId, sourceBankId, createdAt, deviceId",
-      attemptStats: "questionId, latestAttemptAt",
-      attemptDailyStats: "key, date, questionId",
-      notes: "questionId, updatedAt",
-      practiceRuns: "id, status, updatedAt, startedAt",
-      practiceRunStats: "key, bankId, latestUpdatedAt",
-      questionGroups: "id, type, updatedAt",
-      reviewRounds: "id, status, updatedAt, startedAt",
-      reviewRoundProgress: "key, roundId, questionId, latestAttemptAt",
-      events: "id, type, createdAt, deviceId, synced",
       changeSets: "id, state, createdAt, deviceId, localSequence, claimId, committedAt, [state+createdAt]",
       syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
       syncMeta: "key, updatedAt",
     });
-    // v3: the v7 event log is superseded by v7 change-sets; drop the store.
-    this.version(3).stores({ events: null });
   }
 }
 
-const V7_LEGACY_DATABASE_NAME = "shijuan-study-v6";
-const V7_MIGRATION_TABLES = [
-  "banks", "bankFolders", "questions", "bankQuestionMemberships", "imageAssets",
-  "attempts", "attemptStats", "attemptDailyStats", "notes", "practiceRuns",
-  "practiceRunStats", "questionGroups", "reviewRounds", "reviewRoundProgress",
-  "changeSets", "tombstones", "syncMeta", "syncFiles",
-] as const;
-
-function openLegacyV7Database(): Promise<IDBDatabase | undefined> {
-  return new Promise((resolve) => {
-    if (typeof indexedDB === "undefined") return resolve(undefined);
-    const request = indexedDB.open(V7_LEGACY_DATABASE_NAME);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(undefined);
-    request.onblocked = () => resolve(undefined);
-    request.onupgradeneeded = () => { /* never upgrade the legacy namespace */ };
-  });
-}
-
-async function readLegacyV7Rows(): Promise<Map<string, unknown[]> | undefined> {
-  const legacy = await openLegacyV7Database();
-  if (!legacy) return undefined;
-  try {
-    const names = [...legacy.objectStoreNames].filter((name): name is (typeof V7_MIGRATION_TABLES)[number] => (V7_MIGRATION_TABLES as readonly string[]).includes(name));
-    if (!names.length) return undefined;
-    const rows = new Map<string, unknown[]>();
-    await new Promise<void>((resolve, reject) => {
-      const transaction = legacy.transaction(names, "readonly");
-      for (const name of names) {
-        const request = transaction.objectStore(name).getAll();
-        request.onsuccess = () => { rows.set(name, request.result as unknown[]); };
-        request.onerror = () => reject(request.error ?? new Error(`读取旧数据库表 ${name} 失败`));
-      }
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error("读取旧数据库事务失败"));
-      transaction.onabort = () => reject(transaction.error ?? new Error("读取旧数据库事务被中止"));
-    });
-    return rows;
-  } finally {
-    legacy.close();
-  }
-}
-
-async function migrateLegacyV7DatabaseIfNeeded(): Promise<void> {
-  try {
-    await dbV7.open();
-    const [banks, questions, changeSets, syncMeta] = await Promise.all([
-      dbV7.banks.count(), dbV7.questions.count(), dbV7.changeSets.count(), dbV7.syncMeta.count(),
-    ]);
-    if (banks || questions || changeSets || syncMeta) return;
-    const rows = await readLegacyV7Rows();
-    if (!rows || rows.size === 0) return;
-    const anyRows = [...rows.values()].some((list) => list.length > 0);
-    if (!anyRows) return;
-    const tables = [dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.imageAssets, dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress, dbV7.changeSets, dbV7.tombstones, dbV7.syncMeta, dbV7.syncFiles];
-    await dbV7.transaction("rw", tables, async () => {
-      for (const [name, list] of rows) {
-        if (!list.length) continue;
-        const table = dbV7.table(name) as { bulkPut(items: unknown[]): Promise<unknown> };
-        await table.bulkPut(list);
-      }
-    });
-  } catch {
-    // 迁移失败不能阻塞启动；v7 仍会正常打开，旧库数据不会被删除。
-  }
-}
-
-/** The sole v7 database instance.  Constructing it does not open the legacy DB. */
+/** The sole database instance for this release train. */
 export const dbV7 = new V7StudyDatabase();
 /** Short alias used by callers that prefer `v7Db`. */
 export const v7Db = dbV7;
 /**
- * One-time local migration promise: copy the old `shijuan-study-v6` namespace
- * into `shijuan-study-v7` when v7 is empty. The app awaits this before render;
- * tests can ignore it (fake-indexeddb has no legacy data by default).
+ * Startup health gate: the app awaits this before render so a namespace that
+ * cannot open fails fast instead of mid-interaction. There is no local schema
+ * migration — content arrives through the v9 remote restore.
  */
-export const dbV7Ready: Promise<void> = migrateLegacyV7DatabaseIfNeeded();
+export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined, () => undefined);
 /** Class is exported for tests that need a fresh, isolated namespace. */
 export { V7StudyDatabase };
 
