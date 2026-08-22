@@ -10,6 +10,7 @@ import {
   type EncodeImageOptions,
   type ImageAssetAdapter,
 } from "../../src/lib/io/image-assets";
+import { sha256HexBytes } from "../../src/lib/crypto/sha256";
 
 function expectThrow(action: () => unknown, pattern: RegExp): void {
   assert.throws(action, pattern);
@@ -20,6 +21,8 @@ async function expectReject(action: () => Promise<unknown>, pattern: RegExp): Pr
 }
 
 const source = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "image/jpeg" });
+assert.equal(sha256HexBytes(new Uint8Array()), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "纯 JS SHA-256 空输入必须匹配标准向量");
+assert.equal(sha256HexBytes(new TextEncoder().encode("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "局域网回退必须匹配标准 SHA-256");
 
 function adapterFor(
   decode: DecodedImage,

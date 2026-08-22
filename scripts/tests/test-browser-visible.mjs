@@ -807,6 +807,7 @@ async function runTopbarMobile(page) {
   });
   const quickScopeBox = await quickScope.boundingBox();
   assert.ok(quickScopeBox && quickScopeBox.width <= 60, "mobile quick-search scope trigger must fit its two-character label");
+  assert.equal(await page.locator(".topbar .quick-sync-label").evaluate((element) => getComputedStyle(element).display), "none", "mobile quick sync must show only its icon");
   await quickQuery.focus();
   await page.waitForFunction(() => (document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? Infinity) <= 1);
   const topbarFocused = await page.evaluate(() => {

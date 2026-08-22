@@ -19,6 +19,7 @@ import type {
   SyncV7PublicationPlan,
 } from "./sync-v7-head";
 import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
+import { sha256DigestHex } from "../crypto/sha256";
 
 // Keep these names stable for callers which switch transports at runtime.
 export const GITHUB_V7_API = "https://api.github.com";
@@ -182,7 +183,7 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 function digestHex(bytes: Uint8Array): Promise<string> {
-  return crypto.subtle.digest("SHA-256", bytes as BufferSource).then((digest) => Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join(""));
+  return sha256DigestHex(bytes);
 }
 
 function assertSha256(value: string, field: string): void {

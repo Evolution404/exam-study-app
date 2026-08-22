@@ -94,6 +94,9 @@ assert.match(componentStyles, /prefers-reduced-motion:reduce\)\{\.topbar \.quick
 // the original 2026-08-13 fix. Keystrokes may filter the preloaded in-memory
 // bank synchronously, but must not schedule a delayed result-state update.
 assert.match(quickSearchSource, /<input[^>]*value=\{draft\}/, "顶栏快速搜索应保持原修复版本的局部受控输入结构");
+assert.match(quickSearchSource, /placeholder="快速搜索"/, "手机顶栏搜索提示必须保持简短");
+assert.match(componentStyles, /\.searchbox input::placeholder\{font-size:13px\}/, "手机顶栏搜索提示字号必须小于实际输入字号");
+assert.match(componentStyles, /\.quick-sync-split \.sync-pill\.quick-sync \.quick-sync-label\{display:none\}/, "手机同步按钮必须用足够优先级隐藏文字，只保留图标");
 assert.doesNotMatch(quickSearchSource, /debouncedQuery|setDebouncedQuery/, "顶栏快速搜索不得为每次按键再安排延迟结果状态更新");
 assert.doesNotMatch(quickSearchSource, /setTimeout\([^)]*setDebouncedQuery/, "顶栏快速搜索不得恢复 160ms 延迟过滤链路");
 assert.match(quickSearchSource, /const normalizedQuery = query\.trim\(\);/, "顶栏搜索词应直接来自当前 draft，而不是延迟副本");

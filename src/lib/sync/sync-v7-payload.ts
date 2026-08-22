@@ -15,6 +15,7 @@
  * full body — offload happens at wire encode (push), hydration at wire decode
  * (pull), so the domain reducer (reduceChangeSetV7) never observes a stub.
  */
+import { sha256DigestHex } from "../crypto/sha256";
 import {
   SYNC_V7_OBJECT_PREFIX,
   createSyncV7ObjectRef,
@@ -49,8 +50,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256DigestHex(bytes);
 }
 
 function toUint8Array(bytes: Uint8Array | ArrayBuffer | string): Uint8Array {

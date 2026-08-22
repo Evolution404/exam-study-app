@@ -19,6 +19,7 @@ import type {
   ReviewRound,
 } from "../db/v7-types";
 import type { PracticeAnswerV7 } from "../db/db-v7";
+import { sha256DigestHex } from "../crypto/sha256";
 
 export const CHANGE_SET_V7_FORMAT = 7 as const;
 export const CHANGE_SET_V7_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -230,10 +231,7 @@ export function canonicalChangeSetV7(changeSet: Omit<ChangeSetV7, "digest"> | Ch
 }
 
 async function sha256(value: Uint8Array): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error("当前环境不支持 SHA-256");
-  const digest = await subtle.digest("SHA-256", new Uint8Array(value));
-  return Array.from(new Uint8Array(digest), (item) => item.toString(16).padStart(2, "0")).join("");
+  return sha256DigestHex(value);
 }
 
 function generatedId(deviceId: string, sequence: number): string {

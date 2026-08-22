@@ -15,6 +15,7 @@ import type { BankQuestionJoinV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { runBankIds, updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
+import { sha256DigestHex } from "../crypto/sha256";
 
 /** internal，供兄弟模块使用 */
 export async function refreshBankQuestionCountInTx(bankId: string): Promise<BankV7 | undefined> {
@@ -39,16 +40,7 @@ export function normalizeMembership(input: BankQuestionMembership): BankQuestion
 
 /** internal，供兄弟模块使用 */
 export async function sha256Text(value: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (subtle) {
-    const digest = await subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-  // This fallback is only for unusual test runtimes without WebCrypto.  It
-  // remains deterministic, while image blobs still require a real SHA-256.
-  let hash = 2166136261;
-  for (const char of value) hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
-  return `${(hash >>> 0).toString(16).padStart(8, "0")}${"0".repeat(56)}`;
+  return sha256DigestHex(new TextEncoder().encode(value));
 }
 
 /** internal，供兄弟模块使用 */

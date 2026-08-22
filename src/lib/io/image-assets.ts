@@ -1,3 +1,5 @@
+import { sha256DigestHex } from "../crypto/sha256";
+
 /**
  * Browser image optimisation and content-addressed asset helpers.
  *
@@ -478,11 +480,8 @@ export async function sha256Blob(blob: Blob): Promise<string> {
   } catch {
     throw new Error("无法读取图片内容");
   }
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error("当前环境不支持 SHA-256");
   try {
-    const digest = await subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+    return await sha256DigestHex(new Uint8Array(bytes));
   } catch {
     throw new Error("无法计算图片 SHA-256 摘要");
   }
@@ -490,12 +489,7 @@ export async function sha256Blob(blob: Blob): Promise<string> {
 
 /** Return a lower-case SHA-256 digest of raw bytes. */
 export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error("当前环境不支持 SHA-256");
-  // Copy into a fresh Uint8Array so the digest call only ever sees its own
-  // backing ArrayBuffer (a borrowed SharedArrayBuffer view is not BufferSource).
-  const digest = await subtle.digest("SHA-256", new Uint8Array(bytes));
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  return sha256DigestHex(bytes);
 }
 
 /** Strictly map an output MIME to its remote extension. */

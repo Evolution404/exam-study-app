@@ -2,6 +2,7 @@ import { GitHubV7Remote } from "./github-v7-remote";
 import type { SyncV7Descriptor } from "./sync-v7-head";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
+import { sha256DigestHex } from "../crypto/sha256";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;
@@ -70,8 +71,7 @@ export function remote(settings: GitHubSettings, token: string, fetchImpl?: Sync
 }
 
 export async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  return sha256DigestHex(bytes);
 }
 
 export function descriptorPath(prefix: string, digest: string): string { return `${prefix}${digest}.json`; }
