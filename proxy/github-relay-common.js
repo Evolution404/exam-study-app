@@ -1,4 +1,5 @@
 export const GITHUB_API_UPSTREAM = "https://api.github.com";
+export const MAX_RELAY_BODY_BYTES = 20 * 1024 * 1024;
 
 // Cloudflare 边缘注入或 HTTP 逐跳头，转发前必须删除。
 // 两个代理入口共用这份清单，避免出现一边删 cookie、另一边删 host 的分叉。
@@ -35,16 +36,21 @@ export function buildUpstreamUrl(requestUrl, { pathPrefix } = {}) {
 /** Restrict the public relay to the small GitHub API surface used by sync. */
 export function relayRequestPolicy(request, { pathPrefix } = {}) {
   const method = request.method.toUpperCase();
-  if (!["GET", "HEAD", "PUT"].includes(method)) return { allowed: false, status: 405 };
+  if (!["GET", "HEAD", "PUT", "DELETE"].includes(method)) return { allowed: false, status: 405 };
   const upstream = buildUpstreamUrl(request.url, { pathPrefix });
   const path = upstream.pathname;
   const userLookup = path === "/user" && (method === "GET" || method === "HEAD");
   const repositoryRead = /^\/repos\/[^/]+\/[^/]+\/(?:contents(?:\/.*)?|git\/blobs\/[a-f0-9]{40})$/i.test(path)
     && (method === "GET" || method === "HEAD");
   const contentsWrite = /^\/repos\/[^/]+\/[^/]+\/contents(?:\/.*)?$/i.test(path) && method === "PUT";
-  if (!userLookup && !repositoryRead && !contentsWrite) return { allowed: false, status: 404 };
+  // GC is deliberately narrower than ordinary contents writes.  Only
+  // content-addressed v8 objects can be removed; head.json is mutable and
+  // assets are user data, so neither may be deleted through the public relay.
+  const immutableDelete = /^\/repos\/[^/]+\/[^/]+\/contents\/sync\/v8\/(?:checkpoints|segments|objects|history)\/[a-f0-9]{64}\.json$/.test(path)
+    && method === "DELETE";
+  if (!userLookup && !repositoryRead && !contentsWrite && !immutableDelete) return { allowed: false, status: 404 };
   const declaredBytes = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredBytes) && declaredBytes > 20 * 1024 * 1024) return { allowed: false, status: 413 };
+  if (Number.isFinite(declaredBytes) && (declaredBytes < 0 || declaredBytes > MAX_RELAY_BODY_BYTES)) return { allowed: false, status: 413 };
   return { allowed: true, status: 200 };
 }
 

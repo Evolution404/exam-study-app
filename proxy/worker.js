@@ -3,6 +3,7 @@ import { buildUpstreamRequest, relayRequestPolicy } from "./github-relay-common.
 const RESPONSE_HEADERS_TO_COPY = [
   "etag",
   "content-type",
+  "content-length",
   "last-modified",
   "x-ratelimit-limit",
   "x-ratelimit-remaining",
@@ -45,9 +46,9 @@ export default {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-github-api-version, accept, content-type, if-none-match",
-    "Access-Control-Expose-Headers": "etag, last-modified, x-ratelimit-remaining, x-ratelimit-limit",
+    "Access-Control-Expose-Headers": "etag, last-modified, content-length, x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset",
     "Access-Control-Max-Age": "86400",
   };
 }
