@@ -82,7 +82,7 @@
     "test:fast": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --concurrency 4",
     "test:ci": "npm run test",
     "test:full": "node scripts/tools/run-test-full.mjs",
-    "template:xlsx": "node scripts/tools/generate-xlsx-template.mjs",
+    "template:xlsx": "tsx scripts/tools/generate-xlsx-template.mts",
     "test:sync-multidevice-checkpoints": "tsx scripts/tests/test-sync-multidevice-checkpoints.ts",
     "test:fast:serial": "node scripts/tools/run-test-groups.mjs unit source integration typecheck lint --serial",
     "test:sync-note-tombstone": "tsx scripts/tests/test-sync-note-tombstone.ts",

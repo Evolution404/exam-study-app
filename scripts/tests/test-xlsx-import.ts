@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import * as XLSX from "xlsx";
 import {
   XlsxImportError,
   importFileName,
@@ -16,6 +17,19 @@ assert.deepEqual(rows[0].slice(0, 9), ["题干", "题型", "答案", "标签", "
 assert.match(rows[1][0], /^示例·单选/);
 assert.match(rows[3][0], /^示例·判断/);
 assert.match(rows[4][0], /^示例·计算/);
+assert.deepEqual(rows[0].slice(-2), ["H", "图片1"], "最新模板必须包含连续的图片列");
+assert.match(rows[5][0], /^示例·图片单选/);
+assert.match(rows[5][0], /【图1】/, "图片示例题干必须标出图片位置");
+assert.equal(workbook.images.size, 1, "图片示例必须携带一张真实嵌入图片");
+const imageExample = [...rows[5]];
+imageExample[0] = "图中图标对应哪个应用？【图1】";
+const parsedImageExample = parseQuestionBankTable([rows[0], imageExample], workbook.images);
+assert.deepEqual(parsedImageExample[0].images, ["ID_TEMPLATE_SHIJUAN_APP_ICON"], "删除示例标记后的图片题必须可直接导入");
+const sheetJsWorkbook = XLSX.read(template, { type: "buffer" });
+const instructionText = XLSX.utils.sheet_to_json<string[]>(sheetJsWorkbook.Sheets["使用说明"], { header: 1 }).flat().join("\n");
+assert.doesNotMatch(instructionText, /Excel 只导入纯文字题/, "模板不得保留过时的纯文字限制");
+assert.match(instructionText, /支持题干图片和选项图片/);
+assert.match(instructionText, /每题最多 24 个选项、12 张图片/);
 await assert.rejects(() => parseQuestionBankWorkbook(templateBuffer), (error: unknown) => error instanceof XlsxImportError && /删除模板自带的示例题/.test(error.message));
 
 const questions = parseQuestionBankTable([
