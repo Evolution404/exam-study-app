@@ -14,9 +14,14 @@ IOS_PROJECT ?= ios/App/App.xcodeproj
 IOS_SCHEME ?= App
 IOS_TARGET ?=
 IOS_CONFIGURATION ?= Debug
+IOS_IPA_CONFIGURATION ?= Release
+IOS_IPA_DERIVED_DATA ?= artifacts/ios/DerivedData
+IOS_IPA_STAGING ?= artifacts/ios/ipa-staging
+IOS_IPA_OUTPUT ?= artifacts/ios/shijuan.ipa
+IOS_BUNDLE_ID ?= com.evolution404.shijuan
 XCODE_ENV = DEVELOPER_DIR="$(XCODE_DEVELOPER_DIR)"
 
-.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator verify-ios
+.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator ios-ipa verify-ios
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -77,6 +82,7 @@ help: ## 显示本帮助
 	@echo "  make ios-run IOS_TARGET=... 构建并运行到明确指定的模拟器/设备"
 	@echo "  make ios-clean              使用 Xcode 清理 App target 构建产物"
 	@echo "  make ios-build-simulator    无签名编译 iOS Simulator target"
+	@echo "  make ios-ipa                生成 SideStore 可重签的无签名真机 IPA（artifacts/ios/shijuan.ipa）"
 	@echo "  make verify-ios             iOS 构建、同步、模拟器编译和平台专项测试"
 
 doctor: ## 检查本地开发环境
@@ -179,13 +185,13 @@ test-browser-mobile: browser-install ## 浏览器：移动端场景（受 HEADLE
 test-browser-management: browser-install ## 浏览器：题库/知识/事件管理场景（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:management
 
-test-browser-review: browser-install ## 浏览器：复习轮次场景（受 HEADLESS 控制）
+test-browser-review: browser-install ## 浏览器：复习轮次（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:review
 
-test-browser-search: browser-install ## 浏览器：搜索与批量操作场景（受 HEADLESS 控制）
+test-browser-search: browser-install ## 浏览器：搜索与批量操作（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:search
 
-test-browser-history: browser-install ## 浏览器：练习记录与结果场景（受 HEADLESS 控制）
+test-browser-history: browser-install ## 浏览器：练习记录与结果（受 HEADLESS 控制）
 	BROWSER_HEADLESS=$(HEADLESS) npm run test:browser:history
 
 test-browser-inflight: browser-install ## 浏览器：练习中删除题目/题库的竞争状态（受 HEADLESS 控制）
@@ -226,6 +232,25 @@ ios-clean: ## 使用 Xcode 清理 iOS App target（不删除签名配置）
 
 ios-build-simulator: ios-build ## 无签名编译 iOS Simulator target
 	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_CONFIGURATION)" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+ios-ipa: ios-build ## 生成 SideStore 可重签的无签名真机 IPA
+	@rm -rf "$(IOS_IPA_STAGING)"
+	@mkdir -p "$(IOS_IPA_DERIVED_DATA)" "$(IOS_IPA_STAGING)/Payload" "$(dir $(IOS_IPA_OUTPUT))"
+	@echo "构建无签名 iPhoneOS $(IOS_IPA_CONFIGURATION) App..."
+	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_IPA_CONFIGURATION)" -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$(IOS_IPA_DERIVED_DATA)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+	@APP_PATH="$(IOS_IPA_DERIVED_DATA)/Build/Products/$(IOS_IPA_CONFIGURATION)-iphoneos/App.app"; \
+		test -d "$$APP_PATH" || { echo "找不到真机构建产物：$$APP_PATH"; exit 1; }; \
+		BUNDLE_ID=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$APP_PATH/Info.plist" 2>/dev/null || true); \
+		test "$$BUNDLE_ID" = "$(IOS_BUNDLE_ID)" || { echo "Bundle ID 校验失败：期望 $(IOS_BUNDLE_ID)，实际 $$BUNDLE_ID"; exit 1; }; \
+		/usr/bin/ditto "$$APP_PATH" "$(IOS_IPA_STAGING)/Payload/App.app"; \
+		rm -f "$(IOS_IPA_STAGING)/Payload/App.app/embedded.mobileprovision"; \
+		rm -f "$(IOS_IPA_OUTPUT)"; \
+		(cd "$(IOS_IPA_STAGING)" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$(abspath $(IOS_IPA_OUTPUT))"); \
+		/usr/bin/unzip -tq "$(IOS_IPA_OUTPUT)" >/dev/null; \
+		/usr/bin/unzip -Z1 "$(IOS_IPA_OUTPUT)" | grep -qx 'Payload/App.app/Info.plist' || { echo "IPA 结构校验失败：缺少 Payload/App.app/Info.plist"; exit 1; }; \
+		rm -rf "$(IOS_IPA_STAGING)"; \
+		echo "SideStore IPA 已生成：$(IOS_IPA_OUTPUT)"; \
+		ls -lh "$(IOS_IPA_OUTPUT)"
 
 verify-ios: ios-build ## iOS 构建、同步、模拟器编译和平台专项测试
 	npm run test:build-target
