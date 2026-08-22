@@ -16,11 +16,10 @@ type QuestionType = QuestionTypeV7;
 const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
 
 /**
- * The topbar quick-search box keeps the actual input value in the DOM rather
- * than writing a controlled React value back on every render. This matters on
- * iOS/WKWebView: async sibling updates while a Chinese IME composition is
- * active can otherwise make React's value reconciliation reset the selection.
- * React only mirrors committed text for result filtering/navigation.
+ * Keep the topbar quick search on the input/update timing that originally
+ * fixed the iOS caret regression: the input owns only this component's draft,
+ * the IndexedDB subscription is keyed only by bank scope, and keystrokes do
+ * not schedule a delayed result-state update.
  */
 export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   banks: BankV7[];
@@ -31,8 +30,6 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
   const [open, setOpen] = useState(false);
   const [contentScope, setContentScope] = useState<SearchContentScope>("all");
   const boxRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const composingRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -44,63 +41,27 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
 
-  function clearDraft() {
-    if (inputRef.current) inputRef.current.value = "";
-    composingRef.current = false;
-    setDraft("");
-    setOpen(false);
-  }
-
   function openSearch(questionId?: string) {
     setOpen(false);
-    // Keep the all-fields path compatible with existing callers while still
-    // carrying a focused scope into the full search page.
     if (contentScope === "all") onOpenSearch(draft.trim(), questionId);
     else onOpenSearch(draft.trim(), questionId, contentScope);
   }
 
   return <div ref={boxRef} className={`searchbox ${open && draft.trim() ? "results-open" : ""}`}>
     <Hint label="搜索主页与高级筛选"><button className="search-page-trigger" aria-label="进入搜索主页" onClick={() => openSearch()}><Search size={17} /></button></Hint>
-    <input
-      ref={inputRef}
-      aria-label="快速正则搜索题目、选项、标签或解析"
-      defaultValue=""
-      onFocus={() => { setOpen(true); }}
-      onCompositionStart={() => { composingRef.current = true; }}
-      onCompositionEnd={(event) => {
-        composingRef.current = false;
-        setDraft(event.currentTarget.value);
-        setOpen(true);
-      }}
-      onChange={(event) => {
-        if (composingRef.current) return;
-        setDraft(event.currentTarget.value);
-      }}
-      onKeyDown={(event) => {
-        if (composingRef.current || event.nativeEvent.isComposing) return;
-        if (event.key === "Escape") clearDraft();
-        else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); }
-      }}
-      placeholder="快速正则搜索；点击图标进入搜索主页"
-    />
+    <input aria-label="快速正则搜索题目、选项、标签或解析" value={draft} onFocus={() => { setOpen(true); }} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setDraft(""); setOpen(false); } else if (event.key === "Enter") { event.currentTarget.blur(); openSearch(); } }} placeholder="快速正则搜索；点击图标进入搜索主页" />
     <AppSelect ariaLabel="快速搜索范围" className="quick-search-scope" contentClassName="search-scope-select-content quick-search-scope-content" value={contentScope} onValueChange={(value) => { setContentScope(value as SearchContentScope); setOpen(true); }} options={SEARCH_CONTENT_SCOPE_OPTIONS} />
-    {draft && <button className="search-clear" aria-label="清除搜索" onClick={clearDraft}><X size={15} /></button>}
-    <QuickSearchResults enabled={open && Boolean(draft.trim())} query={draft} contentScope={contentScope} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />
+    {draft && <button className="search-clear" aria-label="清除搜索" onClick={() => { setDraft(""); setOpen(false); }}><X size={15} /></button>}
+    <QuickSearchResults query={draft} contentScope={contentScope} bankIds={activeBankIds.length ? activeBankIds : banks.map((bank) => bank.id)} onChoose={(questionId) => openSearch(questionId)} onViewAll={() => openSearch()} />
   </div>;
 }
 
-function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, onViewAll }: { enabled: boolean; query: string; contentScope: SearchContentScope; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
-  const [debouncedQuery, setDebouncedQuery] = useState(query);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const timer = window.setTimeout(() => setDebouncedQuery(query), 160);
-    return () => window.clearTimeout(timer);
-  }, [enabled, query]);
-  const normalizedQuery = debouncedQuery.trim();
+function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll }: { query: string; contentScope: SearchContentScope; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
+  const normalizedQuery = query.trim();
   const bankKey = bankIds.join("|");
-  // Keep the IndexedDB subscription independent from typing/focus state.
-  // iOS input composition is sensitive to async subscription churn while the
-  // caret is active; only a bank-scope change may restart this query.
+
+  // This is the key invariant from the original caret fix: load/map the bank
+  // once per bank scope. Typing only filters the already-loaded in-memory data.
   const data = useLiveQuery(async () => {
     if (!bankIds.length) {
       return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
@@ -117,7 +78,6 @@ function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, o
     return { questions, notes: new Map(notes.map((note) => [note.questionId, note.content])) };
   }, [bankKey]);
 
-  // 输入词变化只做同步过滤，不触碰 IndexedDB。
   const results = useMemo(() => {
     if (!normalizedQuery || !bankIds.length) return { items: [] as ReturnType<typeof toQuestionViewModel>[], total: 0, error: "" };
     const matcher = createSearchMatcher(normalizedQuery, "regex");
@@ -129,7 +89,7 @@ function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, o
     return { items: grouped.slice(0, 8), total: grouped.length, error: "" };
   }, [normalizedQuery, data, bankIds.length, contentScope]);
 
-  if (!enabled || !normalizedQuery) return null;
+  if (!normalizedQuery) return null;
   if (data === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   return <section className="search-results" aria-label="搜索结果">
     <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>
