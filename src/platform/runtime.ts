@@ -25,11 +25,11 @@ function currentStatusBarStyle() {
 }
 
 async function syncNativeStatusBar(): Promise<void> {
-  // Keep the WebView edge-to-edge: the shared mobile CSS already owns the
-  // safe-area geometry. Explicitly show the status bar and only change its
-  // foreground contrast so native iOS matches the browser presentation.
+  // Match mobile Safari geometry: keep the WKWebView below the native status
+  // bar instead of drawing sticky page controls underneath it. Shared mobile
+  // CSS can then keep the same sticky coordinates in browser and native iOS.
   await StatusBar.show();
-  await StatusBar.setOverlaysWebView({ overlay: true });
+  await StatusBar.setOverlaysWebView({ overlay: false });
   await StatusBar.setStyle({ style: currentStatusBarStyle() });
 }
 
