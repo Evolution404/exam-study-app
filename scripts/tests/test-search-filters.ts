@@ -75,6 +75,11 @@ assert.match(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/
 assert.doesNotMatch(quickSearchSource, /if \(!enabled \|\| !bankIds\.length\)/, "顶栏搜索的 IndexedDB 订阅不得由输入状态启停，避免移动端输入光标跳动");
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围，输入状态不得重启订阅");
 assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[\][\s\S]*?notes: new Map<string, string>\(\)[\s\S]*?\}[\s\S]*?\}, \[bankKey\]\);/, "顶栏搜索应预加载当前题库范围并只在题库范围变化时刷新订阅");
+assert.match(quickSearchSource, /ref=\{inputRef\}[\s\S]*defaultValue=""/, "顶栏快速搜索输入值应由 DOM 持有，避免 React 重渲染改写 iOS 光标位置");
+assert.doesNotMatch(quickSearchSource, /<input[\s\S]{0,500}value=\{draft\}/, "顶栏快速搜索不得退回受控 value={draft} 输入");
+assert.match(quickSearchSource, /onCompositionStart=\{\(\) => \{ composingRef\.current = true; \}\}/, "顶栏快速搜索必须识别中文输入法 composition 开始");
+assert.match(quickSearchSource, /onCompositionEnd=\{\(event\) => \{[\s\S]*?composingRef\.current = false;[\s\S]*?setDraft\(event\.currentTarget\.value\)/, "composition 结束后才能把最终文本同步到搜索状态");
+assert.match(quickSearchSource, /if \(composingRef\.current\) return;[\s\S]*?setDraft\(event\.currentTarget\.value\)/, "composition 期间不得用中间拼音状态驱动搜索结果重渲染");
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
 
 console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and progress overrides");
