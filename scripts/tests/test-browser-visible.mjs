@@ -582,6 +582,7 @@ async function runDesktop(page, mockServer) {
   await calculation.click();
   await waitForQuestion(page, 5);
   await page.locator(".asset-image img").waitFor({ state: "visible" });
+  assert.equal(await page.getByText(/依次填写题干中的/).count(), 0, "inline calculation blanks must not repeat a separate guidance card");
   const earlyCalculationAnswer = page.getByRole("spinbutton", { name: "第1空答案" });
   await earlyCalculationAnswer.fill("10.05");
   await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20.1");
@@ -791,6 +792,33 @@ async function runDesktop(page, mockServer) {
   // Idempotent: a second sync with no new events pushes nothing but still succeeds.
   await clickTextButton(page, "立即同步");
   await expectNotice(page, /v8 同步完成/, "idempotent second sync");
+}
+
+async function runTopbarMobile(page) {
+  const contextName = "topbar-mobile";
+  await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  const quickQuery = page.getByLabel("快速正则搜索题目、选项、标签或解析");
+  const quickScope = page.getByLabel("快速搜索范围");
+  const topbarBeforeFocus = await page.evaluate(() => {
+    const search = document.querySelector(".topbar .searchbox")?.getBoundingClientRect();
+    const sync = document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect();
+    return { searchWidth: search?.width ?? 0, syncWidth: sync?.width ?? 0 };
+  });
+  const quickScopeBox = await quickScope.boundingBox();
+  assert.ok(quickScopeBox && quickScopeBox.width <= 60, "mobile quick-search scope trigger must fit its two-character label");
+  await quickQuery.focus();
+  await page.waitForFunction(() => (document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? Infinity) <= 1);
+  const topbarFocused = await page.evaluate(() => {
+    const search = document.querySelector(".topbar .searchbox")?.getBoundingClientRect();
+    const sync = document.querySelector(".topbar .quick-sync-split");
+    return { searchWidth: search?.width ?? 0, syncOpacity: sync ? Number.parseFloat(getComputedStyle(sync).opacity) : 1 };
+  });
+  assert.ok(topbarFocused.searchWidth > topbarBeforeFocus.searchWidth + 70, "focused mobile quick search must expand into the released sync space");
+  assert.ok(topbarFocused.syncOpacity <= .01, "focused mobile quick search must fully fade the sync entry");
+  await capture(page, contextName, "topbar-search-focused");
+  await quickQuery.evaluate((element) => element.blur());
+  await page.waitForFunction((expectedWidth) => Math.abs((document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? 0) - expectedWidth) <= 1, topbarBeforeFocus.syncWidth);
 }
 
 async function runMobile(page, mockServer) {
@@ -1921,33 +1949,40 @@ async function runSearchPinMobile(page) {
   await expectText(page, /条件搜索找到 \d+ 道题/);
   await assertSearchPinGeometry(page, "mobile", { requireScroll: true });
   await page.evaluate(() => {
-    document.documentElement.dataset.platform = "ios";
-    document.documentElement.dataset.native = "true";
+    const query = document.querySelector(".search-home-query");
+    if (query instanceof HTMLElement) query.style.minHeight = "72px";
     const workspace = document.querySelector(".workspace");
     const scroller = workspace && getComputedStyle(workspace).overflowY === "auto" ? workspace : window;
-    scroller.scrollTo(0, 5000);
+    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    scroller.scrollTo(0, Math.min(1600, Math.max(0, maxScroll - 200)));
   });
   await page.waitForTimeout(150);
-  const nativeGeometry = await page.evaluate(() => {
+  const adaptiveGeometry = await page.evaluate(() => {
     const query = document.querySelector(".search-home-query")?.getBoundingClientRect();
     const batch = document.querySelector(".search-batch-bar");
     const batchRect = batch?.getBoundingClientRect();
     return {
       queryLeft: query?.left,
       queryRight: query?.right,
+      queryTop: query?.top,
+      queryBottom: query?.bottom,
+      batchTop: batchRect?.top,
       batchBottom: batchRect?.bottom,
       batchPosition: batch ? getComputedStyle(batch).position : undefined,
       viewportWidth: document.documentElement.clientWidth,
     };
   });
-  assert.equal(nativeGeometry.batchPosition, "relative", "native iOS: 多行批量栏必须留在文档流而非覆盖搜索结果");
-  assert.ok((nativeGeometry.queryLeft ?? -1) >= 0 && (nativeGeometry.queryRight ?? Infinity) <= nativeGeometry.viewportWidth + 1, "native iOS: 搜索框不得被横向裁切");
-  assert.ok((nativeGeometry.batchBottom ?? Infinity) <= 1, "native iOS: 滚动结果时批量栏应随文档离场");
-  await capture(page, "search-pin", "native-flow-mobile");
+  assert.equal(adaptiveGeometry.batchPosition, "sticky", "mobile shared: 批量栏必须保持第二级吸顶");
+  assert.ok((adaptiveGeometry.queryLeft ?? -1) >= 0 && (adaptiveGeometry.queryRight ?? Infinity) <= adaptiveGeometry.viewportWidth + 1, "mobile shared: 搜索框不得被横向裁切");
+  assert.ok(Math.abs(adaptiveGeometry.queryTop ?? Infinity) <= 1, `mobile shared: 搜索栏必须固定在视口顶部（top=${adaptiveGeometry.queryTop}）`);
+  assert.ok(Math.abs((adaptiveGeometry.batchTop ?? Infinity) - (adaptiveGeometry.queryBottom ?? 0)) <= 1, `mobile shared: 搜索栏高度变化后批量栏仍须紧贴（batch.top=${adaptiveGeometry.batchTop}, query.bottom=${adaptiveGeometry.queryBottom}）`);
+  assert.ok((adaptiveGeometry.batchBottom ?? 0) > (adaptiveGeometry.batchTop ?? Infinity), "mobile shared: 固定批量栏必须保持可见高度");
+  await capture(page, "search-pin", "adaptive-sticky-mobile");
 }
 
 const GROUPS = [
   { key: "desktop", run: runDesktop, viewport: { width: 1440, height: 960 }, minScreenshots: 12 },
+  { key: "topbar-mobile", run: runTopbarMobile, viewport: { width: 390, height: 844 }, isMobile: true, minScreenshots: 1 },
   { key: "mobile", run: runMobile, viewport: { width: 390, height: 844 }, isMobile: true, requires: ["desktop"], minScreenshots: 6 },
   { key: "management", run: runManagementQA, viewport: { width: 1440, height: 960 }, minScreenshots: 8 },
   { key: "review", run: runReviewRounds, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },

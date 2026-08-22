@@ -9,6 +9,7 @@ import {
   readQuestionWorkbook,
 } from "../../src/lib/io/xlsx-import";
 import { buildStoredZip } from "../../src/lib/io/xlsx-export";
+import { collapseExtractedVisualLineBreaks, isVisualWrapExtractionSource } from "../../src/lib/question/imported-text-cleanup";
 
 const template = await readFile(new URL("../../public/题库模板.xlsx", import.meta.url));
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;
@@ -76,6 +77,20 @@ const extendedOptions = parseQuestionBankTable([
 ]);
 assert.equal(extendedOptions[0].a.length, 9, "连续声明到 I 的选项列应可导入");
 assert.equal(extendedOptions[0].ans, "I");
+
+const wrappedRows = [
+  ["题干", "题型", "标签", "解析", "答案1", "A", "B"],
+  ["保留真实\n换行", "单选", "", "", "A", "电\n流", "电压"],
+];
+const preservedWraps = parseQuestionBankTable(wrappedRows);
+assert.equal(preservedWraps[0].q, "保留真实\n换行", "普通 Excel 导入必须保留作者换行");
+assert.equal(preservedWraps[0].a[0], "电\n流", "普通 Excel 选项也必须保留作者换行");
+const cleanedWraps = parseQuestionBankTable(wrappedRows, new Map(), { collapseVisualLineBreaks: true });
+assert.equal(cleanedWraps[0].q, "保留真实换行", "原图提取版应清理题干视觉硬折行");
+assert.equal(cleanedWraps[0].a[0], "电流", "原图提取版应清理选项视觉硬折行");
+assert.equal(collapseExtractedVisualLineBreaks("a、b点间\n\n的电压"), "a、b点间的电压");
+assert.equal(isVisualWrapExtractionSource("输电题库_最新模板_考点标签_原图提取版.xlsx"), true);
+assert.equal(isVisualWrapExtractionSource("用户自建换行题库.xlsx"), false, "清理范围不得扩展到普通工作簿");
 
 assert.throws(() => parseQuestionBankTable([
   ["题干", "题型", "标签", "解析", "答案1", "A", "B", "C"],

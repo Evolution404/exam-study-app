@@ -24,13 +24,22 @@ function currentStatusBarStyle() {
   return currentTheme() === "dark" ? Style.Dark : Style.Light;
 }
 
+function currentStatusBarBackgroundColor() {
+  return currentTheme() === "dark" ? "#101612" : "#f3f0e9";
+}
+
+async function syncNativeStatusBarAppearance(): Promise<void> {
+  await StatusBar.setBackgroundColor({ color: currentStatusBarBackgroundColor() });
+  await StatusBar.setStyle({ style: currentStatusBarStyle() });
+}
+
 async function syncNativeStatusBar(): Promise<void> {
-  // Keep WKWebView edge-to-edge like mobile Safari/PWA. The shared mobile CSS
-  // consumes env(safe-area-inset-*) so sticky search controls paint through
-  // the status-bar area without leaving the native view's black background
-  // exposed after the global top bar scrolls away.
+  // Match Safari's content viewport: the native status bar owns its area and
+  // WKWebView begins below it. Its background follows the app theme instead of
+  // exposing the StatusBar plugin's black default.
   await StatusBar.show();
-  await StatusBar.setOverlaysWebView({ overlay: true });
+  await StatusBar.setBackgroundColor({ color: currentStatusBarBackgroundColor() });
+  await StatusBar.setOverlaysWebView({ overlay: false });
   await StatusBar.setStyle({ style: currentStatusBarStyle() });
 }
 
@@ -46,7 +55,7 @@ async function initializeNativeRuntime(environment: PlatformEnvironment): Promis
   if (typeof document === "undefined" || typeof MutationObserver === "undefined") return;
   themeObserver?.disconnect();
   themeObserver = new MutationObserver(() => {
-    void StatusBar.setStyle({ style: currentStatusBarStyle() }).catch(() => undefined);
+    void syncNativeStatusBarAppearance().catch(() => undefined);
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }

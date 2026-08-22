@@ -4,6 +4,7 @@ import { parseQuestionBankZip } from "./question-bank-bundle";
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
 import type { BankV7 } from "../db/v7-types";
+import { isVisualWrapExtractionSource } from "./imported-text-cleanup";
 
 export const QUESTION_BANK_FILE_ACCEPT = ".json,.xlsx,.zip,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip";
 
@@ -41,7 +42,9 @@ async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookIma
 export async function importQuestionBankFile(file: File, options?: { targetBankId?: string }): Promise<{ bank: BankV7; importedCount: number; type: QuestionBankFileType }> {
   const type = detectQuestionBankFileType(file);
   if (type === "xlsx") {
-    const { rows, images } = await parseQuestionBankWorkbook(await file.arrayBuffer());
+    const { rows, images } = await parseQuestionBankWorkbook(await file.arrayBuffer(), {
+      collapseVisualLineBreaks: isVisualWrapExtractionSource(file.name),
+    });
     const assetByDispimg = await materializeWorkbookImages(images);
     for (const row of rows) {
       if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);

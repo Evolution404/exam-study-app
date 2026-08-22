@@ -6,8 +6,12 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     StatusBar: {
-      // Match Safari/PWA geometry; the web layer owns safe-area padding.
-      overlaysWebView: true,
+      // Keep the native status bar outside WKWebView, matching Safari's
+      // content viewport. Set an explicit light-theme background so the
+      // plugin's black default never appears during startup.
+      overlaysWebView: false,
+      backgroundColor: "#f3f0e9",
+      style: "LIGHT",
     },
   },
 };

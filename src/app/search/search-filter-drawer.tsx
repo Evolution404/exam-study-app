@@ -7,6 +7,8 @@ import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/practice/progress-scope";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope } from "@/app/search/search-matching";
+import { TagMultiSelect } from "@/app/ui/tag-multi-select";
+import type { TagMatchMode } from "@/lib/question/tag-filter";
 
 export type SearchBankScope = "current" | "all" | "custom";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
@@ -18,7 +20,8 @@ export interface SearchFilters {
   keywordMode: "plain" | "regex";
   contentScope: SearchContentScope;
   status: SearchStatus;
-  tag: string;
+  tags: string[];
+  tagMatch: TagMatchMode;
   noteFilter: SearchNoteFilter;
   progressScopeOverride: ProgressScope | null;
   difficultyMin: string;
@@ -38,7 +41,8 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[], co
     keywordMode: "regex",
     contentScope,
     status: "all",
-    tag: "all",
+    tags: [],
+    tagMatch: "any",
     noteFilter: "all",
     progressScopeOverride: null,
     difficultyMin: "",
@@ -72,7 +76,7 @@ export function countActiveSearchFilters(filters: SearchFilters): number {
     filters.keywordMode !== "regex",
     filters.contentScope !== "all",
     filters.status !== "all",
-    filters.tag !== "all",
+    filters.tags.length > 0,
     filters.noteFilter !== "all",
     filters.progressScopeOverride !== null,
     filters.difficultyMin,
@@ -199,8 +203,8 @@ export function SearchFilterDrawer({
                   </div>
                 </div>
               </div>
-              <div className="search-filter-select-row">
-                <label htmlFor="search-filter-tag">用户标签<AppSelect id="search-filter-tag" ariaLabel="用户标签" value={filters.tag} onValueChange={(tag) => patch({ tag })} options={[{ value: "all", label: "全部标签" }, ...tags.map((tag) => ({ value: tag, label: tag }))]} /></label>
+              <div className="search-filter-tag-field"><span>用户标签</span><TagMultiSelect tags={tags} selected={filters.tags} onChange={(selectedTags) => patch({ tags: selectedTags })} matchMode={filters.tagMatch} onMatchModeChange={(tagMatch) => patch({ tagMatch })} ariaLabel="搜索筛选标签" /></div>
+              <div className="search-filter-select-row search-filter-select-row-single">
                 <label htmlFor="search-filter-note">个人解析<AppSelect id="search-filter-note" ariaLabel="个人解析" value={filters.noteFilter} onValueChange={(noteFilter) => patch({ noteFilter: noteFilter as SearchNoteFilter })} options={[{ value: "all", label: "不限" }, { value: "with", label: "已有解析" }, { value: "without", label: "没有解析" }]} /></label>
               </div>
             </section>

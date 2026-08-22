@@ -37,6 +37,8 @@ assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public 
 assert.match(practiceView, /CalculationContentRenderer/, "practice must render positional calculation blank inputs");
 assert.match(practiceView, /areCalculationAnswersCorrect/, "practice must grade every calculation blank");
 assert.match(practiceView, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
+assert.doesNotMatch(practiceView, /依次填写题干中的/, "inline calculation blanks must not repeat guidance in a separate card");
+assert.match(practiceView, /question\.type === "计算" \? !hasInlineCalculationBlanks && <div className=\{`calculation-answer fallback-grid/, "only legacy calculations without inline blanks should render the fallback answer card");
 assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
 assert.match(practiceView, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
 assert.match(studyApp, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");

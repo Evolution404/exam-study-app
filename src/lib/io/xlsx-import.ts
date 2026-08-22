@@ -1,3 +1,5 @@
+import { collapseExtractedVisualLineBreaks } from "../question/imported-text-cleanup";
+
 const MAX_XLSX_BYTES = 12 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 4096;
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
@@ -283,7 +285,12 @@ function duplicateKey(stem: string, options: string[], imageIds: string[]) {
   return `${stem.replace(/\s+/g, "").replace(/[！-～]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))}\u0000${options.join("\u0000")}\u0000${imageIds.join("\u0000")}`;
 }
 
-export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<string, WorkbookImage> = new Map()): ImportedQuestionRow[] {
+export interface ParseQuestionBankOptions {
+  /** The known image-extraction workbook contains visual hard wraps in cells. */
+  collapseVisualLineBreaks?: boolean;
+}
+
+export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<string, WorkbookImage> = new Map(), options: ParseQuestionBankOptions = {}): ImportedQuestionRow[] {
   const header = rows[0]?.map((value) => value?.trim() ?? "") ?? [];
   const issues: XlsxValidationIssue[] = [];
   const requiredHeaders = ["题干", "题型", "标签", "解析"];
@@ -323,11 +330,14 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
   if (optionColumns > MAX_OPTIONS) issues.push({ row: 1, message: `每题最多支持 ${MAX_OPTIONS} 个选项。` });
   const questions: ImportedQuestionRow[] = [];
   const seen = new Map<string, number>();
+  const importedText = (value: string | undefined) => options.collapseVisualLineBreaks
+    ? collapseExtractedVisualLineBreaks(value ?? "").trim()
+    : (value ?? "").trim();
   for (let index = 1; index < rows.length; index += 1) {
     const source = rows[index] ?? [];
     if (!source.some((value) => value?.trim())) continue;
     const row = index + 1;
-    const stem = source[0]?.trim() ?? "";
+    const stem = importedText(source[0]);
     const typeText = source[1]?.trim() ?? "";
     const tags = (source[2] ?? "").split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean);
     const note = source[3]?.trim() ?? "";
@@ -338,7 +348,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断或计算。" });
     if (!answerCells[0]) issues.push({ row, message: "答案1不能为空。" });
     const optionStart = 4 + declaredAnswerColumns;
-    const optionCells = source.slice(optionStart, optionStart + optionColumns).map((value) => value?.trim() ?? "");
+    const optionCells = source.slice(optionStart, optionStart + optionColumns).map((value) => importedText(value));
     const lastOption = optionCells.findLastIndex(Boolean);
     const options = lastOption >= 0 ? optionCells.slice(0, lastOption + 1) : [];
     let answer = answerCells[0] ?? "";
@@ -405,9 +415,9 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
   return questions;
 }
 
-export async function parseQuestionBankWorkbook(buffer: ArrayBuffer): Promise<{ rows: ImportedQuestionRow[]; images: Map<string, WorkbookImage> }> {
+export async function parseQuestionBankWorkbook(buffer: ArrayBuffer, options: ParseQuestionBankOptions = {}): Promise<{ rows: ImportedQuestionRow[]; images: Map<string, WorkbookImage> }> {
   const workbook = await readQuestionWorkbook(buffer);
-  return { images: workbook.images, rows: parseQuestionBankTable(workbook.rows, workbook.images) };
+  return { images: workbook.images, rows: parseQuestionBankTable(workbook.rows, workbook.images, options) };
 }
 
 export function importFileName(fileName: string) {

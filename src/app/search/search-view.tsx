@@ -26,6 +26,7 @@ import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAtt
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, searchFieldsForQuestion, type SearchContentScope } from "@/app/search/search-matching";
+import { matchesTagSelection } from "@/lib/question/tag-filter";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -132,26 +133,32 @@ export function SearchView({
   useEffect(() => {
     const page = pageRef.current;
     if (!page) return;
+    const query = page.querySelector<HTMLElement>(".search-home-query");
+    if (!query) return;
     const workspace = document.querySelector(".workspace");
     const scroller: Window | Element = workspace && getComputedStyle(workspace).overflowY === "auto" ? workspace : window;
     let frame = 0;
     const update = () => {
       frame = 0;
       const bar = page.querySelector<HTMLElement>(".search-batch-bar");
-      const query = page.querySelector<HTMLElement>(".search-home-query");
-      if (!bar || !query) { page.classList.remove("search-stuck", "search-pinned"); return; }
       const queryRect = query.getBoundingClientRect();
+      page.style.setProperty("--search-query-sticky-height", `${queryRect.height}px`);
+      if (!bar) { page.classList.remove("search-stuck", "search-pinned"); return; }
       page.classList.toggle("search-pinned", queryRect.top <= 1);
       page.classList.toggle("search-stuck", bar.getBoundingClientRect().top <= queryRect.bottom + 1);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const queryResizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
+    queryResizeObserver?.observe(query);
     scroller.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     update();
     return () => {
+      queryResizeObserver?.disconnect();
       scroller.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       if (frame) cancelAnimationFrame(frame);
+      page.style.removeProperty("--search-query-sticky-height");
     };
   }, []);
 
@@ -222,7 +229,7 @@ export function SearchView({
       // An empty keyword is allowed: search by conditions only.
       const keywordMatches = !normalized || matcher.matches(searchFieldsForQuestion(question, note, activeFilters.contentScope));
       if (!keywordMatches) return [];
-      if (activeFilters.tag !== "all" && !question.tags.includes(activeFilters.tag)) return [];
+      if (!matchesTagSelection(question.tags, activeFilters.tags, activeFilters.tagMatch)) return [];
       if (activeFilters.status === "unanswered" && isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)) return [];
       if (activeFilters.status === "wrong" && !statsNeedWrongReview(scopedLegacyByQuestion.get(question.id), wrongRemovalStreak)) return [];
       if (activeFilters.status === "favorite" && !question.favorite) return [];
@@ -316,7 +323,7 @@ export function SearchView({
     filters.status === "unanswered" ? "未做" : filters.status === "wrong" ? "错题" : filters.status === "favorite" ? "收藏" : "",
     filters.keywordMode === "regex" ? "正则表达式" : "",
     filters.contentScope !== "all" ? `范围：${SEARCH_CONTENT_SCOPE_OPTIONS.find((option) => option.value === filters.contentScope)?.label ?? "全部"}` : "",
-    filters.tag !== "all" ? `标签：${filters.tag}` : "",
+    filters.tags.length ? `标签${filters.tagMatch === "all" ? "（全部）" : "（任一）"}：${filters.tags.join("、")}` : "",
     filters.noteFilter === "with" ? "已有解析" : filters.noteFilter === "without" ? "没有解析" : "",
     filters.progressScopeOverride ? `统计：${scopeLabelFor(filters.progressScopeOverride)}` : "",
   ].filter(Boolean);

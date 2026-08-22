@@ -15,6 +15,7 @@ import { ContentBlockEditor } from "@/app/bank/content-block-editor";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer } from "@/app/practice/calculation-content-renderer";
 import { calculationAnswers, MAX_CALCULATION_BLANKS, normalizeCalculationAnswer, validateCalculationBlankLayout } from "@/lib/question/question-utils";
+import { cleanVisualWrapQuestion } from "@/lib/question/imported-text-cleanup";
 
 /** Changes accepted by v7 question update/create callers. */
 export type QuestionChanges = QuestionDraftV7;
@@ -36,20 +37,21 @@ export interface QuestionViewModel {
 }
 
 export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName = "未归档题目", sortOrder = 0): QuestionViewModel {
-  const stem = deriveContentText(question.content);
+  const canonical = cleanVisualWrapQuestion(question, bankName);
+  const stem = deriveContentText(canonical.content);
   return {
-    canonical: question,
+    canonical,
     id: question.id,
     bankId,
     bankName,
     sortOrder,
     stem,
     normalizedStem: stem.normalize("NFKC").toLocaleLowerCase("zh-CN"),
-    answer: question.answer,
-    options: question.options.map((blocks) => deriveContentText(blocks)),
-    type: question.type,
-    tags: [...question.tags],
-    favorite: question.favorite,
+    answer: canonical.answer,
+    options: canonical.options.map((blocks) => deriveContentText(blocks)),
+    type: canonical.type,
+    tags: [...canonical.tags],
+    favorite: canonical.favorite,
   };
 }
 

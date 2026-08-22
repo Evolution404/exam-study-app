@@ -11,6 +11,7 @@ import {
   searchFieldsForQuestion,
 } from "../../src/app/search/search-matching";
 import type { BankV7 } from "../../src/lib/db/v7-types";
+import { filterTagOptions, matchesTagSelection } from "../../src/lib/question/tag-filter";
 
 const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const quickSearchSource = fs.readFileSync(new URL("../../src/app/search/quick-search.tsx", import.meta.url), "utf8");
@@ -22,6 +23,9 @@ const preferencesViewSource = [
   fs.readFileSync(new URL("../../src/app/shell/views/preferences-view.tsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../../src/app/shell/views/sync-automation-setting.tsx", import.meta.url), "utf8"),
 ].join("\n");
+const tagMultiSelectSource = fs.readFileSync(new URL("../../src/app/ui/tag-multi-select.tsx", import.meta.url), "utf8");
+const practiceSetupSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
+const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");
 
 const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },
@@ -34,6 +38,8 @@ assert.equal(defaults.bankScope, "current", "有首页已选题库时默认使�
 assert.equal(defaults.keywordMode, "regex", "高级搜索默认使用正则表达式");
 assert.equal(defaults.contentScope, "all", "搜索内容范围默认覆盖全部字段");
 assert.equal(defaults.progressScopeOverride, null, "统计范围默认跟随设置页");
+assert.deepEqual(defaults.tags, [], "标签筛选默认不限制标签");
+assert.equal(defaults.tagMatch, "any", "多标签默认命中任意一个");
 assert.deepEqual(resolveSearchBankIds(defaults, banks, ["a", "b"]), ["a", "b"]);
 
 const all = { ...defaults, bankScope: "all" as const };
@@ -47,6 +53,11 @@ const manualScope = { ...defaults, progressScopeOverride: { type: "lifetime" as 
 assert.deepEqual(effectiveSearchProgressScope(manualScope, { type: "rolling", days: 90 }), { type: "lifetime" }, "手动统计范围应只覆盖本次搜索");
 assert.equal(countActiveSearchFilters(defaults), 0);
 assert.equal(countActiveSearchFilters({ ...manualScope, bankScope: "custom", customBankIds: ["a", "b"], status: "unanswered" }), 3);
+assert.equal(countActiveSearchFilters({ ...defaults, tags: ["安全", "线路"] }), 1, "多个标签属于同一个筛选类别");
+assert.equal(matchesTagSelection(["安全", "线路"], ["安全", "杆塔"], "any"), true);
+assert.equal(matchesTagSelection(["安全", "线路"], ["安全", "杆塔"], "all"), false);
+assert.equal(matchesTagSelection(["安全", "线路"], [], "all"), true);
+assert.deepEqual(filterTagOptions(["安全工器具", "线路巡视", "安全带"], "安全"), ["安全工器具", "安全带"]);
 
 const question = { stem: "题干关键词", options: ["选项关键词", "另一个选项"], tags: ["标签关键词"] };
 assert.equal(createSearchMatcher("题干关键词", "plain").matches(searchFieldsForQuestion(question, "解析关键词", "stem")), true, "题干范围应命中题干");
@@ -70,7 +81,14 @@ assert.match(appSelectSource, /contentClassName\?: string/, "通用下拉框应�
 assert.match(quickSearchSource, /<AppSelect[^>]*className="quick-search-scope"[^>]*contentClassName="search-scope-select-content quick-search-scope-content"/, "顶栏范围应复用项目通用下拉框样式");
 assert.match(searchViewSource, /<AppSelect[^>]*className="search-content-scope"[^>]*contentClassName="search-scope-select-content"/, "搜索页范围应复用项目通用下拉框样式");
 assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*搜索字段[\s\S]*search-match-group search-mode-group[\s\S]*匹配方式/, "搜索字段与匹配方式必须分成有标题的独立分组");
+assert.match(searchDrawerSource, /<TagMultiSelect[^>]*selected=\{filters\.tags\}/, "搜索筛选必须支持可搜索标签多选");
+assert.match(practiceSetupSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "练习筛选必须支持可搜索标签多选");
+assert.match(questionManagerSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "题库管理筛选必须支持可搜索标签多选");
+assert.match(tagMultiSelectSource, /placeholder="搜索标签"/, "标签多选组件必须提供标签搜索输入框");
 assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
+assert.match(componentStyles, /\.searchbox \.quick-search-scope\.app-select-trigger\{width:58px;gap:4px;padding-left:7px\}/, "手机顶栏搜索范围下拉框必须按两字标签收紧");
+assert.match(componentStyles, /\.topbar:has\(\.searchbox input:focus\) \.quick-sync-split\{width:0;flex-basis:0;[^}]*border-width:0;[^}]*opacity:0;[^}]*pointer-events:none\}/, "手机快速搜索聚焦时必须让同步入口平滑退场并释放宽度");
+assert.match(componentStyles, /prefers-reduced-motion:reduce\)\{\.topbar \.quick-sync-split\{transition:none\}/, "同步入口动画必须尊重减少动态效果偏好");
 
 // Top quick-search caret stability contract: preserve the update timing from
 // the original 2026-08-13 fix. Keystrokes may filter the preloaded in-memory

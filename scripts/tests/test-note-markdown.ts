@@ -118,6 +118,7 @@ const detail = await readFile(new URL("../../src/app/bank/question-detail.tsx", 
 const history = await readFile(new URL("../../src/app/practice/practice-history.tsx", import.meta.url), "utf8");
 const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
 const practiceView = await readFile(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
+const searchView = await readFile(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
 const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
@@ -175,7 +176,9 @@ assert.match(studyApp, /className=\{`workspace \$\{view === "search" \? "view-se
 assert.match(styles, /\.workspace\.view-search \.topbar\s*\{\s*position:relative;\s*z-index:30/, "搜索页内全局顶栏不固定（随内容滚走，但需要更高层叠让快速搜索预览不被遮挡）");
 assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19/, "搜索页搜索框钉在顶部");
 assert.match(styles, /--search-query-h:58px/, "搜索框高度以变量定义");
-assert.match(styles, /\.search-batch-bar \{ position:sticky; top:calc\(var\(--search-query-h\) \+ env\(safe-area-inset-top\)\)/, "批量栏吸附高度与搜索框高度同源");
+assert.match(styles, /\.search-batch-bar \{ position:sticky; top:var\(--search-query-sticky-height,var\(--search-query-h\)\)/, "批量栏吸附位置必须跟随搜索框实际渲染高度");
+assert.match(searchView, /setProperty\("--search-query-sticky-height", `\$\{queryRect\.height\}px`\)/, "搜索框实际渲染高度必须同步给共享吸顶样式");
+assert.match(searchView, /new ResizeObserver\(schedule\)/, "搜索框尺寸变化后必须更新批量栏吸顶位置");
 assert.ok(!styles.includes("top:87px"), "批量栏旧的 top:87px（吸附全局顶栏）已删除");
 assert.ok(!styles.includes("#f8fbf8f2") && !/:is\(\.search-view-all,\.search-batch-bar,/.test(styles), "批量栏底色已 token 化（无硬编码浅/深底色）");
 assert.match(styles, /\.search-page\.search-pinned \.search-home-query\s*\{[^}]*border-top-left-radius:0[^}]*border-top:0/, "搜索框吸顶后上圆角压平贴顶（去上边框）");
@@ -183,7 +186,7 @@ assert.ok(!/\.search-page\.search-pinned \.search-home-query[^}]*border-bottom-l
 assert.match(styles, /\.search-page\.search-stuck \.search-batch-bar\s*\{[^}]*border-top-left-radius:0/, "批量栏吸附后去掉上圆角（与搜索框无缝相接，无圆角缺口）");
 assert.ok(!/\.search-page\.search-stuck \.search-home-query/.test(styles), "搜索框下边缘不受批量栏吸附影响（保持圆角）");
 assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
-assert.match(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-home-query\{margin-left:0;margin-right:0\}/, "原生 iOS 搜索框不得用负边距伸出手机视口");
-assert.match(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-batch-bar\{position:relative;top:auto;z-index:1\}/, "原生 iOS 批量栏应留在文档流中，避免多行工具遮住结果");
+assert.match(styles, /@media\(max-width:390px\)\{\.search-home-query\{margin-left:-14px;margin-right:-14px\}\}/, "窄屏搜索框负边距必须与内容区 14px 内边距一致");
+assert.doesNotMatch(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-batch-bar\{position:relative/, "原生 iOS 不得取消批量栏的第二级吸顶");
 
 console.log("note markdown tests passed: 块级/嵌套列表/续行/块级公式/行内/安全性 + 三处展示面接线 + 防穿透/夜间/编辑态/搜索吸附防回退");
