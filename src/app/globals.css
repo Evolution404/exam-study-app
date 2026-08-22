@@ -6,23 +6,3 @@
 @import "./styles/content-blocks.css";
 @import "./styles/review-scope.css";
 @import "./styles/hint.css";
-
-/*
- * Native iOS/WKWebView: keep text inputs out of a fixed-position topbar.
- * The full search page already uses an in-flow topbar and does not exhibit the
- * caret jump. Match that geometry on native iOS only; Web/PWA keeps the proven
- * fixed mobile header behavior from the original caret fix.
- */
-@media (max-width: 760px) {
-  html[data-platform="ios"][data-native="true"] .workspace {
-    padding-top: 0;
-  }
-
-  html[data-platform="ios"][data-native="true"] .topbar {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    z-index: 30;
-  }
-}
