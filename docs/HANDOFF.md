@@ -122,6 +122,10 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-study-app/sw.js'
 ```
 
+GitHub Actions 的发布顺序是“先部署、后验证”：`build` 只安装依赖、构建并上传带 `current` 名称的产物，GitHub Pages 部署完成后，`fast-check` 与 `pwa_smoke` 两个 job 并行执行。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
+
+Cloudflare Pages 部署前会尽力记录当前 production deployment ID。若配置了 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，验证失败时通过官方 `/deployments/{deployment_id}/rollback` API 恢复此前版本，并清理边缘缓存；缺少凭据或无法取得旧 ID 时安全跳过 Cloudflare 回退，不影响 GitHub Pages 的回退判断。
+
 ## 8. 已知非阻断项
 
 - 构建已通过 vendor 分包将主入口降至 352 KiB（gzip 约 110 KiB），当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。

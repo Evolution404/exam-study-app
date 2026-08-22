@@ -15,11 +15,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The current artifact is the only build that blocks the initial deploy.
+  # Verification is deliberately post-deploy so a broken release can be
+  # detected against the exact artifact that users just received.
   build:
     runs-on: ubuntu-latest
+    outputs:
+      rollback_sha: ${{ steps.rollback-ref.outputs.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout current commit
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -27,29 +34,33 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Production build
-        run: npm run build
-      - name: Fast checks
-        run: npm run test:fast
-      - name: Install Chromium for PWA smoke
-        run: |
-          if command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y chromium
-            chromium --version
-          fi
-      - name: PWA preview smoke
-        run: npm run test:pwa-smoke
-      - name: Rebuild GitHub Pages artifact
+      - name: Production build (current)
         run: npm run build
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+      - name: Upload current artifact
         uses: actions/upload-pages-artifact@v4
         with:
+          name: current
           path: dist
+      - name: Resolve rollback commit
+        id: rollback-ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" && "$EVENT_BEFORE" =~ ^[0-9a-f]{40}$ && "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]]; then
+            rollback_sha="$EVENT_BEFORE"
+          else
+            rollback_sha="$(git rev-parse HEAD^)"
+          fi
+          if ! git cat-file -e "$rollback_sha^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$rollback_sha"
+          fi
+          git cat-file -e "$rollback_sha^{commit}"
+          echo "sha=$rollback_sha" >> "$GITHUB_OUTPUT"
 
   deploy:
     environment:
@@ -58,38 +69,63 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Deploy
+      - name: Deploy current Pages artifact
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: current
 
-  deploy-cloudflare-pages:
+  # Cloudflare is a second production target. It has its own root-base build,
+  # but it never gates the current GitHub Pages artifact or its first deploy.
+  deploy_cloudflare:
     runs-on: ubuntu-latest
     needs: build
+    outputs:
+      previous_deployment_id: ${{ steps.record-production.outputs.deployment_id }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_PROJECT_NAME: exam-study-app
     steps:
-      - name: Checkout
+      - name: Checkout current commit
         uses: actions/checkout@v6
       - name: Setup Node
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
       - name: Install
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         run: npm ci
-      - name: Build for Cloudflare Pages
-        run: CF_PAGES=1 npm run build
-      - name: Deploy to Cloudflare Pages
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
-        run: npx wrangler@4 pages deploy dist --project-name exam-study-app --commit-dirty=true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # 部署后立即清空边缘缓存。部署过渡期 /assets/* 可能被当成 SPA 回退
-      # 返回 200 index.html，并因 _headers 的 immutable 规则被边缘缓存一年——
-      # 下次加载永久命中污染条目（本会话已中招一次）。purge 清掉任何此类残留。
-      # 尽力而为：token 若缺 Zone·Cache Purge 权限则打 warning，不使部署误报失败。
-      - name: Purge Cloudflare edge cache
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+      - name: Record current production deployment
+        id: record-production
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+        shell: bash
         run: |
+          set -u
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CLOUDFLARE_PROJECT_NAME}/deployments?env=production&per_page=20"
+          response="$(curl -sS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "$endpoint" 2>/dev/null || true)"
+          previous_id="$(jq -r '[.result[]? | select(.environment == "production" or .environment == null)] | sort_by(.created_on // "") | reverse | .[0].id // empty' <<<"$response" 2>/dev/null || true)"
+          if [[ -n "$previous_id" ]]; then
+            echo "deployment_id=$previous_id" >> "$GITHUB_OUTPUT"
+            echo "已记录 Cloudflare 当前 production deployment: $previous_id"
+          else
+            echo "::warning::无法记录 Cloudflare 当前 production deployment，失败验证时将跳过 Cloudflare 回退"
+          fi
+      - name: Build for Cloudflare Pages
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+        run: CF_PAGES=1 npm run build
+      - name: Deploy current Cloudflare Pages version
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+        run: npx wrangler@4 pages deploy dist --project-name "$CLOUDFLARE_PROJECT_NAME" --commit-dirty=true
+      # 部署过渡期 /assets/* 可能被当成 SPA 回退并因 _headers 的 immutable
+      # 规则被缓存一年；清理残留，防止旧资源继续污染线上页面。
+      - name: Purge Cloudflare edge cache
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+        shell: bash
+        run: |
+          set -u
           ZONE_NAME="980923.xyz"
           ZONE_ID=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" | jq -r '.result[0].id // empty')
@@ -104,8 +140,140 @@ jobs:
           if jq -e '.success' <<<"$BODY" >/dev/null; then
             echo "已清除 Cloudflare 边缘缓存（zone ${ZONE_NAME}，purge_everything）"
           else
-            MSG=$(jq -r '.errors[0].message' <<<"$BODY")
-            echo "::warning::缓存清理未生效：${MSG}（若为权限不足，请在 Cloudflare 给该 token 增加 Zone·Cache Purge 权限）"
+            MSG=$(jq -r '.errors[0].message // "未知错误"' <<<"$BODY")
+            echo "::warning::缓存清理未生效：${MSG}"
           fi
+
+  # These jobs intentionally have the same single dependency and therefore run
+  # concurrently after the current Pages deploy completes.
+  fast_check:
+    name: Fast checks (post-deploy)
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Fast checks
+        run: npm run test:fast
+
+  pwa_smoke:
+    name: PWA smoke (post-deploy)
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Chromium for PWA smoke
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+          else
+            sudo apt-get update
+            sudo apt-get install -y chromium
+            chromium --version
+          fi
+      - name: PWA preview smoke
+        run: npm run test:pwa-smoke
+
+  # A Pages deployment is rolled back only when it succeeded and a post-
+  # deployment verification failed. If the initial build/deploy failed, this
+  # job is skipped because no new Pages version was successfully published.
+  rollback_github_pages:
+    name: Roll back GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.deploy.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure') }}
+    needs: [build, deploy, fast_check, pwa_smoke]
+    steps:
+      - name: Checkout rollback commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.build.outputs.rollback_sha }}
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build rollback artifact
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_SHA: ${{ needs.build.outputs.rollback_sha }}
+        run: npm run build
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload rollback artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          name: rollback
+          path: dist
+      - name: Deploy rollback artifact
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: rollback
+
+  # Cloudflare can restore an immutable deployment without rebuilding. Missing
+  # credentials or a missing recorded ID safely skips this job.
+  rollback_cloudflare:
+    name: Roll back Cloudflare Pages
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.deploy.result == 'success' && needs.deploy_cloudflare.result == 'success' && (needs.fast_check.result == 'failure' || needs.pwa_smoke.result == 'failure') && needs.deploy_cloudflare.outputs.previous_deployment_id != '' }}
+    needs: [deploy, deploy_cloudflare, fast_check, pwa_smoke]
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_PROJECT_NAME: exam-study-app
+      PREVIOUS_DEPLOYMENT_ID: ${{ needs.deploy_cloudflare.outputs.previous_deployment_id }}
+    steps:
+      - name: Restore previous Cloudflare production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CLOUDFLARE_PROJECT_NAME}/deployments/${PREVIOUS_DEPLOYMENT_ID}/rollback"
+          response=$(curl -sS -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" "$endpoint")
+          if ! jq -e '.success == true' <<<"$response" >/dev/null; then
+            echo "$response" >&2
+            echo "Cloudflare deployment rollback failed" >&2
+            exit 1
+          fi
+          echo "已通过 Cloudflare 官方 rollback API 恢复 deployment ${PREVIOUS_DEPLOYMENT_ID}"
+      - name: Purge Cloudflare edge cache after rollback
+        shell: bash
+        run: |
+          set -u
+          ZONE_NAME="980923.xyz"
+          ZONE_ID=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" | jq -r '.result[0].id // empty')
+          if [ -z "$ZONE_ID" ]; then
+            echo "::warning::无法解析 zone ${ZONE_NAME} 的 id，跳过回退后的边缘缓存清理"
+            exit 0
+          fi
+          BODY=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything": true}' \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache")
+          if jq -e '.success' <<<"$BODY" >/dev/null; then
+            echo "已清除 Cloudflare 回退后的边缘缓存"
+          else
+            MSG=$(jq -r '.errors[0].message // "未知错误"' <<<"$BODY")
+            echo "::warning::回退后的缓存清理未生效：${MSG}"
+          fi
