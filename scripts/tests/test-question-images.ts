@@ -395,8 +395,8 @@ await resetV7Database();
   ]), (error: unknown) => (error as { issues?: Array<{ message: string }> }).issues?.some((issue) => /图片1、图片2/.test(issue.message)), "图片列表头跳号应校验失败");
   await assert.rejects(
     () => importQuestionBankFile({ name: "超大.json", type: "application/json", size: IMPORT_LIMITS.json.maxBytes + 1, text: async () => "" } as unknown as File),
-    /JSON 文件超过 64 MB 上限/,
-    "JSON 文件大小必须在解析前受 64 MiB 限制",
+    /JSON 文件超过 128 MB 上限/,
+    "JSON 文件大小必须在解析前受 128 MiB 限制",
   );
   const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", options: ["甲", "乙"], answer: "A" })) });
   await assert.rejects(

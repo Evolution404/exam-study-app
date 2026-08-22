@@ -32,7 +32,7 @@ const MiB = 1024 * 1024;
 /** Stable import contract shared by every supported question-bank format. */
 export const IMPORT_LIMITS: Readonly<ImportLimits> = Object.freeze({
   xlsx: Object.freeze({
-    maxBytes: 64 * MiB,
+    maxBytes: 128 * MiB,
     maxArchiveEntries: 16_384,
     maxEntryBytes: 32 * MiB,
     maxTotalUncompressedBytes: 256 * MiB,
@@ -41,7 +41,7 @@ export const IMPORT_LIMITS: Readonly<ImportLimits> = Object.freeze({
     maxImagesPerQuestion: 32,
   }),
   json: Object.freeze({
-    maxBytes: 64 * MiB,
+    maxBytes: 128 * MiB,
     maxQuestions: 50_000,
   }),
   zip: Object.freeze({

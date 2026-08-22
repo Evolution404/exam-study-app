@@ -77,7 +77,7 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
     const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions }, { ...options, imageAssets: assets });
     return { bank, importedCount: bank.importedCount, type };
   }
-  if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 64 MB 上限。");
+  if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 128 MB 上限。");
   let raw: unknown;
   try {
     raw = JSON.parse(await file.text());

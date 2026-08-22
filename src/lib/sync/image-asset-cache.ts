@@ -77,7 +77,7 @@ export async function downloadAllImageAssetsV7(settings: GitHubSettings, token: 
       total,
       completedBytes,
       totalBytes,
-      percent: Math.round(Math.min(1, Math.max(countFraction, byteFraction)) * 100),
+      percent: Math.round(Math.min(1, byteFraction) * 100),
     });
   };
   report();

@@ -135,7 +135,7 @@ assert.equal(importFileName("送电线路工-技师.xlsx"), "送电线路工-技
 assert.equal(importFileName("自建专业题库.xlsx"), "自建专业题库.json");
 assert.throws(() => importFileName(".xlsx"), /文件名不能为空/);
 
-assert.equal(IMPORT_LIMITS.xlsx.maxBytes, 64 * 1024 * 1024);
+assert.equal(IMPORT_LIMITS.xlsx.maxBytes, 128 * 1024 * 1024);
 assert.equal(IMPORT_LIMITS.xlsx.maxArchiveEntries, 16_384);
 assert.equal(IMPORT_LIMITS.xlsx.maxEntryBytes, 32 * 1024 * 1024);
 assert.equal(IMPORT_LIMITS.xlsx.maxTotalUncompressedBytes, 256 * 1024 * 1024);

@@ -295,7 +295,7 @@ async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry
 
 export async function readQuestionWorkbook(buffer: ArrayBuffer): Promise<QuestionWorkbook> {
   if (!buffer.byteLength) fail("Excel 文件为空。");
-  if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 64 MB 上限。");
+  if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 128 MB 上限。");
   const entries = readZipEntries(buffer);
   const workbook = await unzipText(buffer, entries, "xl/workbook.xml");
   const relationships = await unzipText(buffer, entries, "xl/_rels/workbook.xml.rels");
