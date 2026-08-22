@@ -17,12 +17,20 @@ function currentTheme(): "light" | "dark" {
   return "light";
 }
 
+function currentStatusBarStyle() {
+  // Capacitor names these styles by the background they are intended for:
+  // Style.Dark = light content on a dark background;
+  // Style.Light = dark content on a light background.
+  return currentTheme() === "dark" ? Style.Dark : Style.Light;
+}
+
 async function syncNativeStatusBar(): Promise<void> {
-  // Capacitor's iOS default is overlaying content. The app already accounts
-  // for the safe areas in CSS, so keep that contract explicit and only let
-  // native status-bar failures degrade to the regular web shell.
+  // Keep the WebView edge-to-edge: the shared mobile CSS already owns the
+  // safe-area geometry. Explicitly show the status bar and only change its
+  // foreground contrast so native iOS matches the browser presentation.
+  await StatusBar.show();
   await StatusBar.setOverlaysWebView({ overlay: true });
-  await StatusBar.setStyle({ style: currentTheme() === "dark" ? Style.Light : Style.Dark });
+  await StatusBar.setStyle({ style: currentStatusBarStyle() });
 }
 
 async function initializeNativeRuntime(environment: PlatformEnvironment): Promise<void> {
@@ -37,7 +45,7 @@ async function initializeNativeRuntime(environment: PlatformEnvironment): Promis
   if (typeof document === "undefined" || typeof MutationObserver === "undefined") return;
   themeObserver?.disconnect();
   themeObserver = new MutationObserver(() => {
-    void StatusBar.setStyle({ style: currentTheme() === "dark" ? Style.Light : Style.Dark }).catch(() => undefined);
+    void StatusBar.setStyle({ style: currentStatusBarStyle() }).catch(() => undefined);
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
