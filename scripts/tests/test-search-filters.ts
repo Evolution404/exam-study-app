@@ -10,6 +10,13 @@ import {
   createSearchMatcher,
   searchFieldsForQuestion,
 } from "../../src/app/search/search-matching";
+import {
+  emptySearchFilterProjection,
+  filterSearchIndex,
+  type SearchIndexQuestion,
+} from "../../src/lib/question/search-matching";
+import { createSearchWorkerClient, type SearchWorkerLike } from "../../src/app/search/search-worker-client";
+import type { SearchWorkerMessage } from "../../src/app/search/search-worker-protocol";
 import type { BankV7 } from "../../src/lib/db/v7-types";
 import { filterTagOptions, matchesTagSelection } from "../../src/lib/question/tag-filter";
 
@@ -26,6 +33,7 @@ const preferencesViewSource = [
 const tagMultiSelectSource = fs.readFileSync(new URL("../../src/app/ui/tag-multi-select.tsx", import.meta.url), "utf8");
 const practiceSetupSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
 const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");
+const searchWorkerSource = fs.readFileSync(new URL("../../src/app/search/search-worker.ts", import.meta.url), "utf8");
 
 const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },
@@ -104,5 +112,69 @@ assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");
 assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[\][\s\S]*?notes: new Map<string, string>\(\)[\s\S]*?\}[\s\S]*?\}, \[bankKey\]\);/, "顶栏搜索应预加载当前题库范围并只在题库范围变化时刷新订阅");
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
+assert.match(searchViewSource, /createSearchWorkerClient/, "搜索页应通过 Worker 客户端执行大数组筛选");
+assert.match(quickSearchSource, /createSearchWorkerClient/, "顶栏搜索应通过 Worker 客户端执行大数组筛选");
+assert.match(searchWorkerSource, /type=\"module\"|set-index|filterSearchIndex/, "搜索 Worker 必须使用纯索引协议");
+assert.doesNotMatch(searchWorkerSource, /Blob|ArrayBuffer|canonical/, "搜索 Worker 不得接收完整图片或富内容对象");
+
+const searchQuestion = (id: string, index: number): SearchIndexQuestion => ({
+  id,
+  type: index % 2 ? "多选" : "单选",
+  stem: index % 2 ? `快关键词 ${index}` : `慢关键词 ${index}`,
+  options: [`选项 ${index}`],
+  tags: index % 3 ? ["安全"] : ["线路"],
+  explanation: index % 5 ? "" : "个人解析",
+  favorite: index % 11 === 0,
+  difficulty: index % 101,
+  total: index % 9,
+  wrong: index % 4,
+  latest: null,
+  done: index % 7 === 0,
+  needsWrongReview: index % 13 === 0,
+});
+
+const largeIndex = Array.from({ length: 50_000 }, (_, index) => searchQuestion(`q-${index}`, index));
+const largeStartedAt = performance.now();
+const largeResult = filterSearchIndex(largeIndex, {
+  query: "快关键词",
+  filters: emptySearchFilterProjection("stem"),
+});
+const largeElapsed = performance.now() - largeStartedAt;
+assert.equal(largeResult.total, 25_000, "5 万题索引应保持完整匹配结果");
+assert.ok(largeElapsed < 2_000, `5 万题纯筛选应在 2 秒内完成，实际 ${largeElapsed.toFixed(1)}ms`);
+
+class DelayedWorker implements SearchWorkerLike {
+  onmessage: ((event: MessageEvent<import("../../src/app/search/search-worker-protocol").SearchWorkerResponse>) => void) | null = null;
+  onerror: ((event: ErrorEvent) => void) | null = null;
+  private index: SearchIndexQuestion[] = [];
+
+  postMessage(message: SearchWorkerMessage) {
+    if (message.kind === "set-index") {
+      this.index = message.questions;
+      return;
+    }
+    if (message.kind !== "search") return;
+    const delay = message.request.query.includes("慢") ? 35 : 0;
+    setTimeout(() => {
+      const result = filterSearchIndex(this.index, message.request);
+      this.onmessage?.({ data: { kind: "search-result", requestId: message.requestId, indexKey: message.indexKey, result } } as MessageEvent<import("../../src/app/search/search-worker-protocol").SearchWorkerResponse>);
+    }, delay);
+  }
+
+  terminate() {}
+}
+
+const delayedClient = createSearchWorkerClient({ threshold: 0, workerFactory: () => new DelayedWorker() });
+const slowSearch = delayedClient.search({ indexKey: "large", index: largeIndex, request: { query: "慢关键词", filters: emptySearchFilterProjection("stem") } });
+const fastSearch = delayedClient.search({ indexKey: "large", index: largeIndex, request: { query: "快关键词", filters: emptySearchFilterProjection("stem") } });
+const [slowResult, fastResult] = await Promise.all([slowSearch, fastSearch]);
+assert.equal(slowResult, undefined, "新搜索请求应取消旧请求的结果承诺");
+assert.equal(fastResult?.total, 25_000, "最新搜索结果应优先返回");
+delayedClient.dispose();
+
+const fallbackClient = createSearchWorkerClient({ threshold: 0, workerFactory: () => undefined });
+const fallbackResult = await fallbackClient.search({ indexKey: "small", index: largeIndex.slice(0, 10), request: { query: "快关键词", filters: emptySearchFilterProjection("stem") } });
+assert.equal(fallbackResult?.total, 5, "Worker 不可用时应可靠回退主线程纯函数");
+fallbackClient.dispose();
 
 console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and quick-search caret timing");
