@@ -114,7 +114,7 @@ assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
 assert.match(searchViewSource, /createSearchWorkerClient/, "搜索页应通过 Worker 客户端执行大数组筛选");
 assert.match(quickSearchSource, /createSearchWorkerClient/, "顶栏搜索应通过 Worker 客户端执行大数组筛选");
-assert.match(searchWorkerSource, /type=\"module\"|set-index|filterSearchIndex/, "搜索 Worker 必须使用纯索引协议");
+assert.match(searchWorkerSource, /type="module"|set-index|filterSearchIndex/, "搜索 Worker 必须使用纯索引协议");
 assert.doesNotMatch(searchWorkerSource, /Blob|ArrayBuffer|canonical/, "搜索 Worker 不得接收完整图片或富内容对象");
 
 const searchQuestion = (id: string, index: number): SearchIndexQuestion => ({
