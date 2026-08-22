@@ -17,7 +17,7 @@ const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算"];
 
 /**
  * The topbar quick-search box, self-contained so the caret is owned by this
- * small component's own state instead of the StudyApp top level.  Keeps its own
+ * small component's own state instead of the StudyApp top level. Keeps its own
  * draft query and open flag; only the final keyword is forwarded on open.
  */
 export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
@@ -66,10 +66,13 @@ function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, o
   }, [enabled, query]);
   const normalizedQuery = debouncedQuery.trim();
   const bankKey = bankIds.join("|");
-  // 题库只随题库范围变化查询一次；输入词不再触发 IndexedDB 查询/映射，
-  // 避免数据量大时每次按键都做异步重查询干扰输入框光标。
+  // Keep the IndexedDB subscription independent from typing/focus state.
+  // iOS input composition is sensitive to async subscription churn while the
+  // caret is active; only a bank-scope change may restart this query.
   const data = useLiveQuery(async () => {
-    if (!enabled || !bankIds.length) return undefined;
+    if (!bankIds.length) {
+      return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
+    }
     const [views, notes] = await Promise.all([
       listQuestionViewsForBanksV7(bankIds),
       dbV7.notes.toArray(),
@@ -80,7 +83,7 @@ function QuickSearchResults({ enabled, query, contentScope, bankIds, onChoose, o
       return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
     });
     return { questions, notes: new Map(notes.map((note) => [note.questionId, note.content])) };
-  }, [bankKey, enabled]);
+  }, [bankKey]);
 
   // 输入词变化只做同步过滤，不触碰 IndexedDB。
   const results = useMemo(() => {
