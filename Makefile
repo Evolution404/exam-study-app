@@ -21,9 +21,10 @@ IOS_IPA_OUTPUT ?= artifacts/ios/shijuan.ipa
 IOS_BUNDLE_ID ?= com.evolution404.shijuan
 IOS_ICLOUD_DIR ?= $(HOME)/Library/Mobile Documents/com~apple~CloudDocs
 IOS_ICLOUD_IPA ?= $(IOS_ICLOUD_DIR)/$(notdir $(IOS_IPA_OUTPUT))
+IOS_SERVE_PORT ?= 8765
 XCODE_ENV = DEVELOPER_DIR="$(XCODE_DEVELOPER_DIR)"
 
-.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator ios-ipa verify-ios
+.PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator ios-ipa ios-serve verify-ios
 
 help: ## 显示本帮助
 	@echo "exam-study-app 一键命令"
@@ -85,6 +86,7 @@ help: ## 显示本帮助
 	@echo "  make ios-clean              使用 Xcode 清理 App target 构建产物"
 	@echo "  make ios-build-simulator    无签名编译 iOS Simulator target"
 	@echo "  make ios-ipa                生成 SideStore IPA，并在检测到 iCloud Drive 时自动复制 shijuan.ipa"
+	@echo "  make ios-serve              生成 IPA 后通过局域网提供 SideStore 一键安装页（默认端口 8765）"
 	@echo "  make verify-ios             iOS 构建、同步、模拟器编译和平台专项测试"
 
 doctor: ## 检查本地开发环境
@@ -260,6 +262,9 @@ ios-ipa: ios-build ## 生成 SideStore 可重签的无签名真机 IPA
 	else \
 		echo "未检测到 iCloud Drive，跳过 IPA 复制：$(IOS_ICLOUD_DIR)"; \
 	fi
+
+ios-serve: ios-ipa ## 生成 IPA 并通过局域网提供 SideStore 一键安装页
+	@node scripts/tools/serve-ios-ipa.mjs --file "$(IOS_IPA_OUTPUT)" --port "$(IOS_SERVE_PORT)"
 
 verify-ios: ios-build ## iOS 构建、同步、模拟器编译和平台专项测试
 	npm run test:build-target
