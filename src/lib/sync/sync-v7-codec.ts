@@ -26,8 +26,8 @@ function compressionAvailable(): boolean {
  *  ('{' = 0x7B). */
 export function isZlibEnvelope(bytes: Uint8Array): boolean {
   if (bytes.length < 2) return false;
-  const cmf = bytes[0]!;
-  const flg = bytes[1]!;
+  const cmf = bytes[0];
+  const flg = bytes[1];
   return cmf === 0x78 && ((cmf * 256) + flg) % 31 === 0 && (flg & 0x20) === 0;
 }
 

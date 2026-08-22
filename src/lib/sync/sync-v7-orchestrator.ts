@@ -321,7 +321,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // content-addressed immutable object and leave a thin stub in its place;
       // the object files are published alongside the segments in the same plan.
       report(progress, "upload", `正在整理 ${events.length} 组变更`, bandPercent(bands.upload!, 0.24), bandPercent(bands.upload!, 0.28));
-      const offloaded = await offloadSyncV7Events(events as Record<string, unknown>[]);
+      const offloaded = await offloadSyncV7Events(events);
       if (offloaded.objects.length) report(progress, "upload", `已卸载 ${offloaded.objects.length} 个大对象`, bandPercent(bands.upload!, 0.28), bandPercent(bands.upload!, 0.3));
       const objectFiles: SyncV7PublicationFile[] = offloaded.objects;
       // Paginate the (now stub-slender) events into one or more 1 MiB segments

@@ -29,7 +29,7 @@ export function loadGitHubSettings(): GitHubSettings {
   if (typeof localStorage === "undefined") return DEFAULT_GITHUB_SETTINGS;
   try {
     const saved = JSON.parse(localStorage.getItem(settingsKey) ?? "{}") as Partial<GitHubSettings>;
-    const settings = { ...DEFAULT_GITHUB_SETTINGS, ...saved } as GitHubSettings;
+    const settings = { ...DEFAULT_GITHUB_SETTINGS, ...saved };
     if (settings.historySyncStart && !/^\d{4}-\d{2}-\d{2}$/.test(settings.historySyncStart)) delete settings.historySyncStart;
     const environment = getPlatformEnvironment();
     // Migrate only the former same-origin default. A user-provided relay or

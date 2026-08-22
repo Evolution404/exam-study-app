@@ -35,7 +35,7 @@ export async function uploadPendingImageAssetsV7(client: GitHubV7Remote, onProgr
   const earliest = pendingBeforeUpload.reduce((min, record) => Math.min(min, Date.parse(record.createdAt)), Date.now());
   const createdAt = new Date(earliest - 1).toISOString();
   const publishedAssets = await mapWithConcurrency(pendingAssets, SYNC_V7_ASSET_UPLOAD_CONCURRENCY, async (asset) => {
-    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType as keyof typeof IMAGE_EXTENSION_BY_MIME];
+    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
     if (!extension) throw new Error(`图片 MIME 类型不受支持：${asset.mimeType}`);
     const path = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
     const bytes = new Uint8Array(await asset.blob.arrayBuffer());

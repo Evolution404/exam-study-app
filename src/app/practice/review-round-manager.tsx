@@ -145,9 +145,9 @@ export function ReviewRoundManager({
       return;
     }
     if (editor === "create") {
-      onCreate?.(name, bankIds);
+      void onCreate?.(name, bankIds);
     } else if (editor) {
-      onUpdate?.(editor, name, bankIds);
+      void onUpdate?.(editor, name, bankIds);
     }
     closeEditor();
   }
@@ -159,12 +159,12 @@ export function ReviewRoundManager({
       return;
     }
     setConfirmingRoundId(null);
-    onComplete?.(roundId);
+    void onComplete?.(roundId);
   }
 
   function archiveRound(roundId: string) {
     if (disabled) return;
-    onArchive?.(roundId);
+    void onArchive?.(roundId);
   }
 
   return <section className="review-round-manager" aria-labelledby={`${id}-title`}>

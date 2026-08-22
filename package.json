@@ -18,6 +18,7 @@
     "browser:install": "playwright-core install chromium",
     "test": "npm run build && npm run test:fast",
     "typecheck": "tsc --noEmit",
+    "typecheck:compat": "tsc6 --noEmit",
     "test:architecture": "node scripts/tools/check-architecture.mjs && node scripts/tools/check-no-native-tooltip-titles.mjs && node scripts/tools/check-button-styles.mjs && node scripts/tools/check-test-registration.mjs",
     "test:build-target": "tsx scripts/tests/test-build-target.ts",
     "test:platform-environment": "tsx scripts/tests/test-platform-environment.ts",
@@ -133,7 +134,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-tooltip": "^1.2.16",
-    "dexie": "^4.4.4",
+    "dexie": "4.4.5",
     "dexie-react-hooks": "^4.4.0",
     "katex": "^0.18.2",
     "lucide-react": "^1.30.0",
@@ -143,6 +144,7 @@
   "devDependencies": {
     "@capacitor/cli": "8.5.0",
     "@eslint/js": "9.39.4",
+    "@typescript/native": "npm:typescript@7.0.2",
     "@fontsource/noto-serif-sc": "^5.2.8",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
@@ -159,7 +161,7 @@
     "subset-font": "^2.5.0",
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.11",
-    "typescript": "5.9.3",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.67.0",
     "vite": "8.2.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

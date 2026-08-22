@@ -9,7 +9,7 @@ function deleteCookie(name: string, path: string, domain?: string) {
 
 function clearSiteCookies() {
   if (typeof document === "undefined" || typeof window === "undefined") return;
-  const names = document.cookie.split(";").map((item) => item.split("=")[0]?.trim()).filter(Boolean) as string[];
+  const names = document.cookie.split(";").map((item) => item.split("=")[0]?.trim()).filter(Boolean);
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const paths = new Set(["/", window.location.pathname]);
   pathParts.forEach((_, index) => {

@@ -344,11 +344,11 @@ async function readLegacyV7Rows(): Promise<Map<string, unknown[]> | undefined> {
       for (const name of names) {
         const request = transaction.objectStore(name).getAll();
         request.onsuccess = () => { rows.set(name, request.result as unknown[]); };
-        request.onerror = () => reject(request.error);
+        request.onerror = () => reject(request.error ?? new Error(`读取旧数据库表 ${name} 失败`));
       }
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () => reject(transaction.error ?? new Error("读取旧数据库事务失败"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("读取旧数据库事务被中止"));
     });
     return rows;
   } finally {
@@ -395,7 +395,7 @@ export { V7StudyDatabase };
 
 export async function resetV7Database(): Promise<void> {
   await dbV7Ready;
-  await dbV7.close();
+  dbV7.close();
   await Dexie.delete(V7_DATABASE_NAME);
   await dbV7.open();
 }

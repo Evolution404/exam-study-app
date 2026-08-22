@@ -258,12 +258,12 @@ function assertSafeInteger(value: unknown, field: string, minimum = 0): asserts 
 
 function assertSize(value: unknown, field: string, maximum: number): asserts value is number {
   assertSafeInteger(value, field);
-  if ((value as number) > maximum) fail(`${field} exceeds its byte limit`);
+  if ((value) > maximum) fail(`${field} exceeds its byte limit`);
 }
 
 function assertCount(value: unknown, field: string): asserts value is number {
   assertSafeInteger(value, field, 1);
-  if ((value as number) > SYNC_V7_MAX_SEGMENT_EVENT_COUNT) fail(`${field} exceeds the segment event limit`);
+  if ((value) > SYNC_V7_MAX_SEGMENT_EVENT_COUNT) fail(`${field} exceeds the segment event limit`);
 }
 
 function isSafeRelativePath(value: unknown): value is string {
@@ -305,7 +305,7 @@ export function assertSyncV7Path(value: unknown, kind: SyncV7DescriptorKind | "h
 
 function validateCursors(value: unknown, field: string): asserts value is Record<string, number> {
   if (!isRecord(value)) fail(`${field} must be a cursor map`);
-  const entries = Object.entries(value) as Array<[string, unknown]>;
+  const entries = Object.entries(value);
   if (entries.length > SYNC_V7_MAX_DEVICE_CURSORS) fail(`${field} has too many devices`);
   for (const [deviceId, sequence] of entries) {
     if (!DEVICE_ID.test(deviceId)) fail(`${field} contains an invalid device id`);

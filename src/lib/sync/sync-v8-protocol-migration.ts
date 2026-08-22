@@ -105,7 +105,7 @@ function parseLegacyHead(bytes: Uint8Array, expectedVaultId: string): LegacyHead
   const translated = {
     ...value,
     formatVersion: 8,
-    checkpoint: value.checkpoint === null ? null : { ...value.checkpoint, path: (value.checkpoint as SyncV7Descriptor).path.replace(LEGACY_CHECKPOINT_PREFIX, SYNC_V8_CHECKPOINT_PREFIX) },
+    checkpoint: value.checkpoint === null ? null : { ...value.checkpoint, path: (value.checkpoint).path.replace(LEGACY_CHECKPOINT_PREFIX, SYNC_V8_CHECKPOINT_PREFIX) },
     segments: value.segments.map((segment) => ({ ...(segment as SyncV7SegmentDescriptor), path: (segment as SyncV7SegmentDescriptor).path.replace(LEGACY_SEGMENT_PREFIX, "sync/v8/segments/") })),
   };
   validateSyncHeadV7(translated);
@@ -290,7 +290,7 @@ export async function migrateVaultToSyncV8Protocol(
   const ordered = [...legacyHead.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal);
   const changes: ChangeSetV7[] = [];
   for (let index = 0; index < ordered.length; index += 1) {
-    const descriptor = ordered[index]!;
+    const descriptor = ordered[index];
     onProgress?.(`验证旧 v7 热分段 ${index + 1}/${ordered.length}`);
     const events = decodeLegacySegment(await legacy.readBlob(descriptor), descriptor, legacyHead.vaultId);
     const hydrated = await hydrateSyncV7Events(events, (ref) => legacy.readImmutableContents(ref.path, { size: ref.size, sha256: ref.sha256 }));

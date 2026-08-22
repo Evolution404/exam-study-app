@@ -9,11 +9,11 @@ export async function saveQueueBase(projection: ChangeSetProjectionV7): Promise<
   await dbV7.syncMeta.put({ key: "v7:queue-base", value: projection, updatedAt: new Date().toISOString() });
 }
 
-export async function projectionFromCheckpoint(checkpoint: SyncCheckpointV7): Promise<ChangeSetProjectionV7> {
-  return { ...checkpoint.state, memberships: checkpoint.state.memberships, imageAssets: checkpoint.state.imageAssets };
+export function projectionFromCheckpoint(checkpoint: SyncCheckpointV7): Promise<ChangeSetProjectionV7> {
+  return Promise.resolve({ ...checkpoint.state, memberships: checkpoint.state.memberships, imageAssets: checkpoint.state.imageAssets });
 }
 
-export async function checkpointFromProjection(
+export function checkpointFromProjection(
   projection: ChangeSetProjectionV7,
   cursors: Record<string, number>,
   options?: { tombstoneGc?: { devices: Record<string, SyncV7DeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
@@ -80,7 +80,7 @@ export async function checkpointFromProjection(
       totalPracticeRuns: projection.practiceRuns.length,
     },
   };
-  return checkpoint;
+  return Promise.resolve(checkpoint);
 }
 
 export function replayInWireOrder(projection: ChangeSetProjectionV7, changes: readonly ChangeSetV7[], onStep?: (done: number, total: number) => void): ChangeSetProjectionV7 {

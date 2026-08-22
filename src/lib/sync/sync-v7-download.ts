@@ -100,6 +100,6 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   });
   const [checkpointResult, segmentChanges] = await Promise.all([checkpointPromise, segmentChangesPromise]);
   // Flatten in wire order (generation/ordinal) — completion order is irrelevant.
-  for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]!);
+  for (let index = 0; index < pendingSegments.length; index += 1) changes.push(...segmentChanges[index]);
   return { ...checkpointResult, changes, reusedCache: canReuse, historySyncStart };
 }

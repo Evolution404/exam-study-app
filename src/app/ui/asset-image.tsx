@@ -34,7 +34,7 @@ interface AssetImageState {
   message?: string;
 }
 
-const unavailableLoader: LoadAsset = async () => undefined;
+const unavailableLoader: LoadAsset = () => Promise.resolve(undefined);
 
 function isRenderableBlob(value: Blob | undefined): value is Blob {
   return Boolean(value && typeof value.size === "number" && Number.isFinite(value.size) && value.size > 0);

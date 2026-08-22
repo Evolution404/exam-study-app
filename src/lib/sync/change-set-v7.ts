@@ -240,7 +240,7 @@ function generatedId(deviceId: string, sequence: number): string {
 }
 
 function normalizeMutation(mutation: ChangeSetMutationV7): ChangeSetMutationV7 {
-  const value = structuredClone(mutation) as ChangeSetMutationV7;
+  const value = structuredClone(mutation);
   // Drop optional fields left undefined by callers (e.g. question.split.note
   // when the source has no note). Undefined survives structuredClone and would
   // otherwise trip validateMutationShapeV7's `field in value` checks.
@@ -315,12 +315,12 @@ function validateMutationShapeV7(value: Record<string, unknown>): value is Chang
   }
   const requiresId = ["bankId", "folderId", "questionId", "originalQuestionId", "assetId", "attemptId", "runId", "groupId"];
   for (const field of requiresId) {
-    if (field in value && (typeof value[field] !== "string" || !(value[field] as string).trim())) return false;
+    if (field in value && (typeof value[field] !== "string" || !(value[field]).trim())) return false;
   }
   for (const field of ["bankIds", "questionIds", "keys", "questions", "memberships", "images"]) {
     if (field in value && !Array.isArray(value[field])) return false;
   }
-  const hasString = (field: string): boolean => typeof value[field] === "string" && Boolean((value[field] as string).trim());
+  const hasString = (field: string): boolean => typeof value[field] === "string" && Boolean((value[field]).trim());
   const hasObject = (field: string): boolean => isRecord(value[field]);
   const arrayOfStrings = (field: string): boolean => !Array.isArray(value[field]) || (value[field] as unknown[]).every((item) => typeof item === "string" && Boolean(item.trim()));
   if (value.kind === "bank.create" || value.kind === "bank.update") return hasObject("bank");

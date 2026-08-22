@@ -151,8 +151,8 @@ export class PlatformFileService {
     browserDocument.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    const release = browserWindow?.setTimeout ?? (typeof setTimeout !== "undefined" ? setTimeout : undefined);
-    if (release) release(() => urlApi.revokeObjectURL(url), 30_000);
+    if (browserWindow?.setTimeout) browserWindow.setTimeout(() => urlApi.revokeObjectURL(url), 30_000);
+    else if (typeof setTimeout !== "undefined") setTimeout(() => urlApi.revokeObjectURL(url), 30_000);
     else urlApi.revokeObjectURL(url);
   }
 

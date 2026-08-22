@@ -484,7 +484,7 @@ export class GitHubV7Remote {
     return typeof inputOrPath === "string" ? this.putImmutable(inputOrPath, bytes as SyncV7Bytes, options) : this.putImmutable(inputOrPath);
   }
 
-  uploadImmutable = this.putImmutable.bind(this) as GitHubV7Remote["putImmutable"];
+  uploadImmutable = this.putImmutable.bind(this);
 
   async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
   async readBlob(descriptor: SyncV7Descriptor, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;

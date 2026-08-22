@@ -135,7 +135,7 @@ function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "
     assertSafeInt(asset.remote.size, `state.imageAssets[${index}].remote.size`);
     if (asset.remote.sha256 !== asset.id) fail(`state.imageAssets[${index}].remote.sha256 must equal id`);
     if (asset.remote.size !== asset.size) fail(`state.imageAssets[${index}].remote.size must equal size`);
-    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType as keyof typeof IMAGE_EXTENSION_BY_MIME];
+    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
     const expectedPath = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
     const legacyV7ExpectedPath = `sync/v7/assets/${asset.id}.${extension}`;
     const legacyExpectedPath = `sync/v6/assets/${asset.id}.${extension}`;
@@ -389,7 +389,7 @@ export function validateSyncCheckpointV7(value: unknown): asserts value is SyncC
   if (!isRecord(value.cursors)) fail("cursors must be an object");
   for (const [deviceId, sequence] of Object.entries(value.cursors)) { assertString(deviceId, "cursor device id"); assertSafeInt(sequence, `cursors.${deviceId}`); }
   if (!isRecord(value.counts)) fail("counts must be an object");
-  const counts = value.counts as Record<string, unknown>;
+  const counts = value.counts;
   const expected: SyncCheckpointV7Counts = {
     banks: state.banks.length, bankFolders: state.bankFolders.length, questions: state.questions.length, memberships: state.memberships.length,
     imageAssets: state.imageAssets.length, attempts: state.attempts.length, attemptStats: state.attemptStats.length, attemptDailyStats: state.attemptDailyStats.length,
@@ -400,8 +400,8 @@ export function validateSyncCheckpointV7(value: unknown): asserts value is SyncC
   for (const [field, number] of Object.entries(expected)) {
     if (counts[field] !== undefined && counts[field] !== number && field !== "totalAttempts" && field !== "totalPracticeRuns") fail(`counts.${field} does not match state`);
   }
-  if (counts.totalAttempts !== undefined) { assertSafeInt(counts.totalAttempts, "counts.totalAttempts"); if ((counts.totalAttempts as number) < state.attempts.length) fail("counts.totalAttempts is smaller than attempts"); }
-  if (counts.totalPracticeRuns !== undefined) { assertSafeInt(counts.totalPracticeRuns, "counts.totalPracticeRuns"); if ((counts.totalPracticeRuns as number) < state.practiceRuns.length) fail("counts.totalPracticeRuns is smaller than practiceRuns"); }
+  if (counts.totalAttempts !== undefined) { assertSafeInt(counts.totalAttempts, "counts.totalAttempts"); if ((counts.totalAttempts) < state.attempts.length) fail("counts.totalAttempts is smaller than attempts"); }
+  if (counts.totalPracticeRuns !== undefined) { assertSafeInt(counts.totalPracticeRuns, "counts.totalPracticeRuns"); if ((counts.totalPracticeRuns) < state.practiceRuns.length) fail("counts.totalPracticeRuns is smaller than practiceRuns"); }
 }
 
 export function isSyncCheckpointV7(value: unknown): value is SyncCheckpointV7 {

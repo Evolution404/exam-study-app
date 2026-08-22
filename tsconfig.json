@@ -21,6 +21,8 @@
     "types": [
       "vite/client"
     ],
+    "rootDir": ".",
+    "noUncheckedSideEffectImports": true,
     "paths": {
       "@/*": [
         "./src/*"

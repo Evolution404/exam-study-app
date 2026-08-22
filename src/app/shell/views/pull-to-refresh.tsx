@@ -60,12 +60,13 @@ export function PullToRefresh() {
     };
     scroller.addEventListener("touchstart", onStart, { passive: true });
     scroller.addEventListener("touchmove", onMove, { passive: false });
-    scroller.addEventListener("touchend", onEnd, { passive: true });
+    const handleEnd = () => { void onEnd(); };
+    scroller.addEventListener("touchend", handleEnd, { passive: true });
     scroller.addEventListener("touchcancel", reset, { passive: true });
     return () => {
       scroller.removeEventListener("touchstart", onStart);
       scroller.removeEventListener("touchmove", onMove);
-      scroller.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("touchend", handleEnd);
       scroller.removeEventListener("touchcancel", reset);
     };
   }, [refreshing]);

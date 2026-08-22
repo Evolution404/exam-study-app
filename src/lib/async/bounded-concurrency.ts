@@ -6,7 +6,7 @@ export async function mapWithConcurrency<T, R>(items: readonly T[], limit: numbe
     while (next < items.length) {
       const index = next;
       next += 1;
-      results[index] = await worker(items[index]!, index);
+      results[index] = await worker(items[index], index);
     }
   };
   const lanes = Math.max(1, Math.min(limit, items.length));

@@ -59,7 +59,7 @@ function normalizeBlocks(blocks: readonly ContentBlock[]): ContentBlock[] {
 function blocksFromOptions(options: QuestionDraftV7["options"]): ContentBlock[][] {
   return (options ?? []).map((option, optionIndex) => {
     if (Array.isArray(option) && option.every((item) => typeof item === "object")) {
-      return normalizeBlocks(option as ContentBlock[]);
+      return normalizeBlocks(option);
     }
     const text = normalizeContentText(String(option ?? ""));
     return plainTextToContentBlocks(text, `option-${optionIndex}-0`);
