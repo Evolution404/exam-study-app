@@ -19,6 +19,8 @@ IOS_IPA_DERIVED_DATA ?= artifacts/ios/DerivedData
 IOS_IPA_STAGING ?= artifacts/ios/ipa-staging
 IOS_IPA_OUTPUT ?= artifacts/ios/shijuan.ipa
 IOS_BUNDLE_ID ?= com.evolution404.shijuan
+IOS_ICLOUD_DIR ?= $(HOME)/Library/Mobile Documents/com~apple~CloudDocs
+IOS_ICLOUD_IPA ?= $(IOS_ICLOUD_DIR)/$(notdir $(IOS_IPA_OUTPUT))
 XCODE_ENV = DEVELOPER_DIR="$(XCODE_DEVELOPER_DIR)"
 
 .PHONY: help doctor status install ci browser-install dev mock build clean preview template-xlsx lint typecheck test test-full verify test-fast test-unit test-source test-integration test-sync test-architecture test-pwa test-pwa-smoke test-browser test-browser-headless test-browser-visible test-browser-desktop test-browser-mobile test-browser-management test-browser-review test-browser-search test-browser-history test-fast-serial test-browser-inflight release-check release publish ios-setup ios-build ios-sync ios-open ios-run ios-clean ios-build-simulator ios-ipa verify-ios
@@ -82,7 +84,7 @@ help: ## 显示本帮助
 	@echo "  make ios-run IOS_TARGET=... 构建并运行到明确指定的模拟器/设备"
 	@echo "  make ios-clean              使用 Xcode 清理 App target 构建产物"
 	@echo "  make ios-build-simulator    无签名编译 iOS Simulator target"
-	@echo "  make ios-ipa                生成 SideStore 可重签的无签名真机 IPA（artifacts/ios/shijuan.ipa）"
+	@echo "  make ios-ipa                生成 SideStore IPA，并在检测到 iCloud Drive 时自动复制 shijuan.ipa"
 	@echo "  make verify-ios             iOS 构建、同步、模拟器编译和平台专项测试"
 
 doctor: ## 检查本地开发环境
@@ -111,7 +113,7 @@ browser-install: ## 安装与 Playwright 版本匹配的专用 Chromium
 dev: ## 启动开发服务器
 	npm run dev
 
-mock: ## 启动内存 mock GitHub 服务器（手动验证）
+mock: ## 启动内存 mock GitHub 服务器（手动验证同步中转地址）
 	node scripts/tools/mock-github-server.mjs
 
 build: ## 构建产物
@@ -152,7 +154,7 @@ test-unit: ## 纯逻辑测试
 test-source: ## 源码断言测试
 	npm run test:source
 
-test-integration: ## 集成测试
+test-integration: ## 集成测试（fake-indexeddb + mock 后端）
 	npm run test:integration
 
 test-sync: ## 同步模块测试
@@ -251,6 +253,13 @@ ios-ipa: ios-build ## 生成 SideStore 可重签的无签名真机 IPA
 		rm -rf "$(IOS_IPA_STAGING)"; \
 		echo "SideStore IPA 已生成：$(IOS_IPA_OUTPUT)"; \
 		ls -lh "$(IOS_IPA_OUTPUT)"
+	@if test -d "$(IOS_ICLOUD_DIR)"; then \
+		/bin/cp -f "$(IOS_IPA_OUTPUT)" "$(IOS_ICLOUD_IPA)"; \
+		echo "iCloud Drive IPA 已更新：$(IOS_ICLOUD_IPA)"; \
+		ls -lh "$(IOS_ICLOUD_IPA)"; \
+	else \
+		echo "未检测到 iCloud Drive，跳过 IPA 复制：$(IOS_ICLOUD_DIR)"; \
+	fi
 
 verify-ios: ios-build ## iOS 构建、同步、模拟器编译和平台专项测试
 	npm run test:build-target
