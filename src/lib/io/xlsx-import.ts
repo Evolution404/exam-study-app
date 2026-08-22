@@ -1,12 +1,14 @@
 import { collapseExtractedVisualLineBreaks } from "../question/imported-text-cleanup";
+import { IMPORT_LIMITS } from "./import-limits";
 
-const MAX_XLSX_BYTES = 12 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES = 4096;
-const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
-const MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
-const MAX_QUESTIONS = 20_000;
-const MAX_OPTIONS = 24;
-const MAX_IMAGES_PER_QUESTION = 12;
+export const XLSX_IMPORT_LIMITS = IMPORT_LIMITS.xlsx;
+const MAX_XLSX_BYTES = XLSX_IMPORT_LIMITS.maxBytes;
+const MAX_ARCHIVE_ENTRIES = XLSX_IMPORT_LIMITS.maxArchiveEntries;
+const MAX_ENTRY_BYTES = XLSX_IMPORT_LIMITS.maxEntryBytes;
+const MAX_TOTAL_UNCOMPRESSED_BYTES = XLSX_IMPORT_LIMITS.maxTotalUncompressedBytes;
+const MAX_QUESTIONS = XLSX_IMPORT_LIMITS.maxQuestions;
+const MAX_OPTIONS = XLSX_IMPORT_LIMITS.maxOptionsPerQuestion;
+const MAX_IMAGES_PER_QUESTION = XLSX_IMPORT_LIMITS.maxImagesPerQuestion;
 const MAX_ANSWER_COLUMNS = 12;
 
 /** A cell image recovered from `xl/cellimages.xml`, keyed by its DISPIMG id. */
@@ -84,14 +86,30 @@ function columnIndex(reference: string) {
   return result - 1;
 }
 
+function columnLabel(index: number): string {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+}
+
 function normalizeArchivePath(value: string) {
   const parts: string[] = [];
-  for (const part of value.replace(/^\//, "").split("/")) {
+  for (const part of value.replace(/\\/g, "/").replace(/^\/+/, "").split("/")) {
     if (!part || part === ".") continue;
-    if (part === "..") parts.pop();
+    if (part === "..") {
+      if (!parts.length) fail("Excel 压缩包包含越界路径。");
+      parts.pop();
+    }
     else parts.push(part);
   }
-  return parts.join("/");
+  const normalized = parts.join("/");
+  if (!normalized) fail("Excel 压缩包包含无效的空路径。");
+  return normalized;
 }
 
 function findEndOfCentralDirectory(view: DataView) {
@@ -128,6 +146,7 @@ function readZipEntries(buffer: ArrayBuffer) {
     const fileNameEnd = offset + 46 + fileNameLength;
     if (fileNameEnd > view.byteLength) fail("Excel 文件目录损坏。");
     const name = normalizeArchivePath(decoder.decode(new Uint8Array(buffer, offset + 46, fileNameLength)));
+    if (entries.has(name)) fail(`Excel 压缩包包含重复路径：${name}`);
     entries.set(name, { compression, compressedSize, uncompressedSize, localHeaderOffset });
     offset = fileNameEnd + extraLength + commentLength;
   }
@@ -153,7 +172,20 @@ async function unzipBytes(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, p
   else if (entry.compression === 8) {
     if (typeof DecompressionStream === "undefined") fail("当前浏览器不支持读取 Excel 压缩内容，请升级浏览器。");
     const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      total += value.byteLength;
+      if (total > MAX_ENTRY_BYTES || total > entry.uncompressedSize) fail("Excel 文件解压后的单个内容超过安全上限。");
+      chunks.push(value);
+    }
+    bytes = new Uint8Array(total);
+    let outputOffset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, outputOffset); outputOffset += chunk.byteLength; }
   } else fail(`Excel 使用了不支持的压缩方式（${entry.compression}）。`);
   if (bytes.byteLength !== entry.uncompressedSize) fail("Excel 文件解压长度不一致，文件可能已损坏。");
   return bytes;
@@ -263,7 +295,7 @@ async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry
 
 export async function readQuestionWorkbook(buffer: ArrayBuffer): Promise<QuestionWorkbook> {
   if (!buffer.byteLength) fail("Excel 文件为空。");
-  if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 12 MB 上限。");
+  if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 64 MB 上限。");
   const entries = readZipEntries(buffer);
   const workbook = await unzipText(buffer, entries, "xl/workbook.xml");
   const relationships = await unzipText(buffer, entries, "xl/_rels/workbook.xml.rels");
@@ -310,7 +342,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
   let declaredOptionColumns = 0;
   // Option headers run A、B、C… after all 答案N columns, followed by 图片N.
   for (; headerCursor < header.length && header[headerCursor] && !IMAGE_HEADER_PATTERN.test(header[headerCursor]); headerCursor += 1) {
-    const expected = String.fromCharCode(65 + declaredOptionColumns);
+    const expected = columnLabel(declaredOptionColumns);
     if (header[headerCursor].toUpperCase() !== expected) issues.push({ row: 1, message: `${expected} 选项列的表头必须是“${expected}”。` });
     declaredOptionColumns += 1;
   }
@@ -366,7 +398,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
       if (answerCells.slice(1).some(Boolean)) issues.push({ row, message: "选择题和判断题只填写“答案1”，其余答案列必须留空。" });
       if (options.length < 2) issues.push({ row, message: "选择题和判断题至少需要两个选项。" });
       const gap = options.findIndex((value) => !value);
-      if (gap >= 0) issues.push({ row, message: `${String.fromCharCode(65 + gap)} 选项为空，选项之间不能断列。` });
+      if (gap >= 0) issues.push({ row, message: `${columnLabel(gap)} 选项为空，选项之间不能断列。` });
       if (new Set(options).size !== options.length) issues.push({ row, message: "同一道题不能包含内容完全相同的选项。" });
       answer = normalizedAnswer(answerCells[0] ?? "", options);
       if (!/^[A-Z]+$/.test(answer)) issues.push({ row, message: `无法识别答案“${answerCells[0] ?? ""}”，请填写选项字母。` });
@@ -381,7 +413,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     // Trailing image columns hold =DISPIMG("ID_…",1) formulas; map each cell
     // to its workbook image and keep the ids in placeholder order.
     const imageIds: string[] = [];
-    const imageCells = source.slice(optionStart + optionColumns, optionStart + optionColumns + Math.max(declaredImageColumns, MAX_IMAGES_PER_QUESTION));
+    const imageCells = source.slice(optionStart + optionColumns, optionStart + optionColumns + declaredImageColumns);
     for (const cell of imageCells) {
       const value = cell?.trim() ?? "";
       if (!value) continue;

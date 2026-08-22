@@ -53,6 +53,17 @@ const POINTS_PER_PX = 0.75;
 const COLUMN_CHARS_PER_PX = 1 / 7;
 export const EXPORT_IMAGE_COLLECTION_CONCURRENCY = 6;
 
+function columnLabel(index: number): string {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+}
+
 function canonicalContent(question: ExportQuestionInput): ContentBlock[] | undefined {
   return question.content ?? question.canonical?.content;
 }
@@ -137,7 +148,7 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
   });
   const imageColumnCount = perQuestionImages.reduce((max, item) => Math.max(max, item.images.length), 0);
   const columns = answerCount + optionCount + imageColumnCount;
-  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: optionCount }, (_, index) => String.fromCharCode(65 + index)), ...Array.from({ length: imageColumnCount }, (_, index) => `图片${index + 1}`)];
+  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: optionCount }, (_, index) => columnLabel(index)), ...Array.from({ length: imageColumnCount }, (_, index) => `图片${index + 1}`)];
 
   const rowHeights: number[] = [];
   const columnWidths = new Array<number>(HEADER.length + columns).fill(0);
@@ -172,7 +183,7 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
 export function questionExportRows(questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>): string[][] {
   const answerCount = answerColumns(questions);
   const columns = optionColumns(questions);
-  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: columns }, (_, index) => String.fromCharCode(65 + index))];
+  const header = [...HEADER, ...Array.from({ length: answerCount }, (_, index) => `答案${index + 1}`), ...Array.from({ length: columns }, (_, index) => columnLabel(index))];
   const rows = questions.map((question) => {
     const base = [question.stem, question.type, question.tags.join("、"), notes.get(question.id) ?? ""];
     const sourceAnswers = question.type === "计算" ? calculationAnswers(question.answer) : [question.answer];

@@ -11,6 +11,7 @@ import {
   type ImageAssetAdapter,
 } from "../../src/lib/io/image-assets";
 import { sha256HexBytes } from "../../src/lib/crypto/sha256";
+import { mapWithConcurrency } from "../../src/lib/async/bounded-concurrency";
 
 function expectThrow(action: () => unknown, pattern: RegExp): void {
   assert.throws(action, pattern);
@@ -21,6 +22,40 @@ async function expectReject(action: () => Promise<unknown>, pattern: RegExp): Pr
 }
 
 const source = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "image/jpeg" });
+
+// The shared pool must preserve order, cap active work and stop claiming new
+// items after the first worker error.  This protects import/export/image-cache
+// callers from turning one bad asset into an unbounded queue.
+{
+  let active = 0;
+  let maximum = 0;
+  let started = 0;
+  await assert.rejects(
+    () => mapWithConcurrency([0, 1, 2, 3, 4, 5, 6], 3, async (item) => {
+      started += 1;
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, item === 1 ? 2 : 5));
+      active -= 1;
+      if (item === 1) throw new Error("first worker failure");
+      return item;
+    }),
+    /first worker failure/,
+  );
+  assert.ok(maximum <= 3, "bounded pool must cap active workers");
+  assert.ok(started <= 3, "first worker failure must prevent new work from starting");
+
+  const controller = new AbortController();
+  let signalSeen = false;
+  const abortPromise = mapWithConcurrency([1, 2, 3], 2, async (_item, _index, signal) => {
+    signalSeen = signal === controller.signal;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return 1;
+  }, controller.signal);
+  controller.abort();
+  await assert.rejects(() => abortPromise, /aborted/i);
+  assert.equal(signalSeen, true, "workers receive the shared AbortSignal");
+}
 assert.equal(sha256HexBytes(new Uint8Array()), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "纯 JS SHA-256 空输入必须匹配标准向量");
 assert.equal(sha256HexBytes(new TextEncoder().encode("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "局域网回退必须匹配标准 SHA-256");
 

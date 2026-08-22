@@ -6,6 +6,7 @@ import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
 import type { BankV7, ImageAsset } from "../db/v7-types";
 import { isVisualWrapExtractionSource } from "./imported-text-cleanup";
 import { mapWithConcurrency } from "../async/bounded-concurrency";
+import { IMPORT_LIMITS } from "../io/import-limits";
 
 export const QUESTION_BANK_FILE_ACCEPT = ".json,.xlsx,.zip,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip";
 
@@ -76,12 +77,23 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
     const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions }, { ...options, imageAssets: assets });
     return { bank, importedCount: bank.importedCount, type };
   }
+  if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 64 MB 上限。");
   let raw: unknown;
   try {
     raw = JSON.parse(await file.text());
   } catch {
     throw new Error("JSON 文件内容无法解析，请检查文件格式。");
   }
+  const questionRows = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).questions)
+      ? (raw as { questions: unknown[] }).questions
+      : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).items)
+        ? (raw as { items: unknown[] }).items
+        : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).data)
+          ? (raw as { data: unknown[] }).data
+          : undefined;
+  if (questionRows && questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);
   const bank = await importQuestionBankV7(file.name, raw, options);
   return { bank, importedCount: bank.importedCount, type };
 }

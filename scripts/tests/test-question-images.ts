@@ -17,6 +17,7 @@ import { parseQuestionBankZip, QuestionBundleError } from "../../src/lib/questio
 import { importQuestionBankFile } from "../../src/lib/question/question-bank-file-import";
 import { sniffImageDimensions } from "../../src/lib/io/image-dimensions";
 import { sha256Bytes } from "../../src/lib/io/image-assets";
+import { IMPORT_LIMITS } from "../../src/lib/io/import-limits";
 import { dbV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
 import type { ContentBlock, QuestionV7 } from "../../src/lib/db/v7-types";
 
@@ -346,6 +347,25 @@ await resetV7Database();
     /缺少 2 张原图/,
     "导出器本身也必须拒绝生成缺图压缩包",
   );
+  assert.equal(IMPORT_LIMITS.zip.maxBytes, 256 * 1024 * 1024);
+  assert.equal(IMPORT_LIMITS.zip.maxArchiveEntries, 16_384);
+  assert.equal(IMPORT_LIMITS.zip.maxEntryBytes, 32 * 1024 * 1024);
+  assert.equal(IMPORT_LIMITS.zip.maxTotalUncompressedBytes, 256 * 1024 * 1024);
+  assert.equal(IMPORT_LIMITS.zip.maxImages, 10_000);
+  const tooManyImages = Object.fromEntries(Array.from({ length: IMPORT_LIMITS.zip.maxImages + 1 }, (_, index) => [`images/${String(index).padStart(64, "0")}.png`, { mimeType: "image/png" }]));
+  await assert.rejects(
+    () => parseQuestionBankZip(toArrayBuffer(buildStoredZip([{ name: "bank.json", data: new TextEncoder().encode(JSON.stringify({ images: tooManyImages, questions: [{ content: [], options: [] }] })) }]))),
+    (error: unknown) => error instanceof QuestionBundleError && /图片数量超过上限/.test(error.message),
+    "ZIP 图片总数超过 10000 必须在读取媒体前拒绝",
+  );
+  await assert.rejects(
+    () => parseQuestionBankZip(toArrayBuffer(buildStoredZip([
+      { name: "bank.json", data: new TextEncoder().encode(JSON.stringify({ questions: [] })) },
+      { name: "bank.json", data: new Uint8Array([1]) },
+    ]))),
+    (error: unknown) => error instanceof QuestionBundleError && /重复路径/.test(error.message),
+    "ZIP 压缩包重复路径必须拒绝",
+  );
   console.log("4. zip 完整性校验（篡改 / 缺失引用）通过");
 }
 
@@ -373,6 +393,17 @@ await resetV7Database();
     ["题干", "题型", "标签", "解析", "答案1", "A", "B", "图片2"],
     ["跳号", "单选", "", "", "A", "甲", "乙", ""],
   ]), (error: unknown) => (error as { issues?: Array<{ message: string }> }).issues?.some((issue) => /图片1、图片2/.test(issue.message)), "图片列表头跳号应校验失败");
+  await assert.rejects(
+    () => importQuestionBankFile({ name: "超大.json", type: "application/json", size: IMPORT_LIMITS.json.maxBytes + 1, text: async () => "" } as unknown as File),
+    /JSON 文件超过 64 MB 上限/,
+    "JSON 文件大小必须在解析前受 64 MiB 限制",
+  );
+  const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", options: ["甲", "乙"], answer: "A" })) });
+  await assert.rejects(
+    () => importQuestionBankFile(new File([tooManyJsonQuestions], "超多题.json", { type: "application/json" })),
+    /JSON 题库最多包含 50000 道题/,
+    "JSON 题目数量必须在写入数据库前受 50000 限制",
+  );
   console.log("5. 占位符与表头校验边界通过");
 }
 

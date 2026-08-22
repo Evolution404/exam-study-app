@@ -10,6 +10,7 @@ import {
 } from "../../src/lib/io/xlsx-import";
 import { buildStoredZip } from "../../src/lib/io/xlsx-export";
 import { collapseExtractedVisualLineBreaks, isVisualWrapExtractionSource } from "../../src/lib/question/imported-text-cleanup";
+import { IMPORT_LIMITS } from "../../src/lib/io/import-limits";
 
 const template = await readFile(new URL("../../public/题库模板.xlsx", import.meta.url));
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;
@@ -52,7 +53,12 @@ const prefixedWorkbook = buildStoredZip([
   { name: "xl/workbook.xml", data: encoder.encode('<?xml version="1.0"?><x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><x:sheets><x:sheet name="题库" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>') },
   { name: "xl/_rels/workbook.xml.rels", data: encoder.encode('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/></Relationships>') },
   { name: "xl/worksheets/sheet1.xml", data: encoder.encode(`<?xml version="1.0"?><x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData>${prefixedRows}</x:sheetData></x:worksheet>`) },
-  ...Array.from({ length: 300 }, (_, index) => ({ name: `xl/media/unused-${index}.png`, data: new Uint8Array([index & 0xff]) })),
+  // WPS workbooks routinely contain hundreds of media entries.  Keep a fixed
+  // synthetic 331-entry / 320-image namespace-prefixed fixture so raising the
+  // archive limit does not regress while still exercising the central-dir
+  // bounds and XML prefix handling.
+  ...Array.from({ length: 320 }, (_, index) => ({ name: `xl/media/unused-${index}.png`, data: new Uint8Array([index & 0xff]) })),
+  ...Array.from({ length: 7 }, (_, index) => ({ name: `xl/extra/unused-${index}.xml`, data: new Uint8Array([index & 0xff]) })),
 ]);
 const prefixedParsed = await parseQuestionBankWorkbook(prefixedWorkbook.buffer.slice(prefixedWorkbook.byteOffset, prefixedWorkbook.byteOffset + prefixedWorkbook.byteLength));
 assert.deepEqual(prefixedParsed.rows, [{ q: "命名空间兼容题", ans: "A", a: ["正确项", "错误项"], type: "单选", tags: ["兼容"] }], "应兼容带 XML 命名空间前缀且包含数百个内部条目的工作簿");
@@ -77,6 +83,23 @@ const extendedOptions = parseQuestionBankTable([
 ]);
 assert.equal(extendedOptions[0].a.length, 9, "连续声明到 I 的选项列应可导入");
 assert.equal(extendedOptions[0].ans, "I");
+
+const optionColumnLabel = (index: number): string => {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+};
+const thirtyTwoOptionHeaders = Array.from({ length: IMPORT_LIMITS.xlsx.maxOptionsPerQuestion }, (_, index) => optionColumnLabel(index));
+const thirtyTwoOptionQuestion = parseQuestionBankTable([
+  ["题干", "题型", "标签", "解析", "答案1", ...thirtyTwoOptionHeaders],
+  ["三十二项", "单选", "", "", "A", ...thirtyTwoOptionHeaders.map((label) => `选项${label}`)],
+]);
+assert.equal(thirtyTwoOptionQuestion[0].a.length, IMPORT_LIMITS.xlsx.maxOptionsPerQuestion, "最多 32 个选项且支持 AA、AG 列名");
 
 const wrappedRows = [
   ["题干", "题型", "标签", "解析", "答案1", "A", "B"],
@@ -111,5 +134,17 @@ assert.throws(() => parseQuestionBankTable([
 assert.equal(importFileName("送电线路工-技师.xlsx"), "送电线路工-技师.json");
 assert.equal(importFileName("自建专业题库.xlsx"), "自建专业题库.json");
 assert.throws(() => importFileName(".xlsx"), /文件名不能为空/);
+
+assert.equal(IMPORT_LIMITS.xlsx.maxBytes, 64 * 1024 * 1024);
+assert.equal(IMPORT_LIMITS.xlsx.maxArchiveEntries, 16_384);
+assert.equal(IMPORT_LIMITS.xlsx.maxEntryBytes, 32 * 1024 * 1024);
+assert.equal(IMPORT_LIMITS.xlsx.maxTotalUncompressedBytes, 256 * 1024 * 1024);
+assert.equal(IMPORT_LIMITS.xlsx.maxQuestions, 50_000);
+assert.equal(IMPORT_LIMITS.xlsx.maxOptionsPerQuestion, 32);
+assert.equal(IMPORT_LIMITS.xlsx.maxImagesPerQuestion, 32);
+await assert.rejects(() => readQuestionWorkbook(buildStoredZip([
+  { name: "xl/workbook.xml", data: new Uint8Array([1]) },
+  { name: "xl/workbook.xml", data: new Uint8Array([2]) },
+]).buffer.slice(0)), /重复路径/, "Excel 压缩包重复路径必须拒绝");
 
 console.log("Excel 导入专项测试通过");
