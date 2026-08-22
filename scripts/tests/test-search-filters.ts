@@ -71,15 +71,17 @@ assert.match(quickSearchSource, /<AppSelect[^>]*className="quick-search-scope"[^
 assert.match(searchViewSource, /<AppSelect[^>]*className="search-content-scope"[^>]*contentClassName="search-scope-select-content"/, "搜索页范围应复用项目通用下拉框样式");
 assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*搜索字段[\s\S]*search-match-group search-mode-group[\s\S]*匹配方式/, "搜索字段与匹配方式必须分成有标题的独立分组");
 assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
-assert.match(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "快速搜索结果仍应只在展开且有输入时显示");
-assert.doesNotMatch(quickSearchSource, /if \(!enabled \|\| !bankIds\.length\)/, "顶栏搜索的 IndexedDB 订阅不得由输入状态启停，避免移动端输入光标跳动");
-assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围，输入状态不得重启订阅");
+
+// Top quick-search caret stability contract: preserve the update timing from
+// the original 2026-08-13 fix. Keystrokes may filter the preloaded in-memory
+// bank synchronously, but must not schedule a delayed result-state update.
+assert.match(quickSearchSource, /<input[^>]*value=\{draft\}/, "顶栏快速搜索应保持原修复版本的局部受控输入结构");
+assert.doesNotMatch(quickSearchSource, /debouncedQuery|setDebouncedQuery/, "顶栏快速搜索不得为每次按键再安排延迟结果状态更新");
+assert.doesNotMatch(quickSearchSource, /setTimeout\([^)]*setDebouncedQuery/, "顶栏快速搜索不得恢复 160ms 延迟过滤链路");
+assert.match(quickSearchSource, /const normalizedQuery = query\.trim\(\);/, "顶栏搜索词应直接来自当前 draft，而不是延迟副本");
+assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "顶栏结果组件不得由输入状态启停数据生命周期");
+assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");
 assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[\][\s\S]*?notes: new Map<string, string>\(\)[\s\S]*?\}[\s\S]*?\}, \[bankKey\]\);/, "顶栏搜索应预加载当前题库范围并只在题库范围变化时刷新订阅");
-assert.match(quickSearchSource, /ref=\{inputRef\}[\s\S]*defaultValue=""/, "顶栏快速搜索输入值应由 DOM 持有，避免 React 重渲染改写 iOS 光标位置");
-assert.doesNotMatch(quickSearchSource, /<input[\s\S]{0,500}value=\{draft\}/, "顶栏快速搜索不得退回受控 value={draft} 输入");
-assert.match(quickSearchSource, /onCompositionStart=\{\(\) => \{ composingRef\.current = true; \}\}/, "顶栏快速搜索必须识别中文输入法 composition 开始");
-assert.match(quickSearchSource, /onCompositionEnd=\{\(event\) => \{[\s\S]*?composingRef\.current = false;[\s\S]*?setDraft\(event\.currentTarget\.value\)/, "composition 结束后才能把最终文本同步到搜索状态");
-assert.match(quickSearchSource, /if \(composingRef\.current\) return;[\s\S]*?setDraft\(event\.currentTarget\.value\)/, "composition 期间不得用中间拼音状态驱动搜索结果重渲染");
 assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
 
-console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and progress overrides");
+console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and quick-search caret timing");
