@@ -4,9 +4,9 @@ import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, QUICK_SYNC_TAP_MAX_MS, shou
 
 assert.equal(classifyPressIntent(80, false, false), "tap");
 assert.equal(classifyPressIntent(QUICK_SYNC_TAP_MAX_MS, false, false), "tap");
-assert.equal(classifyPressIntent(QUICK_SYNC_TAP_MAX_MS + 1, false, false), "tap");
-assert.equal(classifyPressIntent(700, false, false), "tap", "a medium-length mobile press must still trigger sync");
-assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS - 1, false, false), "tap", "one millisecond short of the hold threshold is still sync");
+assert.equal(classifyPressIntent(QUICK_SYNC_TAP_MAX_MS + 1, false, false), "cancel", "crossing the tap ceiling enters the cancellable hold dead zone");
+assert.equal(classifyPressIntent(700, false, false), "cancel", "releasing a long-press attempt must cancel instead of syncing");
+assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS - 1, false, false), "cancel", "one millisecond short of restore remains a cancelled hold");
 assert.equal(classifyPressIntent(80, true, false), "cancel", "moving away or receiving pointercancel must cancel the action");
 assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS, false, false), "complete");
 assert.equal(classifyPressIntent(400, false, true), "complete");
@@ -31,4 +31,4 @@ assert.match(shell, /window\.addEventListener\("blur", cancelOnLifecycle\)/, "qu
 assert.match(shell, /onLostPointerCapture=\{cancelQuickSyncPress\}/, "lost pointer capture cannot leave the button in holding state");
 assert.match(shell, /shouldCancelQuickSyncMove\(dx, dy\)/, "the button must use the tested movement classifier");
 
-console.log("press intent tests passed: short/medium/slow sync, cancelled pointer, completed hold, lifecycle cleanup");
+console.log("press intent tests passed: short sync, cancellable hold dead zone, completed restore hold, movement and lifecycle cleanup");
