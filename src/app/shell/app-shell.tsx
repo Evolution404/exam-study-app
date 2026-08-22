@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronRight, ClipboardCheck, Cloud, Home, Library, Link2, ListFilter, LoaderCircle, Menu, Play, RefreshCw, Settings2, Sparkles, X } from "lucide-react";
 import { dbV7, getV7DeviceId, createPracticeRunV7, rebuildAttemptStatsFromAttemptsV7 } from "@/lib/db/db-v7";
@@ -55,6 +55,18 @@ export function AppShell() {
   const workspaceRef = useRef<HTMLElement>(null);
   const viewScrollPositions = useRef<Partial<Record<View, number>>>({});
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
+  const resetQuickSyncPress = useCallback((cancelPendingRestore = true) => {
+    const press = quickSyncPress.current;
+    if (press) {
+      window.clearTimeout(press.timer);
+      // A lifecycle cancellation must also invalidate an async restore lookup.
+      // Pointerup after a completed hold passes false so that lookup may finish
+      // and show the restore confirmation after the finger leaves the button.
+      if (cancelPendingRestore) press.cancelled = true;
+    }
+    quickSyncPress.current = null;
+    setQuickSyncHolding(false);
+  }, []);
   // 同步是异步操作，await 期间 practiceSession 闭包会过期（用户可能正好提交了答案）。
   // 渲染期镜像到 ref，同步结束后读最新快照（同 Practice 组件的 lastNoteQuestionId 模式）。
   const practiceSessionRef = useRef(practiceSession);
@@ -421,6 +433,25 @@ export function AppShell() {
     return () => { active = false; };
   }, [syncDrawerOpen, quickSyncing]);
 
+  // Mobile Safari may leave a captured pointer without dispatching pointerup
+  // when the user switches apps, the page is hidden, or the window loses focus.
+  // Always cancel the press in those lifecycle cases: a stale press must never
+  // turn the next tap into an accidental restore or an unresponsive button.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") resetQuickSyncPress();
+    };
+    const cancelOnLifecycle = () => resetQuickSyncPress();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", cancelOnLifecycle);
+    window.addEventListener("blur", cancelOnLifecycle);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", cancelOnLifecycle);
+      window.removeEventListener("blur", cancelOnLifecycle);
+    };
+  }, [resetQuickSyncPress]);
+
   useEffect(() => {
     return syncRuntime.scheduleAutomaticSync({
       enabled: preferences.autoSyncEnabled,
@@ -440,7 +471,7 @@ export function AppShell() {
     });
   }, [preferences.periodicPullEnabled, preferences.periodicPullSeconds, quickRestoring]);
 
-  async function prepareQuickRestore() {
+  async function prepareQuickRestore(press?: { cancelled: boolean }) {
     if (quickSyncing || quickRestoring) return;
     const settings: GitHubSettings = syncApplication.getConnection().settings;
     if (!settings.owner || !settings.repo) {
@@ -453,8 +484,10 @@ export function AppShell() {
         setNotice("本机还没有远程缓存，请先成功同步一次");
         return;
       }
+      if (press?.cancelled) return;
       setQuickRestorePrompt({ settings, cachedAt: cached.cachedAt, questionCount: cached.counts.questions });
     } catch (error) {
+      if (press?.cancelled) return;
       setNotice(error instanceof Error ? error.message : "无法读取本地恢复记录");
     }
   }
@@ -479,7 +512,14 @@ export function AppShell() {
 
   function beginQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
     if (quickSyncing || quickRestoring || (event.pointerType === "mouse" && event.button !== 0)) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // A previous interrupted pointer sequence should not poison the next tap.
+    resetQuickSyncPress();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is a progressive enhancement; pointerup/cancel still
+      // finish the sequence on browsers that reject capture.
+    }
     const press = {
       timer: 0,
       pointerId: event.pointerId,
@@ -491,7 +531,11 @@ export function AppShell() {
     };
     press.timer = window.setTimeout(() => {
       press.longPressed = true;
-      void prepareQuickRestore().finally(() => setQuickSyncHolding(false));
+      void prepareQuickRestore(press).finally(() => {
+        // Do not let an old, completed press clear the holding UI of a newer
+        // press that started while its cache lookup was still pending.
+        if (quickSyncPress.current === press) setQuickSyncHolding(false);
+      });
     }, QUICK_RESTORE_HOLD_MS);
     quickSyncPress.current = press;
     setQuickSyncHolding(true);
@@ -500,7 +544,15 @@ export function AppShell() {
   function moveQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
     const press = quickSyncPress.current;
     if (!press || press.pointerId !== event.pointerId || press.longPressed) return;
-    if (Math.hypot(event.clientX - press.startX, event.clientY - press.startY) <= 10) return;
+    const dx = event.clientX - press.startX;
+    const dy = event.clientY - press.startY;
+    // Ignore ordinary finger jitter. Cancel only an obvious vertical scroll
+    // (vertical motion dominates) or a larger horizontal escape from the pill.
+    // This keeps a small mobile tremor from cancelling a valid sync tap while
+    // still yielding to an intentional page gesture.
+    const verticalScroll = Math.abs(dy) >= 18 && Math.abs(dy) >= Math.abs(dx) * 1.2;
+    const horizontalEscape = Math.abs(dx) >= 24;
+    if (!verticalScroll && !horizontalEscape) return;
     window.clearTimeout(press.timer);
     press.cancelled = true;
     setQuickSyncHolding(false);
@@ -509,20 +561,26 @@ export function AppShell() {
   function endQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
     const press = quickSyncPress.current;
     if (!press || press.pointerId !== event.pointerId) return;
-    window.clearTimeout(press.timer);
-    quickSyncPress.current = null;
-    setQuickSyncHolding(false);
     const intent = classifyPressIntent(event.timeStamp - press.startedAt, press.cancelled, press.longPressed);
-    if (intent === "tap") void quickSync();
-    else if (intent === "complete" && !press.longPressed) void prepareQuickRestore();
+    if (intent === "tap") {
+      resetQuickSyncPress();
+      void quickSync();
+    }
+    // The timer normally prepares restore as soon as the threshold is reached.
+    // Keep this fallback for browsers with delayed timers, but never sync a
+    // completed long press.
+    else if (intent === "complete") {
+      if (!press.longPressed) void prepareQuickRestore(press);
+      resetQuickSyncPress(false);
+    } else {
+      resetQuickSyncPress();
+    }
   }
 
   function cancelQuickSyncPress(event: ReactPointerEvent<HTMLButtonElement>) {
     const press = quickSyncPress.current;
     if (!press || press.pointerId !== event.pointerId) return;
-    window.clearTimeout(press.timer);
-    quickSyncPress.current = null;
-    setQuickSyncHolding(false);
+    resetQuickSyncPress();
   }
 
   async function startPractice(filter: PracticeFilter) {
@@ -831,7 +889,7 @@ export function AppShell() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
           <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId, contentScope) => { setQuery(keyword); openSearch(questionId, keyword, contentScope); }} />
-          <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
+          <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onLostPointerCapture={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
         </header>
 
         {smoothQuickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={smoothQuickSyncProgress.percent}><span>{smoothQuickSyncProgress.label}<em>{smoothQuickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${smoothQuickSyncProgress.percent}%` }} /></i></div>}

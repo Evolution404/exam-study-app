@@ -1,5 +1,5 @@
-// 单击窗口 500ms：覆盖手机上 300–400ms 的慢速轻点（浏览器经典长按起点）；
-// 长按恢复（破坏性操作）延长到 1200ms；501–1199ms 死区不做任何事。
+// 保留这个常量作为交互文档和兼容现有引用的轻点参考值。普通按压不再
+// 受 500ms 上限影响：手机上的慢速抬手仍然应该是同步，而不是落入死区。
 export const QUICK_SYNC_TAP_MAX_MS = 500;
 export const QUICK_RESTORE_HOLD_MS = 1200;
 
@@ -8,6 +8,8 @@ export type PressIntent = "tap" | "cancel" | "complete";
 export function classifyPressIntent(elapsedMs: number, cancelled: boolean, completed: boolean): PressIntent {
   if (cancelled) return "cancel";
   if (completed || elapsedMs >= QUICK_RESTORE_HOLD_MS) return "complete";
-  if (elapsedMs <= QUICK_SYNC_TAP_MAX_MS) return "tap";
-  return "cancel";
+  // Any non-cancelled release before the long-press threshold is a sync.
+  // This intentionally removes the old 501–1199ms dead zone: touch release
+  // timing varies considerably across mobile browsers and devices.
+  return "tap";
 }
