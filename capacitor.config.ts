@@ -6,7 +6,9 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     StatusBar: {
-      overlaysWebView: true,
+      // Match mobile Safari geometry: keep the WKWebView below the iOS
+      // status bar instead of drawing page content underneath it.
+      overlaysWebView: false,
     },
   },
   // Capacitor 8 defaults to Swift Package Manager for a new iOS project.
