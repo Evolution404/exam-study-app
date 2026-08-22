@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, QUICK_SYNC_TAP_MAX_MS } from "../../src/lib/practice/press-intent";
+import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, QUICK_SYNC_TAP_MAX_MS, shouldCancelQuickSyncMove } from "../../src/lib/practice/press-intent";
 
 assert.equal(classifyPressIntent(80, false, false), "tap");
 assert.equal(classifyPressIntent(QUICK_SYNC_TAP_MAX_MS, false, false), "tap");
@@ -10,6 +10,11 @@ assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS - 1, false, false), "tap"
 assert.equal(classifyPressIntent(80, true, false), "cancel", "moving away or receiving pointercancel must cancel the action");
 assert.equal(classifyPressIntent(QUICK_RESTORE_HOLD_MS, false, false), "complete");
 assert.equal(classifyPressIntent(400, false, true), "complete");
+assert.equal(shouldCancelQuickSyncMove(8, 12), false, "ordinary finger jitter must keep a valid sync press");
+assert.equal(shouldCancelQuickSyncMove(14, 17), false, "sub-threshold diagonal motion must not cancel");
+assert.equal(shouldCancelQuickSyncMove(0, 18), true, "an intentional vertical scroll cancels the press");
+assert.equal(shouldCancelQuickSyncMove(23, 2), false, "horizontal motion below the escape threshold stays active");
+assert.equal(shouldCancelQuickSyncMove(24, 2), true, "a clear horizontal escape cancels the press");
 
 const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
 const controls = await readFile(new URL("../../src/app/styles/controls.css", import.meta.url), "utf8");
@@ -24,6 +29,6 @@ assert.match(shell, /if \(document\.visibilityState === "hidden"\) resetQuickSyn
 assert.match(shell, /window\.addEventListener\("pagehide", cancelOnLifecycle\)/, "quick-sync press is cancelled on pagehide");
 assert.match(shell, /window\.addEventListener\("blur", cancelOnLifecycle\)/, "quick-sync press is cancelled when the window loses focus");
 assert.match(shell, /onLostPointerCapture=\{cancelQuickSyncPress\}/, "lost pointer capture cannot leave the button in holding state");
-assert.match(shell, /const dy = event\.clientY - press\.startY/, "movement cancellation considers the direction of a scroll gesture");
+assert.match(shell, /shouldCancelQuickSyncMove\(dx, dy\)/, "the button must use the tested movement classifier");
 
 console.log("press intent tests passed: short/medium/slow sync, cancelled pointer, completed hold, lifecycle cleanup");

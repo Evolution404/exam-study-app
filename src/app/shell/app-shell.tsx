@@ -15,7 +15,7 @@ import { QuickSearch } from "@/app/search/quick-search";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
-import { classifyPressIntent, QUICK_RESTORE_HOLD_MS } from "@/lib/practice/press-intent";
+import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, shouldCancelQuickSyncMove } from "@/lib/practice/press-intent";
 import type { ActivePractice, GitHubSettings } from "@/types/types";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, isQuestionDoneInScope, progressScopeLabel, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { classifyNoticeTone } from "@/lib/practice/notice-tone";
@@ -550,9 +550,7 @@ export function AppShell() {
     // (vertical motion dominates) or a larger horizontal escape from the pill.
     // This keeps a small mobile tremor from cancelling a valid sync tap while
     // still yielding to an intentional page gesture.
-    const verticalScroll = Math.abs(dy) >= 18 && Math.abs(dy) >= Math.abs(dx) * 1.2;
-    const horizontalEscape = Math.abs(dx) >= 24;
-    if (!verticalScroll && !horizontalEscape) return;
+    if (!shouldCancelQuickSyncMove(dx, dy)) return;
     window.clearTimeout(press.timer);
     press.cancelled = true;
     setQuickSyncHolding(false);
