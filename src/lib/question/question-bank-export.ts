@@ -11,6 +11,7 @@ import type { ContentBlock } from "../db/v7-types";
 import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
+import { mapWithConcurrency } from "../async/bounded-concurrency";
 import { calculationAnswers } from "./question-utils";
 
 export interface ExportQuestionInput {
@@ -24,6 +25,9 @@ export interface ExportQuestionInput {
   content?: ContentBlock[];
   /** Canonical option blocks; image blocks become 【图N】 placeholders too. */
   optionBlocks?: ContentBlock[][];
+  /** UI view models keep rich blocks nested under `canonical`; exporters must
+   *  accept that shape directly instead of silently degrading to plain text. */
+  canonical?: { content: ContentBlock[]; options: ContentBlock[][] };
 }
 
 export interface ExportImageData {
@@ -47,6 +51,15 @@ const IMAGE_DISPLAY_WIDTH_PX = 200;
 const IMAGE_DISPLAY_MAX_HEIGHT_PX = 280;
 const POINTS_PER_PX = 0.75;
 const COLUMN_CHARS_PER_PX = 1 / 7;
+export const EXPORT_IMAGE_COLLECTION_CONCURRENCY = 6;
+
+function canonicalContent(question: ExportQuestionInput): ContentBlock[] | undefined {
+  return question.content ?? question.canonical?.content;
+}
+
+function canonicalOptions(question: ExportQuestionInput): ContentBlock[][] | undefined {
+  return question.optionBlocks ?? question.canonical?.options;
+}
 
 function optionColumns(questions: readonly ExportQuestionInput[]): number {
   // The importer requires at least A、B two option columns, so an all-计算题
@@ -107,8 +120,9 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
   const answerCount = answerColumns(questions);
   const optionCount = optionColumns(questions);
   const perQuestionImages = questions.map((question) => {
-    const stem = question.content ? blocksToPlaceholderText(question.content, images) : { text: question.stem, images: [] as string[] };
-    const optionBlocks: ContentBlock[][] = question.optionBlocks ?? question.options.map((text, index) => [{ id: `option-${index}-0`, type: "text" as const, text }]);
+    const content = canonicalContent(question);
+    const stem = content ? blocksToPlaceholderText(content, images) : { text: question.stem, images: [] as string[] };
+    const optionBlocks: ContentBlock[][] = canonicalOptions(question) ?? question.options.map((text, index) => [{ id: `option-${index}-0`, type: "text" as const, text }]);
     let runningCount = stem.images.length;
     const optionTexts = optionBlocks.map((blocks) => {
       const option = blocksToPlaceholderText(blocks, images, runningCount);
@@ -173,13 +187,18 @@ export function questionExportRows(questions: readonly ExportQuestionInput[], no
 export function collectImageAssetIds(questions: readonly ExportQuestionInput[]): string[] {
   const seen: string[] = [];
   for (const question of questions) {
-    for (const blocks of [question.content ?? [], ...(question.optionBlocks ?? [])]) {
+    for (const blocks of [canonicalContent(question) ?? [], ...(canonicalOptions(question) ?? [])]) {
       for (const block of blocks) {
         if (block.type === "image" && !seen.includes(block.assetId)) seen.push(block.assetId);
       }
     }
   }
   return seen;
+}
+
+/** Select the portable export container before reading any image bytes. */
+export function questionPortableExportFormat(questions: readonly ExportQuestionInput[]): "json" | "zip" {
+  return collectImageAssetIds(questions).length > 0 ? "zip" : "json";
 }
 
 const INSTRUCTIONS: string[][] = [
@@ -195,7 +214,7 @@ const INSTRUCTIONS: string[][] = [
   ["选项", "单选、多选、判断题从 A 列开始连续填写，不得断列；判断题必须依次为“正确、错误”。计算题不要填写选项。"],
   ["图片", "题干或选项中的图片按出现顺序编号为【图1】【图2】…，对应“图片1、图片2…”列中嵌入的单元格图片。"],
   ["图片查看", "嵌入图片需用 WPS Office 打开查看；Microsoft Excel 不支持该格式，会显示公式文字但题目数据完整。"],
-  ["无图导出", "需要完整保留图片的跨平台文件时，请改用“导出 JSON”（含图片时自动打包为 zip 压缩包）。"],
+  ["便携导出", "选择“导出 JSON / ZIP”：无图题库生成 JSON；含图题库生成包含 bank.json 与全部原图的 ZIP 压缩包。"],
 ];
 
 /** Assemble the full .xlsx bytes for a bank, embedding DISPIMG cell images. */
@@ -269,11 +288,15 @@ export function questionExportJson(name: string, questions: readonly ExportQuest
  *  bundled image files.  Image files themselves are returned separately so the
  *  caller controls the archive layout. */
 export function questionExportBundle(name: string, questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>, images: ReadonlyMap<string, ExportImageData>): { json: string; files: Array<{ name: string; data: Uint8Array }> } {
+  const assetIds = collectImageAssetIds(questions);
+  const missing = assetIds.filter((assetId) => !images.has(assetId));
+  if (missing.length) {
+    throw new Error(`题库压缩包缺少 ${missing.length} 张原图，已取消导出。`);
+  }
   const imageMeta: Record<string, QuestionBundleImageMeta> = {};
   const files: Array<{ name: string; data: Uint8Array }> = [];
-  for (const assetId of collectImageAssetIds(questions)) {
-    const data = images.get(assetId);
-    if (!data) continue;
+  for (const assetId of assetIds) {
+    const data = images.get(assetId)!;
     const file = `images/${assetId}.${IMAGE_EXTENSION_BY_MIME[data.mimeType]}`;
     imageMeta[file] = { mimeType: data.mimeType, width: data.width, height: data.height };
     files.push({ name: file, data: data.bytes });
@@ -283,8 +306,9 @@ export function questionExportBundle(name: string, questions: readonly ExportQue
     images: imageMeta,
     questions: questions.map((question) => {
       const note = notes.get(question.id)?.trim();
-      const content = question.content ? bundleBlocks(question.content, images) : [{ type: "text" as const, text: question.stem }];
-      const optionBlocks: ContentBlock[][] = question.optionBlocks ?? question.options.map((text, index) => [{ id: `option-${index}-0`, type: "text" as const, text }]);
+      const richContent = canonicalContent(question);
+      const content = richContent ? bundleBlocks(richContent, images) : [{ type: "text" as const, text: question.stem }];
+      const optionBlocks: ContentBlock[][] = canonicalOptions(question) ?? question.options.map((text, index) => [{ id: `option-${index}-0`, type: "text" as const, text }]);
       const options = optionBlocks.map((blocks) => bundleBlocks(blocks, images));
       return {
         type: question.type,
@@ -348,13 +372,20 @@ async function browserWebpToPng(blob: Blob): Promise<Blob> {
   }
 }
 
-/** Gather exportable image bytes for a question set from the local asset store.
- *  WebP is converted to PNG (Excel/WPS cannot embed WebP); images whose blobs
- *  were evicted are reported as missing instead of failing the export. */
+/** Gather exportable image bytes through a bounded pool. Excel converts WebP
+ *  to PNG for WPS cell-image compatibility; bundles preserve original bytes
+ *  and MIME types so content-addressed asset ids remain valid. */
 export async function collectExportImages(
   questions: readonly ExportQuestionInput[],
-  options: { loadAsset?: (assetId: string) => Promise<ExportImageSource | undefined>; convertWebp?: (blob: Blob) => Promise<Blob> } = {},
+  options: {
+    /** Excel/WPS only accepts PNG/JPEG cell images. Portable bundles must keep
+     *  the original bytes so the content-addressed asset id remains valid. */
+    target?: "excel" | "bundle";
+    loadAsset?: (assetId: string) => Promise<ExportImageSource | undefined>;
+    convertWebp?: (blob: Blob) => Promise<Blob>;
+  } = {},
 ): Promise<CollectedExportImages> {
+  const target = options.target ?? "excel";
   const loadAsset = options.loadAsset ?? (async (assetId: string) => {
     const { dbV7 } = await import("../db/db-v7");
     return dbV7.imageAssets.get(assetId);
@@ -362,19 +393,21 @@ export async function collectExportImages(
   const convertWebp = options.convertWebp ?? browserWebpToPng;
   const images = new Map<string, ExportImageData>();
   const missing: string[] = [];
-  for (const assetId of collectImageAssetIds(questions)) {
+  const assetIds = collectImageAssetIds(questions);
+  const collected = await mapWithConcurrency(assetIds, EXPORT_IMAGE_COLLECTION_CONCURRENCY, async (assetId) => {
     const asset = await loadAsset(assetId);
-    if (!asset?.blob) {
-      missing.push(assetId);
-      continue;
-    }
+    if (!asset?.blob) return { assetId };
     let blob = new Blob([asset.blob], { type: asset.mimeType });
     let mimeType = asset.mimeType;
-    if (mimeType === "image/webp") {
+    if (target === "excel" && mimeType === "image/webp") {
       blob = await convertWebp(blob);
       mimeType = "image/png";
     }
-    images.set(assetId, { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType, width: asset.width, height: asset.height });
+    return { assetId, data: { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType, width: asset.width, height: asset.height } satisfies ExportImageData };
+  });
+  for (const item of collected) {
+    if (item.data) images.set(item.assetId, item.data);
+    else missing.push(item.assetId);
   }
   return { images, missing };
 }

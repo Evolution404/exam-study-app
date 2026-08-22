@@ -37,9 +37,9 @@ jobs:
       - name: Production build (current)
         run: npm run build
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload current artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           name: current
           path: dist
@@ -71,7 +71,7 @@ jobs:
     steps:
       - name: Deploy current Pages artifact
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         with:
           artifact_name: current
 
@@ -313,15 +313,15 @@ jobs:
           GITHUB_SHA: ${{ needs.build.outputs.rollback_sha }}
         run: npm run build
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload rollback artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           name: rollback
           path: dist
       - name: Deploy rollback artifact
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         with:
           artifact_name: rollback
 

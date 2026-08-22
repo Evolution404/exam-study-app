@@ -47,6 +47,10 @@ const pwaSmokeJob = deployWorkflow.slice(
 assert.match(buildJob, /name: Upload current artifact[\s\S]*?name: current/, "部署前构建必须上传 current 产物");
 assert.doesNotMatch(buildJob, /test:fast|test:pwa-smoke/, "current 构建不得在部署前等待 fast-check 或 PWA smoke");
 assert.match(deployWorkflow, /name: Deploy current Pages artifact[\s\S]*?artifact_name: current/, "首次 Pages 部署必须使用 current 产物");
+assert.equal((deployWorkflow.match(/actions\/configure-pages@v6/g) ?? []).length, 2, "当前构建与回退构建必须使用 Node 24 configure-pages v6");
+assert.equal((deployWorkflow.match(/actions\/upload-pages-artifact@v5/g) ?? []).length, 2, "当前构建与回退构建必须使用 Node 24 Pages artifact v5");
+assert.equal((deployWorkflow.match(/actions\/deploy-pages@v5/g) ?? []).length, 2, "当前部署与回退部署必须使用 Node 24 deploy-pages v5");
+assert.doesNotMatch(deployWorkflow, /actions\/(?:configure-pages@v5|upload-pages-artifact@v4|deploy-pages@v4)/, "Pages 发布链不得退回 Node 20 action 主版本");
 assert.match(fastCheckJob, /needs: deploy\n/, "fast-check 必须依赖部署完成");
 assert.match(pwaSmokeJob, /needs: deploy\n/, "PWA smoke 必须依赖部署完成");
 assert.doesNotMatch(fastCheckJob, /needs: \[/, "fast-check 不得串行依赖 PWA smoke");

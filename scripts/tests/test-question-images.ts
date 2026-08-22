@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 import "fake-indexeddb/auto";
 import {
   buildQuestionBankXlsx,
   buildQuestionBankZip,
   collectExportImages,
+  questionPortableExportFormat,
   questionExportSheetPlan,
   type ExportImageData,
   type ExportQuestionInput,
 } from "../../src/lib/question/question-bank-export";
-import { buildStoredZip } from "../../src/lib/io/xlsx-export";
+import { buildStoredZip, buildXlsx } from "../../src/lib/io/xlsx-export";
 import { parseQuestionBankTable } from "../../src/lib/io/xlsx-import";
 import { parseQuestionBankZip, QuestionBundleError } from "../../src/lib/question/question-bank-bundle";
 import { importQuestionBankFile } from "../../src/lib/question/question-bank-file-import";
@@ -73,6 +75,7 @@ function makePng(width: number, height: number, red: number): Uint8Array {
 const pngA = makePng(640, 480, 0x10);
 const pngB = makePng(320, 240, 0x20);
 const pngC = makePng(100, 100, 0x30);
+const pngD = makePng(80, 80, 0x40);
 
 function exportImage(bytes: Uint8Array, mimeType: "image/png" | "image/jpeg" = "image/png"): ExportImageData {
   const dimensions = sniffImageDimensions(bytes)!;
@@ -91,6 +94,7 @@ const images = new Map<string, ExportImageData>([
 const idA = await sha256Bytes(pngA);
 const idB = await sha256Bytes(pngB);
 const idC = await sha256Bytes(pngC);
+const idD = await sha256Bytes(pngD);
 
 const text = (value: string): ContentBlock => ({ id: `t-${value.length}-${value.charCodeAt(0) % 97}`, type: "text", text: value });
 const image = (assetId: string): ContentBlock => ({ id: `i-${assetId.slice(0, 6)}`, type: "image", assetId });
@@ -175,6 +179,20 @@ await resetV7Database();
   const contentTypes = names.includes("[Content_Types].xml");
   assert.ok(contentTypes, "zip 结构完整");
 
+  // The bank UI passes QuestionViewModel objects whose rich blocks are nested
+  // under `canonical`, not the flat export-fixture shape above.
+  const viewModelQuestions = imageQuestions.map(({ content, optionBlocks, ...question }) => ({
+    ...question,
+    canonical: { content: content ?? [], options: optionBlocks ?? [] },
+  }));
+  const viewModelPlan = questionExportSheetPlan(viewModelQuestions, notes, images);
+  assert.equal(viewModelPlan.usedAssetIds.length, 3, "UI 题目模型中的 canonical 图片必须被导出器识别");
+  assert.equal(viewModelPlan.rows[1][9], `=DISPIMG("ID_${idA}",1)`, "UI 导出同样必须写入 DISPIMG 公式");
+  const viewModelNames = zipEntryNames(buildQuestionBankXlsx(viewModelQuestions, notes, images));
+  assert.ok(viewModelNames.includes("xl/cellimages.xml"), "UI 导出必须包含 WPS cellimages 部件");
+  assert.ok(viewModelNames.includes("xl/_rels/cellimages.xml.rels"), "UI 导出必须包含 WPS 图片关系文件");
+  assert.equal(viewModelNames.filter((name) => name.startsWith("xl/media/")).length, 3, "UI 导出必须写入所有引用媒体");
+
   // 无图题库回归：不生成 cellimages 部件。
   const plainBytes = buildQuestionBankXlsx([{ id: "p1", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] }], new Map());
   const plainNames = zipEntryNames(plainBytes);
@@ -223,6 +241,13 @@ await resetV7Database();
   assert.equal(assetA.height, 480);
   assert.equal(assetA.mimeType, "image/png");
   assert.equal(assetA.blob?.size, pngA.byteLength, "资产字节与源图片一致");
+  const importRecord = (await dbV7.changeSets.toArray()).find((record) => record.mutations.some((mutation) => mutation.kind === "question.import" && mutation.bank.id === bank.id));
+  assert.ok(importRecord, "Excel 导入应立即创建固定的导入事件");
+  const importMutation = importRecord.mutations.find((mutation) => mutation.kind === "question.import");
+  assert.equal(importMutation?.kind, "question.import");
+  assert.equal(importMutation.images?.length, 3, "固定导入事件应在同步前就包含全部图片描述");
+  assert.ok(importMutation.images?.every((asset) => !asset.blob && !asset.remote), "导入事件只保存无 blob 的本地图片描述");
+  assert.ok(!importRecord.mutations.some((mutation) => mutation.kind === "image.asset.save"), "导入时不应按图片拆分同步事件");
   void questions;
 
   // 重复导入同一文件：内容寻址去重，题数不变、资产不重复。
@@ -230,6 +255,17 @@ await resetV7Database();
   assert.equal(again.bank.questionCount, 3, "重复导入不应增加题目");
   assert.equal((await dbV7.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
   assert.equal(await dbV7.questions.count(), 3, "全局题目按指纹去重");
+
+  // WPS 拆分工作簿常残留源文件的全部媒体；只物化题目实际引用的图片。
+  const residueWorkbook = buildXlsx([{ name: "题库", rows: [
+    ["题干", "题型", "标签", "解析", "答案1", "A", "B", "图片1"],
+    ["图中①处部件是【图1】？", "单选", "图片", "", "B", "绝缘子", "横担", '=DISPIMG("ID_USED",1)'],
+  ] }], [
+    { id: "ID_USED", bytes: pngA, extension: "png", width: 640, height: 480 },
+    { id: "ID_UNUSED", bytes: pngD, extension: "png", width: 80, height: 80 },
+  ]);
+  await importQuestionBankFile(new File([toArrayBuffer(residueWorkbook)], "含残留媒体.xlsx", { type: file.type }));
+  assert.equal(await dbV7.imageAssets.get(idD), undefined, "未被题目引用的 Excel 残留媒体不应物化或上传");
   console.log("2. Excel 导入闭环（DISPIMG 读回 / 资产物化 / 选项图片 / 去重）通过");
 }
 
@@ -237,6 +273,10 @@ await resetV7Database();
 // 3. zip 压缩包导出 + 导入闭环
 // ---------------------------------------------------------------------------
 {
+  const plainQuestion: ExportQuestionInput = { id: "plain", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] };
+  assert.equal(questionPortableExportFormat([plainQuestion]), "json", "无图片题库必须选择 JSON");
+  assert.equal(questionPortableExportFormat(imageQuestions), "zip", "含图片题库必须选择 ZIP");
+
   const bytes = buildQuestionBankZip("压缩包题库", imageQuestions, notes, images);
   assert.deepEqual(zipEntryNames(bytes).slice().sort(), ["bank.json", `images/${idA}.png`, `images/${idB}.png`, `images/${idC}.png`].sort(), "zip 内含 bank.json 与内容寻址图片");
 
@@ -259,6 +299,17 @@ await resetV7Database();
   );
   const note = await dbV7.notes.get(ordered[0]!.id);
   assert.equal(note?.content, "看绝缘子串的位置", "解析随压缩包往返");
+
+  const viewModelQuestions = imageQuestions.map(({ content, optionBlocks, ...question }) => ({
+    ...question,
+    canonical: { content: content ?? [], options: optionBlocks ?? [] },
+  }));
+  assert.equal(questionPortableExportFormat(viewModelQuestions), "zip", "UI canonical 图片必须触发 ZIP 导出");
+  const viewModelZip = buildQuestionBankZip("UI 压缩包题库", viewModelQuestions, notes, images);
+  assert.equal(zipEntryNames(viewModelZip).filter((name) => name.startsWith("images/")).length, 3, "UI ZIP 必须包含全部去重原图");
+  const viewModelParsed = await parseQuestionBankZip(toArrayBuffer(viewModelZip));
+  assert.equal(viewModelParsed.images.length, 3, "UI ZIP 的全部原图必须可校验回导");
+  assert.equal(viewModelParsed.questions[2]?.options[1]?.[1]?.type, "image", "UI ZIP 必须保留选项内图片位置");
   console.log("3. zip 导出与导入闭环（内容块 / 资产 / 解析）通过");
 }
 
@@ -289,6 +340,11 @@ await resetV7Database();
     () => parseQuestionBankZip(toArrayBuffer(buildStoredZip([{ name: "bank.json", data: new TextEncoder().encode(missingSrc) }, { name: `images/${idA}.png`, data: pngA }]))),
     (error: unknown) => error instanceof QuestionBundleError,
     "缺失的图片引用应报错",
+  );
+  assert.throws(
+    () => buildQuestionBankZip("导出缺图", imageQuestions, notes, new Map([[idA, imageA]])),
+    /缺少 2 张原图/,
+    "导出器本身也必须拒绝生成缺图压缩包",
   );
   console.log("4. zip 完整性校验（篡改 / 缺失引用）通过");
 }
@@ -341,7 +397,7 @@ await resetV7Database();
 }
 
 // ---------------------------------------------------------------------------
-// 7. collectExportImages：注入加载器（png 透传 / webp 转换 / 缺失降级）
+// 7. collectExportImages：Excel 转换 WebP，ZIP 保留原图，缺失图片可诊断
 // ---------------------------------------------------------------------------
 {
   const webpBytes = (() => {
@@ -355,10 +411,19 @@ await resetV7Database();
     new DataView(bytes.buffer).setUint32(21, bits, true);
     return bytes;
   })();
+  let inFlight = 0;
+  let maxInFlight = 0;
   const loader = async (assetId: string) => {
-    if (assetId === idA) return { blob: new Blob([pngA], { type: "image/png" }), mimeType: "image/png" as const, width: 640, height: 480 };
-    if (assetId === idB) return { blob: new Blob([webpBytes], { type: "image/webp" }), mimeType: "image/webp" as const, width: 64, height: 32 };
-    return undefined;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    try {
+      if (assetId === idA) return { blob: new Blob([pngA], { type: "image/png" }), mimeType: "image/png" as const, width: 640, height: 480 };
+      if (assetId === idB) return { blob: new Blob([webpBytes], { type: "image/webp" }), mimeType: "image/webp" as const, width: 64, height: 32 };
+      return undefined;
+    } finally {
+      inFlight -= 1;
+    }
   };
   const collected = await collectExportImages(imageQuestions, {
     loadAsset: loader,
@@ -369,12 +434,45 @@ await resetV7Database();
   assert.ok(collected.images.has(idB), "webp 经转换后可用");
   assert.equal(collected.images.get(idB)!.mimeType, "image/png", "webp 必须转为 png 才能嵌入 Excel");
   assert.deepEqual(collected.missing, [idC], "缓存被清理的图片进入缺失列表");
+  assert.ok(maxInFlight >= 2 && maxInFlight <= 6, "导出图片应通过不超过 6 路的有界并发收集");
+
+  const webpId = await sha256Bytes(webpBytes);
+  const webpQuestion: ExportQuestionInput = {
+    id: "webp-question",
+    type: "单选",
+    stem: "识别原图",
+    options: ["甲", "乙"],
+    answer: "A",
+    tags: ["WebP"],
+    content: [text("识别原图"), image(webpId)],
+    optionBlocks: [[text("甲")], [text("乙")]],
+  };
+  const portable = await collectExportImages([webpQuestion], {
+    target: "bundle",
+    loadAsset: async (assetId) => assetId === webpId
+      ? { blob: new Blob([webpBytes], { type: "image/webp" }), mimeType: "image/webp", width: 64, height: 32 }
+      : undefined,
+    convertWebp: async () => { throw new Error("便携导出不应转换 WebP"); },
+  });
+  assert.deepEqual(portable.missing, [], "ZIP 原图可完整收集");
+  assert.equal(portable.images.get(webpId)?.mimeType, "image/webp", "ZIP 必须保留 WebP 格式");
+  assert.deepEqual(portable.images.get(webpId)?.bytes, webpBytes, "ZIP 必须保留原始字节与内容哈希");
+  const portableZip = buildQuestionBankZip("WebP 原图题库", [webpQuestion], new Map(), portable.images);
+  assert.ok(zipEntryNames(portableZip).includes(`images/${webpId}.webp`), "ZIP 使用原格式扩展名保存内容寻址图片");
+  const portableParsed = await parseQuestionBankZip(toArrayBuffer(portableZip));
+  assert.equal(portableParsed.images[0]?.assetId, webpId, "原图 ZIP 应通过哈希校验并可重新导入");
   // 缺失图片的占位符降级：图片列数收缩、缺失图的占位符消失。
   const degradedPlan = questionExportSheetPlan(imageQuestions, notes, collected.images);
   assert.equal(degradedPlan.imageColumnCount, 1, "缺失 C 后单题最多 1 张图，图片列收缩为 1");
   assert.equal(degradedPlan.rows[3][9], `=DISPIMG("ID_${idB}",1)`, "仍在缓存的 B 图保留");
   assert.ok(!degradedPlan.rows[3][6]?.includes("【图"), "缺失图片的占位符应消失");
-  console.log("7. 图片收集（透传 / webp 转换 / 缺失降级）通过");
+  const exportDialogSource = readFileSync(new URL("../../src/app/bank/bank-library/bank-export-dialog.tsx", import.meta.url), "utf8");
+  assert.match(exportDialogSource, /descriptor\.blob \?\? await loadImageAssetV7\(assetId\)/, "UI 导出遇到缓存缺失时必须从同步仓库补回图片");
+  assert.match(exportDialogSource, /if \(missing\.length\) throw new Error/, "仍有缺图时必须取消导出，不能生成不完整 Excel");
+  assert.match(exportDialogSource, /target: "bundle"/, "便携 ZIP 必须走保留原图的收集路径");
+  assert.match(exportDialogSource, /questionPortableExportFormat\(questions\)/, "UI 必须复用可单测的 JSON/ZIP 决策规则");
+  assert.match(exportDialogSource, /导出 JSON \/ ZIP/, "导出入口必须明确提示实际文件类型");
+  console.log("7. 图片收集（Excel 转换 / ZIP 原图 / 缺失诊断）通过");
 }
 
 console.log("题库图片导出导入专项测试通过");

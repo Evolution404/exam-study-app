@@ -65,7 +65,7 @@ import {
 } from "./sync-v7-head";
 import { offloadSyncV7Events } from "./sync-v7-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-v7-watermark";
-import { uploadedDescriptor, uploadPendingImageAssetsV7 } from "./sync-v7-upload";
+import { SYNC_V7_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssetsV7 } from "./sync-v7-upload";
 import { changeSetOutsideHistoryRange, filterProjectionHistoryV7, historySyncStartFor } from "./history-sync-range";
 
 /** Yield one macrotask so input events and rendering can interleave with the
@@ -78,11 +78,27 @@ function yieldToMainIfVisible(): Promise<boolean> {
   return new Promise<boolean>((resolve) => window.setTimeout(() => resolve(true), 0));
 }
 
+function formatTransferBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 async function initialize(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions): Promise<SyncV7HeadCache> {
   const client = remote(settings, token, options?.fetch, options?.transport);
   const existing = await client.readHead();
   if (existing.initialized) return existing.cache;
-  report(callback, "prepare", "正在初始化 v8 热窗口", 4, 6);
+  // Publish local blobs before taking the first checkpoint. Otherwise an
+  // import made against an empty vault would be checkpointed with local-only
+  // descriptors, committed, and then require newly-created asset events.
+  await uploadPendingImageAssetsV7(client, ({ completed, total, uploadedBytes, totalBytes }) => {
+    const transferred = `${formatTransferBytes(uploadedBytes)} / ${formatTransferBytes(totalBytes)}`;
+    const label = completed === 0
+      ? `准备并发上传 ${total} 张图片（${SYNC_V7_ASSET_UPLOAD_CONCURRENCY} 路）`
+      : `正在上传图片（${completed}/${total}，${transferred}）`;
+    report(callback, "upload", label, 4 + 2 * (total ? completed / total : 0), 6);
+  });
+  report(callback, "prepare", "正在初始化 v8 热窗口", 6, 8);
   const localSnapshot = await createSyncCheckpointV7Snapshot();
   const historySyncStart = historySyncStartFor(settings);
   const localProjection = filterProjectionHistoryV7(await projectionFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
@@ -127,15 +143,15 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   const progress = monotonicProgress(callback);
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
-  if (!read.initialized) { await initialize(settings, token, callback, options); read = await client.readHead(); }
+  if (!read.initialized) { await initialize(settings, token, progress, options); read = await client.readHead(); }
   if (!read.initialized) throw new Error("无法初始化 v8 远端。请先执行 v7→v8 数据仓库迁移。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpointV7["counts"] | undefined;
   // Band layout is decided once per run from whether there is anything to push,
   // so the bar spans 0–100 over the phases this run will actually enter.
-  // Image-asset upload can enqueue new pending change-sets mid-run, so the
-  // variable must be able to switch to the push layout below.
+  // Legacy image-only writes can still add one fallback change-set during
+  // upload, so the variable must be able to switch to the push layout below.
   let bands = syncBands((await listChangeSetsV7(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);
@@ -187,7 +203,15 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     // Upload local image blobs BEFORE rebasing local pending change-sets, so
     // question.upsert / question.import events that reference those assets can
     // be applied to the in-memory projection instead of being marked blocked.
-    const uploadedImageAssets = await uploadPendingImageAssetsV7(client);
+    const uploadedImageAssets = await uploadPendingImageAssetsV7(client, ({ completed, total, uploadedBytes, totalBytes }) => {
+      if (!bands.upload) bands = syncBands(true);
+      const transferred = `${formatTransferBytes(uploadedBytes)} / ${formatTransferBytes(totalBytes)}`;
+      const label = completed === 0
+        ? `准备并发上传 ${total} 张图片（${SYNC_V7_ASSET_UPLOAD_CONCURRENCY} 路）`
+        : `正在上传图片（${completed}/${total}，${transferred}）`;
+      const fraction = total ? completed / total : 0;
+      report(progress, "upload", label, bandPercent(bands.upload!, 0.02 + 0.16 * fraction), bandPercent(bands.upload!, 0.18));
+    });
     if (uploadedImageAssets.length) {
       if (!bands.upload) bands = syncBands(true);
       for (const descriptor of uploadedImageAssets) {
@@ -195,7 +219,8 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         if (index >= 0) rebasedProjection.imageAssets[index] = descriptor;
         else rebasedProjection.imageAssets.push(descriptor);
       }
-      report(progress, "upload", `已上传 ${uploadedImageAssets.length} 个图片资产`, bandPercent(bands.upload!, 0.06), bandPercent(bands.upload!, 0.12));
+      const uploadedBytes = uploadedImageAssets.reduce((sum, asset) => sum + asset.size, 0);
+      report(progress, "upload", `图片上传完成（${uploadedImageAssets.length}/${uploadedImageAssets.length}，${formatTransferBytes(uploadedBytes)}）`, bandPercent(bands.upload!, 0.18), bandPercent(bands.upload!, 0.2));
     }
     // Keep a complete queue snapshot for the projection install guard.  A new
     // local edit must either commit after the guarded install or make this
@@ -285,7 +310,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 8 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
-      report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.02), bandPercent(bands.upload!, 0.12));
+      report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.24));
       const generation = read.head.generation + 1;
       const baseOrdinal = read.head.segments.filter((item) => item.generation === generation).length;
       const now = new Date().toISOString();
@@ -295,9 +320,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 256 KiB inline-event ceiling. Offload any oversized body to a
       // content-addressed immutable object and leave a thin stub in its place;
       // the object files are published alongside the segments in the same plan.
-      report(progress, "upload", `正在整理 ${events.length} 组变更`, bandPercent(bands.upload!, 0.1), bandPercent(bands.upload!, 0.2));
+      report(progress, "upload", `正在整理 ${events.length} 组变更`, bandPercent(bands.upload!, 0.24), bandPercent(bands.upload!, 0.28));
       const offloaded = await offloadSyncV7Events(events as Record<string, unknown>[]);
-      if (offloaded.objects.length) report(progress, "upload", `已卸载 ${offloaded.objects.length} 个大对象`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.3));
+      if (offloaded.objects.length) report(progress, "upload", `已卸载 ${offloaded.objects.length} 个大对象`, bandPercent(bands.upload!, 0.28), bandPercent(bands.upload!, 0.3));
       const objectFiles: SyncV7PublicationFile[] = offloaded.objects;
       // Paginate the (now stub-slender) events into one or more 1 MiB segments
       // that share one generation and publish together.

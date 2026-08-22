@@ -50,6 +50,9 @@ assert.match(practiceSetup, /不修改全局配置/, "custom random mode must re
 assert.match(practiceSetup, /assembleFilter\(card\.combo, \{ quick: true \}\)/, "preset cards must start immediately with a pure combo");
 assert.match(practiceSetup, /点卡片立即开始，不使用下方自定义组合/, "card row must explain that cards bypass the custom combo area");
 assert.match(practiceSetup, /aria-expanded=\{advancedOpen\}/, "advanced filters must live behind a collapsed toggle");
+assert.match(styles, /\.setup-bank \{ width:100%; max-width:none;/, "desktop practice bank selector must use the full setup-card width");
+assert.match(styles, /\.scope-bank-list \{ display:grid; grid-template-columns:repeat\(auto-fit,minmax\(240px,1fr\)\);/, "multiple practice banks must flow into all available desktop columns");
+assert.match(styles, /@media\(max-width:760px\)[^\n]*\.scope-bank-list\{grid-template-columns:1fr\}/, "mobile practice bank selector must remain one column");
 // 日期区间必须挂在真实类名 .date-range 上（旧 .date-range-filter 是零引用死类）。
 assert.match(practiceSetup, /className="date-range"/, "date range inputs must use the styled .date-range class");
 assert.doesNotMatch(practiceSetup, /date-range-filter/, "the dead date-range-filter class must stay deleted");

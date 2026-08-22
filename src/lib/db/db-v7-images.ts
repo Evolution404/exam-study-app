@@ -35,18 +35,30 @@ export async function putImageAssetV7(asset: ImageAsset): Promise<ImageAsset> {
     if (digest !== asset.id) throw new TypeError("图片 blob 内容与 id 不一致");
   }
   const previous = await dbV7.imageAssets.get(asset.id);
-  const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...asset, blob: undefined });
+  // Re-importing identical local bytes must not discard a descriptor that was
+  // already uploaded. Besides causing needless network work, losing `remote`
+  // made the pending-event count grow again on the next sync.
+  const remoteReusable = Boolean(
+    !asset.remote
+      && previous?.remote
+      && previous.mimeType === asset.mimeType
+      && previous.size === asset.size
+      && previous.width === asset.width
+      && previous.height === asset.height,
+  );
+  const effective = remoteReusable ? { ...asset, remote: previous!.remote } : asset;
+  const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...effective, blob: undefined });
   // 保留已缓存的 blob：调用方只写 descriptor 时不应清掉本地图片缓存。
-  const stored = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
+  const stored = effective.blob ?? (previous?.blob?.size === effective.size ? previous.blob : undefined);
   await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.changeSets, dbV7.syncMeta], async () => {
-    await dbV7.imageAssets.put(stored ? { ...asset, blob: stored } : asset);
-    if (asset.remote && descriptorChanged) {
+    await dbV7.imageAssets.put(stored ? { ...effective, blob: stored } : effective);
+    if (effective.remote && descriptorChanged) {
       const createdAt = nowIso();
-      const descriptor = { ...asset, blob: undefined };
+      const descriptor = { ...effective, blob: undefined };
       await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
     }
   });
-  return stored ? { ...asset, blob: stored } : asset;
+  return stored ? { ...effective, blob: stored } : effective;
 }
 
 export async function putImageAssetDescriptorV7(asset: Omit<ImageAsset, "blob">): Promise<ImageAsset> {

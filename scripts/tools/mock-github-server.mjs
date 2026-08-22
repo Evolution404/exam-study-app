@@ -74,16 +74,18 @@ function readBody(req) {
 /**
  * Start an in-memory mock of the GitHub API subset used by v7 sync.
  * @param {{ port?: number, hostname?: string, cas?: boolean, faults?: MockFaults }} [options]
- * @returns {Promise<{ url: string, port: number, hostname: string, reset: () => void, contentPaths: () => string[], close: () => Promise<void>, stats: { blobReads: number, maxConcurrentBlobReads: number }, setBlobLatency: (ms: number) => void }>}
+ * @returns {Promise<{ url: string, port: number, hostname: string, reset: () => void, contentPaths: () => string[], close: () => Promise<void>, stats: { blobReads: number, maxConcurrentBlobReads: number, assetWrites: number, maxConcurrentAssetWrites: number, totalRequests: number }, setBlobLatency: (ms: number) => void, setAssetWriteLatency: (ms: number) => void }>}
  */
 export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = false, faults } = {}) {
   const paths = new Map(); // logical content path -> blobSha
   const blobs = new Map(); // blobSha -> Buffer
   // Concurrency observability for the segment downloader: blob GET counters and
   // an injectable per-request latency so tests can prove requests overlap.
-  const stats = { blobReads: 0, maxConcurrentBlobReads: 0, totalRequests: 0 };
+  const stats = { blobReads: 0, maxConcurrentBlobReads: 0, assetWrites: 0, maxConcurrentAssetWrites: 0, totalRequests: 0 };
   let blobLatencyMs = 0;
+  let assetWriteLatencyMs = 0;
   let inFlightBlobReads = 0;
+  let inFlightAssetWrites = 0;
   // One-shot fault state: tracks whether failPutOnce/failGetOnce have fired yet.
   let putFaultFired = false;
   let getFaultFired = false;
@@ -104,8 +106,11 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
     failNextBlobGet = false;
     stats.blobReads = 0;
     stats.maxConcurrentBlobReads = 0;
+    stats.assetWrites = 0;
+    stats.maxConcurrentAssetWrites = 0;
     stats.totalRequests = 0;
     blobLatencyMs = 0;
+    assetWriteLatencyMs = 0;
   }
 
   /**
@@ -230,6 +235,13 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             putFaultFired = true;
             return sendJson(res, 500, { message: "transient mock PUT failure" });
           }
+          if (logicalPath.startsWith("sync/v8/assets/")) {
+            stats.assetWrites += 1;
+            inFlightAssetWrites += 1;
+            stats.maxConcurrentAssetWrites = Math.max(stats.maxConcurrentAssetWrites, inFlightAssetWrites);
+            if (assetWriteLatencyMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, assetWriteLatencyMs));
+            inFlightAssetWrites -= 1;
+          }
           const body = JSON.parse((await readBody(req)).toString("utf8"));
           const buffer = Buffer.from(body.content, "base64");
           const sha = sha1Hex(buffer);
@@ -282,7 +294,19 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
       const close = () => new Promise((resolveClose) => server.close(() => resolveClose()));
       const armCorruptOnce = () => { corruptNextBlob = true; };
       const armFailBlobGetOnce = () => { failNextBlobGet = true; };
-      resolve({ url, port: actualPort, hostname, reset, contentPaths, armCorruptOnce, armFailBlobGetOnce, close, stats, setBlobLatency: (ms) => { blobLatencyMs = ms; } });
+      resolve({
+        url,
+        port: actualPort,
+        hostname,
+        reset,
+        contentPaths,
+        armCorruptOnce,
+        armFailBlobGetOnce,
+        close,
+        stats,
+        setBlobLatency: (ms) => { blobLatencyMs = ms; },
+        setAssetWriteLatency: (ms) => { assetWriteLatencyMs = ms; },
+      });
     });
   });
 }

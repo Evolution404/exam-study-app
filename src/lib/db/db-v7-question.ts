@@ -33,6 +33,7 @@ import type {
   BankQuestionMembership,
   BankV7,
   ContentBlock,
+  ImageAsset,
   NoteV7,
   QuestionGroupV7,
   QuestionTypeV7,
@@ -520,7 +521,7 @@ function importDraft(row: ImportedQuestionRowV7): QuestionDraftV7 | undefined {
  * content-addressed immutable object, so imports of any size stay within the
  * protocol limits.
  */
-export async function importQuestionBankV7(fileName: string, raw: unknown, options?: { targetBankId?: string }): Promise<BankV7 & { importedCount: number }> {
+export async function importQuestionBankV7(fileName: string, raw: unknown, options?: { targetBankId?: string; imageAssets?: readonly ImageAsset[] }): Promise<BankV7 & { importedCount: number }> {
   const parsed = rawQuestionRows(raw);
   const rows = parsed.rows.map(importDraft).filter((row): row is QuestionDraftV7 => Boolean(row));
   if (!rows.length) throw new Error("题库中没有可导入的有效题目。");
@@ -578,6 +579,15 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
     }
   }
+  const referencedAssetIds = new Set(materialised.flatMap(({ question }) => [...question.content, ...question.options.flat()]
+    .filter((block) => block.type === "image")
+    .map((block) => block.assetId)));
+  const importImages = (options?.imageAssets ?? [])
+    .filter((asset) => referencedAssetIds.has(asset.id))
+    .map(({ blob: _blob, ...descriptor }) => {
+      void _blob;
+      return descriptor;
+    });
   await dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes, dbV7.syncMeta], async () => {
     await dbV7.banks.put(bank);
     for (const item of materialised) {
@@ -594,7 +604,13 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
     // exceeds the v7 inline-event budget to a content-addressed immutable
     // object, so a large import no longer needs to be split into byte-bounded
     // chunks here; the whole import applies atomically on every device.
-    await enqueueChangeSetV7([{ kind: "question.import", bank: bankSnapshot, questions: materialised.map((item) => item.question), memberships: materialised.map((item) => item.membership) }], timestamp);
+    await enqueueChangeSetV7([{
+      kind: "question.import",
+      bank: bankSnapshot,
+      questions: materialised.map((item) => item.question),
+      memberships: materialised.map((item) => item.membership),
+      ...(importImages.length ? { images: importImages } : {}),
+    }], timestamp);
     if (materialisedNotes.length) {
       // Imported notes publish as a follow-up batch; the queue planner orders
       // them after question.import because each note depends on its question.

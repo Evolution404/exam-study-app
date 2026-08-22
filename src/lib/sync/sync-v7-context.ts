@@ -3,6 +3,7 @@ import type { SyncV7Descriptor } from "./sync-v7-head";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 import { sha256DigestHex } from "../crypto/sha256";
+export { mapWithConcurrency } from "../async/bounded-concurrency";
 
 export type SyncProgress = { phase: "prepare" | "download" | "merge" | "upload" | "compact" | "cache" | "history" | "complete"; label: string; percent: number; /** Planned end-of-phase percent — the UI creeps toward it while a step runs long. */ to?: number };
 export type SyncProgressCallback = (progress: SyncProgress) => void;
@@ -84,21 +85,6 @@ export function descriptorEqual(a: SyncV7Descriptor, b: SyncV7Descriptor): boole
  *  by original index, so the replay order below stays the generation/ordinal
  *  wire order regardless of completion order. */
 export const SYNC_V7_DOWNLOAD_CONCURRENCY = 6;
-
-export async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const run = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await worker(items[index]!, index);
-    }
-  };
-  const lanes = Math.max(1, Math.min(limit, items.length));
-  await Promise.all(Array.from({ length: lanes }, run));
-  return results;
-}
 
 /** Per-device max localSequence over the given events — the true coverage
  *  watermark of a page, as opposed to the full head watermark. */

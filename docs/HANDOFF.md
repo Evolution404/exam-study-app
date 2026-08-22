@@ -54,6 +54,9 @@ docs/          # 项目文档
 - 个人难度以有效作答时间、作答间隔和本机成熟历史校准；后台、编辑器、题目总览不计时，速度基线只吸收有效正确作答。未作答固定为 50。
 - `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
 - 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v8/assets/<sha256>.<ext>`。
+- Excel/zip 导入只物化题目实际引用的图片，并在导入完成时把全部图片描述写进同一个固定 `question.import` 事件；同步以 6 路有界并发上传图片、按张数与字节上报进度，再原位补齐该事件的远端描述，禁止按上传完成顺序新增图片事件。
+- 题库 Excel 导出必须从 UI `canonical.content/options` 读取富内容，并以 WPS `DISPIMG` + `xl/cellimages.xml` + `xl/media/*` 嵌入图片；本地 Blob 缺失时先从私有同步仓库补缓存，仍有缺图则中止导出，禁止静默生成纯文字文件。
+- 题库便携导出无图时生成普通 JSON；只要题干或选项引用图片，就必须生成 `bank.json + images/*` 的 ZIP，并保留原图字节与格式（包括 WebP），以保证内容寻址文件名可校验、可完整回导。任一原图缺失时中止导出，禁止生成不完整压缩包。
 - 同步固定 head：`sync/v8/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
 - 会产生 change set 的领域写事务必须把 `syncMeta` 放进同一个 Dexie `rw` 事务；同步序号在当前事务内分配。禁止从领域写事务中另开 `syncMeta` 写事务，否则 Safari 会因 IndexedDB 写事务相互等待而卡住导入、作答等写操作。
 - 冷启动恢复同时下载检查点和热窗口分段，总并发上限保持为 6；检查点按响应流字节持续上报下载进度，全部下载完成后仍按检查点再分段的确定顺序安装。
@@ -147,6 +150,8 @@ curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-stud
 ```
 
 GitHub Actions 的发布顺序是“先部署、后验证”：`build` 只安装依赖、构建并上传带 `current` 名称的产物，GitHub Pages 部署完成后，`fast-check` 与 `pwa_smoke` 两个 job 并行执行。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
+
+Pages 发布链固定使用原生 Node 24 的 `actions/configure-pages@v6`、`actions/upload-pages-artifact@v5` 与 `actions/deploy-pages@v5`；当前部署和回退部署必须同步升级，禁止退回会触发 Node 20 弃用警告的旧主版本。
 
 Web 与 Cloudflare 验证通过后，`ios_release` 在 `macos-15` Runner 上为同一提交生成无签名 IPA。版本固定为 `1.0.<main 提交数>`，构建号为提交数；随后创建不可变 GitHub Release，并发布 `shijuan.ipa` 与 `sidestore-source.json`。Cloudflare Pages Function 在 `learn.980923.xyz` 提供稳定反向代理：更新源 `https://learn.980923.xyz/sidestore/source.json`、IPA `https://learn.980923.xyz/sidestore/shijuan.ipa`。工作流最后必须从这两个公网端点读回当前版本，否则发布任务失败。SideStore 只需添加一次更新源，后续每次推送 `main` 都会在网站验证通过后出现新版。
 

@@ -107,14 +107,22 @@ async function startDevServerIfNeeded() {
   await waitForServer(`${baseUrl}/`, 30_000, devServer, () => viteReady);
 }
 
-function visibleLocator(page, locator, description) {
-  return (async () => {
+/*
+ * Role/text locators can temporarily have zero matches while React replaces a
+ * focused topbar control after Radix closes its popup. Keep button helpers on
+ * the same 10 s eventual-visibility contract as expectText instead of taking
+ * a single synchronous DOM snapshot and reporting a false regression.
+ */
+async function visibleLocator(page, locator, description) {
+  const deadline = Date.now() + 10_000;
+  do {
     for (let index = 0; index < await locator.count(); index += 1) {
       const candidate = locator.nth(index);
       if (await candidate.isVisible()) return candidate;
     }
-    throw new Error(`Visible ${description} was not found`);
-  })();
+    await page.waitForTimeout(50);
+  } while (Date.now() < deadline);
+  throw new Error(`Visible ${description} was not found`);
 }
 
 async function clickButton(page, name, options = {}) {
