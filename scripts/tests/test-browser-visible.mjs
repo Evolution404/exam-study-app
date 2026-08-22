@@ -1920,6 +1920,30 @@ async function runSearchPinMobile(page) {
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expectText(page, /条件搜索找到 \d+ 道题/);
   await assertSearchPinGeometry(page, "mobile", { requireScroll: true });
+  await page.evaluate(() => {
+    document.documentElement.dataset.platform = "ios";
+    document.documentElement.dataset.native = "true";
+    const workspace = document.querySelector(".workspace");
+    const scroller = workspace && getComputedStyle(workspace).overflowY === "auto" ? workspace : window;
+    scroller.scrollTo(0, 5000);
+  });
+  await page.waitForTimeout(150);
+  const nativeGeometry = await page.evaluate(() => {
+    const query = document.querySelector(".search-home-query")?.getBoundingClientRect();
+    const batch = document.querySelector(".search-batch-bar");
+    const batchRect = batch?.getBoundingClientRect();
+    return {
+      queryLeft: query?.left,
+      queryRight: query?.right,
+      batchBottom: batchRect?.bottom,
+      batchPosition: batch ? getComputedStyle(batch).position : undefined,
+      viewportWidth: document.documentElement.clientWidth,
+    };
+  });
+  assert.equal(nativeGeometry.batchPosition, "relative", "native iOS: 多行批量栏必须留在文档流而非覆盖搜索结果");
+  assert.ok((nativeGeometry.queryLeft ?? -1) >= 0 && (nativeGeometry.queryRight ?? Infinity) <= nativeGeometry.viewportWidth + 1, "native iOS: 搜索框不得被横向裁切");
+  assert.ok((nativeGeometry.batchBottom ?? Infinity) <= 1, "native iOS: 滚动结果时批量栏应随文档离场");
+  await capture(page, "search-pin", "native-flow-mobile");
 }
 
 const GROUPS = [

@@ -1,5 +1,5 @@
 const MAX_XLSX_BYTES = 12 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES = 256;
+const MAX_ARCHIVE_ENTRIES = 4096;
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_QUESTIONS = 20_000;
@@ -165,14 +165,14 @@ async function unzipText(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, pa
 
 function relationshipTarget(workbookXml: string, relationshipsXml: string, sheetName: string) {
   let relationshipId = "";
-  for (const match of workbookXml.matchAll(/<sheet\b([^>]*)\/?\s*>/gi)) {
+  for (const match of workbookXml.matchAll(/<(?:[\w.-]+:)?sheet\b([^>]*)\/?\s*>/gi)) {
     if (xmlAttribute(match[1], "name") === sheetName) {
       relationshipId = xmlAttribute(match[1], "r:id") ?? "";
       break;
     }
   }
   if (!relationshipId) fail(`Excel 中缺少“${sheetName}”工作表。`);
-  for (const match of relationshipsXml.matchAll(/<Relationship\b([^>]*)\/?\s*>/gi)) {
+  for (const match of relationshipsXml.matchAll(/<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi)) {
     if (xmlAttribute(match[1], "Id") === relationshipId) {
       const target = xmlAttribute(match[1], "Target");
       if (!target) break;
@@ -184,17 +184,17 @@ function relationshipTarget(workbookXml: string, relationshipsXml: string, sheet
 
 function sharedStringsFromXml(xml: string) {
   if (!xml) return [];
-  return [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/gi)].map((item) =>
-    [...item[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((text) => xmlText(text[1])).join(""),
+  return [...xml.matchAll(/<(?:[\w.-]+:)?si\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?si>/gi)].map((item) =>
+    [...item[1].matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/gi)].map((text) => xmlText(text[1])).join(""),
   );
 }
 
 function cellText(attributes: string, body: string, sharedStrings: string[]) {
   const type = xmlAttribute(attributes, "t");
   if (type === "inlineStr") {
-    return [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((text) => xmlText(text[1])).join("");
+    return [...body.matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/gi)].map((text) => xmlText(text[1])).join("");
   }
-  const raw = body.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? "";
+  const raw = body.match(/<(?:[\w.-]+:)?v\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?v>/i)?.[1] ?? "";
   if (type === "s") {
     const index = Number(raw);
     if (!Number.isSafeInteger(index) || index < 0 || index >= sharedStrings.length) fail("Excel 的共享文本索引无效。");
@@ -206,11 +206,11 @@ function cellText(attributes: string, body: string, sharedStrings: string[]) {
 
 function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
   const rows: string[][] = [];
-  for (const rowMatch of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/gi)) {
+  for (const rowMatch of xml.matchAll(/<(?:[\w.-]+:)?row\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?row>/gi)) {
     const rowNumber = Number(xmlAttribute(rowMatch[1], "r")) || rows.length + 1;
     if (rowNumber > MAX_QUESTIONS + 100) fail("Excel 行数超过允许上限。");
     const cells: string[] = [];
-    for (const cellMatch of rowMatch[2].matchAll(/<c\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/c>)/gi)) {
+    for (const cellMatch of rowMatch[2].matchAll(/<(?:[\w.-]+:)?c\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/(?:[\w.-]+:)?c>)/gi)) {
       const reference = xmlAttribute(cellMatch[1], "r") ?? "";
       const index = columnIndex(reference);
       if (index < 0) continue;
@@ -227,7 +227,7 @@ function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
 async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, relationshipsXml: string): Promise<Map<string, WorkbookImage>> {
   const images = new Map<string, WorkbookImage>();
   let cellImagesTarget = "";
-  for (const match of relationshipsXml.matchAll(/<Relationship\b([^>]*)\/?\s*>/gi)) {
+  for (const match of relationshipsXml.matchAll(/<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi)) {
     if ((xmlAttribute(match[1], "Type") ?? "").includes("/cellImage")) {
       const target = xmlAttribute(match[1], "Target");
       if (target) cellImagesTarget = normalizeArchivePath(target.startsWith("/") ? target : `xl/${target}`);
@@ -238,15 +238,15 @@ async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry
   if (!cellImagesXml) return images;
   const imageRelsXml = await unzipText(buffer, entries, `xl/_rels/${cellImagesTarget.split("/").pop()}.rels`, false);
   const mediaByRelationship = new Map<string, string>();
-  for (const match of (imageRelsXml || "").matchAll(/<Relationship\b([^>]*)\/?\s*>/gi)) {
+  for (const match of (imageRelsXml || "").matchAll(/<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi)) {
     const id = xmlAttribute(match[1], "Id");
     const target = xmlAttribute(match[1], "Target");
     if (id && target) mediaByRelationship.set(id, normalizeArchivePath(target.startsWith("/") ? target : `xl/${target.replace(/^\.\.\//, "")}`));
   }
-  for (const match of cellImagesXml.matchAll(/<etc:cellImage\b[^>]*>([\s\S]*?)<\/etc:cellImage>/gi)) {
+  for (const match of cellImagesXml.matchAll(/<(?:[\w.-]+:)?cellImage\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?cellImage>/gi)) {
     const body = match[1];
-    const id = body.match(/<xdr:cNvPr\b[^>]*\bname\s*=\s*"([^"]*)"/i)?.[1];
-    const embed = body.match(/r:embed\s*=\s*"([^"]*)"/i)?.[1];
+    const id = body.match(/<(?:[\w.-]+:)?cNvPr\b[^>]*\bname\s*=\s*"([^"]*)"/i)?.[1];
+    const embed = body.match(/(?:^|\s)(?:[\w.-]+:)?embed\s*=\s*"([^"]*)"/i)?.[1];
     if (!id || !embed) continue;
     const mediaPath = mediaByRelationship.get(embed);
     if (!mediaPath) continue;

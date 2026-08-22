@@ -8,6 +8,7 @@ import {
   parseQuestionBankWorkbook,
   readQuestionWorkbook,
 } from "../../src/lib/io/xlsx-import";
+import { buildStoredZip } from "../../src/lib/io/xlsx-export";
 
 const template = await readFile(new URL("../../public/题库模板.xlsx", import.meta.url));
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;
@@ -35,6 +36,25 @@ assert.match(instructionText, /支持题干图片和选项图片/);
 assert.match(instructionText, /每题最多 12 个填空、24 个选项、12 张图片/);
 assert.match(instructionText, /答案1对应空1、答案2对应空2/);
 await assert.rejects(() => parseQuestionBankWorkbook(templateBuffer), (error: unknown) => error instanceof XlsxImportError && /删除模板自带的示例题/.test(error.message));
+
+// Open XML producers may legally prefix spreadsheet tags (for example
+// DocumentFormat.OpenXml emits <x:sheet>, <x:row>, <x:c> and <x:v>). Large
+// image workbooks also contain one archive entry per embedded image, so a few
+// hundred entries are normal rather than evidence of a zip bomb.
+const encoder = new TextEncoder();
+const prefixedHeader = ["题干", "题型", "标签", "解析", "答案1", "A", "B"];
+const prefixedRows = [prefixedHeader, ["命名空间兼容题", "单选", "兼容", "", "A", "正确项", "错误项"]]
+  .map((row, rowIndex) => `<x:row r="${rowIndex + 1}">${row.map((value, columnIndex) => `<x:c r="${String.fromCharCode(65 + columnIndex)}${rowIndex + 1}" t="str"><x:v>${value}</x:v></x:c>`).join("")}</x:row>`)
+  .join("");
+const prefixedWorkbook = buildStoredZip([
+  { name: "[Content_Types].xml", data: encoder.encode("<Types/>") },
+  { name: "xl/workbook.xml", data: encoder.encode('<?xml version="1.0"?><x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><x:sheets><x:sheet name="题库" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>') },
+  { name: "xl/_rels/workbook.xml.rels", data: encoder.encode('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/></Relationships>') },
+  { name: "xl/worksheets/sheet1.xml", data: encoder.encode(`<?xml version="1.0"?><x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData>${prefixedRows}</x:sheetData></x:worksheet>`) },
+  ...Array.from({ length: 300 }, (_, index) => ({ name: `xl/media/unused-${index}.png`, data: new Uint8Array([index & 0xff]) })),
+]);
+const prefixedParsed = await parseQuestionBankWorkbook(prefixedWorkbook.buffer.slice(prefixedWorkbook.byteOffset, prefixedWorkbook.byteOffset + prefixedWorkbook.byteLength));
+assert.deepEqual(prefixedParsed.rows, [{ q: "命名空间兼容题", ans: "A", a: ["正确项", "错误项"], type: "单选", tags: ["兼容"] }], "应兼容带 XML 命名空间前缀且包含数百个内部条目的工作簿");
 
 const questions = parseQuestionBankTable([
   ["题干", "题型", "标签", "解析", "答案1", "答案2", "A", "B", "C", "D"],

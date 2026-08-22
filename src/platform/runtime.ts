@@ -25,11 +25,12 @@ function currentStatusBarStyle() {
 }
 
 async function syncNativeStatusBar(): Promise<void> {
-  // Match mobile Safari geometry: keep the WKWebView below the native status
-  // bar instead of drawing sticky page controls underneath it. Shared mobile
-  // CSS can then keep the same sticky coordinates in browser and native iOS.
+  // Keep WKWebView edge-to-edge like mobile Safari/PWA. The shared mobile CSS
+  // consumes env(safe-area-inset-*) so sticky search controls paint through
+  // the status-bar area without leaving the native view's black background
+  // exposed after the global top bar scrolls away.
   await StatusBar.show();
-  await StatusBar.setOverlaysWebView({ overlay: false });
+  await StatusBar.setOverlaysWebView({ overlay: true });
   await StatusBar.setStyle({ style: currentStatusBarStyle() });
 }
 

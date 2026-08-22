@@ -88,7 +88,7 @@
     "test:sync-tombstone-gc": "tsx scripts/tests/test-sync-tombstone-gc.ts",
     "migrate:vault": "tsx scripts/tools/migrate-vault-compressed.mts",
     "migrate:vault:v8": "tsx scripts/tools/migrate-vault-v8-protocol.mts",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern ios/App/App/public",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern artifacts --ignore-pattern ios/App/App/public",
     "test:unit": "node scripts/tools/run-test-groups.mjs unit --concurrency 6",
     "test:source": "node scripts/tools/run-test-groups.mjs source --concurrency 6",
     "test:integration": "node scripts/tools/run-test-groups.mjs integration --concurrency 2",

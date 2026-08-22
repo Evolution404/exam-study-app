@@ -4,9 +4,12 @@ const config: CapacitorConfig = {
   appId: "com.evolution404.shijuan",
   appName: "拾卷",
   webDir: "dist",
-  // Keep WKWebView edge-to-edge behavior identical to Safari.
-  // Safe area is handled by the web layer through viewport-fit and env().
-  // Do not let StatusBar plugin resize the WebView frame.
+  plugins: {
+    StatusBar: {
+      // Match Safari/PWA geometry; the web layer owns safe-area padding.
+      overlaysWebView: true,
+    },
+  },
 };
 
 export default config;

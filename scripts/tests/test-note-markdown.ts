@@ -183,5 +183,7 @@ assert.ok(!/\.search-page\.search-pinned \.search-home-query[^}]*border-bottom-l
 assert.match(styles, /\.search-page\.search-stuck \.search-batch-bar\s*\{[^}]*border-top-left-radius:0/, "批量栏吸附后去掉上圆角（与搜索框无缝相接，无圆角缺口）");
 assert.ok(!/\.search-page\.search-stuck \.search-home-query/.test(styles), "搜索框下边缘不受批量栏吸附影响（保持圆角）");
 assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
+assert.match(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-home-query\{margin-left:0;margin-right:0\}/, "原生 iOS 搜索框不得用负边距伸出手机视口");
+assert.match(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-batch-bar\{position:relative;top:auto;z-index:1\}/, "原生 iOS 批量栏应留在文档流中，避免多行工具遮住结果");
 
 console.log("note markdown tests passed: 块级/嵌套列表/续行/块级公式/行内/安全性 + 三处展示面接线 + 防穿透/夜间/编辑态/搜索吸附防回退");
