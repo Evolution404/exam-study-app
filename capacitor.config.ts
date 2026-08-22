@@ -4,15 +4,9 @@ const config: CapacitorConfig = {
   appId: "com.evolution404.shijuan",
   appName: "拾卷",
   webDir: "dist",
-  plugins: {
-    StatusBar: {
-      // Match mobile Safari geometry: keep the WKWebView below the iOS
-      // status bar instead of drawing page content underneath it.
-      overlaysWebView: false,
-    },
-  },
-  // Capacitor 8 defaults to Swift Package Manager for a new iOS project.
-  // Keep the config free of machine-specific signing or team identifiers.
+  // Keep WKWebView edge-to-edge behavior identical to Safari.
+  // Safe area is handled by the web layer through viewport-fit and env().
+  // Do not let StatusBar plugin resize the WebView frame.
 };
 
 export default config;
