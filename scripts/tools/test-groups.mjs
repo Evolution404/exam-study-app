@@ -28,6 +28,8 @@ export const testGroups = {
     "test:secure-credentials",
     "test:persistent-config",
     "test:platform-lifecycle",
+    "test:native-haptics",
+    "test:native-files",
   ],
   source: [
     "test:architecture",
@@ -42,6 +44,7 @@ export const testGroups = {
     "test:sync-event-ui",
     "test:v7-ui",
     "test:platform-service-worker",
+    "test:native-token-ui",
   ],
   integration: [
     "test:db-v7",

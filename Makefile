@@ -230,5 +230,13 @@ ios-build-simulator: ios-build ## 无签名编译 iOS Simulator target
 verify-ios: ios-build ## iOS 构建、同步、模拟器编译和平台专项测试
 	npm run test:build-target
 	npm run test:platform-environment
+	npm run test:platform-transport
+	npm run test:secure-credentials
+	npm run test:persistent-config
+	npm run test:platform-lifecycle
+	npm run test:native-haptics
+	npm run test:native-files
+	npm run test:native-token-ui
 	npm run test:platform-service-worker
+	npm run test:architecture
 	@$(XCODE_ENV) xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -configuration "$(IOS_CONFIGURATION)" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build

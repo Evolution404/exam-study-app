@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   bootstrapSecureCredentials,
   clearSecureCredentials,
@@ -66,4 +67,12 @@ await saveSecureCredential("clear-me");
 await clearSecureCredentials();
 assert.equal(keychain.has("github-token"), false);
 
-console.log("secure credentials tests passed: Keychain load/save/remove, stale-storage cleanup and failure-safe migration");
+const swiftPlugin = readFileSync(new URL("../../ios/App/App/SecureCredentialsPlugin.swift", import.meta.url), "utf8");
+const bridgeController = readFileSync(new URL("../../ios/App/App/BridgeViewController.swift", import.meta.url), "utf8");
+const sceneDelegate = readFileSync(new URL("../../ios/App/App/SceneDelegate.swift", import.meta.url), "utf8");
+assert.match(swiftPlugin, /kSecAttrAccessibleWhenUnlockedThisDeviceOnly/, "Keychain values must remain device-local and unavailable while locked");
+assert.match(bridgeController, /registerPluginInstance\(SecureCredentialsPlugin\(\)\)/, "the Capacitor bridge must register the Keychain plugin");
+assert.match(sceneDelegate, /rootViewController = BridgeViewController\(\)/, "the active scene must instantiate the bridge that registers Keychain");
+assert.doesNotMatch(sceneDelegate, /rootViewController = CAPBridgeViewController\(\)/, "the active scene must not bypass the custom bridge");
+
+console.log("secure credentials tests passed: Keychain load/save/remove, failure-safe migration and active native registration");
