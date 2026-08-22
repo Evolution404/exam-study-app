@@ -1,4 +1,3 @@
-import "@/app/styles/review-scope.css";
 import { useId, useState } from "react";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";

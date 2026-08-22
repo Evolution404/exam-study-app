@@ -1,6 +1,5 @@
 "use client";
 
-import "@/app/styles/hint.css";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import * as Tooltip from "@radix-ui/react-tooltip";
