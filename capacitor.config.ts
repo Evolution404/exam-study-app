@@ -6,12 +6,12 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     StatusBar: {
-      // Keep the native status bar outside WKWebView, matching Safari's
-      // content viewport. Set an explicit light-theme background so the
-      // plugin's black default never appears during startup.
+      // Keep the native status bar outside WKWebView. The initial native theme
+      // is resolved from Capacitor Preferences in Swift before the window is
+      // shown, so this static plugin pass must not repaint it as light mode.
       overlaysWebView: false,
-      backgroundColor: "#f3f0e9",
-      style: "LIGHT",
+      backgroundColor: "#00000000",
+      style: "DEFAULT",
     },
   },
 };

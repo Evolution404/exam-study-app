@@ -7,9 +7,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
-        window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = BridgeViewController()
-        window?.makeKeyAndVisible()
+        let rootViewController = BridgeViewController()
+        let initialInterfaceStyle = AppThemeAppearance.interfaceStyle()
+        rootViewController.overrideUserInterfaceStyle = initialInterfaceStyle
+
+        let window = UIWindow(windowScene: windowScene)
+        window.overrideUserInterfaceStyle = initialInterfaceStyle
+        window.backgroundColor = AppThemeAppearance.backgroundColor(for: windowScene.traitCollection)
+        window.rootViewController = rootViewController
+        self.window = window
+        window.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
