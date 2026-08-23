@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
@@ -93,7 +93,7 @@ jobs:
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
@@ -167,7 +167,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
@@ -276,7 +276,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
@@ -293,7 +293,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
@@ -312,7 +312,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
@@ -339,7 +339,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - name: Install
         run: npm ci
