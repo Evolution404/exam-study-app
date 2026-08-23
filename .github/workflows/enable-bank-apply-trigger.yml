@@ -41,6 +41,46 @@ jobs:
           PY
       - name: Apply bank enable/disable feature
         run: python scripts/tools/apply-bank-enabled-once.py
+      - name: Keep generic DB query transaction-safe and guard new runs in AppShell
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/lib/db/db-v7-bank.ts')
+          s = p.read_text()
+          s = s.replace(
+            'import { isBankEnabled, type BankFolderV7, type BankQuestionMembership, type BankV7, type QuestionV7 } from "./v7-types";',
+            'import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";',
+          )
+          s = s.replace(
+            '  const requestedIds = uniqueStrings(bankIds);\n  const enabledIds = (await dbV7.banks.bulkGet(requestedIds)).flatMap((bank) => bank && isBankEnabled(bank) ? [bank.id] : []);\n  for (const bankId of enabledIds) {',
+            '  for (const bankId of uniqueStrings(bankIds)) {',
+          )
+          p.write_text(s)
+
+          p = Path('src/app/shell/app-shell.tsx')
+          s = p.read_text()
+          s = s.replace(
+            '    const practiceBanks = banks.filter((item) => requestedBankIds.includes(item.id));',
+            '    requestedBankIds = requestedBankIds.filter((id) => enabledBanks.some((bank) => bank.id === id));\n    const practiceBanks = enabledBanks.filter((item) => requestedBankIds.includes(item.id));',
+            1,
+          )
+          s = s.replace(
+            '    const uniqueQuestions = [...new Map(questions.map((question) => [question.id, question])).values()];\n    const orderedQuestions = TYPE_ORDER.flatMap((type) => uniqueQuestions.filter((question) => question.type === type));\n    const practiceBanks = banks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));',
+            '    const enabledBankIds = new Set(enabledBanks.map((bank) => bank.id));\n    const uniqueQuestions = [...new Map(questions.filter((question) => enabledBankIds.has(question.bankId)).map((question) => [question.id, question])).values()];\n    const orderedQuestions = TYPE_ORDER.flatMap((type) => uniqueQuestions.filter((question) => question.type === type));\n    const practiceBanks = enabledBanks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));',
+            1,
+          )
+          p.write_text(s)
+
+          p = Path('scripts/tests/test-db-v7.ts')
+          s = p.read_text()
+          s = s.replace(
+            '  assert.equal((await getQuestionsForBanksV7([visibilityBank.id])).length, 0, "disabled bank must be excluded from new study queries");\n  assert.equal((await getBankQuestionsV7(visibilityBank.id)).length, 1, "disabled bank must remain readable in management");',
+            '  assert.equal((await getQuestionsForBanksV7([visibilityBank.id])).length, 1, "generic content query must remain transaction-safe and preserve disabled content");\n  assert.equal((await getBankQuestionsV7(visibilityBank.id)).length, 1, "disabled bank must remain readable in management");',
+          )
+          p.write_text(s)
+          PY
       - run: npm ci
       - name: Focused verification
         run: npm run test:db-v7 && npm run test:v7-ui && npm run typecheck
