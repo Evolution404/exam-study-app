@@ -6,26 +6,25 @@ import type { GitHubV7Remote } from "./github-v7-remote";
 import type { SyncV7Descriptor } from "./sync-v7-head";
 import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head";
 
-export const IMAGE_ASSET_PACK_FORMAT = 1 as const;
-export const IMAGE_ASSET_INDEX_FORMAT = 1 as const;
-export const IMAGE_ASSET_INDEX_PATH = `${SYNC_V7_ASSET_PREFIX}index.json`;
-export const IMAGE_ASSET_PACK_TARGET_BYTES = 8 * 1024 * 1024;
-export const IMAGE_ASSET_PACK_MAX_ASSETS = 64;
-export const IMAGE_ASSET_INDEX_SHARD_COUNT = 4;
-export const IMAGE_ASSET_PACK_DOWNLOAD_CONCURRENCY = 4;
-
+const IMAGE_ASSET_PACK_FORMAT = 1 as const;
+const IMAGE_ASSET_INDEX_FORMAT = 1 as const;
+const IMAGE_ASSET_INDEX_PATH = `${SYNC_V7_ASSET_PREFIX}index.json`;
+const IMAGE_ASSET_PACK_TARGET_BYTES = 8 * 1024 * 1024;
+const IMAGE_ASSET_PACK_MAX_ASSETS = 64;
+const IMAGE_ASSET_PACK_DOWNLOAD_CONCURRENCY = 4;
 const PACK_MAGIC = new TextEncoder().encode("ESAPACK1");
 const PACK_HEADER_BYTES = PACK_MAGIC.byteLength + 4;
 const PACK_HEADER_RESERVE = 128 * 1024;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const LEGACY_SINGLE_ASSET_PATH = /^sync\/v9\/assets\/[a-f0-9]{64}\.(?:webp|jpg|jpeg|png)$/;
 const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg", "image/png"]);
 
 type ImageMimeType = ImageAsset["mimeType"];
 type PackableImageAsset = ImageAsset & { blob: Blob };
 type AssetShardKey = "0" | "1" | "2" | "3";
 
-export interface ImageAssetPackEntry {
+interface ImageAssetPackEntry {
   id: string;
   mimeType: ImageMimeType;
   size: number;
@@ -40,13 +39,13 @@ interface ImageAssetPackHeader {
   entries: ImageAssetPackEntry[];
 }
 
-export interface BuiltImageAssetPack {
+interface BuiltImageAssetPack {
   bytes: Uint8Array;
   sha256: string;
   entries: ImageAssetPackEntry[];
 }
 
-export interface ImageAssetPackIndexEntry {
+interface ImageAssetPackIndexEntry {
   packSha256: string;
   offset: number;
   length: number;
@@ -56,51 +55,24 @@ export interface ImageAssetPackIndexEntry {
   height: number;
 }
 
-export interface ImageAssetPackIndexShard {
+interface ImageAssetPackIndexShard {
   formatVersion: typeof IMAGE_ASSET_INDEX_FORMAT;
   shard: AssetShardKey;
   packs: Record<string, SyncV7Descriptor>;
   entries: Record<string, ImageAssetPackIndexEntry>;
 }
 
-export interface ImageAssetPackIndexRoot {
+interface ImageAssetPackIndexRoot {
   formatVersion: typeof IMAGE_ASSET_INDEX_FORMAT;
   generatedAt: string;
-  assetIds: string[];
   shards: Partial<Record<AssetShardKey, SyncV7Descriptor>>;
 }
 
-export interface ImageAssetPackPublishProgress {
+interface ImageAssetPackPublishProgress {
   completed: number;
   total: number;
   uploadedBytes: number;
   totalBytes: number;
-}
-
-interface GitHubContentsPayload {
-  content?: unknown;
-  encoding?: unknown;
-  sha?: unknown;
-}
-
-interface GitHubRefPayload {
-  object?: { sha?: unknown };
-}
-
-interface GitHubCommitPayload {
-  tree?: { sha?: unknown };
-}
-
-interface GitHubBlobPayload {
-  sha?: unknown;
-}
-
-interface GitHubTreePayload {
-  sha?: unknown;
-}
-
-interface GitHubCreateCommitPayload {
-  sha?: unknown;
 }
 
 interface ParsedImageAssetPack {
@@ -114,6 +86,11 @@ interface RuntimeCache {
   shards: Map<string, ImageAssetPackIndexShard>;
   packs: Map<string, Uint8Array>;
   parsedPacks: Map<string, ParsedImageAssetPack>;
+}
+
+interface TreeMutation {
+  path: string;
+  blobSha: string | null;
 }
 
 const runtimeCaches = new Map<string, RuntimeCache>();
@@ -176,8 +153,13 @@ function cacheFor(client: GitHubV7Remote): RuntimeCache {
   return cache;
 }
 
-export function clearImageAssetPackRuntimeCache(): void {
-  runtimeCaches.clear();
+function resetRuntimeCache(client: GitHubV7Remote): RuntimeCache {
+  const cache = cacheFor(client);
+  cache.root = undefined;
+  cache.shards.clear();
+  cache.packs.clear();
+  cache.parsedPacks.clear();
+  return cache;
 }
 
 export function imageAssetIndexShardKey(assetId: string): AssetShardKey {
@@ -246,19 +228,13 @@ function validateRoot(value: unknown): ImageAssetPackIndexRoot {
   const record = asRecord(value, "asset index root");
   if (record.formatVersion !== IMAGE_ASSET_INDEX_FORMAT) fail("asset index root 版本不受支持");
   if (typeof record.generatedAt !== "string" || Number.isNaN(Date.parse(record.generatedAt))) fail("asset index root.generatedAt 无效");
-  if (!Array.isArray(record.assetIds)) fail("asset index root.assetIds 必须是数组");
-  const assetIds = record.assetIds.map((id, index) => {
-    assertDigest(id, `assetIds[${index}]`);
-    return id;
-  });
-  if (new Set(assetIds).size !== assetIds.length) fail("asset index root.assetIds 存在重复值");
   const shardsRecord = asRecord(record.shards, "asset index root.shards");
   const shards: ImageAssetPackIndexRoot["shards"] = {};
   for (const key of Object.keys(shardsRecord)) {
     if (!/^[0-3]$/.test(key)) fail(`asset index shard key ${key} 无效`);
     shards[key as AssetShardKey] = validateDescriptor(shardsRecord[key], `shards.${key}`);
   }
-  return { formatVersion: IMAGE_ASSET_INDEX_FORMAT, generatedAt: record.generatedAt, assetIds: [...assetIds].sort(), shards };
+  return { formatVersion: IMAGE_ASSET_INDEX_FORMAT, generatedAt: record.generatedAt, shards };
 }
 
 function validateShard(value: unknown, expectedShard: AssetShardKey): ImageAssetPackIndexShard {
@@ -310,6 +286,7 @@ export async function buildImageAssetPack(assets: readonly PackableImageAsset[])
   for (const asset of sorted) {
     if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地内容与 assetId 不一致。`);
     const bytes = new Uint8Array(await asset.blob.arrayBuffer());
+    if (bytes.byteLength !== asset.size) throw new Error(`图片 ${asset.id} descriptor size 与 Blob 不一致。`);
     entries.push({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height, offset, length: bytes.byteLength });
     chunks.push(bytes);
     offset += bytes.byteLength;
@@ -412,16 +389,11 @@ async function loadIndexRootAtRef(client: GitHubV7Remote, ref: string): Promise<
   return validateRoot(parseJsonBytes(decodeBase64(payload.content), "Asset Index"));
 }
 
-export async function loadImageAssetPackIndex(client: GitHubV7Remote, options: { force?: boolean } = {}): Promise<ImageAssetPackIndexRoot | null> {
-  const cache = cacheFor(client);
+async function loadImageAssetPackIndex(client: GitHubV7Remote, options: { force?: boolean } = {}): Promise<ImageAssetPackIndexRoot | null> {
+  const cache = options.force ? resetRuntimeCache(client) : cacheFor(client);
   if (!options.force && cache.root !== undefined) return cache.root;
   const root = await loadIndexRootAtRef(client, client.branch);
   cache.root = root;
-  if (options.force) {
-    cache.shards.clear();
-    cache.packs.clear();
-    cache.parsedPacks.clear();
-  }
   return root;
 }
 
@@ -450,34 +422,43 @@ async function loadPack(client: GitHubV7Remote, descriptor: SyncV7Descriptor): P
   return { bytes, parsed };
 }
 
-async function ensureRootContains(client: GitHubV7Remote, assetIds: readonly string[]): Promise<ImageAssetPackIndexRoot> {
-  let root = await loadImageAssetPackIndex(client);
-  if (!root || assetIds.some((id) => !root!.assetIds.includes(id))) root = await loadImageAssetPackIndex(client, { force: true });
-  if (!root) throw new Error("远端尚未完成图片 Pack 一次性迁移，请先执行同步。");
-  const known = new Set(root.assetIds);
-  const missing = assetIds.filter((id) => !known.has(id));
-  if (missing.length) throw new Error(`远端 Asset Index 缺少 ${missing.length} 张图片，请先同步。`);
-  return root;
-}
-
-export async function readImageAssetsFromPacks(client: GitHubV7Remote, assetIds: readonly string[]): Promise<Map<string, Uint8Array>> {
-  const ids = [...new Set(assetIds)];
-  if (!ids.length) return new Map();
-  ids.forEach((id) => assertDigest(id, "assetId"));
-  const root = await ensureRootContains(client, ids);
-  const keys = [...new Set(ids.map(imageAssetIndexShardKey))];
+async function shardsForIds(
+  client: GitHubV7Remote,
+  root: ImageAssetPackIndexRoot,
+  assetIds: readonly string[],
+): Promise<Map<AssetShardKey, ImageAssetPackIndexShard>> {
+  const keys = [...new Set(assetIds.map(imageAssetIndexShardKey))];
   const shards = new Map<AssetShardKey, ImageAssetPackIndexShard>();
   await Promise.all(keys.map(async (key) => {
     const descriptor = root.shards[key];
     if (!descriptor) throw new Error(`远端 Asset Index 缺少分片 ${key}。`);
     shards.set(key, await loadShard(client, key, descriptor));
   }));
+  return shards;
+}
+
+export async function readImageAssetsFromPacks(client: GitHubV7Remote, assetIds: readonly string[]): Promise<Map<string, Uint8Array>> {
+  const ids = [...new Set(assetIds)];
+  if (!ids.length) return new Map();
+  ids.forEach((id) => assertDigest(id, "assetId"));
+  let root = await loadImageAssetPackIndex(client);
+  if (!root) root = await loadImageAssetPackIndex(client, { force: true });
+  if (!root) throw new Error("远端尚未完成图片 Pack 一次性迁移，请先执行同步。");
+  let shards = await shardsForIds(client, root, ids);
+  let missing = ids.filter((id) => !shards.get(imageAssetIndexShardKey(id))?.entries[id]);
+  if (missing.length) {
+    root = await loadImageAssetPackIndex(client, { force: true });
+    if (!root) throw new Error("远端图片 Asset Index 已丢失。");
+    shards = await shardsForIds(client, root, ids);
+    missing = ids.filter((id) => !shards.get(imageAssetIndexShardKey(id))?.entries[id]);
+  }
+  if (missing.length) throw new Error(`远端 Asset Index 缺少 ${missing.length} 张图片，请先同步。`);
+
   const packDescriptors = new Map<string, SyncV7Descriptor>();
   const located = new Map<string, { entry: ImageAssetPackIndexEntry; pack: SyncV7Descriptor }>();
   for (const id of ids) {
-    const shard = shards.get(imageAssetIndexShardKey(id));
-    const entry = shard?.entries[id];
-    if (!shard || !entry) throw new Error(`远端 Asset Index 未定位图片 ${id}。`);
+    const shard = shards.get(imageAssetIndexShardKey(id))!;
+    const entry = shard.entries[id];
     const pack = shard.packs[entry.packSha256];
     if (!pack) throw new Error(`图片 ${id} 引用的 Pack descriptor 不存在。`);
     packDescriptors.set(pack.sha256, pack);
@@ -499,6 +480,8 @@ export async function readImageAssetsFromPacks(client: GitHubV7Remote, assetIds:
       || headerEntry.length !== location.entry.length
       || headerEntry.size !== location.entry.size
       || headerEntry.mimeType !== location.entry.mimeType
+      || headerEntry.width !== location.entry.width
+      || headerEntry.height !== location.entry.height
     ) throw new Error(`图片 ${id} 的 Asset Index 与 Pack header 不一致。`);
     const bytes = loaded.bytes.slice(loaded.parsed.payloadOffset + headerEntry.offset, loaded.parsed.payloadOffset + headerEntry.offset + headerEntry.length);
     if (await sha256DigestHex(bytes) !== id) throw new Error(`远端图片 ${id} 完整性校验失败。`);
@@ -541,15 +524,17 @@ async function readBranchSnapshot(client: GitHubV7Remote): Promise<{ parentSha: 
 async function createTreeCommit(
   client: GitHubV7Remote,
   base: { parentSha: string; treeSha: string },
-  files: Array<{ path: string; blobSha: string }>,
+  mutations: readonly TreeMutation[],
 ): Promise<boolean> {
   const request = requestFrom(client);
+  const byPath = new Map<string, string | null>();
+  for (const mutation of mutations) byPath.set(mutation.path, mutation.blobSha);
   const treeResponse = await request(repoGitPath(client, "trees"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       base_tree: base.treeSha,
-      tree: files.map((file) => ({ path: file.path, mode: "100644", type: "blob", sha: file.blobSha })),
+      tree: [...byPath.entries()].map(([path, blobSha]) => ({ path, mode: "100644", type: "blob", sha: blobSha })),
     }),
   });
   const treePayload = await responseJson(treeResponse, "创建 Asset Pack Git tree");
@@ -580,65 +565,67 @@ async function hydrateLegacyAsset(client: GitHubV7Remote, asset: ImageAsset): Pr
     if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地缓存校验失败。`);
     return asset as PackableImageAsset;
   }
-  if (!asset.remote) throw new Error(`图片 ${asset.id} 既无本地 Blob，也无旧远端对象，无法执行一次性 Pack 迁移。`);
+  if (!asset.remote) throw new Error(`图片 ${asset.id} 既无本地 Blob，也无一次性迁移来源，无法创建 Asset Pack。`);
   const bytes = await client.readBlob(asset.remote.blobSha, { size: asset.remote.size, sha256: asset.remote.sha256, path: asset.remote.path });
   const blob = new Blob([bytes as unknown as BlobPart], { type: asset.mimeType });
-  if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`旧远端图片 ${asset.id} 完整性校验失败。`);
+  if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`迁移源图片 ${asset.id} 完整性校验失败。`);
   return { ...asset, blob };
+}
+
+async function loadExistingShardsForAssets(
+  client: GitHubV7Remote,
+  root: ImageAssetPackIndexRoot | null,
+  assets: readonly ImageAsset[],
+): Promise<Map<AssetShardKey, ImageAssetPackIndexShard>> {
+  const result = new Map<AssetShardKey, ImageAssetPackIndexShard>();
+  const keys = [...new Set(assets.map((asset) => imageAssetIndexShardKey(asset.id)))];
+  await Promise.all(keys.map(async (key) => {
+    const descriptor = root?.shards[key];
+    result.set(key, descriptor ? await loadShard(client, key, descriptor) : emptyShard(key));
+  }));
+  return result;
 }
 
 async function publishAttempt(
   client: GitHubV7Remote,
   assets: readonly ImageAsset[],
   onProgress?: (progress: ImageAssetPackPublishProgress) => void,
-): Promise<{ published: Array<{ source: PackableImageAsset; descriptor: Omit<ImageAsset, "blob"> }>; root: ImageAssetPackIndexRoot } | null> {
+): Promise<Array<{ source: PackableImageAsset; descriptor: Omit<ImageAsset, "blob"> }> | null> {
+  resetRuntimeCache(client);
   const snapshot = await readBranchSnapshot(client);
-  const known = new Set(snapshot.root?.assetIds ?? []);
-  const pendingBase = assets.filter((asset) => !known.has(asset.id));
+  const currentShards = await loadExistingShardsForAssets(client, snapshot.root, assets);
+  const pendingBase = assets.filter((asset) => !currentShards.get(imageAssetIndexShardKey(asset.id))?.entries[asset.id]);
   if (!pendingBase.length) {
-    const root = snapshot.root;
-    if (!root) return null;
-    cacheFor(client).root = root;
-    return { published: [], root };
+    if (!snapshot.root) return null;
+    cacheFor(client).root = snapshot.root;
+    return [];
   }
+
   const totalBytes = pendingBase.reduce((sum, asset) => sum + asset.size, 0);
   let completed = 0;
   let uploadedBytes = 0;
   onProgress?.({ completed, total: pendingBase.length, uploadedBytes, totalBytes });
   const pending = await mapWithConcurrency(pendingBase, 6, async (asset) => hydrateLegacyAsset(client, asset));
   const packs = await buildImageAssetPacks(pending);
-  const packDescriptorBySha = new Map<string, SyncV7Descriptor>();
-  const packByAsset = new Map<string, { pack: BuiltImageAssetPack; descriptor: SyncV7Descriptor; entry: ImageAssetPackEntry }>();
-  const treeFiles: Array<{ path: string; blobSha: string }> = [];
+  const packByAsset = new Map<string, { descriptor: SyncV7Descriptor; entry: ImageAssetPackEntry }>();
+  const treeMutations: TreeMutation[] = [];
+
   for (const pack of packs) {
     const path = assetPackPath(pack.sha256);
     const blobSha = await gitCreateBlob(client, pack.bytes);
     const descriptor = descriptorFromBlob(path, blobSha, pack.sha256, pack.bytes.byteLength);
-    packDescriptorBySha.set(pack.sha256, descriptor);
-    treeFiles.push({ path, blobSha });
-    for (const entry of pack.entries) packByAsset.set(entry.id, { pack, descriptor, entry });
+    treeMutations.push({ path, blobSha });
+    for (const entry of pack.entries) packByAsset.set(entry.id, { descriptor, entry });
     completed += pack.entries.length;
     uploadedBytes += pack.entries.reduce((sum, entry) => sum + entry.size, 0);
     onProgress?.({ completed: Math.min(completed, pendingBase.length), total: pendingBase.length, uploadedBytes: Math.min(uploadedBytes, totalBytes), totalBytes });
   }
 
   const affectedKeys = [...new Set(pending.map((asset) => imageAssetIndexShardKey(asset.id)))];
-  const nextShards: Partial<Record<AssetShardKey, SyncV7Descriptor>> = { ...(snapshot.root?.shards ?? {}) };
-  const shardObjects = new Map<AssetShardKey, ImageAssetPackIndexShard>();
-  for (const key of affectedKeys) {
-    const previousDescriptor = snapshot.root?.shards[key];
-    const previous = previousDescriptor ? await loadShard(client, key, previousDescriptor) : emptyShard(key);
-    shardObjects.set(key, {
-      formatVersion: IMAGE_ASSET_INDEX_FORMAT,
-      shard: key,
-      packs: { ...previous.packs },
-      entries: { ...previous.entries },
-    });
-  }
   for (const asset of pending) {
     const location = packByAsset.get(asset.id)!;
     const key = imageAssetIndexShardKey(asset.id);
-    const shard = shardObjects.get(key)!;
+    const shard = currentShards.get(key)!;
     shard.packs[location.descriptor.sha256] = location.descriptor;
     shard.entries[asset.id] = {
       packSha256: location.descriptor.sha256,
@@ -650,8 +637,10 @@ async function publishAttempt(
       height: asset.height,
     };
   }
+
+  const nextShards: ImageAssetPackIndexRoot["shards"] = { ...(snapshot.root?.shards ?? {}) };
   for (const key of affectedKeys) {
-    const shard = shardObjects.get(key)!;
+    const shard = currentShards.get(key)!;
     const bytes = utf8({
       formatVersion: shard.formatVersion,
       shard: shard.shard,
@@ -663,40 +652,45 @@ async function publishAttempt(
     const blobSha = await gitCreateBlob(client, bytes);
     const descriptor = descriptorFromBlob(path, blobSha, sha256, bytes.byteLength);
     nextShards[key] = descriptor;
-    treeFiles.push({ path, blobSha });
+    treeMutations.push({ path, blobSha });
   }
 
-  const assetIds = [...new Set([...(snapshot.root?.assetIds ?? []), ...pending.map((asset) => asset.id)])].sort();
   const root: ImageAssetPackIndexRoot = {
     formatVersion: IMAGE_ASSET_INDEX_FORMAT,
     generatedAt: new Date().toISOString(),
-    assetIds,
     shards: nextShards,
   };
-  const rootBytes = utf8(root);
-  const rootBlobSha = await gitCreateBlob(client, rootBytes);
-  treeFiles.push({ path: IMAGE_ASSET_INDEX_PATH, blobSha: rootBlobSha });
-  if (!await createTreeCommit(client, snapshot, treeFiles)) return null;
+  const rootBlobSha = await gitCreateBlob(client, utf8(root));
+  treeMutations.push({ path: IMAGE_ASSET_INDEX_PATH, blobSha: rootBlobSha });
 
-  const cache = cacheFor(client);
+  // The first publication is the one-shot migration boundary. Remove all old
+  // per-image files from the current tree in the SAME Git commit that installs
+  // packs/index. History still retains old blobs (normal Git semantics), but no
+  // current runtime or current tree path remains compatible with the old layout.
+  if (!snapshot.root) {
+    for (const asset of assets) {
+      const path = asset.remote?.path;
+      if (path && LEGACY_SINGLE_ASSET_PATH.test(path)) treeMutations.push({ path, blobSha: null });
+    }
+  }
+
+  if (!await createTreeCommit(client, snapshot, treeMutations)) return null;
+  const cache = resetRuntimeCache(client);
   cache.root = root;
-  for (const [key, shard] of shardObjects) {
+  for (const key of affectedKeys) {
     const descriptor = root.shards[key];
-    if (descriptor) cache.shards.set(descriptor.sha256, shard);
+    if (descriptor) cache.shards.set(descriptor.sha256, currentShards.get(key)!);
   }
   for (const pack of packs) {
     cache.packs.set(pack.sha256, pack.bytes);
     cache.parsedPacks.set(pack.sha256, parseImageAssetPack(pack.bytes));
   }
-  return {
-    root,
-    published: pending.map((source) => {
-      const { blob: _blob, remote: _legacyRemote, ...descriptor } = source;
-      void _blob;
-      void _legacyRemote;
-      return { source, descriptor };
-    }),
-  };
+  return pending.map((source) => {
+    const { blob: _blob, remote: _migrationSource, ...descriptor } = source;
+    void _blob;
+    void _migrationSource;
+    return { source, descriptor };
+  });
 }
 
 export async function publishImageAssetsAsPacks(
@@ -706,7 +700,7 @@ export async function publishImageAssetsAsPacks(
 ): Promise<Array<{ source: PackableImageAsset; descriptor: Omit<ImageAsset, "blob"> }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const result = await publishAttempt(client, assets, onProgress);
-    if (result) return result.published;
+    if (result) return result;
   }
   throw new Error("图片 Asset Pack 发布期间远端持续发生并发更新，请重新同步。");
 }
