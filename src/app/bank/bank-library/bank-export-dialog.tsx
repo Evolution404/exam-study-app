@@ -54,7 +54,7 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
       const portableFormat = questionPortableExportFormat(questions);
       if (format === "excel") {
         const sources = await loadExportAssets(collectImageAssetIds(questions));
-        const { images, missing } = await collectExportImages(questions, { target: "excel", loadAsset: async (assetId) => sources.get(assetId) });
+        const { images, missing } = await collectExportImages(questions, { target: "excel", loadAsset: (assetId) => Promise.resolve(sources.get(assetId)) });
         if (missing.length) throw new Error(`有 ${missing.length} 张题目图片无法读取，已取消导出。请先连接同步仓库并缓存图片后重试。`);
         // Image collection reads Dexie here; the workbook itself is built in
         // the io worker so large banks do not freeze the dialog.
@@ -64,7 +64,7 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
       } else {
         if (portableFormat === "zip") {
           const sources = await loadExportAssets(collectImageAssetIds(questions));
-          const { images, missing } = await collectExportImages(questions, { target: "bundle", loadAsset: async (assetId) => sources.get(assetId) });
+          const { images, missing } = await collectExportImages(questions, { target: "bundle", loadAsset: (assetId) => Promise.resolve(sources.get(assetId)) });
           if (missing.length) throw new Error(`有 ${missing.length} 张题目原图无法读取，已取消打包。请先连接同步仓库并缓存图片后重试。`);
           const built = await questionBankIoWorker.build({ kind: "zip", name: bankTitle(bank), questions, notes: noteMap, images });
           if (built.kind !== "zip") throw new Error("导出结果类型不匹配，请重试。");
