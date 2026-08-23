@@ -16,6 +16,14 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
+      - name: Regenerate XLSX template
+        run: npm run template:xlsx
+      - name: Upload regenerated XLSX template
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-xlsx-template
+          path: public/题库模板.xlsx
+          if-no-files-found: error
       - name: Production build
         run: npm run build
       - name: Fast checks
