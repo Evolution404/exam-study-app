@@ -44,7 +44,7 @@ src/platform/
 ├── persistent-config.ts    # Preferences / UserDefaults mirror
 ├── lifecycle.ts            # iOS 前后台事件与同步 catch-up
 ├── haptics.ts              # 震动反馈适配
-└── files.ts                 # Filesystem 导入与 Share Sheet 导出适配
+└── files.ts                # Filesystem 导入与 Share Sheet 导出适配
 ```
 
 Web/PWA 使用浏览器能力；iOS 使用 Capacitor 插件，但业务层仍只依赖抽象接口。iOS 工程固定由 `capacitor.config.ts` 声明为 `com.evolution404.shijuan` / `拾卷`，不包含独立的 iOS React 页面。`npm run build:ios` 以 `APP_TARGET=ios` 构建相对资源基路径 `./`，再由 `npx cap sync ios` 将产物复制到 WKWebView 壳中。
@@ -63,7 +63,7 @@ src/lib/
 │              # practice/practice-stats/images/restore + app-data-v7 + v7-types
 ├── sync/      # github-sync（门面）+ github-sync-v7（barrel）+
 │              # sync-v7-context/cache/checkpoint-bridge/download/upload/
-│              # coalesce/watermark/orchestrator/tools +
+│              # coalesce/watermark/orchestrator/tools + image-asset-cache/image-asset-pack +
 │              # sync-v7-head/codec/payload/checkpoint + change-set-v7 及
 │              # change-set-v7-projection（barrel）/core/cascade/derived/reducer
 ├── question/  # question-content, question-utils, question-overview, question-bank-*
@@ -99,13 +99,13 @@ Web 端 GitHub 令牌由 `src/lib/sync/github-credentials.ts` 持久保存在当
 
 ```text
 proxy/
-├── github-relay-common.js   # 公共转发逻辑：上游地址、剥除头清单、构造上游 Request、响应回传
+├── github-relay-common.js   # 公共转发逻辑：GitHub API 白名单、剥除头、流式 Request、响应回传
 ├── pages-function.js        # 同域名转发入口（Cloudflare Pages Function，/api-github/*）
 ├── worker.js                # 跨域名转发入口（Cloudflare Worker，sync.980923.xyz）
 └── wrangler.toml            # Worker 部署配置
 ```
 
-`functions/api-github/[[path]].js` 由 `npm run build`（或 `npm run relay:pages`）自动生成，不手写。
+Relay 不是通用 GitHub API 代理。除既有 Contents/Blob 同步面外，Asset Pack 只额外开放 branch ref/commit read、blob/tree/commit create 和非强制 heads ref fast-forward PATCH；请求体上限保持 20 MiB。`functions/api-github/[[path]].js` 由 `npm run build`（或 `npm run relay:pages`）自动生成，不手写。
 
 ## 测试与工具
 
@@ -113,8 +113,8 @@ proxy/
 scripts/
 ├── tools/   # subset-title-font, emit-pages-relay, check-architecture,
 │            # check-test-registration, check-no-native-tooltip-titles,
-│            # chrome-executable, mock-github-server,
-│            # migrate-vault-compressed, generate-xlsx-template
+│            # check-export-surface, check-css-architecture, chrome-executable,
+│            # mock-github-server, generate-xlsx-template
 └── tests/   # 所有 test-*.ts / test-browser-visible.mjs
 ```
 
@@ -122,17 +122,22 @@ scripts/
 
 - 客户端只使用 IndexedDB v7（`shijuan-study-v7`）。
 - 客户端无论是浏览器还是 iOS WKWebView，都使用同一个 `shijuan-study-v7`；iOS 不迁移到 SQLite，也不另建业务数据库。
-- 公开同步协议为 Sync v9：head 固定为 `sync/v9/head.json`，检查点、分段、对象、历史与资产全部位于 `sync/v9/`，不可变对象走内容寻址，统一 GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
+- 公开同步协议为 Sync v9：head 固定为 `sync/v9/head.json`，检查点、分段、对象、历史与资产全部位于 `sync/v9/`，统一 GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
+- 图片逻辑身份固定为 `assetId = SHA-256(image bytes)`；本地仍以 Blob 缓存图片，不保存公开 URL。
+- 图片远端物理布局只使用 Asset Pack：`sync/v9/assets/index.json` 是固定入口，只保存 4 个 shard descriptor；shard 保存 `assetId -> pack + offset/length + mime/size/dimensions`；约 8 MiB、最多 64 图的 Pack 与 shard 均按内容寻址存储为不可变 `.bin`。
+- 一轮图片发布通过 Git Data API 创建 pack/shard/index tree，并只生成 1 个 Git commit + 1 次 ref fast-forward；禁止恢复 `N 张图 = N 次 Contents PUT = N 个 commit`。
+- 如果仓库仍只有旧的 `sync/v9/assets/<sha256>.<ext>` 单图布局，首次需要图片发布的同步会执行一次性 Pack 化：优先使用本地 Blob，本地缺失时允许把旧 Git blob 作为迁移源读取一次；新 Pack、shard、index 和旧单图路径删除在同一个 Git commit 中安装。迁移成功后运行时不再读取旧单图路径，也不保留双栈兼容。
+- 单图懒加载、全量图片缓存和题库导出都复用 Asset Pack resolver；批量场景先按 assetId 聚合 shard 与 unique pack，并发下载每个 Pack 一次，不逐图建立远端请求链。
 - Relay 默认按部署环境选择：Cloudflare Pages 使用 `/api-github`；GitHub Pages 与 iOS native 默认使用 `https://sync.980923.xyz`。iOS 可以显式配置自定义 Relay，但 Relay 失败不会静默切换到 `https://api.github.com`。
-- 正常同步不保留 v1/v2/v5/v6/v7 传输回退；旧远端 v7 只允许由隔离的一次性迁移工具读取。
-- 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；本地领域模型保持 v7，远端 head/segment/checkpoint envelope 均为 format 8。
+- 正常同步不保留 v1/v2/v5/v6/v7/v8 远端传输回退；本地领域模型命名保持 v7，不代表远端协议仍兼容旧版本。
+- 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；本地领域模型保持 v7，远端公开 namespace 只允许 Sync v9。
 
 ## iOS 文件、生命周期与反馈
 
 - App 前后台事件由 lifecycle adapter 触发有限的前台 catch-up pull；后台不启动持续同步，也不因切换产生并发 sync 风暴。
 - 练习反馈的 haptics 由 Capacitor Haptics adapter 提供；没有插件或在 Web 环境时退回浏览器/无震动行为，不能影响答题事务。
 - JSON/XLSX/ZIP 导入和导出继续复用现有领域解析与 Dexie 写事务；iOS 导入第一版继续使用 WKWebView 的 `<input type="file">` 与系统 Files picker，导出才由 Filesystem adapter 写入临时文件并打开 Share Sheet。
-- 这些原生能力只处理设备边界，不改变题库模型、Sync v9 wire format、head CAS 或图片 descriptor；图片仍是本地 Blob、远端内容寻址资产。
+- 这些原生能力只处理设备边界，不改变题库模型、Sync v9 wire format、head CAS 或 Asset Pack 物理布局；图片始终以本地 Blob + 远端 Pack 索引解析，不为 iOS 分叉第二套图片存储协议。
 
 ## 主题规则
 
