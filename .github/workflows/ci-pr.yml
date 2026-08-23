@@ -23,8 +23,13 @@ jobs:
       - name: Install Playwright browsers
         run: npm exec -- playwright-core install --with-deps chromium webkit
       - name: Browser smoke (Playwright Chromium)
-        run: npm run test:browser-smoke
+        env:
+          BROWSER_GROUPS: desktop
+        run: node scripts/tests/run-browser-local.mjs
       - name: Browser smoke (Playwright WebKit)
-        run: npm run test:browser:webkit-smoke
+        env:
+          BROWSER_ENGINE: webkit
+          BROWSER_GROUPS: practice-combo,topbar-mobile,search-pin
+        run: node scripts/tests/run-browser-local.mjs
       - name: PWA preview smoke
         run: npm run test:pwa-smoke
