@@ -35,6 +35,9 @@ jobs:
           if [ -f scripts/tools/migrate-css-architecture-once.mjs ]; then
             node scripts/tools/migrate-css-architecture-once.mjs
           fi
+          if [ -f scripts/tools/fix-split-style-tests-once.mjs ]; then
+            node scripts/tools/fix-split-style-tests-once.mjs
+          fi
       - name: Validate generated migration
         run: |
           npm run lint:css
