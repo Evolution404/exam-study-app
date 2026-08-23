@@ -11,7 +11,7 @@ import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
-import { createSearchWorkerClient } from "@/app/search/search-worker-client";
+import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptySearchFilterProjection, emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 
 /**
@@ -58,9 +58,7 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
 function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll }: { query: string; contentScope: SearchContentScope; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
   const normalizedQuery = query.trim();
   const bankKey = bankIds.join("|");
-  const searchWorkerClient = useMemo(() => createSearchWorkerClient(), []);
-
-  useEffect(() => () => searchWorkerClient.dispose(), [searchWorkerClient]);
+  const searchClientRef = useSearchWorkerClient();
 
   // This is the key invariant from the original caret fix: load/map the bank
   // once per bank scope. Typing only filters the already-loaded in-memory data.
@@ -108,8 +106,9 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
   const [completedSearch, setCompletedSearch] = useState<{ key: string; result: SearchIndexResult }>();
 
   useEffect(() => {
-    if (!normalizedQuery || !bankIds.length || !data) {
-      searchWorkerClient.cancel();
+    const searchWorkerClient = searchClientRef.current;
+    if (!normalizedQuery || !bankIds.length || !data || !searchWorkerClient) {
+      searchWorkerClient?.cancel();
       return;
     }
     let active = true;
@@ -125,7 +124,7 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
       active = false;
       searchWorkerClient.cancel();
     };
-  }, [bankIds.length, data, filterProjection, index, normalizedQuery, searchIndexKey, searchRequestKey, searchWorkerClient]);
+  }, [bankIds.length, data, filterProjection, index, normalizedQuery, searchClientRef, searchIndexKey, searchRequestKey]);
 
   const questionsById = useMemo(() => new Map((data?.questions ?? []).map((question) => [question.id, question])), [data]);
   const searchPending = Boolean(normalizedQuery && data && completedSearch?.key !== searchRequestKey);

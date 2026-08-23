@@ -292,7 +292,7 @@ async function pendingEventCount(page) {
   // Pending change-sets (state pending|blocked) are the new sync queue; the v7
   // event log no longer exists.
   return page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open("shijuan-study-v7");
+    const request = indexedDB.open("shijuan-study");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;

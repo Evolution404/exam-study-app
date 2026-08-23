@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { filterSearchIndex, type SearchIndexQuestion, type SearchIndexRequest, type SearchIndexResult } from "@/lib/question/search-matching";
 import type { SearchWorkerMessage, SearchWorkerResponse } from "@/app/search/search-worker-protocol";
 
@@ -151,4 +152,24 @@ export function createSearchWorkerClient(options: SearchWorkerClientOptions = {}
       stopWorker();
     },
   };
+}
+
+/**
+ * StrictMode-safe owner for a component-lifetime search client.  The client
+ * is created inside the effect and disposed with it, so React's dev-only
+ * mount→cleanup→remount cycle produces a fresh client instead of reusing a
+ * disposed one (a disposed client resolves every search to undefined, which
+ * used to pin the quick search at 正在搜索… forever).
+ */
+export function useSearchWorkerClient(): { readonly current: SearchWorkerClient | null } {
+  const ref = useRef<SearchWorkerClient | null>(null);
+  useEffect(() => {
+    const client = createSearchWorkerClient();
+    ref.current = client;
+    return () => {
+      ref.current = null;
+      client.dispose();
+    };
+  }, []);
+  return ref;
 }

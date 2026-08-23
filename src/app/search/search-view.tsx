@@ -26,7 +26,7 @@ import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAtt
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
-import { createSearchWorkerClient } from "@/app/search/search-worker-client";
+import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 type Bank = BankV7;
 type Question = QuestionViewModel;
@@ -152,9 +152,7 @@ export function SearchView({
 }) {
   const [filters, setFilters] = useState<SearchFilters>(() => createDefaultSearchFilters(currentBankIds, initialContentScope));
   const pageRef = useRef<HTMLDivElement>(null);
-  const searchWorkerClient = useMemo(() => createSearchWorkerClient(), []);
-
-  useEffect(() => () => searchWorkerClient.dispose(), [searchWorkerClient]);
+  const searchClientRef = useSearchWorkerClient();
 
   // 吸附两阶段状态（JS 给 .search-page 加状态类，CSS 过渡接管视觉）：
   // search-pinned：搜索框吸到视口顶部 → 上圆角压平贴顶（下边缘保持圆角）。
@@ -269,8 +267,9 @@ export function SearchView({
   const [completedSearch, setCompletedSearch] = useState<{ key: string; result: SearchIndexResult }>();
 
   useEffect(() => {
-    if (!showResults) {
-      searchWorkerClient.cancel();
+    const searchWorkerClient = searchClientRef.current;
+    if (!showResults || !searchWorkerClient) {
+      searchWorkerClient?.cancel();
       return;
     }
     let active = true;
@@ -286,7 +285,7 @@ export function SearchView({
       active = false;
       searchWorkerClient.cancel();
     };
-  }, [debouncedQuery, derivedSearchData.index, filterProjection, searchIndexKey, searchRequestKey, searchTriggered, showResults, typeTab, searchWorkerClient]);
+  }, [debouncedQuery, derivedSearchData.index, filterProjection, searchClientRef, searchIndexKey, searchRequestKey, searchTriggered, showResults, typeTab]);
 
   const searchPending = showResults && completedSearch?.key !== searchRequestKey;
   const result = completedSearch?.key === searchRequestKey
