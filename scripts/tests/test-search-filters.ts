@@ -84,8 +84,8 @@ assert.match(createSearchMatcher("x".repeat(257), "plain").error, /不能超过/
 assert.match(searchViewSource, /aria-label="搜索" className="search-trigger-button"/, "手机图标搜索按钮必须保留可访问名称");
 assert.match(searchViewSource, /aria-label=\{activeFilterCount \? `筛选，已设置 \$\{activeFilterCount\} 项` : "筛选"\}/, "手机图标筛选按钮必须说明已设置条件数");
 assert.match(knowledgeViewSource, /aria-label="关闭标签详情"/, "标签详情关闭按钮不能成为无名称图标按钮");
-assert.match(preferencesViewSource, /v8 远端协议和热窗口增量同步/, "配置页必须描述当前 v8 同步机制");
-assert.doesNotMatch(preferencesViewSource, /开启后使用 v7 事件/, "配置页不得残留旧 v7 同步文案");
+assert.match(preferencesViewSource, /v9 远端协议和热窗口增量同步/, "配置页必须描述当前 v9 同步机制");
+assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v7 事件/, "配置页不得残留旧 v7/v8 同步文案");
 assert.match(searchViewSource, /搜索内容范围/, "搜索页应提供题干、选项、解析和全部范围");
 assert.match(quickSearchSource, /快速搜索范围/, "顶栏快速搜索应提供内容范围选择");
 assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏搜索范围不得退回操作系统原生下拉框");
