@@ -32,6 +32,12 @@ replace(
   'const splitStyleNames = readdirSync(new URL("../../src/app/styles/", import.meta.url)).filter((file) => file.endsWith(".css")).sort();\nconst componentStyles = splitStyleNames.map((file) => readFileSync(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")).join("\\n");',
   "v7 UI components.css reader",
 );
+replace(
+  "scripts/tests/test-v7-ui-data-flow.ts",
+  'const primaryRule = componentStyles.match(/\\.primary\\s*\\{[^}]*\\}/)?.[0] ?? "";',
+  'const primaryRule = componentStyles.match(/\\.primary\\s*\\{[^}]*min-height:\\s*42px[^}]*\\}/)?.[0] ?? "";',
+  "base primary rule lookup",
+);
 
 for (const file of fs.readdirSync("scripts/tests").filter((name) => /\.(?:ts|mjs)$/.test(name))) {
   const source = fs.readFileSync(`scripts/tests/${file}`, "utf8");
