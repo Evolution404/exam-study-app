@@ -34,6 +34,8 @@ jobs:
             node scripts/tools/migrate-css-architecture-once.mjs
           fi
       - name: Validate generated migration
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           npm run lint:css
           npm run test:fast
