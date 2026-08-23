@@ -22,6 +22,7 @@ export { downloadRemoteV7 } from "./sync-v7-download";
 export {
   syncWithGitHub,
   restoreFullHistoryFromGitHub,
+  restoreFromGitHub,
   pullFromGitHub,
 } from "./sync-v7-orchestrator";
 
