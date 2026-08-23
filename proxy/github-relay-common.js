@@ -74,12 +74,17 @@ export function buildUpstreamRequest(request, { pathPrefix, omitBodyForGetHead =
   const body = omitBodyForGetHead && (method === "GET" || method === "HEAD")
     ? undefined
     : request.body;
-  return new Request(upstream, {
+  const init = {
     method: request.method,
     headers,
     body,
     redirect: "manual",
-  });
+  };
+  // Node 18+ requires duplex="half" when a Request is reconstructed from a
+  // ReadableStream body. Workerd/Cloudflare accepts the same Fetch option, so
+  // PUT/POST/PATCH share one streaming path without buffering multi-MiB packs.
+  if (body) init.duplex = "half";
+  return new Request(upstream, init);
 }
 
 export function withoutSetCookie(response) {
