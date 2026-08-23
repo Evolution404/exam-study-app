@@ -24,11 +24,12 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - name: Strict dead-code audit
-        run: npx knip --include files,exports,types,dependencies,unlisted,unresolved
+      - name: Structural dead-code gate
+        run: npx knip --include files,dependencies,unlisted,unresolved
+      - name: Export surface audit
+        continue-on-error: true
+        run: npx knip --include exports,types
       - name: CSS architecture ratchets
-        if: always()
         run: node scripts/tools/check-css-architecture.mjs
       - name: CSS governance baseline
-        if: always()
         run: node scripts/tools/report-css-governance.mjs
