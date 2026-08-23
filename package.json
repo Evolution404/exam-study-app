@@ -167,5 +167,10 @@
     "vite": "8.2.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
+  "overrides": {
+    "xcode": {
+      "uuid": "11.1.1"
+    }
+  },
   "type": "module"
 }
