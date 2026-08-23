@@ -231,7 +231,7 @@
 
 /* 立即同步等主按钮悬浮保持绿色，不变浅 */
 .sync-event-manager-actions button.primary:hover {
-  background: var(--green);
+  background: var(--color-primary);
 }
 
 .sync-event-manager-actions button:focus-visible,

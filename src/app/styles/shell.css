@@ -1,0 +1,405 @@
+/* Application shell: sidebar, workspace, top bar and mobile navigation. */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+}
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 30;
+  width: 224px;
+  padding: 29px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  color: var(--shell-sidebar-text);
+  background: var(--shell-sidebar-bg);
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.brand {
+  height: 56px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--shell-sidebar-mark-border);
+  border-radius: 12px 12px 12px 4px;
+  display: grid;
+  place-items: center;
+  font-family: serif;
+}
+
+.sidebar nav {
+  margin-top: 34px;
+  display: grid;
+  gap: 5px;
+}
+
+.sidebar nav button {
+  width: 100%;
+  border: 0;
+  border-radius: 11px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: var(--shell-sidebar-nav-text);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: .2s;
+}
+
+.sidebar nav button:hover,
+.sidebar nav .nav-active {
+  color: var(--shell-sidebar-nav-active-text);
+  background: var(--shell-sidebar-nav-active-bg);
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 15px 12px 3px;
+  border-top: 1px solid var(--shell-sidebar-border);
+  color: var(--shell-sidebar-foot-text);
+  font-size: 12px;
+}
+
+.sidebar-foot small {
+  display: block;
+  margin: 5px 0 0 14px;
+  color: var(--shell-sidebar-muted);
+}
+
+.sidebar-foot .sidebar-build {
+  margin-top: 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.sidebar-foot .sidebar-build code {
+  color: var(--shell-sidebar-foot-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.local-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--shell-local-dot);
+  box-shadow: 0 0 0 4px var(--shell-local-dot-ring);
+}
+
+.workspace {
+  width: calc(100% - 224px);
+  min-height: 100vh;
+  margin-left: 224px;
+}
+
+/* Search owns its sticky query surface; the global topbar scrolls away there. */
+.workspace.view-search .topbar {
+  position: relative;
+  z-index: 30;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 78px;
+  padding: 0 clamp(22px, 4vw, 58px);
+  border-bottom: 1px solid var(--shell-topbar-border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--shell-topbar-bg);
+  backdrop-filter: blur(16px);
+}
+
+.sync-pill {
+  margin-left: auto;
+  padding: 8px 13px;
+  border: 1px solid var(--shell-sync-border);
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--shell-sync-text);
+  background: var(--shell-sync-bg);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mobile-menu {
+  display: none !important;
+}
+
+.mobile-sync-settings {
+  display: none;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.content {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 54px clamp(24px, 5vw, 72px) 80px;
+}
+
+.mobile-tabbar {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: .2s;
+  }
+
+  .sidebar-open {
+    transform: translateX(0);
+    box-shadow: 20px 0 60px var(--shell-sidebar-open-shadow);
+  }
+
+  .workspace {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .mobile-menu {
+    display: grid !important;
+  }
+
+  .topbar {
+    height: 67px;
+    padding: 0 16px;
+  }
+
+  .sync-pill span {
+    display: none;
+  }
+
+  .content {
+    padding: 34px 18px 60px;
+  }
+
+  .sidebar-backdrop.visible {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+    border: 0;
+    display: block;
+    background: var(--shell-backdrop);
+    backdrop-filter: blur(2px);
+    cursor: pointer;
+  }
+
+  .sidebar nav .desktop-sync-nav {
+    display: none !important;
+  }
+
+  .mobile-sync-settings {
+    display: block;
+    margin-top: 52px;
+  }
+
+  .mobile-sync-settings > .page-heading {
+    margin-bottom: 24px;
+  }
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    gap: 8px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .sync-pill {
+    margin-left: auto;
+  }
+
+  .topbar .quick-sync {
+    min-width: 88px;
+  }
+}
+
+@media (max-width: 390px) {
+  .content {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* Native-like mobile shell. Kept after the generic breakpoints to preserve
+ * the existing cascade around safe-area and viewport geometry. */
+@media (max-width: 760px) {
+  .app-shell {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: auto;
+    width: 100%;
+    height: var(--app-viewport-height);
+    min-height: 0;
+    overflow: hidden;
+    background: var(--color-canvas);
+  }
+
+  .workspace {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    margin-left: 0;
+    box-sizing: border-box;
+    padding-top: calc(67px + env(safe-area-inset-top));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-x: none;
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    background: var(--color-canvas);
+  }
+
+  .workspace::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    height: calc(67px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 16px 0;
+    flex: none;
+  }
+
+  .workspace.view-search {
+    padding-top: 0;
+  }
+
+  .workspace.view-search .topbar {
+    position: relative;
+    z-index: 30;
+    height: calc(67px + env(safe-area-inset-top));
+  }
+
+  .content {
+    min-height: calc(100% - 67px - env(safe-area-inset-top));
+    padding-bottom: calc(94px + var(--app-safe-bottom));
+  }
+
+  .sidebar {
+    height: 100%;
+    padding-top: calc(29px + env(safe-area-inset-top));
+    padding-bottom: calc(22px + var(--app-safe-bottom));
+  }
+
+  .topbar button:active {
+    transform: scale(.985);
+  }
+
+  .mobile-tabbar {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+    z-index: 24;
+    min-height: calc(65px + var(--app-safe-bottom));
+    padding: 6px 5px var(--app-safe-bottom);
+    border: 1px solid var(--shell-tabbar-border);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    background: var(--shell-tabbar-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 -10px 28px var(--shell-tabbar-shadow);
+  }
+
+  .mobile-tabbar.hidden {
+    display: none;
+  }
+
+  .mobile-tabbar button {
+    min-width: 0;
+    min-height: 52px;
+    padding: 5px 2px 4px;
+    border: 0;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--shell-tabbar-text);
+    background: transparent;
+    cursor: pointer;
+    font-size: 9px;
+    line-height: 1;
+  }
+
+  .mobile-tabbar button.active {
+    color: var(--shell-tabbar-active-text);
+    background: var(--shell-tabbar-active-bg);
+    font-weight: 700;
+  }
+
+  .mobile-tabbar button:active {
+    transform: scale(.96);
+  }
+
+  .content:not(.practice-content) > * {
+    animation: shell-mobile-page-in .18s cubic-bezier(.2, .75, .25, 1);
+  }
+}
+
+@keyframes shell-mobile-page-in {
+  from {
+    opacity: .65;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .content:not(.practice-content) > *,
+  .mobile-tabbar button {
+    animation: none;
+    transition: none;
+  }
+}

@@ -18,10 +18,17 @@ export function resolveBuildBase(env: { APP_TARGET?: string; CF_PAGES?: string }
   return env.CF_PAGES ? "/" : "/exam-study-app/";
 }
 
-const deployBase = resolveBuildBase();
+/**
+ * Vite's development server is a local runtime, not a GitHub Pages deploy.
+ * Keep it at `/` so browser QA and `npm run dev` have one stable local URL,
+ * while production builds continue to use their deployment-specific base.
+ */
+export function resolveViteBase(command: string, env: { APP_TARGET?: string; CF_PAGES?: string } = process.env) {
+  return command === "serve" ? "/" : resolveBuildBase(env);
+}
 
-export default defineConfig({
-  base: deployBase,
+export default defineConfig(({ command }) => ({
+  base: resolveViteBase(command),
   plugins: [react()],
   define: {
     __APP_COMMIT_SHA__: JSON.stringify(commitSha),
@@ -46,4 +53,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

@@ -1,6 +1,6 @@
 # 项目交接文档
 
-> 更新时间：2026-08-22（Asia/Shanghai）
+> 更新时间：2026-08-23（Asia/Shanghai）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
@@ -10,9 +10,9 @@
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
 - 公开客户端数据层：独立 IndexedDB `shijuan-study-v7`（首次启动自动从旧 `shijuan-study-v6` 迁移）。
-- 公开同步协议：Sync v8，唯一可变入口 `sync/v8/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
+- 公开同步协议：Sync v9，唯一可变入口 `sync/v9/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
 - Service Worker 缓存版本：`shijuan-v10`。
-- 支持平台：Desktop Web/PWA 与 Capacitor 8 + WKWebView iOS native App；iOS 复用同一 React/Dexie/Sync v8 业务代码，Bundle ID 固定为 `com.evolution404.shijuan`。
+- 支持平台：Desktop Web/PWA 与 Capacitor 8 + WKWebView iOS native App；iOS 复用同一 React/Dexie/Sync v9 业务代码，Bundle ID 固定为 `com.evolution404.shijuan`。
 - iOS 构建：`APP_TARGET=ios` 使用 `./` 相对资源基路径；native 不注册 Service Worker，Native HTTP 未启用，网络仍走 WKWebView `fetch` 兼容路径。
 - 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
 
@@ -28,10 +28,11 @@ src/app/
   bank/        # bank-library-view, question-editor, question-detail,
                # content-block-editor, content-block-renderer, excel-import, knowledge-view
   sync/        # sync-view, sync-event-manager, sync-event-drawer, sync-hot-window
-  shell/        # 应用外壳：app-shell, helpers, views
+  shell/       # 应用外壳：app-shell, navigation, topbar, helpers, views
   hooks/       # use-app-environment
-  styles/      # theme-tokens.css, components.css, controls.css, content-blocks.css,
-               # review-scope.css, sync-events.css, hint.css
+  styles/      # components.css 只负责导入顺序；base/primitives/shared/shell/dashboard/search/
+               # bank/practice/preferences/responsive/dark-overrides 为拆分后的主样式域；另有
+               # theme-tokens, controls, content-blocks, review-scope, sync-events, hint
 src/lib/       # 领域逻辑：db / sync / question / io / practice
 src/platform/  # Web/iOS 平台适配：环境、运行时、transport、凭据、配置、生命周期、文件与反馈
 proxy/         # GitHub API 转发代理源码
@@ -40,7 +41,7 @@ functions/     # 构建生成：functions/api-github/[[path]].js（不要手写�
 scripts/
   tools/       # 构建/检查/生成工具
   tests/       # 所有测试脚本
-src/types/      # 全局类型声明
+src/types/     # 全局类型声明
 public/        # 静态资源与 PWA
 docs/          # 项目文档
 ```
@@ -53,19 +54,18 @@ docs/          # 项目文档
 - 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。
 - 个人难度以有效作答时间、作答间隔和本机成熟历史校准；后台、编辑器、题目总览不计时，速度基线只吸收有效正确作答。未作答固定为 50。
 - `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
-- 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v8/assets/<sha256>.<ext>`。
+- 图片为私有资产：本地只存 Blob，不保存公开 URL；远端路径为 `sync/v9/assets/<sha256>.<ext>`。
 - Excel/zip 导入只物化题目实际引用的图片，并在导入完成时把全部图片描述写进同一个固定 `question.import` 事件；同步以 6 路有界并发上传图片、按张数与字节上报进度，再原位补齐该事件的远端描述，禁止按上传完成顺序新增图片事件。
 - 题库 Excel 导出必须从 UI `canonical.content/options` 读取富内容，并以 WPS `DISPIMG` + `xl/cellimages.xml` + `xl/media/*` 嵌入图片；本地 Blob 缺失时先从私有同步仓库补缓存，仍有缺图则中止导出，禁止静默生成纯文字文件。
 - 题库便携导出无图时生成普通 JSON；只要题干或选项引用图片，就必须生成 `bank.json + images/*` 的 ZIP，并保留原图字节与格式（包括 WebP），以保证内容寻址文件名可校验、可完整回导。任一原图缺失时中止导出，禁止生成不完整压缩包。
-- 同步固定 head：`sync/v8/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
+- 同步固定 head：`sync/v9/head.json`；检查点、分段、对象、图片均为内容寻址不可变对象。
 - 会产生 change set 的领域写事务必须把 `syncMeta` 放进同一个 Dexie `rw` 事务；同步序号在当前事务内分配。禁止从领域写事务中另开 `syncMeta` 写事务，否则 Safari 会因 IndexedDB 写事务相互等待而卡住导入、作答等写操作。
 - 冷启动恢复同时下载检查点和热窗口分段，总并发上限保持为 6；检查点按响应流字节持续上报下载进度，全部下载完成后仍按检查点再分段的确定顺序安装。
-- `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v8 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
+- `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v9 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
-- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v8。
-- 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v8 wire、head CAS 和合并语义不因平台改变。
+- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v9。
+- 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v9 wire、head CAS 和合并语义不因平台改变。
 - iOS 业务数据仍写 `shijuan-study-v7` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
-- 一次性远端迁移使用 `npm run migrate:vault:v8 -- --owner <owner> --repo <repo> --branch main`；先加 `--verify` 预检。迁移固定旧 v7 head SHA、严格回放热分段、复制资产、发布 v8 有界检查点，并保留旧 `sync/v7` 数据。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
 ## 4. 关键文件
@@ -82,6 +82,8 @@ docs/          # 项目文档
   `src/app/bank/content-block-editor.tsx`, `src/app/bank/content-block-renderer.tsx`, `src/app/ui/asset-image.tsx`
 - 导入导出：`src/lib/io/xlsx-import.ts`, `src/lib/io/xlsx-export.ts`, `src/lib/question/question-bank-file-import.ts`,
   `src/lib/question/question-bank-export.ts`, `src/lib/question/question-bank-bundle.ts`
+- CSS 架构：`src/app/styles/components.css`, `scripts/tools/check-css-architecture.mjs`, `scripts/tools/css-architecture-baseline.json`
+- Shell 边界：`src/app/shell/app-shell.tsx`, `src/app/shell/navigation.tsx`, `src/app/shell/topbar.tsx`
 
 ## 5. 代理与部署
 
@@ -97,7 +99,7 @@ docs/          # 项目文档
 `scripts/tools/check-architecture.mjs` 会检查：
 
 1. 公开页面只使用 `shijuan-study-v7`，不导入旧 `lib/db.ts`。
-2. 公开同步只读写 `sync/v8/*`；旧 `sync/v7/*` 只能由隔离的一次性迁移工具读取。
+2. 公开同步只读写 `sync/v9/*`；运行时代码不得访问已退役的 `sync/v7/*`、`sync/v8/*` 远端命名空间。
 3. 页面不得重新使用 `Question.imageUrl` 或“图片地址”导入列。
 4. `practiceRuns` 是唯一持久化练习进度；不得恢复 active session 双写。
 5. 页面 CSS 使用主题令牌，不扩大硬编码颜色和 dark-mode 补丁预算。
@@ -106,6 +108,8 @@ docs/          # 项目文档
 8. iOS native 不注册 Service Worker；业务层不得因为 native 环境复制一套题库、练习或同步实现。
 9. iOS Token 不落 `localStorage`；Keychain、Preferences、lifecycle、haptics、Filesystem、Share 只能经 `src/platform/` adapter 使用。
 10. Native HTTP 未启用；所有 GitHub 请求仍经统一 `GitHubTransport` 与默认/自定义 Relay，禁止错误时静默直连 GitHub。
+
+`scripts/tools/check-css-architecture.mjs` 会强制已拆分 CSS 文件存在、`components.css` 保持为纯导入入口、`:global()` 与 legacy token alias 保持为 0，并对总 CSS 体积、最大单文件、逐文件硬编码颜色、dark selector 与 `!important` 实施只降不升的基线棘轮。新增 CSS 文件默认不得带入这些历史债务。
 
 `scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `src/app/ui/hint.tsx` 的 `Hint` 组件。
 
@@ -159,9 +163,9 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA �
 
 ## 8. 已知非阻断项
 
-- 构建已通过 vendor 分包将主入口降至 352 KiB（gzip 约 110 KiB），当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
-- 自动化覆盖 Chromium 桌面/手机视口；Safari、Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵。
-- 浏览器与 PWA 测试默认使用 `npm run browser:install` 安装的 Playwright Chromium；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
+- 构建已通过 vendor 分包将主入口控制在约 224 KiB，当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
+- PR CI 覆盖 Playwright Chromium 与 WebKit smoke；Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵，Safari 真机仍不能由 WebKit smoke 完全替代。
+- 浏览器与 PWA 测试通过项目 Playwright 安装流程准备浏览器；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
 - iOS Personal Team 签名、覆盖安装数据保持、深色模式、横竖屏、前后台 catch-up、文件 Share Sheet、真实 haptics 和多设备交叉同步需要连接 Xcode/真机按 `docs/TESTING.md` 手工检查；浏览器 e2e 不能替代它们。
@@ -169,4 +173,4 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA �
 
 ## 9. 新任务第一步
 
-> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v7 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。
+> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用使用 v7 本地 DB / v9 远端 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。

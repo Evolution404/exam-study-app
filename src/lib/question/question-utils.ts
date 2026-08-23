@@ -1,16 +1,5 @@
 import type { ContentBlock, QuestionSolution, QuestionV7 } from "../db/v7-types";
 
-/** Legacy v5-only URL normalizer retained for the read-only migration source. */
-export function normalizeQuestionImageUrl(value: string | undefined) {
-  const input = value?.trim();
-  if (!input) return undefined;
-  let url: URL;
-  try { url = new URL(input); }
-  catch { throw new Error("图片地址必须是完整的 http 或 https URL。"); }
-  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("图片地址只支持 http 或 https URL。");
-  return url.toString();
-}
-
 export const MAX_CALCULATION_BLANKS = 12;
 export const CALCULATION_BLANK_PATTERN = /【空([1-9][0-9]*)】/g;
 
@@ -72,10 +61,10 @@ export function areCalculationAnswersCorrect(input: readonly string[], expected:
 // ---------------------------------------------------------------------------
 
 export const MAX_FILL_BLANKS = 12;
-export const FILL_ACCEPTED_ANSWER_SEPARATOR = "||";
+const FILL_ACCEPTED_ANSWER_SEPARATOR = "||";
 
 /** Normalize a human-entered text answer without changing its display form. */
-export function normalizeFillAnswer(value: string): string {
+function normalizeFillAnswer(value: string): string {
   return String(value).normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("zh-CN");
 }
 
@@ -93,7 +82,7 @@ export function fillBlankAnswers(value: string | readonly string[]): string[][] 
   return cells.map(splitAcceptedText).filter((answers) => answers.length > 0);
 }
 
-export function serializeFillBlankAnswers(blanks: readonly (readonly string[])[]): string {
+function serializeFillBlankAnswers(blanks: readonly (readonly string[])[]): string {
   return blanks.map((answers) => [...new Set(answers.map(normalizeFillAnswer).filter(Boolean))].join(FILL_ACCEPTED_ANSWER_SEPARATOR)).join("\n");
 }
 

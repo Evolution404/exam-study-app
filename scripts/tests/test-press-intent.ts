@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, QUICK_SYNC_TAP_MAX_MS, shouldCancelQuickSyncMove } from "../../src/lib/practice/press-intent";
 
 assert.equal(classifyPressIntent(80, false, false), "tap");
@@ -16,7 +16,11 @@ assert.equal(shouldCancelQuickSyncMove(0, 18), true, "an intentional vertical sc
 assert.equal(shouldCancelQuickSyncMove(23, 2), false, "horizontal motion below the escape threshold stays active");
 assert.equal(shouldCancelQuickSyncMove(24, 2), true, "a clear horizontal escape cancels the press");
 
-const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
+const styles = (await Promise.all((await readdir(stylesRoot))
+  .filter((file) => file.endsWith(".css"))
+  .sort()
+  .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\n");
 const controls = await readFile(new URL("../../src/app/styles/controls.css", import.meta.url), "utf8");
 const shell = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
 assert.match(styles, /\.quick-sync-split \.quick-sync\.holding\{color:#fff;background:var\(--color-danger\)\}/, "holding the quick-sync button uses an unmistakable red danger surface");

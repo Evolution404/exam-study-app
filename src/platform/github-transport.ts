@@ -25,7 +25,7 @@ function currentHostname(): string {
   return typeof location !== "undefined" ? location.hostname : "";
 }
 
-export function resolveTransportDefaultApiBaseUrl(
+function resolveTransportDefaultApiBaseUrl(
   hostname = currentHostname(),
   environment: PlatformEnvironment = getPlatformEnvironment(),
 ): string {
@@ -62,13 +62,4 @@ let activeTransport: GitHubTransport | undefined;
 export function getGitHubTransport(): GitHubTransport {
   activeTransport ??= createGitHubTransport();
   return activeTransport;
-}
-
-/**
- * Test/native bootstrap seam. Production callers normally leave the default
- * transport untouched; tests can inject a fetch while retaining the endpoint
- * selection rules.
- */
-export function setGitHubTransport(transport: GitHubTransport | undefined): void {
-  activeTransport = transport;
 }

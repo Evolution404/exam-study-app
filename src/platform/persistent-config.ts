@@ -3,7 +3,7 @@ import type { PlatformEnvironment } from "./environment";
 import { getPlatformEnvironment } from "./environment";
 import { GITHUB_RELAY_URL, GITHUB_WEB_RELAY_PATH } from "./github-transport";
 
-export const PERSISTENT_CONFIG_KEYS = [
+const PERSISTENT_CONFIG_KEYS = [
   "github-settings",
   "study-v7-preferences",
   "shijuan-study-v7-device-id",
@@ -33,10 +33,6 @@ function writeLocal(key: string, value: string): void {
 
 export function setPersistentPreferencesBridge(next: PersistentPreferencesBridge): void {
   bridge = next;
-}
-
-export function isPersistentConfigNative(): boolean {
-  return nativeEnabled;
 }
 
 export function getPersistentConfigMirror(key: string): string | null {

@@ -20,7 +20,6 @@ export const testGroups = {
     "test:sync-payload",
     "test:sync-v7-multidevice",
     "test:sync-v7-protocol",
-    "test:sync-v9-migration",
     "test:v7-domain",
     "test:image-assets",
     "test:build-target",

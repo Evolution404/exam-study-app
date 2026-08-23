@@ -24,32 +24,26 @@ await putImageAssetV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, w
   assert.ok(isSyncCheckpointV7(parsed));
 }
 
-// 2) 旧 v6 格式检查点可读，读入后归一化为 v7
+// 2) 退役的 v6 检查点格式必须被拒绝，公开恢复只接受当前格式
 {
   const current = await createSyncCheckpointV7();
   const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
   legacy.formatVersion = 6;
-  // 旧资产路径允许 sync/v6/assets
-  legacy.state.imageAssets[0] = {
-    ...legacy.state.imageAssets[0],
-    remote: { path: `sync/v6/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
-  };
-  const parsed = parseSyncCheckpointV7(encodeSyncCheckpointV7(legacy));
-  assert.equal(parsed.formatVersion, 7, "旧格式读入后升为 7");
-  assert.equal(parsed.state.imageAssets[0].remote?.path, `sync/v6/assets/${"a".repeat(64)}.webp`, "旧资产路径保留以便继续下载旧 blob");
+  assert.throws(() => validateSyncCheckpointV7(legacy), /formatVersion/, "v6 checkpoint must be rejected after compatibility retirement");
+  const bytes = new TextEncoder().encode(JSON.stringify(legacy));
+  assert.throws(() => parseSyncCheckpointV7(bytes), /formatVersion/, "parser must reject retired v6 checkpoint bytes");
 }
 
-// 3) 旧 v6 格式但带 v7 资产路径也可读
+// 3) 退役的 v6/v7/v8 资产命名空间必须被拒绝，只允许当前 v9 资产路径
 {
-  const current = await createSyncCheckpointV7();
-  const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
-  legacy.formatVersion = 6;
-  legacy.state.imageAssets[0] = {
-    ...legacy.state.imageAssets[0],
-    remote: { path: `sync/v9/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
-  };
-  const parsed = parseSyncCheckpointV7(encodeSyncCheckpointV7(legacy));
-  assert.equal(parsed.formatVersion, 7);
+  for (const version of [6, 7, 8]) {
+    const current = await createSyncCheckpointV7();
+    current.state.imageAssets[0] = {
+      ...current.state.imageAssets[0],
+      remote: { path: "sync/v" + version + "/assets/" + "a".repeat(64) + ".webp", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
+    };
+    assert.throws(() => validateSyncCheckpointV7(current), /remote\.path/, "sync/v" + version + " asset path must be rejected");
+  }
 }
 
 // 4) 非法格式与坏 imageAsset 被拒绝

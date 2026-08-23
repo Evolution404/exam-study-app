@@ -3,19 +3,19 @@ import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
 import type { ReviewRound } from "@/lib/db/v7-types";
 
-export const PROGRESS_SCOPE_MIN_DAYS = 1;
-export const PROGRESS_SCOPE_MAX_DAYS = 36_500;
-export const PROGRESS_SCOPE_PRESET_DAYS = [30, 90, 180] as const;
+const PROGRESS_SCOPE_MIN_DAYS = 1;
+const PROGRESS_SCOPE_MAX_DAYS = 36_500;
+const PROGRESS_SCOPE_PRESET_DAYS = [30, 90, 180] as const;
 
 export const PROGRESS_SCOPE_EXPLANATION = "这个范围统一用于首页和题库的进度、作答次数、正确率与难度；收藏、标签和个人解析不随时间变化。";
 
-export interface ProgressScopePreset {
+interface ProgressScopePreset {
   key: string;
   label: string;
   scope: ProgressScope;
 }
 
-export const PROGRESS_SCOPE_PRESETS: readonly ProgressScopePreset[] = PROGRESS_SCOPE_PRESET_DAYS.map((days) => ({
+const PROGRESS_SCOPE_PRESETS: readonly ProgressScopePreset[] = PROGRESS_SCOPE_PRESET_DAYS.map((days) => ({
   key: `rolling:${days}`,
   label: `近 ${days} 天`,
   scope: { type: "rolling", days },

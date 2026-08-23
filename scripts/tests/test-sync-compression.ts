@@ -205,106 +205,13 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   }
 }
 
-// --- 5. 远端迁移（Part G）：验证失败中止 / 迁移后拉取等价 / 幂等 -------------
+// --- 5. 退役维护 API 不得重新暴露 -----------------------------------------
 {
-  const { migrateVaultToCompressed } = await import("../../src/lib/sync/github-sync-v7");
-  const migrationSettings = { owner: "qa", repo: "migrate-vault", branch: "main", apiBaseUrl: server.url };
-  const migrationSync = () => syncWithGitHub(migrationSettings, "qa-token");
-
-  // 建立含热事件的 vault：A 推送若干题（分segment仍在热窗口）。
-  await freshClient("migrate-a");
-  await migrationSync();
-  const migrateBank = await createBankV7("迁移题库");
-  for (let round = 0; round < 3; round += 1) {
-    for (let index = 0; index < 3; index += 1) {
-      await createQuestionV7(migrateBank.id, question(`迁移第 ${round * 3 + index} 题：` + "压缩迁移正文。".repeat(40)));
-    }
-    await migrationSync();
-  }
-  const remote = createGitHubV7Remote({ owner: "qa", repo: "migrate-vault", token: "t", apiBaseUrl: server.url });
-  const headBefore = (await remote.readHead()).head;
-  assert.ok(headBefore.segments.length >= 3, `迁移前应有热分段（实际 ${headBefore.segments.length}）`);
-
-  // 5a. 验证失败中止：损坏热分段 blob → 抛错且远端零改动。
-  server.armCorruptOnce();
-  await assert.rejects(migrateVaultToCompressed(migrationSettings, "qa-token", undefined, { fetch: undefined }), /mismatch|失败/, "损坏对象应让迁移在验证阶段中止");
-  const headAfterAbort = (await remote.readHead()).head;
-  assert.equal(headAfterAbort.checkpoint.sha256, headBefore.checkpoint.sha256, "中止后检查点不变");
-  assert.deepEqual(headAfterAbort.segments.map((item) => item.path), headBefore.segments.map((item) => item.path), "中止后热窗口不变");
-
-  // 5b. 迁移前基线：全新设备拉取的投影（除墓碑外）。
-  await freshClient("baseline-x");
-  await migrationSync();
-  const baselineQuestions = (await dbV7.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
-  const baselineBanks = (await dbV7.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
-
-  const migrated = await migrateVaultToCompressed(migrationSettings, "qa-token", () => undefined);
-  assert.equal(migrated.migrated, true, "迁移应成功");
-  assert.ok(migrated.hotEvents >= 9, `折叠的热事件数（${migrated.hotEvents}）应覆盖全部推送`);
-  assert.ok(migrated.bytesAfter > 0 && migrated.bytesBefore > migrated.bytesAfter, "折叠后逻辑字节应减少");
-  const headMigrated = (await remote.readHead()).head;
-  assert.equal(headMigrated.segments.length, 0, "迁移后热窗口清空");
-  assert.notEqual(headMigrated.checkpoint.sha256, headBefore.checkpoint.sha256, "迁移产生新检查点");
-  // 新检查点远端存储为压缩信封。
-  const migratedRaw = new Uint8Array(await (await fetch(`${server.url}/repos/qa/migrate-vault/git/blobs/${headMigrated.checkpoint.blobSha}`, { headers: { accept: "application/vnd.github.raw+json" } })).arrayBuffer());
-  assert.equal(isZlibEnvelope(migratedRaw), true, "迁移后的检查点应是压缩信封");
-
-  // 5c. 迁移后新设备拉取：投影与迁移前一致（除按前提丢弃的墓碑）。
-  await freshClient("post-migrate-y");
-  await migrationSync();
-  const postQuestions = (await dbV7.questions.toArray()).map((row) => ({ id: row.id, type: row.type, answer: row.answer, tags: row.tags })).sort((a, b) => a.id.localeCompare(b.id));
-  const postBanks = (await dbV7.banks.toArray()).map((row) => ({ id: row.id, name: row.name })).sort((a, b) => a.id.localeCompare(b.id));
-  assert.deepEqual(postQuestions, baselineQuestions, "迁移后拉取的题目与迁移前一致");
-  assert.deepEqual(postBanks, baselineBanks, "迁移后拉取的题库与迁移前一致");
-  assert.equal(await dbV7.tombstones.count(), 0, "存量墓碑按迁移前提清零");
-
-  // 5d. 幂等：热窗口已空 → 无需迁移。
-  const again = await migrateVaultToCompressed(migrationSettings, "qa-token", () => undefined);
-  assert.equal(again.migrated, false, "重复迁移应报告无需迁移");
-  assert.ok(again.reason, "无需迁移时应给出原因");
-  const headIdempotent = (await remote.readHead()).head;
-  assert.equal(headIdempotent.checkpoint.sha256, headMigrated.checkpoint.sha256, "幂等检查不改动远端");
-}
-
-// --- 6. storedSize 补填：剥掉后 backfill 补回，幂等 ---------------------------
-{
-  const { backfillVaultStoredSizes } = await import("../../src/lib/sync/github-sync-v7");
-  const backfillSettings = { owner: "qa", repo: "backfill-vault", branch: "main", apiBaseUrl: server.url };
-  const backfillSync = () => syncWithGitHub(backfillSettings, "qa-token");
-  await freshClient("backfill-a");
-  await backfillSync();
-  const bank6 = await createBankV7("补填题库");
-  for (let index = 0; index < 4; index += 1) await createQuestionV7(bank6.id, question(`补填第 ${index} 题：` + "压缩正文。".repeat(60)));
-  await backfillSync();
-  const backfillRemote = createGitHubV7Remote({ owner: "qa", repo: "backfill-vault", token: "t", apiBaseUrl: server.url });
-  const annotated = await backfillRemote.readHead();
-  assert.ok(annotated.initialized && annotated.head.checkpoint.storedSize !== undefined, "新上传的 descriptor 应携带 storedSize");
-
-  // 模拟存量 head：剥掉全部 storedSize 再 CAS 发布。
-  const strippedHead: typeof annotated.head = {
-    ...annotated.head,
-    checkpoint: { ...annotated.head.checkpoint!, storedSize: undefined },
-    segments: annotated.head.segments.map((descriptor) => ({ ...descriptor, storedSize: undefined })),
-  };
-  const strippedPut = await backfillRemote.putHead(strippedHead, annotated.cache);
-  assert.equal(strippedPut.ok, true, "剥掉 storedSize 的 head 应能发布（字段可选）");
-  const strippedRead = await backfillRemote.readHead();
-  assert.ok(strippedRead.head.checkpoint.storedSize === undefined, "剥离后 head 无 storedSize");
-
-  const backfilled = await backfillVaultStoredSizes(backfillSettings, "qa-token", () => undefined);
-  assert.equal(backfilled.updated, true, "backfill 应更新 head");
-  assert.equal(backfilled.filled, 1 + strippedRead.head.segments.length, "每个 descriptor 都应补上 storedSize");
-  const after = (await backfillRemote.readHead()).head;
-  assert.ok(after.checkpoint.storedSize !== undefined && after.checkpoint.storedSize > 0, "补填后的检查点 storedSize 有效");
-  for (const descriptor of after.segments) assert.ok(descriptor.storedSize !== undefined && descriptor.storedSize > 0, "补填后的分段 storedSize 有效");
-  assert.equal(after.checkpoint.sha256, strippedRead.head.checkpoint.sha256, "补填只加元数据，不改对象身份");
-
-  // 幂等：已补填的 head 零写入。
-  const again = await backfillVaultStoredSizes(backfillSettings, "qa-token", () => undefined);
-  assert.equal(again.updated, false, "重复补填应零写入");
-  assert.equal(again.filled, 0, "无 descriptor 需要补");
+  const syncFacade = await import("../../src/lib/sync/github-sync-v7");
+  assert.equal("migrateVaultToCompressed" in syncFacade, false, "一次性压缩迁移 API 已退役，不得回到运行时 facade");
+  assert.equal("backfillVaultStoredSizes" in syncFacade, false, "一次性 storedSize 补填 API 已退役，不得回到运行时 facade");
 }
 
 await server.close();
 dbV7.close();
-console.log("sync compression tests passed: codec 单元/回退、线上压缩信封与体积、混合格式共存、幂等读回、head 保持纯 JSON、迁移三场景");
+console.log("sync compression tests passed: codec 单元/回退、线上压缩信封与体积、混合格式共存、幂等读回、head 保持纯 JSON、退役维护 API 防回潮");
