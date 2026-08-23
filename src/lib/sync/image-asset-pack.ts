@@ -304,16 +304,16 @@ export async function buildImageAssetPack(assets: readonly PackableImageAsset[])
   return { bytes, sha256: await sha256DigestHex(bytes), entries };
 }
 
-export async function buildImageAssetPacks(
-  assets: readonly PackableImageAsset[],
+function groupImageAssetsForPacks<T extends Pick<ImageAsset, "id" | "size">>(
+  assets: readonly T[],
   options: { targetBytes?: number; maxAssets?: number } = {},
-): Promise<BuiltImageAssetPack[]> {
+): T[][] {
   const targetBytes = Math.max(256 * 1024, options.targetBytes ?? IMAGE_ASSET_PACK_TARGET_BYTES);
   const maxAssets = Math.max(1, options.maxAssets ?? IMAGE_ASSET_PACK_MAX_ASSETS);
   const payloadBudget = Math.max(1, targetBytes - PACK_HEADER_RESERVE);
   const sorted = [...assets].sort((left, right) => left.id.localeCompare(right.id));
-  const groups: PackableImageAsset[][] = [];
-  let current: PackableImageAsset[] = [];
+  const groups: T[][] = [];
+  let current: T[] = [];
   let currentBytes = 0;
   for (const asset of sorted) {
     const wouldOverflow = current.length > 0 && (current.length >= maxAssets || currentBytes + asset.size > payloadBudget);
@@ -326,7 +326,14 @@ export async function buildImageAssetPacks(
     currentBytes += asset.size;
   }
   if (current.length) groups.push(current);
-  return Promise.all(groups.map((group) => buildImageAssetPack(group)));
+  return groups;
+}
+
+export async function buildImageAssetPacks(
+  assets: readonly PackableImageAsset[],
+  options: { targetBytes?: number; maxAssets?: number } = {},
+): Promise<BuiltImageAssetPack[]> {
+  return Promise.all(groupImageAssetsForPacks(assets, options).map((group) => buildImageAssetPack(group)));
 }
 
 export function parseImageAssetPack(bytes: Uint8Array): ParsedImageAssetPack {
@@ -586,15 +593,31 @@ async function loadExistingShardsForAssets(
   return result;
 }
 
+function isIndexed(shards: ReadonlyMap<AssetShardKey, ImageAssetPackIndexShard>, asset: ImageAsset): boolean {
+  return Boolean(shards.get(imageAssetIndexShardKey(asset.id))?.entries[asset.id]);
+}
+
 async function publishAttempt(
   client: GitHubV7Remote,
   assets: readonly ImageAsset[],
   onProgress?: (progress: ImageAssetPackPublishProgress) => void,
-): Promise<Array<{ source: PackableImageAsset; descriptor: Omit<ImageAsset, "blob"> }> | null> {
+): Promise<Array<{ source: ImageAsset; descriptor: Omit<ImageAsset, "blob"> }> | null> {
+  // Common no-change path: reuse the runtime index/shard cache before touching
+  // Git refs/commits. After one successful sync in this process, an idempotent
+  // sync with no new images performs zero Asset Pack network requests.
+  const knownRoot = await loadImageAssetPackIndex(client);
+  if (knownRoot) {
+    const knownShards = await loadExistingShardsForAssets(client, knownRoot, assets);
+    if (assets.every((asset) => isIndexed(knownShards, asset))) return [];
+  }
+
+  // A real publication must be based on the latest branch commit. Re-read the
+  // root at that exact parent so concurrent devices cannot cause stale-index
+  // overwrites; createTreeCommit will still enforce a non-forced fast-forward.
   resetRuntimeCache(client);
   const snapshot = await readBranchSnapshot(client);
   const currentShards = await loadExistingShardsForAssets(client, snapshot.root, assets);
-  const pendingBase = assets.filter((asset) => !currentShards.get(imageAssetIndexShardKey(asset.id))?.entries[asset.id]);
+  const pendingBase = assets.filter((asset) => !isIndexed(currentShards, asset));
   if (!pendingBase.length) {
     if (!snapshot.root) return null;
     cacheFor(client).root = snapshot.root;
@@ -605,12 +628,15 @@ async function publishAttempt(
   let completed = 0;
   let uploadedBytes = 0;
   onProgress?.({ completed, total: pendingBase.length, uploadedBytes, totalBytes });
-  const pending = await mapWithConcurrency(pendingBase, 6, async (asset) => hydrateLegacyAsset(client, asset));
-  const packs = await buildImageAssetPacks(pending);
   const packByAsset = new Map<string, { descriptor: SyncV7Descriptor; entry: ImageAssetPackEntry }>();
   const treeMutations: TreeMutation[] = [];
 
-  for (const pack of packs) {
+  // Group from descriptor sizes first, then hydrate/build/upload one group at a
+  // time. This bounds migration memory to roughly one Pack plus the hydration
+  // lane instead of retaining every legacy Blob and every built Pack at once.
+  for (const group of groupImageAssetsForPacks(pendingBase)) {
+    const hydrated = await mapWithConcurrency(group, 6, async (asset) => hydrateLegacyAsset(client, asset));
+    const pack = await buildImageAssetPack(hydrated);
     const path = assetPackPath(pack.sha256);
     const blobSha = await gitCreateBlob(client, pack.bytes);
     const descriptor = descriptorFromBlob(path, blobSha, pack.sha256, pack.bytes.byteLength);
@@ -621,8 +647,8 @@ async function publishAttempt(
     onProgress?.({ completed: Math.min(completed, pendingBase.length), total: pendingBase.length, uploadedBytes: Math.min(uploadedBytes, totalBytes), totalBytes });
   }
 
-  const affectedKeys = [...new Set(pending.map((asset) => imageAssetIndexShardKey(asset.id)))];
-  for (const asset of pending) {
+  const affectedKeys = [...new Set(pendingBase.map((asset) => imageAssetIndexShardKey(asset.id)))];
+  for (const asset of pendingBase) {
     const location = packByAsset.get(asset.id)!;
     const key = imageAssetIndexShardKey(asset.id);
     const shard = currentShards.get(key)!;
@@ -681,11 +707,10 @@ async function publishAttempt(
     const descriptor = root.shards[key];
     if (descriptor) cache.shards.set(descriptor.sha256, currentShards.get(key)!);
   }
-  for (const pack of packs) {
-    cache.packs.set(pack.sha256, pack.bytes);
-    cache.parsedPacks.set(pack.sha256, parseImageAssetPack(pack.bytes));
-  }
-  return pending.map((source) => {
+  // Do not retain every freshly uploaded Pack in memory. Local assets already
+  // have their Blob cache, while migrated evicted assets can lazily download a
+  // Pack later. Keeping all Pack bytes here would recreate the migration peak.
+  return pendingBase.map((source) => {
     const { blob: _blob, remote: _migrationSource, ...descriptor } = source;
     void _blob;
     void _migrationSource;
@@ -697,7 +722,7 @@ export async function publishImageAssetsAsPacks(
   client: GitHubV7Remote,
   assets: readonly ImageAsset[],
   onProgress?: (progress: ImageAssetPackPublishProgress) => void,
-): Promise<Array<{ source: PackableImageAsset; descriptor: Omit<ImageAsset, "blob"> }>> {
+): Promise<Array<{ source: ImageAsset; descriptor: Omit<ImageAsset, "blob"> }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const result = await publishAttempt(client, assets, onProgress);
     if (result) return result;
