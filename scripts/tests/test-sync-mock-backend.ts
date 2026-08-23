@@ -8,10 +8,6 @@ import { SYNC_V7_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
 import { downloadImageAssetV7 } from "../../src/lib/sync/image-asset-cache";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
-// The browser-driven sync test covers the UI; this fast, Chrome-free test pins
-// down the HTTP contract between the real GitHubV7Remote client and the local
-// mock backend: a full successful v7 sync (init + upload + idempotent re-sync)
-// must run end to end against the in-memory server.
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: { getItem: () => null, setItem: () => undefined },
@@ -23,13 +19,10 @@ try {
   const settings = { owner: "qa", repo: "mock-vault", branch: "main", apiBaseUrl: server.url };
   const labels: string[] = [];
 
-  // First sync against an empty mock: initializes the vault and folds any local
-  // baseline into the initial checkpoint (pushed: 0 is correct here).
   const init = await syncWithGitHub(settings, "qa-token", (progress) => labels.push(progress.label));
   assert.equal(init.formatVersion, 9, "同步协议版本应为 9");
   assert.equal(init.remaining, 0, "初始化后应无待办");
 
-  // A change-set created AFTER the baseline exists is what the push path uploads.
   await createBankV7("同步后端契约测试题库");
   const pendingBefore = await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count();
   assert.ok(pendingBefore >= 1, "建库应产生待同步变更");
@@ -41,27 +34,29 @@ try {
 
   const committed = await dbV7.changeSets.where("state").equals("committed").count();
   assert.ok(committed >= 1, "变更应已提交到云端");
-  const pendingAfter = await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count();
-  assert.equal(pendingAfter, 0, "同步后本地无待办");
+  assert.equal(await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), 0, "同步后本地无待办");
 
-  // Third sync against the same mock state: nothing new to push, stays consistent.
   const again = await syncWithGitHub(settings, "qa-token");
   assert.equal(again.pushed, 0, "二次同步不应重复上传");
   assert.equal(again.remaining, 0);
 
-  // 本地图片资产（无 remote）在下次推送时必须先上传到 v7 asset namespace，
-  // 再以 image.asset.save 事件发布 remote descriptor。
+  // New images are physically published as packs. Per-image remote descriptors
+  // are deliberately absent after publication; the global Asset Index is the
+  // only runtime locator.
   const localImageBytes = Buffer.from("local-image-blob-bytes-for-push");
   const localImageDigest = createHash("sha256").update(localImageBytes).digest("hex");
   await putImageAssetV7({ id: localImageDigest, blob: new Blob([localImageBytes]), mimeType: "image/png", size: localImageBytes.length, width: 1, height: 1 });
-  assert.equal((await dbV7.imageAssets.get(localImageDigest))?.remote, undefined, "上传前不应有 remote descriptor");
+  const refUpdatesBeforeImage = server.stats.gitRefUpdates;
   const imagePush = await syncWithGitHub(settings, "qa-token");
-  assert.ok(imagePush.pushed >= 1, "图片资产上传应作为一组变更推送");
-  const publishedAsset = await dbV7.imageAssets.get(localImageDigest);
-  assert.ok(publishedAsset?.remote, "推送后应写回 remote descriptor");
-  assert.equal(publishedAsset.remote.path, `${SYNC_V7_ASSET_PREFIX}${localImageDigest}.png`, "图片资产路径应为 sync/v9/assets/<sha256>.png");
+  assert.ok(imagePush.pushed >= 1, "新图片应发布资产事件");
+  assert.equal(server.stats.gitRefUpdates - refUpdatesBeforeImage, 1, "一轮图片物理发布只能 fast-forward 一次 Git ref");
+  assert.equal((await dbV7.imageAssets.get(localImageDigest))?.remote, undefined, "Pack 发布后不得写回旧单图 remote descriptor");
+  assert.ok(server.contentPaths().includes(`${SYNC_V7_ASSET_PREFIX}index.json`), "远端必须存在 Asset Pack index 指针");
+  assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_V7_ASSET_PREFIX) && path.endsWith(".bin")), "远端必须存在内容寻址 Pack/shard");
+  assert.equal(server.contentPaths().includes(`${SYNC_V7_ASSET_PREFIX}${localImageDigest}.png`), false, "新协议不得创建单图路径");
 
-  // 图片题目的跨设备顺序：image.asset.save 必须先于 question.upsert 回放。
+  // image.asset.save is still ordered before a question event, but the event
+  // carries only logical image metadata. Binary location lives outside events.
   const imageQuestionBytes = Buffer.from("image-question-blob-bytes");
   const imageQuestionDigest = createHash("sha256").update(imageQuestionBytes).digest("hex");
   await putImageAssetV7({ id: imageQuestionDigest, blob: new Blob([imageQuestionBytes]), mimeType: "image/png", size: imageQuestionBytes.length, width: 1, height: 1 });
@@ -74,14 +69,13 @@ try {
     answer: "A",
   });
   const imageQuestionPush = await syncWithGitHub(settings, "qa-token");
-  assert.equal(imageQuestionPush.pushed, 2, "应推送 image.asset.save 与题目 batch 两组变更");
-  assert.ok(server.contentPaths().includes(`${SYNC_V7_ASSET_PREFIX}${imageQuestionDigest}.png`), "mock 远端应收到图片资产");
-  const imageQuestionAsset = await dbV7.imageAssets.get(imageQuestionDigest);
-  assert.ok(imageQuestionAsset?.remote, "题目图片资产应写回 remote descriptor");
+  assert.equal(imageQuestionPush.pushed, 2, "应推送 image.asset.save 与题目 batch 两组逻辑变更");
+  assert.equal((await dbV7.imageAssets.get(imageQuestionDigest))?.remote, undefined, "题目图片也不得恢复单图 remote descriptor");
+  assert.equal(server.contentPaths().includes(`${SYNC_V7_ASSET_PREFIX}${imageQuestionDigest}.png`), false, "题目图片不得落回旧单图路径");
 
-  // Excel/zip-style imports own all image descriptors inside ONE fixed import
-  // event. Asset PUTs run through six bounded lanes and only rewrite that event
-  // in place, so the pending badge cannot grow from 1 to N while images finish.
+  // Excel/ZIP-style imports keep one fixed question.import event. Eight images
+  // are physically grouped into packs and published through ONE Git commit/ref
+  // update, so request/commit count scales with packs rather than image count.
   const concurrentAssets = Array.from({ length: 8 }, (_, index) => {
     const bytes = Buffer.from(`concurrent-import-image-${index}-${"x".repeat(index + 1)}`);
     const id = createHash("sha256").update(bytes).digest("hex");
@@ -97,7 +91,7 @@ try {
   await importQuestionBankV7("并发图片导入.json", [{
     type: "单选",
     content: [
-      { type: "text", text: "并发上传图片" },
+      { type: "text", text: "Pack 批量上传图片" },
       ...concurrentAssets.map((asset) => ({ type: "image", assetId: asset.id })),
     ],
     options: ["甲", "乙"],
@@ -110,9 +104,10 @@ try {
   assert.equal(fixedMutation?.kind, "question.import");
   assert.equal(fixedMutation.images?.length, concurrentAssets.length, "固定事件应预先包含全部图片描述");
 
+  server.stats.gitBlobWrites = 0;
+  server.stats.gitCommitWrites = 0;
+  server.stats.gitRefUpdates = 0;
   server.stats.assetWrites = 0;
-  server.stats.maxConcurrentAssetWrites = 0;
-  server.setAssetWriteLatency(40);
   const imageProgressLabels: string[] = [];
   let maxPendingDuringSync = fixedPendingCount;
   const pendingMonitor = setInterval(() => {
@@ -122,29 +117,32 @@ try {
   }, 2);
   const concurrentPush = await syncWithGitHub(settings, "qa-token", (progress) => imageProgressLabels.push(progress.label));
   clearInterval(pendingMonitor);
-  server.setAssetWriteLatency(0);
   assert.equal(concurrentPush.pushed, 1, "图片导入应只发布原有的 1 个固定事件");
-  assert.equal(maxPendingDuringSync, fixedPendingCount, "同步期间事件数量不应随图片上传完成而增长");
-  assert.equal(server.stats.assetWrites, concurrentAssets.length, "每张新图片应上传一次");
-  assert.ok(server.stats.maxConcurrentAssetWrites >= 2, "图片 PUT 应实际并发重叠");
-  assert.ok(server.stats.maxConcurrentAssetWrites <= 6, "图片 PUT 并发不得超过 6 路上限");
+  assert.equal(maxPendingDuringSync, fixedPendingCount, "同步期间事件数量不应随图片发布而增长");
+  assert.equal(server.stats.assetWrites, 0, "Pack 协议不得调用 Contents API 写单图资产");
+  assert.equal(server.stats.gitCommitWrites, 1, "八张图片的物理资产发布必须只创建一个 Git commit");
+  assert.equal(server.stats.gitRefUpdates, 1, "八张图片的物理资产发布必须只更新一次 Git ref");
+  assert.ok(server.stats.gitBlobWrites < concurrentAssets.length, "八张小图应被聚合，Git blob 请求数必须小于图片数");
   assert.ok(imageProgressLabels.some((label) => /正在上传图片（\d+\/8，/.test(label)), "同步栏应显示图片张数和字节进度");
   assert.ok(imageProgressLabels.some((label) => /图片上传完成（8\/8，/.test(label)), "同步栏应显示图片上传完成进度");
-  assert.ok((await dbV7.imageAssets.bulkGet(concurrentAssets.map((asset) => asset.id))).every((asset) => asset?.remote), "并发上传后每张图片都应写回远端描述");
+  assert.ok((await dbV7.imageAssets.bulkGet(concurrentAssets.map((asset) => asset.id))).every((asset) => asset && !asset.remote), "Pack 发布后全部图片 descriptor 都应去掉单图 remote");
 
-  // Image-blob download round-trip: downloadImageAssetV7 must fetch a v7 Git
-  // blob by blobSha and verify integrity, independent of the legacy transport.
-  const imageBytes = Buffer.from("fake-png-bytes-for-roundtrip");
+  // Batch-backed single-image read: remove the local blob, then load it through
+  // Asset Index → shard → Pack. No legacy per-image path exists remotely.
+  const imageBytes = Buffer.from("pack-download-roundtrip");
   const imageDigest = createHash("sha256").update(imageBytes).digest("hex");
-  const imagePath = `${SYNC_V7_ASSET_PREFIX}${imageDigest}.png`;
-  const uploadedImage = await createGitHubV7Remote({ owner: settings.owner, repo: settings.repo, branch: "main", token: "qa-token", apiBaseUrl: server.url }).putImmutable({ path: imagePath, bytes: imageBytes, kind: "asset" });
-  await putImageAssetV7({ id: imageDigest, mimeType: "image/png", size: imageBytes.length, width: 1, height: 1, remote: { path: imagePath, blobSha: uploadedImage.blobSha, sha256: imageDigest, size: imageBytes.length } });
+  await putImageAssetV7({ id: imageDigest, blob: new Blob([imageBytes]), mimeType: "image/png", size: imageBytes.length, width: 1, height: 1 });
+  await syncWithGitHub(settings, "qa-token");
+  await dbV7.imageAssets.update(imageDigest, { blob: undefined });
+  const readsBefore = server.stats.blobReads;
   const downloaded = await downloadImageAssetV7(settings, "qa-token", imageDigest);
-  assert.equal(downloaded.size, imageBytes.length, "下载的图片 blob 大小应一致");
-  assert.equal(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex"), imageDigest, "下载的图片 blob sha256 应一致");
+  assert.equal(downloaded.size, imageBytes.length, "Pack 下载的图片 blob 大小应一致");
+  assert.equal(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex"), imageDigest, "Pack 下载图片 sha256 应一致");
+  assert.ok(server.stats.blobReads > readsBefore, "缓存缺失时应读取 shard/Pack blob");
 
-  // Empty-vault bootstrap follows the same rule: upload blobs first, rewrite
-  // the one import event, then fold it into the initial checkpoint.
+  // Empty-vault bootstrap follows the same physical rule: all initial images
+  // are packed before the initial checkpoint and still produce one Git ref
+  // update for their asset transaction.
   await resetV7Database();
   const bootstrapSettings = { ...settings, repo: "mock-vault-image-bootstrap" };
   const bootstrapAssets = Array.from({ length: 3 }, (_, index) => {
@@ -165,15 +163,44 @@ try {
     answer: "A",
   }], { imageAssets: bootstrapDescriptors });
   assert.equal(await dbV7.changeSets.where("state").equals("pending").count(), 1, "首次同步前也应只有一个固定导入事件");
-  const bootstrapWritesBefore = server.stats.assetWrites;
+  const bootstrapRefBefore = server.stats.gitRefUpdates;
+  const bootstrapCommitBefore = server.stats.gitCommitWrites;
   const bootstrapLabels: string[] = [];
   const bootstrap = await syncWithGitHub(bootstrapSettings, "qa-token", (progress) => bootstrapLabels.push(progress.label));
   assert.equal(bootstrap.remaining, 0, "首次同步完成后不应遗留补图片事件");
-  assert.equal(server.stats.assetWrites - bootstrapWritesBefore, bootstrapAssets.length, "首次检查点前应上传全部图片一次");
+  assert.equal(server.stats.gitRefUpdates - bootstrapRefBefore, 1, "首次三图也应只有一个资产 Git ref 更新");
+  assert.equal(server.stats.gitCommitWrites - bootstrapCommitBefore, 1, "首次三图也应只有一个资产 Git commit");
   assert.ok(bootstrapLabels.some((label) => /正在上传图片（\d+\/3，/.test(label)), "首次同步也应显示图片上传进度");
-  assert.ok((await dbV7.imageAssets.bulkGet(bootstrapAssets.map((asset) => asset.id))).every((asset) => asset?.remote), "首次同步应写回所有图片远端描述");
+  assert.ok((await dbV7.imageAssets.bulkGet(bootstrapAssets.map((asset) => asset.id))).every((asset) => asset && !asset.remote), "首次同步后 descriptor 不应保留单图 remote");
 
-  console.log("mock github backend sync contract passed");
+  // Explicit one-shot legacy migration: seed a real old per-image path, keep no
+  // local Blob, then sync. Migration is allowed to read that old blob once, but
+  // the SAME Asset Pack commit must remove the old path from the current tree.
+  await resetV7Database();
+  const legacySettings = { ...settings, repo: "mock-vault-legacy-image-migration" };
+  const legacyBytes = Buffer.from("legacy-single-image-to-pack");
+  const legacyDigest = createHash("sha256").update(legacyBytes).digest("hex");
+  const legacyPath = `${SYNC_V7_ASSET_PREFIX}${legacyDigest}.png`;
+  const legacyRemote = createGitHubV7Remote({ owner: legacySettings.owner, repo: legacySettings.repo, branch: "main", token: "qa-token", apiBaseUrl: server.url });
+  const legacyUpload = await legacyRemote.putImmutable({ path: legacyPath, bytes: legacyBytes, kind: "asset" });
+  await putImageAssetV7({
+    id: legacyDigest,
+    mimeType: "image/png",
+    size: legacyBytes.length,
+    width: 1,
+    height: 1,
+    remote: { path: legacyPath, blobSha: legacyUpload.blobSha, sha256: legacyDigest, size: legacyBytes.length },
+  });
+  assert.ok(server.contentPaths().includes(legacyPath), "迁移前旧单图路径必须真实存在");
+  const migrationRefBefore = server.stats.gitRefUpdates;
+  const legacySync = await syncWithGitHub(legacySettings, "qa-token");
+  assert.equal(legacySync.remaining, 0, "旧图一次性迁移后应无待办");
+  assert.equal(server.stats.gitRefUpdates - migrationRefBefore, 1, "旧图迁移只能产生一个 Asset Pack ref 更新");
+  assert.equal(server.contentPaths().includes(legacyPath), false, "迁移 commit 必须从当前 tree 删除旧单图路径");
+  assert.ok(server.contentPaths().includes(`${SYNC_V7_ASSET_PREFIX}index.json`), "迁移后当前 tree 必须安装 Pack index");
+  assert.equal((await dbV7.imageAssets.get(legacyDigest))?.remote, undefined, "迁移后本地 descriptor 必须切断旧 remote");
+
+  console.log("mock github backend sync + asset-pack migration contract passed");
 } finally {
   await server.close();
   dbV7.close();
