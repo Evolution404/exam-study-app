@@ -7,6 +7,32 @@ const replace = (file, before, after, label) => {
   fs.writeFileSync(file, source);
 };
 
+// Clean the presentational shell split after the migration moved ownership.
+replace(
+  "src/app/shell/app-shell.tsx",
+  ", balancedRandomSample, formatBuildTimestampShort, loadPreferences",
+  ", balancedRandomSample, loadPreferences",
+  "moved build formatter import",
+);
+replace(
+  "src/app/shell/app-shell.tsx",
+  "          menuOpen={sidebarOpen}\n",
+  "",
+  "unused topbar menuOpen prop",
+);
+replace(
+  "src/app/shell/topbar.tsx",
+  "export function ShellTopbar({ menuOpen, banks,",
+  "export function ShellTopbar({ banks,",
+  "unused menuOpen destructure",
+);
+replace(
+  "src/app/shell/topbar.tsx",
+  "  menuOpen: boolean;\n",
+  "",
+  "unused menuOpen type",
+);
+
 replace(
   "scripts/tests/test-sync-event-ui.ts",
   'import { readFile } from "node:fs/promises";',
@@ -82,4 +108,4 @@ for (const file of fs.readdirSync("scripts/tests").filter((name) => /\.(?:ts|mjs
 }
 
 fs.rmSync("scripts/tools/fix-split-style-tests-once.mjs");
-console.log("split-style tests migrated; v9-only checkpoint/compression contracts aligned; no test directly reads components.css");
+console.log("shell split cleaned; v9-only tests migrated; no test directly reads components.css");
