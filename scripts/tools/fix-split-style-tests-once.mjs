@@ -62,6 +62,18 @@ replace(
   fs.writeFileSync(file, source);
 }
 
+{
+  const file = "scripts/tests/test-sync-compression.ts";
+  let source = fs.readFileSync(file, "utf8");
+  const start = source.indexOf("// --- 5. 远端迁移");
+  const end = source.indexOf("// --- 6. storedSize");
+  if (start < 0 || end < 0 || end <= start) throw new Error("split-style test migration: obsolete compression migration section missing");
+  const replacement = `// --- 5. 退役迁移 API 不得重新暴露 -----------------------------------------\n{\n  const syncFacade = await import("../../src/lib/sync/github-sync-v7");\n  assert.equal("migrateVaultToCompressed" in syncFacade, false, "一次性压缩迁移 API 已退役，不得回到运行时 facade");\n}\n\n`;
+  source = source.slice(0, start) + replacement + source.slice(end);
+  source = source.replace("、迁移三场景", "、退役迁移 API 防回潮");
+  fs.writeFileSync(file, source);
+}
+
 for (const file of fs.readdirSync("scripts/tests").filter((name) => /\.(?:ts|mjs)$/.test(name))) {
   const source = fs.readFileSync(`scripts/tests/${file}`, "utf8");
   if (source.includes('src/app/styles/components.css')) {
@@ -70,4 +82,4 @@ for (const file of fs.readdirSync("scripts/tests").filter((name) => /\.(?:ts|mjs
 }
 
 fs.rmSync("scripts/tools/fix-split-style-tests-once.mjs");
-console.log("remaining split-style test readers migrated; v9-only checkpoint contract aligned; no test directly reads components.css");
+console.log("split-style tests migrated; v9-only checkpoint/compression contracts aligned; no test directly reads components.css");
