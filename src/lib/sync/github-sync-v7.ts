@@ -31,7 +31,5 @@ export {
   getLastRemoteCache,
   getSyncHotWindowState,
   restoreLastRemoteCache,
-  migrateVaultToCompressed,
-  backfillVaultStoredSizes,
 } from "./sync-v7-tools";
 export type { SyncHotWindowState } from "./sync-v7-tools";
