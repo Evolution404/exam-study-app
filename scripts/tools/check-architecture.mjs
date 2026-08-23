@@ -1,13 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const fail = (message) => { throw new Error(`架构检查失败：${message}`); };
 
 const tokens = read("src/app/styles/theme-tokens.css");
-const legacyComponents = read("src/app/styles/legacy-components.css");
 const appSources = fs.readdirSync(path.join(root, "src/app"), { recursive: true })
   .filter((file) => typeof file === "string" && /\.(tsx?|css)$/.test(file))
   .map((file) => ({ file, source: read(path.join("src/app", file)) }));
@@ -32,31 +30,6 @@ const collectSources = (dir) => fs.readdirSync(path.join(root, dir), { recursive
   .map((file) => `${dir}/${file}`);
 for (const file of [...collectSources("src/app"), ...collectSources("src/lib")]) {
   if (/edf4ef/i.test(read(file))) fail(`${file} 不得使用已禁用的冷薄荷绿 #edf4ef（用户明令全项目移除）`);
-}
-
-for (const { file, source } of appSources) {
-  if (file === "styles/theme-tokens.css" || file === "styles/legacy-components.css") continue;
-  if (/html\[data-theme=["']dark["']\]/.test(source)) fail(`${file} 不得添加页面级夜间补丁`);
-  if (/#[0-9a-fA-F]{3,8}\b/.test(source) && file.endsWith(".css")) fail(`${file} 必须使用主题令牌，不能硬编码颜色`);
-}
-
-let legacyColorBudget = 952;
-let legacyDarkSelectorBudget = 166;
-const colorCount = legacyComponents.match(/#[0-9a-fA-F]{3,8}\b/g)?.length ?? 0;
-const darkSelectorCount = legacyComponents.match(/html\[data-theme="dark"\]/g)?.length ?? 0;
-if (colorCount > legacyColorBudget) fail(`legacy CSS 硬编码颜色由 ${legacyColorBudget} 增至 ${colorCount}，只能减少`);
-if (darkSelectorCount > legacyDarkSelectorBudget) fail(`legacy CSS 页面级夜间选择器由 ${legacyDarkSelectorBudget} 增至 ${darkSelectorCount}，只能减少`);
-
-if (colorCount < legacyColorBudget || darkSelectorCount < legacyDarkSelectorBudget) {
-  const previousColorBudget = legacyColorBudget;
-  const previousDarkBudget = legacyDarkSelectorBudget;
-  legacyColorBudget = colorCount;
-  legacyDarkSelectorBudget = darkSelectorCount;
-  const selfPath = fileURLToPath(import.meta.url);
-  fs.writeFileSync(selfPath, fs.readFileSync(selfPath, "utf8")
-    .replace(/legacyColorBudget = \d+;/, `legacyColorBudget = ${colorCount};`)
-    .replace(/legacyDarkSelectorBudget = \d+;/, `legacyDarkSelectorBudget = ${darkSelectorCount};`));
-  console.log(`legacy CSS 预算棘轮已收紧并写回：颜色 ${previousColorBudget}→${legacyColorBudget}，夜间 ${previousDarkBudget}→${legacyDarkSelectorBudget}（请随本次变更提交）`);
 }
 
 const studyApp = read("src/app/shell/app-shell.tsx");
@@ -146,4 +119,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；legacy CSS 颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v9 namespace/head/checkpoint。`);
+console.log("架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");

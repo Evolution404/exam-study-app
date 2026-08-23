@@ -1,9 +1,12 @@
-/*
- * Transitional style entry point.
- *
- * The historical monolith is quarantined behind a shrinking ratchet. New
- * feature-owned CSS loads after it and must use theme tokens rather than
- * adding more declarations to the legacy file.
- */
-@import "./legacy-components.css";
+/* Component style composition. Feature files own declarations; this file owns order only. */
+@import "./base.css";
+@import "./primitives.css";
+@import "./shared.css";
 @import "./shell.css";
+@import "./dashboard.css";
+@import "./search.css";
+@import "./bank.css";
+@import "./practice.css";
+@import "./preferences.css";
+@import "./responsive.css";
+@import "./dark-overrides.css";

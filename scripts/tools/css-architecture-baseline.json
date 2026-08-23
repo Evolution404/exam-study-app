@@ -1,0 +1,126 @@
+{
+  "totalBytes": 250233,
+  "maxFileBytes": 43567,
+  "files": {
+    "src/app/globals.css": {
+      "bytes": 249,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/bank.css": {
+      "bytes": 30244,
+      "hexColors": 169,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/base.css": {
+      "bytes": 349,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/components.css": {
+      "bytes": 379,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/content-blocks.css": {
+      "bytes": 7443,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/controls.css": {
+      "bytes": 3794,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/dark-overrides.css": {
+      "bytes": 19555,
+      "hexColors": 302,
+      "darkSelectors": 166,
+      "important": 6
+    },
+    "src/app/styles/dashboard.css": {
+      "bytes": 7668,
+      "hexColors": 24,
+      "darkSelectors": 0,
+      "important": 1
+    },
+    "src/app/styles/hint.css": {
+      "bytes": 769,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/practice-setup.css": {
+      "bytes": 3250,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/practice.css": {
+      "bytes": 15229,
+      "hexColors": 62,
+      "darkSelectors": 0,
+      "important": 1
+    },
+    "src/app/styles/preferences.css": {
+      "bytes": 8920,
+      "hexColors": 19,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/primitives.css": {
+      "bytes": 7336,
+      "hexColors": 13,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/responsive.css": {
+      "bytes": 27452,
+      "hexColors": 15,
+      "darkSelectors": 0,
+      "important": 3
+    },
+    "src/app/styles/review-scope.css": {
+      "bytes": 13874,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 1
+    },
+    "src/app/styles/search.css": {
+      "bytes": 30201,
+      "hexColors": 96,
+      "darkSelectors": 0,
+      "important": 5
+    },
+    "src/app/styles/shared.css": {
+      "bytes": 43567,
+      "hexColors": 229,
+      "darkSelectors": 0,
+      "important": 2
+    },
+    "src/app/styles/shell.css": {
+      "bytes": 7752,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 3
+    },
+    "src/app/styles/sync-events.css": {
+      "bytes": 18249,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/theme-tokens.css": {
+      "bytes": 3953,
+      "hexColors": 88,
+      "darkSelectors": 1,
+      "important": 0
+    }
+  }
+}

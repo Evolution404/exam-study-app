@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 const manager = await readFile(new URL("../../src/app/sync/sync-event-manager.tsx", import.meta.url), "utf8");
 const drawer = await readFile(new URL("../../src/app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
@@ -89,7 +89,8 @@ assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\
 assert.match(studyApp, /syncApplication\.getHotWindow\(settings\)/, "drawer hot window state is loaded through the sync application boundary");
 // 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
 // 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
-const componentsCss = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const splitStyleNames = (await readdir(new URL("../../src/app/styles/", import.meta.url))).filter((file) => file.endsWith(".css")).sort();
+const componentsCss = (await Promise.all(splitStyleNames.map((file) => readFile(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")))).join("\n");
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
 // 热窗口底色必须与 settings-card 同底（--color-surface），不得用 muted 色形成色差。
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-surface\)/, "hot window background matches the settings card surface");

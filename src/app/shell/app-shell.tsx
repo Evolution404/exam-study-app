@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ChevronRight, ClipboardCheck, Cloud, Home, Library, Link2, ListFilter, LoaderCircle, Menu, Play, RefreshCw, Settings2, Sparkles, X } from "lucide-react";
+import { ClipboardCheck, LoaderCircle, Play, Sparkles, X } from "lucide-react";
 import { dbV7, getV7DeviceId, createPracticeRunV7, rebuildAttemptStatsFromAttemptsV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { syncApplication, type SyncProgress, type SyncHotWindowState } from "@/lib/sync/sync-application";
@@ -11,7 +11,6 @@ import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { SearchContentScope } from "@/app/search/search-matching";
 import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
-import { QuickSearch } from "@/app/search/quick-search";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useAppTheme, useAppViewport } from "@/app/hooks/use-app-environment";
@@ -22,8 +21,10 @@ import { classifyNoticeTone } from "@/lib/practice/notice-tone";
 import { persistConfigValue } from "@/platform/persistent-config";
 import { importQuestionBankFile, QUESTION_BANK_FILE_ACCEPT } from "@/lib/question/question-bank-file-import";
 import { SyncEventDrawer } from "@/app/sync/sync-event-drawer";
-import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, formatBuildTimestampShort, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
+import { BankLibraryView, KnowledgeView, LatestPracticeBanner, PracticeHistory, PracticeRunResult, PracticeSetupView, SCROLL_RESTORABLE_VIEWS, SearchView, SyncView, TYPE_ORDER, activePracticeFromRun, balancedRandomSample, loadPreferences, loadSelectedBankIds, modeLabels, quickFilter, randomOptionOrder, savePracticeProgress, setPracticeRunStatus, deletePracticeRun, shuffle, summarizeV7AttemptStats, toggleQuestionFavorite, type PracticeAnswerState, type PracticeFilter, type PracticePreferences, type PracticeRun, type View } from "./helpers";
 import { Dashboard, Practice, PreferencesView, PullToRefresh } from "./views";
+import { MobileTabbar, ShellSidebar } from "./navigation";
+import { ShellTopbar } from "./topbar";
 
 export function AppShell() {
   const [view, setView] = useState<View>("home");
@@ -845,17 +846,6 @@ export function AppShell() {
     changeSession((session) => ({ ...session, currentIndex: index }));
   }
 
-  const navItems = [
-    { id: "home" as const, label: "今日", icon: Home },
-    { id: "banks" as const, label: "题库", icon: Library },
-    { id: "practiceSetup" as const, label: "练习", icon: ListFilter },
-    { id: "relations" as const, label: "知识整理", icon: Link2 },
-    { id: "preferences" as const, label: "配置", icon: Settings2 },
-    { id: "settings" as const, label: "同步", icon: Cloud },
-  ];
-
-  const mobileNavItems = navItems.filter(({ id }) => id !== "settings").map((item) => item.id === "relations" ? { ...item, label: "整理" } : item);
-
   function openMainView(nextView: View) {
     if (nextView === "relations") setGroupQuestionIds([]);
     if (nextView === "practiceSetup") setPracticeHubTab("start");
@@ -871,31 +861,27 @@ export function AppShell() {
     <Tooltip.Provider delayDuration={250}>
     <main className={`app-shell font-${preferences.fontSize} transition-${preferences.questionTransition} transition-${practiceTransitionDirection < 0 ? "back" : "forward"}`}>
       <PullToRefresh />
-      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-        <div className="brand"><span className="brand-mark">拾</span><span>拾卷</span></div>
-        <nav>
-          {navItems.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={`${view === id ? "nav-active" : ""} ${id === "settings" ? "desktop-sync-nav" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
-              <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <span className="local-dot" />本地数据已保存
-          <small>{stats.pending ? `${stats.pending} 条等待同步` : "没有待同步更改"}</small>
-          <small className="sidebar-build"><code>{__APP_COMMIT_SHA__.slice(0, 7)}</code> · {formatBuildTimestampShort()}</small>
-        </div>
-      </aside>
-      <button className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`} aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
+      <ShellSidebar view={view} open={sidebarOpen} pending={stats.pending} onOpenView={openMainView} onClose={() => setSidebarOpen(false)} />
 
       <section ref={workspaceRef} className={`workspace ${view === "search" ? "view-search" : ""}`}>
-        <header className="topbar">
-          <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button>
-          <QuickSearch banks={banks} activeBankIds={activeBankIds} onOpenSearch={(keyword, questionId, contentScope) => { setQuery(keyword); openSearch(questionId, keyword, contentScope); }} />
-          <div className="quick-sync-split"><button className={`sync-pill quick-sync ${quickSyncing || quickRestoring ? "syncing" : ""} ${quickSyncHolding ? "holding" : ""}`} disabled={quickSyncing || quickRestoring} aria-label="单击立即同步，长按恢复本地记录" onPointerDown={beginQuickSyncPress} onPointerMove={moveQuickSyncPress} onPointerUp={endQuickSyncPress} onPointerCancel={cancelQuickSyncPress} onLostPointerCapture={cancelQuickSyncPress} onContextMenu={(event) => event.preventDefault()} onClick={(event) => { if (event.detail === 0) void quickSync(); }}><span className="quick-sync-icon"><svg className="quick-sync-progress" viewBox="0 0 32 32" aria-hidden="true"><circle className="track" cx="16" cy="16" r="14" /><circle className="value" cx="16" cy="16" r="14" /></svg>{quickSyncing || quickRestoring ? <LoaderCircle className="spin" size={18} /> : <RefreshCw size={18} />}</span><span className="quick-sync-label">{quickSyncHolding ? "恢复" : quickRestoring ? "恢复中" : quickSyncing ? "同步中" : "同步"}</span></button><button className="sync-queue-trigger" type="button" aria-label={`查看本次同步，共 ${stats.pending} 组待同步事件`} onClick={() => setSyncDrawerOpen(true)}>{stats.pending.toLocaleString("zh-CN")}<ChevronRight size={14} /></button></div>
-        </header>
-
-        {smoothQuickSyncProgress && <div className="top-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={smoothQuickSyncProgress.percent}><span>{smoothQuickSyncProgress.label}<em>{smoothQuickSyncProgress.percent}%</em></span><i aria-hidden="true"><b style={{ width: `${smoothQuickSyncProgress.percent}%` }} /></i></div>}
+        <ShellTopbar
+          banks={banks}
+          activeBankIds={activeBankIds}
+          syncing={quickSyncing}
+          restoring={quickRestoring}
+          holding={quickSyncHolding}
+          pending={stats.pending}
+          progress={smoothQuickSyncProgress}
+          onToggleMenu={() => setSidebarOpen(!sidebarOpen)}
+          onOpenSearch={(keyword, questionId, contentScope) => { setQuery(keyword); openSearch(questionId, keyword, contentScope); }}
+          onSync={() => void quickSync()}
+          onOpenQueue={() => setSyncDrawerOpen(true)}
+          onPointerDown={beginQuickSyncPress}
+          onPointerMove={moveQuickSyncPress}
+          onPointerUp={endQuickSyncPress}
+          onPointerCancel={cancelQuickSyncPress}
+          onLostPointerCapture={cancelQuickSyncPress}
+        />
 
         {notice && <div className={`toast ${classifyNoticeTone(notice)}`} role={classifyNoticeTone(notice) === "error" ? "alert" : "status"} aria-live={classifyNoticeTone(notice) === "error" ? "assertive" : "polite"} aria-atomic="true"><Sparkles size={16} aria-hidden="true" /><span>{notice}</span>{notice === "已放弃上次练习" && discardedRun && <button className="toast-action" onClick={() => void undoDiscardPractice()}>撤销</button>}<button aria-label="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div>}
         <input ref={fileRef} type="file" accept={QUESTION_BANK_FILE_ACCEPT} hidden onChange={(event) => onImport(event.target.files?.[0])} />
@@ -918,14 +904,7 @@ export function AppShell() {
       <ConfirmDialog open={Boolean(quickRestorePrompt)} eyebrow="恢复本地记录" title="确认恢复" tone="danger" busy={quickRestoring} progress={quickRestoring ? smoothQuickSyncProgress ?? quickSyncProgress : undefined} confirmLabel="确认恢复" onCancel={() => setQuickRestorePrompt(undefined)} onConfirm={() => void confirmQuickRestore()} description={quickRestorePrompt ? <><strong>恢复到本地 {new Date(quickRestorePrompt.cachedAt).toLocaleString("zh-CN")} 的记录</strong><span>共包含 {quickRestorePrompt.questionCount} 道题。当前设备在此时间之后产生的题库编辑、作答记录、解析、标签和练习进度将被放弃。</span></> : null} />
       <ConfirmDialog open={Boolean(quickRestoreSuccess)} eyebrow="数据恢复" title="恢复成功" tone="success" hideCancel confirmLabel="返回首页" onCancel={() => undefined} onConfirm={() => setQuickRestoreSuccess(undefined)} description={<><strong>本地数据已经恢复</strong><span>{quickRestoreSuccess} 已清空当前练习界面并返回首页。</span></>} />
       <ConfirmDialog open={finishPrompt !== undefined} eyebrow="结束本次练习" title="还有题目未作答" tone="danger" confirmLabel="仍然结束" onCancel={() => setFinishPrompt(undefined)} onConfirm={() => void completePractice()} description={<><strong>还有 {finishPrompt ?? 0} 道题未作答</strong><span>结束后会保存当前作答，并直接进入本次练习结果。</span></>} />
-      <nav className={`mobile-tabbar ${view === "practice" ? "hidden" : ""}`} aria-label="手机主导航">
-        {mobileNavItems.map(({ id, label, icon: Icon }) => (
-          <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => openMainView(id)}>
-            <Icon size={20} strokeWidth={view === id ? 2.2 : 1.8} />
-            <span>{label}</span>
-          </button>
-        ))}
-      </nav>
+      <MobileTabbar view={view} onOpenView={openMainView} />
     </main>
     </Tooltip.Provider>
   );

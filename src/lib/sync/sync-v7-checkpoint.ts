@@ -22,8 +22,6 @@ import type {
 } from "../db/v7-types";
 
 export const SYNC_V7_CHECKPOINT_FORMAT = 7 as const;
-/** 旧远程检查点格式：仅用于读取已发布的 v7 检查点，新检查点一律写 7。 */
-const SYNC_V7_CHECKPOINT_LEGACY_FORMAT = 6 as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -137,11 +135,7 @@ function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "
     if (asset.remote.size !== asset.size) fail(`state.imageAssets[${index}].remote.size must equal size`);
     const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
     const expectedPath = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
-    // Legacy namespaces remain readable for one release cycle so the one-time
-    // protocol migration can ingest unmigrated vaults and re-upload their
-    // assets into the current namespace.
-    const legacyExpectedPaths = [`sync/v8/assets/${asset.id}.${extension}`, `sync/v7/assets/${asset.id}.${extension}`, `sync/v6/assets/${asset.id}.${extension}`];
-    if (asset.remote.path !== expectedPath && !legacyExpectedPaths.includes(asset.remote.path)) {
+    if (asset.remote.path !== expectedPath) {
       fail(`state.imageAssets[${index}].remote.path must be ${expectedPath}`);
     }
   }
@@ -323,7 +317,7 @@ function validateStats(state: SyncCheckpointV7State, questions: Set<string>, att
 
 /** Strictly validate an unknown value as a complete v7 checkpoint. */
 export function validateSyncCheckpointV7(value: unknown): asserts value is SyncCheckpointV7 {
-  if (!isRecord(value) || (value.formatVersion !== SYNC_V7_CHECKPOINT_FORMAT && value.formatVersion !== SYNC_V7_CHECKPOINT_LEGACY_FORMAT)) fail("formatVersion must be 7（读取旧检查点时允许 6）");
+  if (!isRecord(value) || value.formatVersion !== SYNC_V7_CHECKPOINT_FORMAT) fail("formatVersion must be 7");
   assertDate(value.generatedAt, "generatedAt");
   if (!isRecord(value.state)) fail("state must be an object");
   normalizeStateAliases(value.state);
@@ -527,9 +521,6 @@ export function parseSyncCheckpointV7(bytes: Uint8Array | string): SyncCheckpoin
   try { parsed = JSON.parse(typeof bytes === "string" ? bytes : new TextDecoder().decode(bytes)) as unknown; } catch { throw new Error("远程 v7 检查点不是有效 JSON。"); }
   validateSyncCheckpointV7(parsed);
   const checkpoint = normalizeSyncCheckpointV7(parsed);
-  if ((checkpoint as { formatVersion?: unknown }).formatVersion === SYNC_V7_CHECKPOINT_LEGACY_FORMAT) {
-    (checkpoint as { formatVersion: number }).formatVersion = SYNC_V7_CHECKPOINT_FORMAT;
-  }
   return checkpoint;
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { isQuestionDoneInScope, normalizeProgressScope } from "../../src/lib/practice/progress-scope";
 import { classifyNoticeTone } from "../../src/lib/practice/notice-tone";
 import { resumeIndexAfterLastAnswer } from "../../src/lib/practice/practice-resume";
@@ -76,11 +76,12 @@ assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口�
 const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
-const componentStyles = readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const splitStyleNames = readdirSync(new URL("../../src/app/styles/", import.meta.url)).filter((file) => file.endsWith(".css")).sort();
+const componentStyles = splitStyleNames.map((file) => readFileSync(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")).join("\n");
 // 按钮体系统一：全局 .primary/.secondary 必须是 42px 高、10px 圆角的令牌化规格，
 // 主按钮不再叠加投影（与同行控件完全同高同角）；裸 <button> 无样式会回退浏览器默认灰底。
 assert.match(componentStyles, /\.secondary\s*\{[^}]*min-height:42px[^}]*var\(--color-surface-raised\)/, "全局二级按钮应为 42px 令牌化表面样式");
-const primaryRule = componentStyles.match(/\.primary\s*\{[^}]*\}/)?.[0] ?? "";
+const primaryRule = componentStyles.match(/\.primary\s*\{[^}]*min-height:\s*42px[^}]*\}/)?.[0] ?? "";
 assert.match(primaryRule, /min-height:42px/, "全局主按钮统一 42px 高");
 assert.match(primaryRule, /border-radius:10px/, "全局主按钮统一 10px 圆角");
 assert.doesNotMatch(primaryRule, /box-shadow/, "全局主按钮不再叠加投影");
@@ -149,7 +150,9 @@ assert.equal((shellHelpers.match(/recordPracticeAnswerV7\(/g) ?? []).length, 1, 
 assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(study, /buildScopedQuestionStats/);
 assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
-assert.match(study, /stats\.pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
+const topbar = source("shell/topbar.tsx");
+assert.match(study, /pending=\{stats\.pending\}/, "AppShell 应把真实待同步数量传给顶部栏");
+assert.match(topbar, /pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
 // 自动同步不卡界面：空闲调度与队列计数均下沉到同步 application/runtime，
 // React 只订阅轻量公开接口；本地归并仍逐条让出主线程且派生只跑一次。
 const syncRuntimeSource = readFileSync(new URL("../../src/lib/sync/sync-runtime.ts", import.meta.url), "utf8");
@@ -214,7 +217,8 @@ assert.match(quick, /export function QuickSearch/, "顶部搜索框应抽成独�
 assert.match(quick, /useState\(""\)/, "QuickSearch 应在内部管理草稿状态而非 StudyApp 顶层 query");
 assert.match(quick, /onOpenSearch\(draft\.trim\(\), questionId\)/, "QuickSearch 应在打开时提交草稿关键词");
 assert.doesNotMatch(quick, /window\.scrollTo\(0, 0\)/, "QuickSearch 聚焦时不应再用定时 scrollTo 干扰光标");
-assert.match(study, /<QuickSearch /, "StudyApp 应使用 QuickSearch 组件");
-assert.doesNotMatch(study, /value=\{query\}/, "StudyApp 不应再直接受控渲染顶部搜索输入框");
+assert.match(topbar, /<QuickSearch /, "顶部栏应使用 QuickSearch 组件");
+assert.doesNotMatch(study, /<QuickSearch /, "AppShell 不应再直接承载顶部搜索输入框");
+assert.doesNotMatch(study, /value=\{query\}/, "AppShell 不应再直接受控渲染顶部搜索输入框");
 
 console.log("v7 UI/data-flow assertions passed");
