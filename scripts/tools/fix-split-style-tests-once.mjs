@@ -66,11 +66,11 @@ replace(
   const file = "scripts/tests/test-sync-compression.ts";
   let source = fs.readFileSync(file, "utf8");
   const start = source.indexOf("// --- 5. 远端迁移");
-  const end = source.indexOf("// --- 6. storedSize");
-  if (start < 0 || end < 0 || end <= start) throw new Error("split-style test migration: obsolete compression migration section missing");
-  const replacement = `// --- 5. 退役迁移 API 不得重新暴露 -----------------------------------------\n{\n  const syncFacade = await import("../../src/lib/sync/github-sync-v7");\n  assert.equal("migrateVaultToCompressed" in syncFacade, false, "一次性压缩迁移 API 已退役，不得回到运行时 facade");\n}\n\n`;
+  const end = source.indexOf("await server.close();");
+  if (start < 0 || end < 0 || end <= start) throw new Error("split-style test migration: obsolete compression maintenance sections missing");
+  const replacement = `// --- 5. 退役维护 API 不得重新暴露 -----------------------------------------\n{\n  const syncFacade = await import("../../src/lib/sync/github-sync-v7");\n  assert.equal("migrateVaultToCompressed" in syncFacade, false, "一次性压缩迁移 API 已退役，不得回到运行时 facade");\n  assert.equal("backfillVaultStoredSizes" in syncFacade, false, "一次性 storedSize 补填 API 已退役，不得回到运行时 facade");\n}\n\n`;
   source = source.slice(0, start) + replacement + source.slice(end);
-  source = source.replace("、迁移三场景", "、退役迁移 API 防回潮");
+  source = source.replace("、迁移三场景", "、退役维护 API 防回潮");
   fs.writeFileSync(file, source);
 }
 
