@@ -47,6 +47,12 @@ function clientFor(settings: GitHubSettings, token: string, options: { fetch?: t
   });
 }
 
+async function verifiedRemoteBlob(asset: { id: string; mimeType: string; size: number }, bytes: Uint8Array): Promise<Blob> {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: asset.mimeType });
+  if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`图片 ${asset.id} 完整性校验失败。`);
+  return blob;
+}
+
 export async function downloadImageAssetV7(
   settings: GitHubSettings,
   token: string,
@@ -58,10 +64,42 @@ export async function downloadImageAssetV7(
   if (!descriptor) throw new Error("图片 descriptor 不存在。");
   const bytes = await readImageAssetFromPack(clientFor(settings, token, options), assetId);
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
-  const blob = new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType });
-  if (blob.size !== descriptor.size || await sha256Blob(blob) !== descriptor.id) throw new Error("远端图片完整性校验失败。");
+  const blob = await verifiedRemoteBlob(descriptor, bytes);
   await putImageAssetBlobV7(assetId, blob);
   return blob;
+}
+
+/** Resolve only the requested assets. Cached blobs stay local; all cache misses
+ * are resolved through one index/shard/Pack batch so callers such as bank export
+ * do not accidentally reintroduce one remote request chain per image. */
+export async function downloadImageAssetsV7(
+  settings: GitHubSettings,
+  token: string,
+  assetIds: readonly string[],
+  options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal } = {},
+): Promise<Map<string, Blob>> {
+  const ids = [...new Set(assetIds)];
+  const result = new Map<string, Blob>();
+  if (!ids.length) return result;
+  if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+
+  const descriptors = await dbV7.imageAssets.bulkGet(ids);
+  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !asset.blob));
+  for (const asset of descriptors) {
+    if (asset?.blob) result.set(asset.id, asset.blob);
+  }
+  if (!pending.length) return result;
+
+  const bytesById = await readImageAssetsFromPacks(clientFor(settings, token, options), pending.map((asset) => asset.id));
+  for (const asset of pending) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+    const bytes = bytesById.get(asset.id);
+    if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
+    const blob = await verifiedRemoteBlob(asset, bytes);
+    await putImageAssetBlobV7(asset.id, blob);
+    result.set(asset.id, blob);
+  }
+  return result;
 }
 
 async function downloadAllImageAssetsV7(
@@ -98,8 +136,7 @@ async function downloadAllImageAssetsV7(
     if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
     const bytes = bytesById.get(asset.id);
     if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
-    const blob = new Blob([bytes as unknown as BlobPart], { type: asset.mimeType });
-    if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`图片 ${asset.id} 完整性校验失败。`);
+    const blob = await verifiedRemoteBlob(asset, bytes);
     await putImageAssetBlobV7(asset.id, blob);
     completed += 1;
     completedBytes += blob.size;
@@ -109,6 +146,7 @@ async function downloadAllImageAssetsV7(
 }
 
 export const downloadImageAsset = downloadImageAssetV7;
+export const downloadImageAssets = downloadImageAssetsV7;
 export const downloadAllImageAssets = downloadAllImageAssetsV7;
 export const getImageCacheStats = getImageCacheStatsV7;
 export const clearImageCache = clearImageCacheV7;
