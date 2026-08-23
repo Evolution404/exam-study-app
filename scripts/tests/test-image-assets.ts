@@ -17,6 +17,7 @@ import {
   imageAssetIndexShardKey,
   parseImageAssetPack,
 } from "../../src/lib/sync/image-asset-pack";
+import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
 import { sha256HexBytes } from "../../src/lib/crypto/sha256";
 import { mapWithConcurrency } from "../../src/lib/async/bounded-concurrency";
 import type { ImageAsset } from "../../src/lib/db/v7-types";
@@ -32,6 +33,7 @@ const syncApplicationSource = await readFile(new URL("../../src/lib/sync/sync-ap
 const syncUploadSource = await readFile(new URL("../../src/lib/sync/sync-v7-upload.ts", import.meta.url), "utf8");
 const imageCacheSource = await readFile(new URL("../../src/lib/sync/image-asset-cache.ts", import.meta.url), "utf8");
 const imagePackSource = await readFile(new URL("../../src/lib/sync/image-asset-pack.ts", import.meta.url), "utf8");
+assert.equal(SYNC_V9_ASSET_PREFIX, "sync/v9/assets/", "Asset Pack root must stay inside the public v9 namespace");
 assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: ImageCacheDownloadProgressCallback\)/, "sync facade must expose image cache progress");
 assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
 assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");
