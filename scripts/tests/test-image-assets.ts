@@ -12,6 +12,7 @@ import {
   type ImageAssetAdapter,
 } from "../../src/lib/io/image-assets";
 import {
+  buildImageAssetPack,
   buildImageAssetPacks,
   extractImageAssetFromPack,
   imageAssetIndexShardKey,
@@ -241,6 +242,8 @@ const packFixtures = await Promise.all([
   packAsset([4, 4, 4]),
   packAsset([5, 5, 5, 5]),
 ]);
+const directPack = await buildImageAssetPack(packFixtures.slice(0, 2));
+assert.equal(directPack.entries.length, 2, "direct builder must preserve both logical assets");
 const builtPacks = await buildImageAssetPacks(packFixtures, { maxAssets: 2 });
 assert.equal(builtPacks.length, 3, "five images with maxAssets=2 must become three immutable packs");
 assert.ok(builtPacks.every((pack) => pack.entries.length <= 2));
