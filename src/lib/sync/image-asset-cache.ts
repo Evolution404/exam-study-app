@@ -2,20 +2,17 @@
 //
 // Image assets are content-addressed descriptors stored in dbV7.imageAssets;
 // only the lazy download needs a remote, and v7's GitHubV7Remote reads the
-// same Git blobs (by blobSha) that the legacy v7 transport did.  These helpers
-// live outside the sync modules so the v7 transport can be removed without
-// touching the cache surface the app consumes through the sync facade.
-import { clearImageCacheV7, dbV7, getImageAssetBlobV7, getImageAssetDescriptorV7, putImageAssetBlobV7 } from "../db/db-v7";
+// same Git blobs (by blobSha) that the legacy v7 transport did. These helpers
+// live outside the sync modules so transport changes do not leak into the UI.
+import { clearImageCacheV7, dbV7, getImageAssetDescriptorV7, putImageAssetBlobV7 } from "../db/db-v7";
 import { sha256Blob } from "../io/image-assets";
 import { mapWithConcurrency } from "../async/bounded-concurrency";
 import { createGitHubV7Remote } from "./github-v7-remote";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 
-export { clearImageCacheV7, getImageAssetBlobV7 };
-
 /** Image cache downloads share the same six-lane budget as sync asset upload. */
-export const IMAGE_CACHE_DOWNLOAD_CONCURRENCY = 6;
+const IMAGE_CACHE_DOWNLOAD_CONCURRENCY = 6;
 
 export interface ImageCacheDownloadProgress {
   /** Number of missing image assets written to the local cache. */
@@ -32,7 +29,7 @@ export interface ImageCacheDownloadProgress {
 
 export type ImageCacheDownloadProgressCallback = (progress: ImageCacheDownloadProgress) => void;
 
-export async function getImageCacheStatsV7() {
+async function getImageCacheStatsV7() {
   const assets = await dbV7.imageAssets.toArray();
   return {
     total: assets.length,
@@ -62,7 +59,7 @@ export async function downloadImageAssetV7(settings: GitHubSettings, token: stri
   return blob;
 }
 
-export async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {}): Promise<number> {
+async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {}): Promise<number> {
   const assets = await dbV7.imageAssets.toArray();
   const pending = assets.filter((asset) => !asset.blob);
   const total = pending.length;
