@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - name: Strict dead-code audit
         run: npx knip --include files,exports,types,dependencies,unlisted,unresolved
+      - name: CSS architecture ratchets
+        if: always()
+        run: node scripts/tools/check-css-architecture.mjs
       - name: CSS governance baseline
         if: always()
         run: node scripts/tools/report-css-governance.mjs
