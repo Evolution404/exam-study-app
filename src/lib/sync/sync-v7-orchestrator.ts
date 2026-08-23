@@ -6,6 +6,7 @@ import {
   dbV7,
   discardPendingChangeSetV7,
   getV7DeviceId,
+  dropLegacyLocalDatabases,
   listChangeSetsV7,
   releaseChangeSetClaimV7,
   type ChangeSetQueueRecordV7,
@@ -492,6 +493,9 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
     await saveInstalledHead(settings, installFingerprint(read.cache));
     await saveInstalledCursors(settings, read.head.cursors);
     await pruneCommittedChangeSets(read.head.cursors);
+    // The v9 projection is fully installed and cached on this device; the
+    // superseded pre-upgrade local namespaces can now be released.
+    await dropLegacyLocalDatabases();
     report(callback, "complete", "v9 远端恢复完成", 100);
     return { pulled: downloaded.changes.length, formatVersion: 9 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns, skippedArchivedAttempts: downloaded.skippedArchivedAttempts, skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart };
   });

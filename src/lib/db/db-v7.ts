@@ -19,6 +19,7 @@ export {
   dbV7Ready,
   V7StudyDatabase,
   resetV7Database,
+  dropLegacyLocalDatabases,
 } from "./db-v7-core";
 export type {
   PracticeAnswerV7,

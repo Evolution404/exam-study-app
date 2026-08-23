@@ -315,3 +315,15 @@ export async function resetV7Database(): Promise<void> {
   await Dexie.delete(V7_DATABASE_NAME);
   await dbV7.open();
 }
+
+/**
+ * Superseded local namespaces, dropped only after the first successful v9
+ * remote restore proves the content is safely back on this device.  Failures
+ * are ignored: a leftover legacy database wastes space but harms nothing.
+ */
+const LEGACY_LOCAL_DATABASE_NAMES = ["shijuan-study-v7", "shijuan-study-v6"] as const;
+
+export async function dropLegacyLocalDatabases(): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  await Promise.all(LEGACY_LOCAL_DATABASE_NAMES.map((name) => Dexie.delete(name).catch(() => undefined)));
+}

@@ -88,7 +88,7 @@ export interface SyncV7HeadMetadata {
   producer?: string;
   /** Immutable source pin recorded by the one-shot v7→v8 migration. */
   migratedFrom?: {
-    path: "sync/v7/head.json";
+    path: "sync/v7/head.json" | "sync/v8/head.json";
     blobSha: string;
     generation: number;
   };
@@ -322,7 +322,7 @@ function validateMetadata(value: unknown, field: string, vaultId: string): asser
   if (value.producer !== undefined && (typeof value.producer !== "string" || value.producer.length > 128)) fail(`${field}.producer is invalid`);
   if (value.migratedFrom !== undefined) {
     if (!isRecord(value.migratedFrom)) fail(`${field}.migratedFrom must be an object`);
-    if (value.migratedFrom.path !== "sync/v7/head.json") fail(`${field}.migratedFrom.path is invalid`);
+    if (value.migratedFrom.path !== "sync/v7/head.json" && value.migratedFrom.path !== "sync/v8/head.json") fail(`${field}.migratedFrom.path is invalid`);
     assertSha(value.migratedFrom.blobSha, `${field}.migratedFrom.blobSha`, SHA1);
     assertSafeInteger(value.migratedFrom.generation, `${field}.migratedFrom.generation`, 0);
   }

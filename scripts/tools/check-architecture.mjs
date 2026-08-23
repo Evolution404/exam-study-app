@@ -78,8 +78,8 @@ if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study["']/.test(dbV7Core) || !/super\(V
   || v7DatabaseVersions.length !== 1 || v7DatabaseVersions[0] !== 1) {
   fail("公开客户端必须使用全新 shijuan-study 数据库命名空间，schema 只声明一次且从版本 1 开始");
 }
-if (/shijuan-study-v6|migrateLegacy/.test(dbV7Core)) {
-  fail("本地数据库核心不得保留旧 schema 运行时兼容；内容只能通过 v9 远程恢复回来");
+if (/migrateLegacy|indexedDB\.open/.test(dbV7Core)) {
+  fail("本地数据库核心不得保留旧 schema 运行时兼容（旧命名空间只能出现在恢复后的清理删除清单里）");
 }
 
 const sync = read("src/lib/sync/github-sync.ts");
@@ -117,7 +117,7 @@ if (!/SYNC_V9_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncV7Head)
 }
 
 const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
-  .filter((file) => typeof file === "string" && file.endsWith(".ts") && file !== "sync-v8-protocol-migration.ts")
+  .filter((file) => typeof file === "string" && file.endsWith(".ts") && file !== "sync-v9-protocol-migration.ts")
   .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
 for (const { file, source } of activeSyncSources) {
   if (/sync\/v7\//.test(source) && !["sync-v7-checkpoint.ts", "sync-v7-head.ts"].includes(file)) fail(`${file} 不得访问旧 v7 远端 namespace；兼容读取只能留在一次性迁移模块`);
