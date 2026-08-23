@@ -150,11 +150,19 @@ export function AppShell() {
 
   useEffect(() => {
     if (bankRows === undefined) return;
-    const next = selectedBankIds.filter((id) => bankRows.some((bank) => bank.id === id && isBankEnabled(bank)));
-    if (next.length === selectedBankIds.length && next.every((id, index) => id === selectedBankIds[index])) return;
-    setSelectedBankIds(next);
-    localStorage.setItem("study-current-banks", JSON.stringify(next));
-  }, [bankRows, selectedBankIds]);
+    const enabledIds = new Set(bankRows.filter(isBankEnabled).map((bank) => bank.id));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSelectedBankIds((current) => {
+        const next = current.filter((id) => enabledIds.has(id));
+        if (next.length === current.length && next.every((id, index) => id === current[index])) return current;
+        localStorage.setItem("study-current-banks", JSON.stringify(next));
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [bankRows]);
   const latestPracticeRun = useLiveQuery(async () => {
     return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1));
   }, []);
