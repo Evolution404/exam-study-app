@@ -17,5 +17,6 @@ export {
   clearImageCache,
   downloadAllImageAssets,
   downloadImageAsset,
+  downloadImageAssets,
   getImageCacheStats,
 } from "./image-asset-cache";
