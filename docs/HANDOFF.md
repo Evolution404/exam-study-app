@@ -28,10 +28,11 @@ src/app/
   bank/        # bank-library-view, question-editor, question-detail,
                # content-block-editor, content-block-renderer, excel-import, knowledge-view
   sync/        # sync-view, sync-event-manager, sync-event-drawer, sync-hot-window
-  shell/        # 应用外壳：app-shell, helpers, views
+  shell/       # 应用外壳：app-shell, navigation, topbar, helpers, views
   hooks/       # use-app-environment
-  styles/      # theme-tokens.css, components.css, controls.css, content-blocks.css,
-               # review-scope.css, sync-events.css, hint.css
+  styles/      # components.css 只负责导入顺序；base/primitives/shared/shell/dashboard/search/
+               # bank/practice/preferences/responsive/dark-overrides 为拆分后的主样式域；另有
+               # theme-tokens, controls, content-blocks, review-scope, sync-events, hint
 src/lib/       # 领域逻辑：db / sync / question / io / practice
 src/platform/  # Web/iOS 平台适配：环境、运行时、transport、凭据、配置、生命周期、文件与反馈
 proxy/         # GitHub API 转发代理源码
@@ -40,7 +41,7 @@ functions/     # 构建生成：functions/api-github/[[path]].js（不要手写�
 scripts/
   tools/       # 构建/检查/生成工具
   tests/       # 所有测试脚本
-src/types/      # 全局类型声明
+src/types/     # 全局类型声明
 public/        # 静态资源与 PWA
 docs/          # 项目文档
 ```
@@ -81,6 +82,8 @@ docs/          # 项目文档
   `src/app/bank/content-block-editor.tsx`, `src/app/bank/content-block-renderer.tsx`, `src/app/ui/asset-image.tsx`
 - 导入导出：`src/lib/io/xlsx-import.ts`, `src/lib/io/xlsx-export.ts`, `src/lib/question/question-bank-file-import.ts`,
   `src/lib/question/question-bank-export.ts`, `src/lib/question/question-bank-bundle.ts`
+- CSS 架构：`src/app/styles/components.css`, `scripts/tools/check-css-architecture.mjs`, `scripts/tools/css-architecture-baseline.json`
+- Shell 边界：`src/app/shell/app-shell.tsx`, `src/app/shell/navigation.tsx`, `src/app/shell/topbar.tsx`
 
 ## 5. 代理与部署
 
@@ -105,6 +108,8 @@ docs/          # 项目文档
 8. iOS native 不注册 Service Worker；业务层不得因为 native 环境复制一套题库、练习或同步实现。
 9. iOS Token 不落 `localStorage`；Keychain、Preferences、lifecycle、haptics、Filesystem、Share 只能经 `src/platform/` adapter 使用。
 10. Native HTTP 未启用；所有 GitHub 请求仍经统一 `GitHubTransport` 与默认/自定义 Relay，禁止错误时静默直连 GitHub。
+
+`scripts/tools/check-css-architecture.mjs` 会强制已拆分 CSS 文件存在、`components.css` 保持为纯导入入口、`:global()` 与 legacy token alias 保持为 0，并对总 CSS 体积、最大单文件、逐文件硬编码颜色、dark selector 与 `!important` 实施只降不升的基线棘轮。新增 CSS 文件默认不得带入这些历史债务。
 
 `scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `src/app/ui/hint.tsx` 的 `Hint` 组件。
 
@@ -158,9 +163,9 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA �
 
 ## 8. 已知非阻断项
 
-- 构建已通过 vendor 分包将主入口降至 352 KiB（gzip 约 110 KiB），当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
-- 自动化覆盖 Chromium 桌面/手机视口；Safari、Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵。
-- 浏览器与 PWA 测试默认使用 `npm run browser:install` 安装的 Playwright Chromium；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
+- 构建已通过 vendor 分包将主入口控制在约 224 KiB，当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
+- PR CI 覆盖 Playwright Chromium 与 WebKit smoke；Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵，Safari 真机仍不能由 WebKit smoke 完全替代。
+- 浏览器与 PWA 测试通过项目 Playwright 安装流程准备浏览器；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
 - 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
 - GitHub API 首次图片获取在中国大陆网络下仍取决于 GitHub 可达性；成功缓存后答题不再访问 GitHub。
 - iOS Personal Team 签名、覆盖安装数据保持、深色模式、横竖屏、前后台 catch-up、文件 Share Sheet、真实 haptics 和多设备交叉同步需要连接 Xcode/真机按 `docs/TESTING.md` 手工检查；浏览器 e2e 不能替代它们。
@@ -168,4 +173,4 @@ Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA �
 
 ## 9. 新任务第一步
 
-> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用只使用 v7 DB / v7 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。
+> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用使用 v7 本地 DB / v9 远端 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。
