@@ -39,7 +39,10 @@ function fakeWorkerHarness(): FakeWorkerHarness {
       worker.onmessage?.({ data: response } as MessageEvent<IoWorkerResponse>);
     },
     crash() {
-      worker.onerror?.(new ErrorEvent("worker"));
+      // The client's onerror handler only tears down the worker and falls
+      // back; it never reads the event. A minimal object avoids relying on the
+      // global ErrorEvent, which Node 22 (the CI runtime) does not provide.
+      worker.onerror?.({ message: "worker crash" } as ErrorEvent);
     },
   };
 }
