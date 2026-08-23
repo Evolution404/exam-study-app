@@ -22,6 +22,9 @@ const count = (pattern) => Number(output.match(pattern)?.[1] ?? 0);
 const unusedExports = count(/Unused exports \((\d+)\)/);
 const unusedTypes = count(/Unused exported types \((\d+)\)/);
 
+if (unusedExports > unusedExportsBudget || unusedTypes > unusedTypesBudget) {
+  console.error(output.trim());
+}
 if (unusedExports > unusedExportsBudget) {
   throw new Error(`Unused exports increased from budget ${unusedExportsBudget} to ${unusedExports}.`);
 }
