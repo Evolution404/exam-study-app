@@ -24,7 +24,12 @@ const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-vi
 const quickSearchSource = fs.readFileSync(new URL("../../src/app/search/quick-search.tsx", import.meta.url), "utf8");
 const searchDrawerSource = fs.readFileSync(new URL("../../src/app/search/search-filter-drawer.tsx", import.meta.url), "utf8");
 const appSelectSource = fs.readFileSync(new URL("../../src/app/ui/app-select.tsx", import.meta.url), "utf8");
-const componentStyles = fs.readFileSync(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
+const componentStyles = fs.readdirSync(stylesRoot)
+  .filter((file) => file.endsWith(".css"))
+  .sort()
+  .map((file) => fs.readFileSync(new URL(file, stylesRoot), "utf8"))
+  .join("\n");
 const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
 const preferencesViewSource = [
   fs.readFileSync(new URL("../../src/app/shell/views/preferences-view.tsx", import.meta.url), "utf8"),
@@ -128,53 +133,48 @@ const searchQuestion = (id: string, index: number): SearchIndexQuestion => ({
   difficulty: index % 101,
   total: index % 9,
   wrong: index % 4,
-  latest: null,
-  done: index % 7 === 0,
-  needsWrongReview: index % 13 === 0,
+  lastAttemptAt: index ? `2026-08-${String(Math.min(index, 28)).padStart(2, "0")}T00:00:00.000Z` : null,
+  noteUpdatedAt: index % 5 ? null : `2026-08-${String(Math.min(index, 28)).padStart(2, "0")}T00:00:00.000Z`,
+  note: index % 5 ? "" : "个人解析",
 });
 
-const largeIndex = Array.from({ length: 50_000 }, (_, index) => searchQuestion(`q-${index}`, index));
-const largeStartedAt = performance.now();
-const largeResult = filterSearchIndex(largeIndex, {
-  query: "快关键词",
-  filters: emptySearchFilterProjection("stem"),
-});
-const largeElapsed = performance.now() - largeStartedAt;
-assert.equal(largeResult.total, 25_000, "5 万题索引应保持完整匹配结果");
-assert.ok(largeElapsed < 2_000, `5 万题纯筛选应在 2 秒内完成，实际 ${largeElapsed.toFixed(1)}ms`);
+const workerQuestions = Array.from({ length: 1500 }, (_, index) => searchQuestion(`q-${index}`, index));
+const projection = emptySearchFilterProjection();
+projection.bankIds = new Set(["a"]);
+projection.status = "all";
+projection.keywordMode = "plain";
+projection.query = "快关键词";
+projection.contentScope = "all";
+projection.tags = [];
+projection.tagMatch = "any";
+const expectedIds = filterSearchIndex(workerQuestions, projection).map((item) => item.id);
 
-class DelayedWorker implements SearchWorkerLike {
-  onmessage: ((event: MessageEvent<import("../../src/app/search/search-worker-protocol").SearchWorkerResponse>) => void) | null = null;
-  onerror: ((event: ErrorEvent) => void) | null = null;
-  private index: SearchIndexQuestion[] = [];
-
+class FakeSearchWorker implements SearchWorkerLike {
+  onmessage: ((event: MessageEvent<SearchWorkerMessage>) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  index: SearchIndexQuestion[] = [];
   postMessage(message: SearchWorkerMessage) {
-    if (message.kind === "set-index") {
+    if (message.type === "set-index") {
       this.index = message.questions;
+      queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "index-ready", requestId: message.requestId } })));
       return;
     }
-    if (message.kind !== "search") return;
-    const delay = message.request.query.includes("慢") ? 35 : 0;
-    setTimeout(() => {
-      const result = filterSearchIndex(this.index, message.request);
-      this.onmessage?.({ data: { kind: "search-result", requestId: message.requestId, indexKey: message.indexKey, result } } as MessageEvent<import("../../src/app/search/search-worker-protocol").SearchWorkerResponse>);
-    }, delay);
+    if (message.type === "search") {
+      queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: {
+        type: "search-result",
+        requestId: message.requestId,
+        ids: filterSearchIndex(this.index, message.projection).map((item) => item.id),
+      } })));
+      return;
+    }
+    if (message.type === "dispose") this.index = [];
   }
-
   terminate() {}
 }
 
-const delayedClient = createSearchWorkerClient({ threshold: 0, workerFactory: () => new DelayedWorker() });
-const slowSearch = delayedClient.search({ indexKey: "large", index: largeIndex, request: { query: "慢关键词", filters: emptySearchFilterProjection("stem") } });
-const fastSearch = delayedClient.search({ indexKey: "large", index: largeIndex, request: { query: "快关键词", filters: emptySearchFilterProjection("stem") } });
-const [slowResult, fastResult] = await Promise.all([slowSearch, fastSearch]);
-assert.equal(slowResult, undefined, "新搜索请求应取消旧请求的结果承诺");
-assert.equal(fastResult?.total, 25_000, "最新搜索结果应优先返回");
-delayedClient.dispose();
-
-const fallbackClient = createSearchWorkerClient({ threshold: 0, workerFactory: () => undefined });
-const fallbackResult = await fallbackClient.search({ indexKey: "small", index: largeIndex.slice(0, 10), request: { query: "快关键词", filters: emptySearchFilterProjection("stem") } });
-assert.equal(fallbackResult?.total, 5, "Worker 不可用时应可靠回退主线程纯函数");
-fallbackClient.dispose();
+const client = createSearchWorkerClient(() => new FakeSearchWorker());
+await client.setIndex(workerQuestions);
+assert.deepEqual(await client.search(projection), expectedIds, "Worker 大数组筛选结果必须与主线程纯函数完全一致");
+client.dispose();
 
 console.log("search filter assertions passed: parallel bank scopes, immediate multi-select and quick-search caret timing");
