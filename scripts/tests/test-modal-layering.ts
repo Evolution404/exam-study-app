@@ -42,7 +42,7 @@ assert.ok(studyApp.includes("top-sync-progress") || read("src/app/shell/topbar.t
 assert.ok(syncView.includes("progress={smoothProgress}"), "sync view must show (smoothed) progress in a modal");
 assert.ok(credentials.includes("localStorage.setItem(tokenKey, token)"), "GitHub token must survive a closed mobile tab");
 assert.match(styles, /\.mobile-sync-settings\s*\{[^}]*display:\s*block/, "mobile configuration must include sync settings");
-assert.match(styles, /\.desktop-shortcut-settings\s*\{[^}]*display:\s*none\s*!important/, "mobile configuration must hide keyboard shortcuts");
+assert.match(styles, /\.desktop-shortcut-settings[^{]*\{[^}]*display:\s*none\s*!important/, "mobile configuration must hide keyboard shortcuts even when the rule groups selectors");
 assert.ok(practiceView.includes('matchMedia("(max-width: 760px)").matches) return'), "mobile practice must disable keyboard shortcut listeners");
 
 console.log("modal and mobile UI tests passed: layering, progress, persistent credentials, merged settings and shortcut disabling");
