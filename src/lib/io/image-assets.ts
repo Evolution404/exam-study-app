@@ -1,5 +1,4 @@
 import { sha256DigestHex } from "../crypto/sha256";
-import { SYNC_V9_ASSET_PREFIX } from "../sync/sync-v7-head";
 
 /**
  * Browser image optimisation and content-addressed asset helpers.
@@ -143,8 +142,7 @@ function isBlobLike(value: unknown): value is Blob {
 function normalizeMimeType(value: unknown): string {
   if (typeof value !== "string") return "";
   // Blob MIME values are deliberately strict here: parameters such as
-  // `;charset=utf-8` are not part of the image allowlist or remote extension
-  // mapping.
+  // `;charset=utf-8` are not part of the image allowlist.
   return value.trim().toLowerCase();
 }
 
@@ -156,12 +154,6 @@ function assertImageMimeType(value: unknown, field = "MIME 类型"): asserts val
   const mimeType = normalizeMimeType(value);
   if (!isImageMimeType(mimeType)) {
     throw new TypeError(`${field}不受支持，仅允许 WebP、JPEG 或 PNG`);
-  }
-}
-
-function assertDigest(value: unknown): asserts value is string {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
-    throw new TypeError("图片内容地址必须是 64 位小写 SHA-256 十六进制摘要");
   }
 }
 
@@ -501,7 +493,7 @@ export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
   return sha256DigestHex(bytes);
 }
 
-/** Strictly map an output MIME to its remote extension. */
+/** Strictly map an output MIME to its file extension. */
 export function imageExtensionForMime(mimeType: string): "webp" | "jpg" | "png" {
   const normalized = normalizeMimeType(mimeType);
   assertImageMimeType(normalized);
@@ -515,12 +507,6 @@ export function imageMimeForExtension(extension: string): ImageMimeType {
   const mimeType = IMAGE_MIME_BY_EXTENSION[normalized];
   if (!mimeType) throw new TypeError("图片扩展名不受支持，仅允许 webp、jpg、jpeg 或 png");
   return mimeType;
-}
-
-/** Build the immutable v7 content-addressed remote path. */
-export function remoteAssetPath(id: string, mimeType: string): string {
-  assertDigest(id);
-  return `${SYNC_V9_ASSET_PREFIX}${id}.${imageExtensionForMime(mimeType)}`;
 }
 
 function normaliseEstimateNumber(value: unknown): number | undefined {

@@ -5,18 +5,22 @@ import {
   cacheOccupancyStats,
   estimateCacheOccupancy,
   optimizeImageBlob,
-  remoteAssetPath,
   sha256Blob,
   type DecodedImage,
   type EncodeImageOptions,
   type ImageAssetAdapter,
 } from "../../src/lib/io/image-assets";
+import {
+  buildImageAssetPack,
+  buildImageAssetPacks,
+  extractImageAssetFromPack,
+  imageAssetIndexShardKey,
+  parseImageAssetPack,
+} from "../../src/lib/sync/image-asset-pack";
+import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
 import { sha256HexBytes } from "../../src/lib/crypto/sha256";
 import { mapWithConcurrency } from "../../src/lib/async/bounded-concurrency";
-
-function expectThrow(action: () => unknown, pattern: RegExp): void {
-  assert.throws(action, pattern);
-}
+import type { ImageAsset } from "../../src/lib/db/v7-types";
 
 async function expectReject(action: () => Promise<unknown>, pattern: RegExp): Promise<void> {
   await assert.rejects(action, pattern);
@@ -26,12 +30,22 @@ const source = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "image/jpeg" });
 
 const imageCacheSettingSource = await readFile(new URL("../../src/app/shell/views/image-cache-setting.tsx", import.meta.url), "utf8");
 const syncApplicationSource = await readFile(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
+const syncUploadSource = await readFile(new URL("../../src/lib/sync/sync-v7-upload.ts", import.meta.url), "utf8");
+const imageCacheSource = await readFile(new URL("../../src/lib/sync/image-asset-cache.ts", import.meta.url), "utf8");
+const imagePackSource = await readFile(new URL("../../src/lib/sync/image-asset-pack.ts", import.meta.url), "utf8");
+assert.equal(SYNC_V9_ASSET_PREFIX, "sync/v9/assets/", "Asset Pack root must stay inside the public v9 namespace");
 assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: ImageCacheDownloadProgressCallback\)/, "sync facade must expose image cache progress");
 assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
 assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");
+assert.match(syncUploadSource, /publishImageAssetsAsPacks/, "sync upload must publish image packs instead of individual image files");
+assert.doesNotMatch(syncUploadSource, /putImmutable\([\s\S]*sha256:\s*asset\.id/, "sync upload must not create one immutable Git file per image");
+assert.match(imageCacheSource, /readImageAssetsFromPacks/, "full image cache must batch by pack instead of requesting every image blob");
+assert.match(imagePackSource, /for \(const group of groupImageAssetsForPacks\(pendingBase\)\)/, "one-shot migration must hydrate and upload one bounded pack group at a time");
+assert.match(imagePackSource, /if \(assets\.every\(\(asset\) => isIndexed\(knownShards, asset\)\)\) return \[\];/, "idempotent pack publication must use the cached index fast path before Git ref reads");
+assert.doesNotMatch(imagePackSource, /const pending = await mapWithConcurrency\(pendingBase/, "migration must not hydrate every legacy image into memory at once");
 
 // The shared pool must preserve order, cap active work and stop claiming new
-// items after the first worker error.  This protects import/export/image-cache
+// items after the first worker error. This protects import/export/image-cache
 // callers from turning one bad asset into an unbounded queue.
 {
   let active = 0;
@@ -152,7 +166,7 @@ const fallback = await optimizeImageBlob(source, {
 });
 assert.equal(fallback.mimeType, "image/jpeg");
 
-// A large source still reaches a fallback when WebP is unavailable.  Exercise
+// A large source still reaches a fallback when WebP is unavailable. Exercise
 // both browser-style null and thrown encoder failures; the first MIME must not
 // consume the independent JPEG/PNG budget.
 for (const unavailable of ["null", "throw"] as const) {
@@ -200,13 +214,46 @@ const [first, second] = await Promise.all([
 ]);
 assert.equal(first.id, second.id);
 
-const digest = "a".repeat(64);
-assert.equal(remoteAssetPath(digest, "image/webp"), `sync/v9/assets/${digest}.webp`);
-assert.equal(remoteAssetPath(digest, "image/jpeg"), `sync/v9/assets/${digest}.jpg`);
-assert.equal(remoteAssetPath(digest, "image/png"), `sync/v9/assets/${digest}.png`);
-expectThrow(() => remoteAssetPath(digest.toUpperCase(), "image/webp"), /小写/);
-expectThrow(() => remoteAssetPath("short", "image/webp"), /64 位/);
-expectThrow(() => remoteAssetPath(digest, "image/gif"), /不受支持/);
+// Asset Pack format keeps logical SHA-256 image identity while changing only
+// the physical Git storage unit. maxAssets=2 forces deterministic multi-pack
+// coverage without allocating multi-megabyte fixtures.
+async function packAsset(bytes: number[], mimeType: ImageAsset["mimeType"] = "image/png"): Promise<ImageAsset & { blob: Blob }> {
+  const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+  return {
+    id: await sha256Blob(blob),
+    mimeType,
+    size: blob.size,
+    width: 10,
+    height: 10,
+    blob,
+  };
+}
+const packFixtures = await Promise.all([
+  packAsset([1, 1, 1]),
+  packAsset([2, 2, 2, 2]),
+  packAsset([3, 3, 3, 3, 3]),
+  packAsset([4, 4, 4]),
+  packAsset([5, 5, 5, 5]),
+]);
+const directPack = await buildImageAssetPack(packFixtures.slice(0, 2));
+assert.equal(directPack.entries.length, 2, "direct builder must preserve both logical assets");
+const builtPacks = await buildImageAssetPacks(packFixtures, { maxAssets: 2 });
+assert.equal(builtPacks.length, 3, "five images with maxAssets=2 must become three immutable packs");
+assert.ok(builtPacks.every((pack) => pack.entries.length <= 2));
+const packedIds = new Set(builtPacks.flatMap((pack) => pack.entries.map((entry) => entry.id)));
+assert.deepEqual(packedIds, new Set(packFixtures.map((asset) => asset.id)), "every logical asset must occur in exactly one pack");
+for (const pack of builtPacks) {
+  const parsed = parseImageAssetPack(pack.bytes);
+  assert.equal(parsed.header.entries.length, pack.entries.length);
+  for (const entry of pack.entries) {
+    const extracted = await extractImageAssetFromPack(pack.bytes, entry.id);
+    assert.equal(sha256HexBytes(extracted), entry.id, "pack extraction must preserve the logical image digest");
+  }
+}
+assert.equal(imageAssetIndexShardKey("0".repeat(64)), "0");
+assert.equal(imageAssetIndexShardKey("4".repeat(64)), "1");
+assert.equal(imageAssetIndexShardKey("8".repeat(64)), "2");
+assert.equal(imageAssetIndexShardKey("f".repeat(64)), "3");
 
 assert.deepEqual(cacheOccupancyStats({ usage: 25, quota: 100 }), {
   usageBytes: 25,

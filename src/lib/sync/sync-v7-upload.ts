@@ -1,11 +1,11 @@
 import { dbV7, enqueueChangeSetV7, listChangeSetsV7 } from "../db/db-v7";
 import { rewriteChangeSetMutationsV7, type ChangeSetQueueRecordV7 } from "../db/db-v7-change-sets";
 import type { ImageAsset } from "../db/v7-types";
-import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import type { GitHubV7Remote } from "./github-v7-remote";
-import { SYNC_V7_ASSET_PREFIX, type SyncV7Descriptor } from "./sync-v7-head";
-import { mapWithConcurrency } from "../async/bounded-concurrency";
+import type { SyncV7Descriptor } from "./sync-v7-head";
+import { publishImageAssetsAsPacks } from "./image-asset-pack";
 
+/** Legacy public constant retained as the CPU/download hydration lane count. */
 export const SYNC_V7_ASSET_UPLOAD_CONCURRENCY = 6;
 
 export interface ImageAssetUploadProgress {
@@ -15,53 +15,44 @@ export interface ImageAssetUploadProgress {
   totalBytes: number;
 }
 
+function withoutBlobOrLegacyRemote(asset: ImageAsset): Omit<ImageAsset, "blob"> {
+  const { blob: _blob, remote: _legacyRemote, ...descriptor } = asset;
+  void _blob;
+  void _legacyRemote;
+  return descriptor;
+}
+
 /**
- * Upload local image blobs that have never been published, then fill their
- * remote descriptors into the already-queued import event. Imported assets
- * therefore keep a stable event count throughout sync.
+ * Publish every local image missing from the remote Asset Pack index.
+ *
+ * Sync v9 no longer publishes one Git file/commit per image. Images are packed
+ * into bounded immutable blobs and the sharded index + mutable index pointer
+ * are committed atomically through the Git Data API. The old per-image remote
+ * descriptor is stripped after the one-shot migration; runtime reads only the
+ * Asset Pack index from that point onward.
  */
-export async function uploadPendingImageAssetsV7(client: GitHubV7Remote, onProgress?: (progress: ImageAssetUploadProgress) => void): Promise<Array<Omit<ImageAsset, "blob">>> {
+export async function uploadPendingImageAssetsV7(
+  client: GitHubV7Remote,
+  onProgress?: (progress: ImageAssetUploadProgress) => void,
+): Promise<Array<Omit<ImageAsset, "blob">>> {
   const assets = await dbV7.imageAssets.toArray();
-  const pendingAssets = assets.filter((asset): asset is ImageAsset & { blob: Blob } => Boolean(asset.blob && !asset.remote));
-  if (!pendingAssets.length) return [];
-  const totalBytes = pendingAssets.reduce((sum, asset) => sum + asset.size, 0);
-  let completed = 0;
-  let uploadedBytes = 0;
-  onProgress?.({ completed, total: pendingAssets.length, uploadedBytes, totalBytes });
+  // A brand-new device can enter sync before the remote projection has been
+  // installed locally. Do not create an empty index in that transient state;
+  // the next pass sees the installed image descriptors and performs migration.
+  if (!assets.length) return [];
+
   const pendingBeforeUpload = await listChangeSetsV7(["pending"]);
-  // Image-asset events must replay before any question event that references
-  // them. The claim order is chronological, so backdate these events just
-  // before the oldest pending event instead of enqueueing with `now`.
   const earliest = pendingBeforeUpload.reduce((min, record) => Math.min(min, Date.parse(record.createdAt)), Date.now());
   const createdAt = new Date(earliest - 1).toISOString();
-  const publishedAssets = await mapWithConcurrency(pendingAssets, SYNC_V7_ASSET_UPLOAD_CONCURRENCY, async (asset) => {
-    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
-    if (!extension) throw new Error(`图片 MIME 类型不受支持：${asset.mimeType}`);
-    const path = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
-    const bytes = new Uint8Array(await asset.blob.arrayBuffer());
-    const published = await client.putImmutable({ path, bytes, kind: "asset", sha256: asset.id, size: asset.size });
-    const { blob: _blob, ...localDescriptor } = asset;
-    void _blob;
-    const descriptor: Omit<ImageAsset, "blob"> = { ...localDescriptor, remote: { path, blobSha: published.blobSha, sha256: asset.id, size: asset.size } };
-    completed += 1;
-    uploadedBytes += asset.size;
-    onProgress?.({ completed, total: pendingAssets.length, uploadedBytes, totalBytes });
-    return { source: asset, descriptor };
-  });
 
+  const published = await publishImageAssetsAsPacks(client, assets, onProgress);
   const descriptorById = new Map<string, Omit<ImageAsset, "blob">>();
-  for (const asset of assets) {
-    const { blob: _blob, ...descriptor } = asset;
-    void _blob;
-    descriptorById.set(asset.id, descriptor);
-  }
-  for (const { descriptor } of publishedAssets) descriptorById.set(descriptor.id, descriptor);
+  for (const asset of assets) descriptorById.set(asset.id, withoutBlobOrLegacyRemote(asset));
+  for (const { descriptor } of published) descriptorById.set(descriptor.id, descriptor);
 
-  // Imports already own the image refs in one fixed `question.import` event.
-  // Fill remote descriptors into that same pending record instead of creating
-  // one new queue event per completed image (which made the badge grow during
-  // sync). Legacy import records without `images` are upgraded from the image
-  // blocks referenced by their questions.
+  // Imports already own image descriptors inside one fixed question.import
+  // change-set. Rewrite those descriptors without the retired per-image remote
+  // fields; do not create hundreds of image.asset.save events during migration.
   const pendingAfterUpload = await listChangeSetsV7(["pending"]);
   const represented = new Set<string>();
   const rewritten: ChangeSetQueueRecordV7[] = [];
@@ -71,7 +62,7 @@ export async function uploadPendingImageAssetsV7(client: GitHubV7Remote, onProgr
       if (mutation.kind === "image.asset.save") {
         represented.add(mutation.asset.id);
         const descriptor = descriptorById.get(mutation.asset.id);
-        if (!descriptor?.remote || JSON.stringify(descriptor) === JSON.stringify(mutation.asset)) return mutation;
+        if (!descriptor || JSON.stringify(descriptor) === JSON.stringify(mutation.asset)) return mutation;
         changed = true;
         return { ...mutation, asset: descriptor };
       }
@@ -94,14 +85,23 @@ export async function uploadPendingImageAssetsV7(client: GitHubV7Remote, onProgr
   }
   if (rewritten.length) await dbV7.changeSets.bulkPut(rewritten);
 
-  // Manual/legacy image writes that are not part of an import still need an
-  // explicit asset event. This fallback is intentionally absent for imported
-  // images, whose fixed event has just been rewritten above.
-  for (const { descriptor } of publishedAssets) {
-    if (!represented.has(descriptor.id)) await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
+  // Only genuinely new manual image writes need a dedicated asset event. A
+  // legacy image already had an event/checkpoint before this one-shot migration,
+  // so repacking it must never manufacture a new event per image.
+  for (const { source, descriptor } of published) {
+    if (!source.remote && !represented.has(descriptor.id)) {
+      await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
+    }
   }
-  await dbV7.imageAssets.bulkPut(publishedAssets.map(({ source, descriptor }) => ({ ...source, remote: descriptor.remote })));
-  return publishedAssets.map(({ descriptor }) => descriptor);
+
+  // The Asset Pack index is now authoritative. Strip every old per-image remote
+  // descriptor locally while preserving cached Blob bytes.
+  await dbV7.imageAssets.bulkPut(assets.map((asset) => {
+    const { remote: _legacyRemote, ...clean } = asset;
+    void _legacyRemote;
+    return clean;
+  }));
+  return published.map(({ descriptor }) => descriptor);
 }
 
 export async function uploadedDescriptor(client: GitHubV7Remote, path: string, bytes: Uint8Array, kind: "checkpoint" | "segment"): Promise<SyncV7Descriptor> {

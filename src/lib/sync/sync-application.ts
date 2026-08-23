@@ -5,6 +5,7 @@ import {
   clearImageCache as clearImageCacheInternal,
   downloadAllImageAssets as downloadAllImageAssetsInternal,
   downloadImageAsset as downloadImageAssetInternal,
+  downloadImageAssets as downloadImageAssetsInternal,
   getImageCacheStats as getImageCacheStatsInternal,
   getGitHubLogin,
   getLastRemoteCache,
@@ -145,6 +146,11 @@ class SyncApplication {
   async downloadImageAsset(assetId: string): Promise<void> {
     const { settings, token } = await this.resolveConnection();
     await downloadImageAssetInternal(settings, token, assetId, { transport: getGitHubTransport() });
+  }
+
+  async downloadImageAssets(assetIds: readonly string[]): Promise<Map<string, Blob>> {
+    const { settings, token } = await this.resolveConnection();
+    return downloadImageAssetsInternal(settings, token, assetIds, { transport: getGitHubTransport() });
   }
 
   async downloadAllImageAssets(onProgress?: ImageCacheDownloadProgressCallback): Promise<number> {

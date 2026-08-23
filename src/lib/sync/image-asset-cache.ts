@@ -1,18 +1,14 @@
 // Transport-independent local image-blob cache helpers.
 //
-// Image assets are content-addressed descriptors stored in dbV7.imageAssets;
-// only the lazy download needs a remote, and v7's GitHubV7Remote reads the
-// same Git blobs (by blobSha) that the legacy v7 transport did. These helpers
-// live outside the sync modules so transport changes do not leak into the UI.
+// Runtime image reads are pack-index based: one mutable index pointer locates a
+// small shard, and the shard locates an immutable multi-image Pack. Neither UI
+// nor export code ever performs one GitHub request per image anymore.
 import { clearImageCacheV7, dbV7, getImageAssetDescriptorV7, putImageAssetBlobV7 } from "../db/db-v7";
 import { sha256Blob } from "../io/image-assets";
-import { mapWithConcurrency } from "../async/bounded-concurrency";
 import { createGitHubV7Remote } from "./github-v7-remote";
+import { readImageAssetFromPack, readImageAssetsFromPacks } from "./image-asset-pack";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
-
-/** Image cache downloads share the same six-lane budget as sync asset upload. */
-const IMAGE_CACHE_DOWNLOAD_CONCURRENCY = 6;
 
 export interface ImageCacheDownloadProgress {
   /** Number of missing image assets written to the local cache. */
@@ -39,27 +35,78 @@ async function getImageCacheStatsV7() {
   };
 }
 
-export async function downloadImageAssetV7(settings: GitHubSettings, token: string, assetId: string, options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal } = {}): Promise<Blob> {
-  if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
-  const descriptor = await getImageAssetDescriptorV7(assetId);
-  if (!descriptor?.remote) throw new Error("图片 descriptor 缺少远端资产路径。");
+function clientFor(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport }) {
   const transport = options.transport ?? getGitHubTransport();
-  const bytes = await createGitHubV7Remote({
+  return createGitHubV7Remote({
     owner: settings.owner,
     repo: settings.repo,
     branch: settings.branch?.trim() || "main",
     token,
     apiBaseUrl: resolveGitHubApiBaseUrl(settings.apiBaseUrl, transport),
     fetch: options.fetch ?? transport.fetch,
-  }).readBlob(descriptor.remote.blobSha, { size: descriptor.remote.size, sha256: descriptor.remote.sha256 });
-  const blob = new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType });
-  if (blob.size !== descriptor.size || await sha256Blob(blob) !== descriptor.id) throw new Error("远端图片完整性校验失败。");
+  });
+}
+
+async function verifiedRemoteBlob(asset: { id: string; mimeType: string; size: number }, bytes: Uint8Array): Promise<Blob> {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: asset.mimeType });
+  if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`图片 ${asset.id} 完整性校验失败。`);
+  return blob;
+}
+
+export async function downloadImageAssetV7(
+  settings: GitHubSettings,
+  token: string,
+  assetId: string,
+  options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal } = {},
+): Promise<Blob> {
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+  const descriptor = await getImageAssetDescriptorV7(assetId);
+  if (!descriptor) throw new Error("图片 descriptor 不存在。");
+  const bytes = await readImageAssetFromPack(clientFor(settings, token, options), assetId);
+  if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+  const blob = await verifiedRemoteBlob(descriptor, bytes);
   await putImageAssetBlobV7(assetId, blob);
   return blob;
 }
 
-async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {}): Promise<number> {
+/** Resolve only the requested assets. Cached blobs stay local; all cache misses
+ * are resolved through one index/shard/Pack batch so callers such as bank export
+ * do not accidentally reintroduce one remote request chain per image. */
+export async function downloadImageAssetsV7(
+  settings: GitHubSettings,
+  token: string,
+  assetIds: readonly string[],
+  options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal } = {},
+): Promise<Map<string, Blob>> {
+  const ids = [...new Set(assetIds)];
+  const result = new Map<string, Blob>();
+  if (!ids.length) return result;
+  if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+
+  const descriptors = await dbV7.imageAssets.bulkGet(ids);
+  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !asset.blob));
+  for (const asset of descriptors) {
+    if (asset?.blob) result.set(asset.id, asset.blob);
+  }
+  if (!pending.length) return result;
+
+  const bytesById = await readImageAssetsFromPacks(clientFor(settings, token, options), pending.map((asset) => asset.id));
+  for (const asset of pending) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+    const bytes = bytesById.get(asset.id);
+    if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
+    const blob = await verifiedRemoteBlob(asset, bytes);
+    await putImageAssetBlobV7(asset.id, blob);
+    result.set(asset.id, blob);
+  }
+  return result;
+}
+
+async function downloadAllImageAssetsV7(
+  settings: GitHubSettings,
+  token: string,
+  options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {},
+): Promise<number> {
   const assets = await dbV7.imageAssets.toArray();
   const pending = assets.filter((asset) => !asset.blob);
   const total = pending.length;
@@ -78,17 +125,28 @@ async function downloadAllImageAssetsV7(settings: GitHubSettings, token: string,
     });
   };
   report();
-  await mapWithConcurrency(pending, IMAGE_CACHE_DOWNLOAD_CONCURRENCY, async (asset, _index, signal) => {
-    const blob = await downloadImageAssetV7(settings, token, asset.id, { ...options, signal });
+  if (!pending.length) return 0;
+  if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+
+  // Resolve the entire missing set in one batch. The resolver downloads one
+  // index pointer, at most four shards, and each unique Pack once; it never
+  // loops over remote image objects.
+  const bytesById = await readImageAssetsFromPacks(clientFor(settings, token, options), pending.map((asset) => asset.id));
+  for (const asset of pending) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
+    const bytes = bytesById.get(asset.id);
+    if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
+    const blob = await verifiedRemoteBlob(asset, bytes);
+    await putImageAssetBlobV7(asset.id, blob);
     completed += 1;
     completedBytes += blob.size;
     report();
-    return blob;
-  }, { signal: options.signal });
+  }
   return completed;
 }
 
 export const downloadImageAsset = downloadImageAssetV7;
+export const downloadImageAssets = downloadImageAssetsV7;
 export const downloadAllImageAssets = downloadAllImageAssetsV7;
 export const getImageCacheStats = getImageCacheStatsV7;
 export const clearImageCache = clearImageCacheV7;

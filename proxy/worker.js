@@ -14,8 +14,8 @@ const RESPONSE_HEADERS_TO_COPY = [
  * 跨域名 GitHub API 转发 Worker（sync.980923.xyz）。
  *
  * 客户端请求自带 `Authorization: Bearer <token>`，Worker 无状态原样透传，
- * 不存储任何令牌。跨域 PUT + Authorization 会先发 OPTIONS 预检，因此这里
- * 需要自行处理 CORS。
+ * 不存储任何令牌。跨域 PUT/POST/PATCH + Authorization 会先发 OPTIONS 预检，
+ * 因此这里需要自行处理 CORS。
  */
 export default {
   async fetch(request) {
@@ -46,7 +46,7 @@ export default {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, HEAD, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, PUT, DELETE, POST, PATCH, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-github-api-version, accept, content-type, if-none-match",
     "Access-Control-Expose-Headers": "etag, last-modified, content-length, x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset",
     "Access-Control-Max-Age": "86400",
