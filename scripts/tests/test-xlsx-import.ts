@@ -16,14 +16,14 @@ const template = await readFile(new URL("../../public/题库模板.xlsx", import
 const templateBuffer = template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength) as ArrayBuffer;
 const workbook = await readQuestionWorkbook(templateBuffer);
 const rows = workbook.rows;
-assert.deepEqual(rows[0].slice(0, 10), ["题干", "题型", "标签", "解析", "答案1", "答案2", "答案3", "答案4", "A", "B"]);
+assert.deepEqual(rows[0], ["题干", "题型", "标签", "解析", "答案1", "答案2", "A", "B", "C", "D", "图片1"], "模板必须只预留 2 个答案列、4 个选项列和图片1");
 assert.match(rows[1][0], /^示例·单选/);
 assert.match(rows[3][0], /^示例·判断/);
 assert.match(rows[4][0], /^示例·单空计算/);
 assert.match(rows[5][0], /^示例·多空计算/);
 assert.equal(rows[5][4], "11.0");
 assert.equal(rows[5][5], "968.0");
-assert.deepEqual(rows[0].slice(-2), ["H", "图片1"], "最新模板必须包含连续的图片列");
+assert.deepEqual(rows[0].slice(-2), ["D", "图片1"], "最新模板必须以 D、图片1 结束");
 assert.match(rows[6][0], /^示例·图片单选/);
 assert.match(rows[6][0], /【图1】/, "图片示例题干必须标出图片位置");
 assert.equal(workbook.images.size, 1, "图片示例必须携带一张真实嵌入图片");
@@ -31,12 +31,19 @@ const imageExample = [...rows[6]];
 imageExample[0] = "图中图标对应哪个应用？【图1】";
 const parsedImageExample = parseQuestionBankTable([rows[0], imageExample], workbook.images);
 assert.deepEqual(parsedImageExample[0].images, ["ID_TEMPLATE_SHIJUAN_APP_ICON"], "删除示例标记后的图片题必须可直接导入");
+assert.match(rows[7][0], /^示例·单空填空/);
+assert.match(rows[8][0], /^示例·多空填空/);
+assert.match(rows[9][0], /^示例·简答/);
 const sheetJsWorkbook = XLSX.read(template, { type: "buffer" });
 const instructionText = XLSX.utils.sheet_to_json<string[]>(sheetJsWorkbook.Sheets["使用说明"], { header: 1 }).flat().join("\n");
 assert.doesNotMatch(instructionText, /Excel 只导入纯文字题/, "模板不得保留过时的纯文字限制");
 assert.match(instructionText, /支持题干图片和选项图片/);
-assert.match(instructionText, /每题最多 12 个填空、24 个选项、12 张图片/);
+assert.match(instructionText, /模板只预留答案1、答案2两列/);
+assert.match(instructionText, /模板只预留 A、B、C、D 四列/);
+assert.match(instructionText, /答案\/填空最多 12 列/);
 assert.match(instructionText, /答案1对应空1、答案2对应空2/);
+assert.match(instructionText, /同一个答案单元格内用 \|\| 分隔/);
+assert.match(instructionText, /简答题/);
 await assert.rejects(() => parseQuestionBankWorkbook(templateBuffer), (error: unknown) => error instanceof XlsxImportError && /删除模板自带的示例题/.test(error.message));
 
 // Open XML producers may legally prefix spreadsheet tags (for example
