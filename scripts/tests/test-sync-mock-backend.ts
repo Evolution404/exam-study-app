@@ -128,17 +128,20 @@ try {
   assert.ok((await dbV7.imageAssets.bulkGet(concurrentAssets.map((asset) => asset.id))).every((asset) => asset && !asset.remote), "Pack 发布后全部图片 descriptor 都应去掉单图 remote");
 
   // Batch-backed single-image read: remove the local blob, then load it through
-  // Asset Index → shard → Pack. No legacy per-image path exists remotely.
+  // Asset Index → shard → Pack. Use a semantically equivalent API base URL with
+  // a dot segment so the module-level runtime cache key is fresh while fetch
+  // still reaches the same mock server — this models a new app process/device.
   const imageBytes = Buffer.from("pack-download-roundtrip");
   const imageDigest = createHash("sha256").update(imageBytes).digest("hex");
   await putImageAssetV7({ id: imageDigest, blob: new Blob([imageBytes]), mimeType: "image/png", size: imageBytes.length, width: 1, height: 1 });
   await syncWithGitHub(settings, "qa-token");
   await dbV7.imageAssets.update(imageDigest, { blob: undefined });
   const readsBefore = server.stats.blobReads;
-  const downloaded = await downloadImageAssetV7(settings, "qa-token", imageDigest);
+  const freshRuntimeSettings = { ...settings, apiBaseUrl: `${server.url}/.` };
+  const downloaded = await downloadImageAssetV7(freshRuntimeSettings, "qa-token", imageDigest);
   assert.equal(downloaded.size, imageBytes.length, "Pack 下载的图片 blob 大小应一致");
   assert.equal(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex"), imageDigest, "Pack 下载图片 sha256 应一致");
-  assert.ok(server.stats.blobReads > readsBefore, "缓存缺失时应读取 shard/Pack blob");
+  assert.ok(server.stats.blobReads > readsBefore, "新运行时缓存缺失时应读取 shard/Pack blob");
 
   // Empty-vault bootstrap follows the same physical rule: all initial images
   // are packed before the initial checkpoint and still produce one Git ref
