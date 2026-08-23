@@ -49,10 +49,10 @@ export function relayRequestPolicy(request, { pathPrefix } = {}) {
   // per file. Keep this allowlist deliberately narrower than a general Git API
   // proxy: one branch ref, commit/tree reads, blob/tree/commit creates and a
   // non-forced heads ref update are the only additional operations.
-  const gitBranchRead = /^\/repos\/[^/]+\/[^/]+\/git\/ref\/heads\/[A-Za-z0-9._~\/-]+$/.test(path) && method === "GET";
+  const gitBranchRead = /^\/repos\/[^/]+\/[^/]+\/git\/ref\/heads\/[A-Za-z0-9._~/-]+$/.test(path) && method === "GET";
   const gitCommitRead = /^\/repos\/[^/]+\/[^/]+\/git\/commits\/[a-f0-9]{40}$/i.test(path) && method === "GET";
   const gitObjectCreate = /^\/repos\/[^/]+\/[^/]+\/git\/(?:blobs|trees|commits)$/i.test(path) && method === "POST";
-  const gitHeadUpdate = /^\/repos\/[^/]+\/[^/]+\/git\/refs\/heads\/[A-Za-z0-9._~\/-]+$/.test(path) && method === "PATCH";
+  const gitHeadUpdate = /^\/repos\/[^/]+\/[^/]+\/git\/refs\/heads\/[A-Za-z0-9._~/-]+$/.test(path) && method === "PATCH";
 
   // GC is deliberately narrower than ordinary contents writes. Only
   // content-addressed v9 objects can be removed; head.json is mutable and
