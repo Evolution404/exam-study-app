@@ -12,9 +12,44 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  migrate-once:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chore/code-css-governance-phase1
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Apply one-shot architecture migration when present
+        run: |
+          if [ -f scripts/tools/migrate-css-architecture-once.mjs ]; then
+            node scripts/tools/migrate-css-architecture-once.mjs
+          fi
+      - name: Validate generated migration
+        run: |
+          npm run lint:css
+          npm run test:fast
+          npm run build
+      - name: Commit generated migration when needed
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "refactor: complete CSS architecture migration"
+          git push origin HEAD:chore/code-css-governance-phase1
+
   audit:
     runs-on: ubuntu-latest
     steps:
