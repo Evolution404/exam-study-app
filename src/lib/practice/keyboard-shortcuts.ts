@@ -48,7 +48,7 @@ function normalizeBaseKey(value: string) {
   return key;
 }
 
-export function normalizeKeyboardShortcut(value: unknown) {
+function normalizeKeyboardShortcut(value: unknown) {
   if (typeof value !== "string") return "";
   const parts = value.split("+").map((part) => part.trim()).filter(Boolean);
   if (!parts.length) return "";
