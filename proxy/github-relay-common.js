@@ -44,9 +44,9 @@ export function relayRequestPolicy(request, { pathPrefix } = {}) {
     && (method === "GET" || method === "HEAD");
   const contentsWrite = /^\/repos\/[^/]+\/[^/]+\/contents(?:\/.*)?$/i.test(path) && method === "PUT";
   // GC is deliberately narrower than ordinary contents writes.  Only
-  // content-addressed v8 objects can be removed; head.json is mutable and
+  // content-addressed v9 objects can be removed; head.json is mutable and
   // assets are user data, so neither may be deleted through the public relay.
-  const immutableDelete = /^\/repos\/[^/]+\/[^/]+\/contents\/sync\/v8\/(?:checkpoints|segments|objects|history)\/[a-f0-9]{64}\.json$/.test(path)
+  const immutableDelete = /^\/repos\/[^/]+\/[^/]+\/contents\/sync\/v9\/(?:checkpoints|segments|objects|history)\/[a-f0-9]{64}\.json$/.test(path)
     && method === "DELETE";
   if (!userLookup && !repositoryRead && !contentsWrite && !immutableDelete) return { allowed: false, status: 404 };
   const declaredBytes = Number(request.headers.get("content-length"));

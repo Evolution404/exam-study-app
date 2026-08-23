@@ -137,9 +137,11 @@ function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "
     if (asset.remote.size !== asset.size) fail(`state.imageAssets[${index}].remote.size must equal size`);
     const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
     const expectedPath = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
-    const legacyV7ExpectedPath = `sync/v7/assets/${asset.id}.${extension}`;
-    const legacyExpectedPath = `sync/v6/assets/${asset.id}.${extension}`;
-    if (asset.remote.path !== expectedPath && asset.remote.path !== legacyV7ExpectedPath && asset.remote.path !== legacyExpectedPath) {
+    // Legacy namespaces remain readable for one release cycle so the one-time
+    // protocol migration can ingest unmigrated vaults and re-upload their
+    // assets into the current namespace.
+    const legacyExpectedPaths = [`sync/v8/assets/${asset.id}.${extension}`, `sync/v7/assets/${asset.id}.${extension}`, `sync/v6/assets/${asset.id}.${extension}`];
+    if (asset.remote.path !== expectedPath && !legacyExpectedPaths.includes(asset.remote.path)) {
       fail(`state.imageAssets[${index}].remote.path must be ${expectedPath}`);
     }
   }

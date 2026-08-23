@@ -97,7 +97,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   const spyFetch: typeof fetch = async (input, init) => {
     if (init?.method === "PUT") {
       const url = typeof input === "string" ? input : (input as URL).toString?.() ?? "";
-      if (url.includes("/contents/sync/v8/")) {
+      if (url.includes("/contents/sync/v9/")) {
         const body = JSON.parse(String(init.body)) as { content: string; message?: string };
         putBodies.push({ path: url, wireBytes: body.content.length });
       }
@@ -130,7 +130,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
     assert.equal(digest, descriptor.sha256, "读回逻辑字节 digest 与描述符一致（内容寻址不因信封改变）");
   }
   // head.json 永远是纯 JSON。
-  const headRaw = await (await fetch(`${server.url}/repos/qa/compression-vault/contents/sync/v8/head.json`)).json() as { content: string };
+  const headRaw = await (await fetch(`${server.url}/repos/qa/compression-vault/contents/sync/v9/head.json`)).json() as { content: string };
   const headBytes = Buffer.from(headRaw.content, "base64");
   assert.equal(isZlibEnvelope(new Uint8Array(headBytes)), false, "head.json 保持纯 JSON");
   JSON.parse(new TextDecoder().decode(headBytes));
@@ -190,7 +190,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
     const remote = createGitHubV7Remote({ owner: "qa", repo: "idempotent-vault", token: "t", apiBaseUrl: casServer.url });
     const json = new TextEncoder().encode(JSON.stringify({ formatVersion: 1, events: ["幂等重放".repeat(200)] }));
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", json as BufferSource)), (v) => v.toString(16).padStart(2, "0")).join("");
-    const path = `sync/v8/segments/${digest}.json`;
+    const path = `sync/v9/segments/${digest}.json`;
     const first = await remote.putImmutable({ path, bytes: json, kind: "segment" });
     assert.equal(first.created, true, "首次上传应 created");
     const second = await remote.putImmutable({ path, bytes: json, kind: "segment" });

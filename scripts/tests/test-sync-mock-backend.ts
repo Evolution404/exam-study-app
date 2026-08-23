@@ -26,7 +26,7 @@ try {
   // First sync against an empty mock: initializes the vault and folds any local
   // baseline into the initial checkpoint (pushed: 0 is correct here).
   const init = await syncWithGitHub(settings, "qa-token", (progress) => labels.push(progress.label));
-  assert.equal(init.formatVersion, 8, "同步协议版本应为 8");
+  assert.equal(init.formatVersion, 9, "同步协议版本应为 9");
   assert.equal(init.remaining, 0, "初始化后应无待办");
 
   // A change-set created AFTER the baseline exists is what the push path uploads.
@@ -59,7 +59,7 @@ try {
   assert.ok(imagePush.pushed >= 1, "图片资产上传应作为一组变更推送");
   const publishedAsset = await dbV7.imageAssets.get(localImageDigest);
   assert.ok(publishedAsset?.remote, "推送后应写回 remote descriptor");
-  assert.equal(publishedAsset.remote.path, `${SYNC_V7_ASSET_PREFIX}${localImageDigest}.png`, "图片资产路径应为 sync/v8/assets/<sha256>.png");
+  assert.equal(publishedAsset.remote.path, `${SYNC_V7_ASSET_PREFIX}${localImageDigest}.png`, "图片资产路径应为 sync/v9/assets/<sha256>.png");
 
   // 图片题目的跨设备顺序：image.asset.save 必须先于 question.upsert 回放。
   const imageQuestionBytes = Buffer.from("image-question-blob-bytes");

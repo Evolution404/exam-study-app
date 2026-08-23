@@ -109,7 +109,7 @@ try {
   assert.equal(preview.hotEvents, 1);
   assert.equal(preview.copiedAssets, 1);
   assert.equal(preview.counts.banks, 2);
-  assert.ok(!server.contentPaths().includes("sync/v8/head.json"), "预检不得写入 v8 head");
+  assert.ok(!server.contentPaths().includes("sync/v9/head.json"), "预检不得写入 v8 head");
 
   const migrated = await migrateVaultToSyncV8Protocol(settings, "qa-token");
   assert.equal(migrated.migrated, true);
@@ -118,20 +118,20 @@ try {
   assert.equal(migrated.counts.banks, 2);
   assert.equal(migrated.copiedAssets, 1);
   assert.ok(server.contentPaths().includes("sync/v7/head.json"), "迁移不得删除旧 v7 head");
-  assert.ok(server.contentPaths().includes("sync/v8/head.json"));
-  assert.ok(server.contentPaths().includes(`sync/v8/assets/${assetId}.png`));
-  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v8/checkpoints/")));
+  assert.ok(server.contentPaths().includes("sync/v9/head.json"));
+  assert.ok(server.contentPaths().includes(`sync/v9/assets/${assetId}.png`));
+  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/checkpoints/")));
 
   const remote = createGitHubV7Remote({ ...settings, token: "qa-token", vaultId });
   const current = await remote.readHead();
   assert.equal(current.initialized, true);
-  assert.equal(current.head.formatVersion, 8);
+  assert.equal(current.head.formatVersion, 9);
   assert.equal(current.head.segments.length, 0, "完整迁移将热事件折叠进新检查点");
   assert.equal(current.head.metadata.migratedFrom?.blobSha, migrated.legacyHeadSha);
   assert.ok(current.head.checkpoint);
   const restored = await decodeRemoteCheckpoint(remote, await remote.readBlob(current.head.checkpoint!));
   assert.deepEqual(new Set(restored.checkpoint.state.banks.map((item) => item.id)), new Set([bank.id, hotBank.id]));
-  assert.equal(restored.checkpoint.state.imageAssets[0]?.remote?.path, `sync/v8/assets/${assetId}.png`);
+  assert.equal(restored.checkpoint.state.imageAssets[0]?.remote?.path, `sync/v9/assets/${assetId}.png`);
 
   const idempotent = await migrateVaultToSyncV8Protocol(settings, "qa-token");
   assert.equal(idempotent.migrated, false);

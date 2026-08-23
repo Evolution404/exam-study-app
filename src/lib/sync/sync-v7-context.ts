@@ -41,8 +41,8 @@ export function monotonicProgress(callback?: SyncProgressCallback): SyncProgress
   };
 }
 
-// A protocol namespace change must never reuse a cached v7 head/checkpoint.
-const CACHE_PREFIX = "v8:sync:";
+// A protocol namespace change must never reuse a cached head/checkpoint.
+const CACHE_PREFIX = "v9:sync:";
 
 export function report(callback: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number, to?: number): void {
   callback?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))), ...(to !== undefined ? { to: Math.max(0, Math.min(100, Math.round(to))) } : {}) });

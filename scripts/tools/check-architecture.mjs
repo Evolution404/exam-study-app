@@ -101,18 +101,19 @@ if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync
 if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
   fail("公开恢复入口必须委托 v7");
 }
-if (!/SYNC_V8_HEAD_PATH\s*=\s*["']sync\/v8\/head\.json["']/.test(syncV7Head)
-  || !/SYNC_V8_CHECKPOINT_PREFIX\s*=\s*["']sync\/v8\/checkpoints\/["']/.test(syncV7Head)
-  || !/SYNC_V8_SEGMENT_PREFIX\s*=\s*["']sync\/v8\/segments\/["']/.test(syncV7Head)
-  || !/SYNC_V8_OBJECT_PREFIX\s*=\s*["']sync\/v8\/objects\/["']/.test(syncV7Head)
-  || !/SYNC_V8_ASSET_PREFIX\s*=\s*["']sync\/v8\/assets\/["']/.test(syncV7Head)
+if (!/SYNC_V9_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncV7Head)
+  || !/SYNC_V9_CHECKPOINT_PREFIX\s*=\s*["']sync\/v9\/checkpoints\/["']/.test(syncV7Head)
+  || !/SYNC_V9_SEGMENT_PREFIX\s*=\s*["']sync\/v9\/segments\/["']/.test(syncV7Head)
+  || !/SYNC_V9_OBJECT_PREFIX\s*=\s*["']sync\/v9\/objects\/["']/.test(syncV7Head)
+  || !/SYNC_V9_ASSET_PREFIX\s*=\s*["']sync\/v9\/assets\/["']/.test(syncV7Head)
+  || !/SYNC_V9_FORMAT_VERSION\s*=\s*9\s+as\s+const/.test(syncV7Head)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
   || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
   || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
-  || !/SYNC_V8_CHECKPOINT_FORMAT\s*=\s*8/.test(syncV8History)
+  || !/SYNC_V9_CHECKPOINT_FORMAT\s*=\s*9/.test(syncV8History)
   || !/createRemoteCheckpointV8/.test(syncV8History)
   || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
-  fail("公开同步入口必须仅使用 v8 固定 head/热窗口 transport，并以 format 8 bounded checkpoint + history archive 写远端");
+  fail("公开同步入口必须仅使用 v9 固定 head/热窗口 transport，并以 format 9 bounded checkpoint + history archive 写远端");
 }
 
 const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
@@ -153,4 +154,4 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 
 if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
-console.log(`架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v8 namespace/head/checkpoint。`);
+console.log(`架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；组件颜色预算 ${colorCount}/${legacyColorBudget}；夜间补丁预算 ${darkSelectorCount}/${legacyDarkSelectorBudget}；公开同步仅写入 v9 namespace/head/checkpoint。`);

@@ -59,7 +59,7 @@ try {
   async function segment(label: string, generation: number): Promise<SyncV7SegmentDescriptor> {
     const metadata = { vaultId, createdAt: new Date(1_700_000_000_000 + generation * 1_000).toISOString(), producer: "gc-test" };
     const cursors = { [deviceId]: generation + 1 };
-    const bytes = encodeSyncV7Segment({ formatVersion: 8, vaultId, generation, ordinal: 0, metadata, cursors, events: [{ label, deviceId, localSequence: generation + 1 }] });
+    const bytes = encodeSyncV7Segment({ formatVersion: 9, vaultId, generation, ordinal: 0, metadata, cursors, events: [{ label, deviceId, localSequence: generation + 1 }] });
     const path = `${SYNC_V7_SEGMENT_PREFIX}${sha256(bytes)}.json`;
     const uploaded = await client.putImmutable({ path, bytes, kind: "segment" });
     return { path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size, storedSize: uploaded.storedSize, generation, ordinal: 0, count: 1, cursors, metadata };
@@ -69,7 +69,7 @@ try {
   const [s0, s1, s2, orphan] = await Promise.all([segment("segment-0", 0), segment("segment-1", 1), segment("segment-2", 2), segment("orphan", 99)]);
 
   const head = (generation: number, checkpointDescriptor: SyncV7Descriptor, segments: SyncV7SegmentDescriptor[]): SyncHeadV7 => ({
-    formatVersion: 8,
+    formatVersion: 9,
     vaultId,
     generatedAt: new Date(1_700_000_100_000 + generation * 1_000).toISOString(),
     generation,

@@ -35,7 +35,7 @@ export async function getGitHubLogin(token: string, apiBaseUrl?: string, options
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = await loadRemoteCache(settings);
   if (value?.historySyncStart !== historySyncStartFor(settings)) return null;
-  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const } : null;
+  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 9 as const } : null;
 }
 
 export interface SyncHotWindowState {
@@ -106,7 +106,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
     await saveInstalledHead(settings, installFingerprint(value.head));
     await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
     report(callback, "complete", "本地数据恢复完成", 100);
-    return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 8 as const, pulled: 0, deferred: 0 };
+    return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 9 as const, pulled: 0, deferred: 0 };
   });
 }
 

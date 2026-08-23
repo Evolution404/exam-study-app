@@ -10,8 +10,8 @@ import { hydrateSyncV7Events } from "./sync-v7-payload";
 
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse
  *  decision directly against a remote head + an arbitrary cached view. */
-export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void, options: { historySyncStart?: string } = {}): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; skippedArchivedAttempts: number; skippedArchivedPracticeRuns: number; remoteCheckpointFormat: 7 | 8; historySyncStart?: string }> {
-  if (!head.checkpoint) throw new Error("v8 远端缺少初始化检查点。");
+export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7, cached?: RemoteCacheV7, onStep?: (fraction: number, label: string) => void, options: { historySyncStart?: string } = {}): Promise<{ checkpoint: SyncCheckpointV7; changes: ChangeSetV7[]; reusedCache: boolean; archivedAttempts: number; archivedPracticeRuns: number; skippedArchivedAttempts: number; skippedArchivedPracticeRuns: number; historySyncStart?: string }> {
+  if (!head.checkpoint) throw new Error("v9 远端缺少初始化检查点。");
   const checkpointDescriptor = head.checkpoint;
   // Tiered cache reuse, keyed on CHECKPOINT identity (not on segment layout):
   //  tier 1 — checkpoint descriptor unchanged: the cached FOLDED checkpoint
@@ -50,7 +50,7 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
     archivedPracticeRuns: 0,
     skippedArchivedAttempts: 0,
     skippedArchivedPracticeRuns: 0,
-    remoteCheckpointFormat: 7 as const,
+    
   }) : (async () => {
     const megabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     const sizeLabel = checkpointDescriptor.storedSize !== undefined
@@ -73,7 +73,7 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
       archivedPracticeRuns: decoded.archivedPracticeRuns,
       skippedArchivedAttempts: decoded.skippedArchivedAttempts,
       skippedArchivedPracticeRuns: decoded.skippedArchivedPracticeRuns,
-      remoteCheckpointFormat: decoded.remoteFormatVersion,
+      
     };
   })();
   // Segments download through a bounded-concurrency pool: each lane fetches,

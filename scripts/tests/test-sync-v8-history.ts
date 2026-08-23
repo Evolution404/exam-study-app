@@ -6,7 +6,7 @@ import type { AttemptV7, PracticeRunV7 } from "../../src/lib/db/v7-types";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-v7-context";
 import { createSyncCheckpointV7, encodeSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
-import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V8_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
 import {
   createRemoteCheckpointV8,
   encodeSyncCheckpointV8,
@@ -86,7 +86,7 @@ try {
   const client = createGitHubV7Remote({ owner: "qa", repo: "v8-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
   const bounded = await createRemoteCheckpointV8(client, full, { recentAttemptLimit: 2, recentPracticeRunLimit: 1, chunkCount: 2 });
   validateSyncCheckpointV8(bounded);
-  assert.equal(bounded.formatVersion, 8);
+  assert.equal(bounded.formatVersion, 9);
   assert.equal(bounded.state.attempts.length, 2, "remote checkpoint keeps only recent attempts");
   assert.equal(bounded.state.practiceRuns.length, 1, "remote checkpoint keeps only recent practice runs");
   assert.equal(bounded.history.archivedAttempts, 6);
@@ -127,7 +127,7 @@ try {
     generation: 1,
   };
   const head: SyncHeadV7 = {
-    formatVersion: 8,
+    formatVersion: 9,
     vaultId,
     generatedAt: "2026-02-01T00:00:00.000Z",
     generation: 1,
@@ -140,14 +140,14 @@ try {
   assert.equal(published.ok, true);
   if (!published.ok) throw new Error("failed to publish test head");
 
-  const orphanBytes = new TextEncoder().encode(JSON.stringify({ formatVersion: 8, kind: "orphan" }));
-  const orphanPath = descriptorPath(SYNC_V8_HISTORY_PREFIX, digest(orphanBytes));
+  const orphanBytes = new TextEncoder().encode(JSON.stringify({ formatVersion: 9, kind: "orphan" }));
+  const orphanPath = descriptorPath(SYNC_V9_HISTORY_PREFIX, digest(orphanBytes));
   await client.putImmutable({ path: orphanPath, bytes: orphanBytes, kind: "history" });
-  const beforeGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V8_HISTORY_PREFIX));
+  const beforeGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V9_HISTORY_PREFIX));
   assert.ok(beforeGc.includes(orphanPath));
   const gc = await gcSyncV8HistoryRemote(client, head, published.cache);
   assert.equal(gc.deleted, 1, "history GC removes the unreachable orphan");
-  const afterGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V8_HISTORY_PREFIX));
+  const afterGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V9_HISTORY_PREFIX));
   assert.ok(!afterGc.includes(orphanPath));
   assert.ok(bounded.history.index && afterGc.includes(bounded.history.index.path), "current history index remains reachable");
   assert.ok(afterGc.length > 1, "current archive chunks remain reachable");

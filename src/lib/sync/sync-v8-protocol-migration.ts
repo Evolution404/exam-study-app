@@ -15,8 +15,8 @@ import { checkpointFromProjection, projectionFromCheckpoint, replayInWireOrder }
 import { decodeSyncV7JsonBytes } from "./sync-v7-codec";
 import { descriptorPath, sha256, vaultId } from "./sync-v7-context";
 import {
-  SYNC_V8_ASSET_PREFIX,
-  SYNC_V8_CHECKPOINT_PREFIX,
+  SYNC_V9_ASSET_PREFIX,
+  SYNC_V9_CHECKPOINT_PREFIX,
   decodeSyncV7Segment,
   validateSyncHeadV7,
   type SyncHeadV7,
@@ -25,6 +25,7 @@ import {
 } from "./sync-v7-head";
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 import { createRemoteCheckpointV8, decodeRemoteCheckpoint, encodeSyncCheckpointV8 } from "./sync-v8-history";
+import { parseSyncCheckpointV7 } from "./sync-v7-checkpoint";
 import { uploadedDescriptor } from "./sync-v7-upload";
 
 const LEGACY_HEAD_PATH = "sync/v7/head.json";
@@ -104,9 +105,9 @@ function parseLegacyHead(bytes: Uint8Array, expectedVaultId: string): LegacyHead
   // without weakening the production v8 validator.
   const translated = {
     ...value,
-    formatVersion: 8,
-    checkpoint: value.checkpoint === null ? null : { ...value.checkpoint, path: (value.checkpoint).path.replace(LEGACY_CHECKPOINT_PREFIX, SYNC_V8_CHECKPOINT_PREFIX) },
-    segments: value.segments.map((segment) => ({ ...(segment as SyncV7SegmentDescriptor), path: (segment as SyncV7SegmentDescriptor).path.replace(LEGACY_SEGMENT_PREFIX, "sync/v8/segments/") })),
+    formatVersion: 9,
+    checkpoint: value.checkpoint === null ? null : { ...value.checkpoint, path: (value.checkpoint).path.replace(LEGACY_CHECKPOINT_PREFIX, SYNC_V9_CHECKPOINT_PREFIX) },
+    segments: value.segments.map((segment) => ({ ...(segment as SyncV7SegmentDescriptor), path: (segment as SyncV7SegmentDescriptor).path.replace(LEGACY_SEGMENT_PREFIX, "sync/v9/segments/") })),
   };
   validateSyncHeadV7(translated);
   return value as unknown as LegacyHead;
@@ -209,7 +210,7 @@ function decodeLegacySegment(bytes: Uint8Array, descriptor: SyncV7SegmentDescrip
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Error(`旧 v7 分段不是有效 JSON：${descriptor.path}`); }
   if (!isRecord(value) || value.formatVersion !== 7) throw new Error(`旧 v7 分段格式无效：${descriptor.path}`);
-  const translated = { ...value, formatVersion: 8 };
+  const translated = { ...value, formatVersion: 9 };
   const segment = decodeSyncV7Segment<ChangeSetV7>(JSON.stringify(translated), { vaultId: vault, generation: descriptor.generation, ordinal: descriptor.ordinal });
   if (segment.events.length !== descriptor.count) throw new Error(`旧 v7 分段事件数不匹配：${descriptor.path}`);
   return segment.events;
@@ -224,7 +225,7 @@ async function copyAssetsToV8(
   let copied = 0;
   const imageAssets: ChangeSetProjectionV7["imageAssets"] = [];
   for (const asset of projection.imageAssets) {
-    if (!asset.remote || asset.remote.path.startsWith(SYNC_V8_ASSET_PREFIX)) {
+    if (!asset.remote || asset.remote.path.startsWith(SYNC_V9_ASSET_PREFIX)) {
       imageAssets.push(asset);
       continue;
     }
@@ -233,7 +234,7 @@ async function copyAssetsToV8(
     const bytes = await legacy.readBlob(asset.remote);
     const extension = asset.remote.path.split(".").at(-1);
     if (!extension) throw new Error(`图片资产缺少扩展名：${asset.remote.path}`);
-    const path = `${SYNC_V8_ASSET_PREFIX}${asset.id}.${extension}`;
+    const path = `${SYNC_V9_ASSET_PREFIX}${asset.id}.${extension}`;
     const uploaded = await target.putImmutable({ path, bytes, kind: "asset", sha256: asset.id, size: asset.size });
     imageAssets.push({
       ...(asset as Omit<ImageAsset, "blob">),
@@ -270,7 +271,7 @@ export async function migrateVaultToSyncV8Protocol(
     return {
       migrated: false,
       verified: true,
-      reason: "sync/v8/head.json 已存在且检查点验证通过",
+      reason: "sync/v9/head.json 已存在且检查点验证通过",
       v8HeadSha: existing.cache.blobSha,
       generation: existing.head.generation,
       hotEvents: existing.head.segments.reduce((sum, segment) => sum + segment.count, 0),
@@ -285,8 +286,10 @@ export async function migrateVaultToSyncV8Protocol(
   if (!legacyHead.checkpoint) throw new Error("旧 v7 head 缺少检查点，无法迁移。");
 
   onProgress?.("读取并水合旧 v7 检查点");
-  const decoded = await decodeRemoteCheckpoint(target, await legacy.readBlob(legacyHead.checkpoint));
-  let projection = await projectionFromCheckpoint(decoded.checkpoint);
+  // Legacy v7 checkpoints predate the bounded/history envelope, so they parse
+  // with the plain internal parser; the shared remote decoder is v9-only.
+  const legacyCheckpoint = parseSyncCheckpointV7(await legacy.readBlob(legacyHead.checkpoint));
+  let projection = await projectionFromCheckpoint(legacyCheckpoint);
   const ordered = [...legacyHead.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal);
   const changes: ChangeSetV7[] = [];
   for (let index = 0; index < ordered.length; index += 1) {
@@ -305,7 +308,7 @@ export async function migrateVaultToSyncV8Protocol(
   // Verification includes every reachable asset byte, not just descriptors.
   for (const asset of projection.imageAssets) {
     if (!asset.remote) continue;
-    if (asset.remote.path.startsWith(SYNC_V8_ASSET_PREFIX)) await target.readBlob(asset.remote);
+    if (asset.remote.path.startsWith(SYNC_V9_ASSET_PREFIX)) await target.readBlob(asset.remote);
     else await legacy.readBlob(asset.remote);
   }
 
@@ -313,11 +316,11 @@ export async function migrateVaultToSyncV8Protocol(
     return {
       migrated: false,
       verified: true,
-      reason: "v7→v8 完整协议迁移预检通过（未写远端）",
+      reason: "v7→当前协议完整迁移预检通过（未写远端）",
       legacyHeadSha,
       generation: legacyHead.generation + 1,
       hotEvents: changes.length,
-      copiedAssets: projection.imageAssets.filter((asset) => asset.remote && !asset.remote.path.startsWith(SYNC_V8_ASSET_PREFIX)).length,
+      copiedAssets: projection.imageAssets.filter((asset) => asset.remote && !asset.remote.path.startsWith(SYNC_V9_ASSET_PREFIX)).length,
       counts,
     };
   }
@@ -326,21 +329,21 @@ export async function migrateVaultToSyncV8Protocol(
   projection = copied.projection;
   const generation = legacyHead.generation + 1;
   const fullCheckpoint = await checkpointFromProjection(projection, legacyHead.cursors);
-  onProgress?.("生成 v8 有界检查点与历史归档");
+  onProgress?.("生成有界检查点与历史归档");
   const remoteCheckpoint = await createRemoteCheckpointV8(target, fullCheckpoint);
   const checkpointBytes = encodeSyncCheckpointV8(remoteCheckpoint);
   const digest = await sha256(checkpointBytes);
-  const checkpointPath = descriptorPath(SYNC_V8_CHECKPOINT_PREFIX, digest);
+  const checkpointPath = descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest);
   const descriptor: SyncV7Descriptor = { ...(await uploadedDescriptor(target, checkpointPath, checkpointBytes, "checkpoint")), generation };
   const now = new Date().toISOString();
   const head: SyncHeadV7 = {
-    formatVersion: 8,
+    formatVersion: 9,
     vaultId: legacyHead.vaultId,
     generatedAt: now,
     generation,
     metadata: {
       vaultId: legacyHead.vaultId,
-      producer: "exam-study-app-v8-protocol-migration",
+      producer: "exam-study-app-protocol-migration",
       migratedFrom: { path: LEGACY_HEAD_PATH, blobSha: legacyHeadSha, generation: legacyHead.generation },
     },
     checkpoint: descriptor,
@@ -355,7 +358,7 @@ export async function migrateVaultToSyncV8Protocol(
   if (latestLegacy.blobSha !== legacyHeadSha) {
     throw new Error("旧 v7 head 在迁移期间发生变化，已中止 v8 head 发布；请停止旧客户端后重试。");
   }
-  onProgress?.("CAS 发布 sync/v8/head.json");
+  onProgress?.("CAS 发布 sync/v9/head.json");
   const published = await target.putHead(head);
   if (!published.ok) {
     const winner = await target.readHead();

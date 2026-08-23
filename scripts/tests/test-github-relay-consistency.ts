@@ -57,13 +57,13 @@ const relayRequest = (path: string, init?: RequestInit): Request => new Request(
 // The policy matrix is intentionally explicit: all ordinary reads/writes stay
 // available, while DELETE is limited to one content-addressed object at a time.
 assert.equal(relayRequestPolicy(relayRequest("/user")).allowed, true, "/user GET");
-assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v8/head.json")).allowed, true, "contents GET");
+assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json")).allowed, true, "contents GET");
 assert.equal(relayRequestPolicy(relayRequest(`/repos/me/vault/git/blobs/${sha1}`)).allowed, true, "blob GET");
-assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v8/head.json", { method: "HEAD" })).allowed, true, "head HEAD");
-assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v8/head.json", { method: "PUT" })).allowed, true, "contents PUT");
+assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "HEAD" })).allowed, true, "head HEAD");
+assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT" })).allowed, true, "contents PUT");
 for (const namespace of ["checkpoints", "segments", "objects", "history"]) {
   assert.deepEqual(
-    relayRequestPolicy(relayRequest(`/repos/me/vault/contents/sync/v8/${namespace}/${sha256}.json`, { method: "DELETE" })),
+    relayRequestPolicy(relayRequest(`/repos/me/vault/contents/sync/v9/${namespace}/${sha256}.json`, { method: "DELETE" })),
     { allowed: true, status: 200 },
     `v8 ${namespace} DELETE`,
   );
@@ -71,10 +71,10 @@ for (const namespace of ["checkpoints", "segments", "objects", "history"]) {
 
 // DELETE must never become a general Contents API proxy.
 for (const path of [
-  "/repos/me/vault/contents/sync/v8/head.json",
-  `/repos/me/vault/contents/sync/v8/assets/${sha256}.png`,
-  "/repos/me/vault/contents/sync/v8/checkpoints/not-a-hash.json",
-  `/repos/me/vault/contents/sync/v8/checkpoints/${sha256}.json/extra`,
+  "/repos/me/vault/contents/sync/v9/head.json",
+  `/repos/me/vault/contents/sync/v9/assets/${sha256}.png`,
+  "/repos/me/vault/contents/sync/v9/checkpoints/not-a-hash.json",
+  `/repos/me/vault/contents/sync/v9/checkpoints/${sha256}.json/extra`,
   "/repos/me/vault/contents/other.json",
 ]) {
   assert.deepEqual(relayRequestPolicy(relayRequest(path, { method: "DELETE" })), { allowed: false, status: 404 }, `DELETE must reject ${path}`);
@@ -83,11 +83,11 @@ assert.deepEqual(relayRequestPolicy(new Request("https://sync.example/repos/me/v
 assert.deepEqual(relayRequestPolicy(relayRequest("/repos/me/vault/issues")), { allowed: false, status: 404 }, "unrelated GitHub API must be rejected");
 assert.deepEqual(relayRequestPolicy(new Request("https://pages.example/api-github/repos/me/vault/issues"), { pathPrefix: "/api-github" }), { allowed: false, status: 404 });
 assert.deepEqual(
-  relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v8/head.json", { method: "PUT", headers: { "content-length": String(MAX_RELAY_BODY_BYTES + 1) } })),
+  relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT", headers: { "content-length": String(MAX_RELAY_BODY_BYTES + 1) } })),
   { allowed: false, status: 413 },
   "relay must reject bodies over 20 MiB",
 );
-assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v8/head.json", { method: "PUT", headers: { "content-length": String(MAX_RELAY_BODY_BYTES) } })).allowed, true, "20 MiB body is the inclusive limit");
+assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT", headers: { "content-length": String(MAX_RELAY_BODY_BYTES) } })).allowed, true, "20 MiB body is the inclusive limit");
 
 interface WorkerForwardResult {
   response: Response;
@@ -111,13 +111,13 @@ async function invokeWorker(request: Request, upstreamResponse: Response): Promi
 // /user, contents, blob and head traffic all use the same upstream transport;
 // this head response also verifies ETag and streamed-header forwarding.
 const headResult = await invokeWorker(
-  relayRequest("/repos/me/vault/contents/sync/v8/head.json?ref=main", { method: "HEAD", headers: { authorization: "Bearer test-token" } }),
+  relayRequest("/repos/me/vault/contents/sync/v9/head.json?ref=main", { method: "HEAD", headers: { authorization: "Bearer test-token" } }),
   new Response(null, { status: 304, headers: { etag: '"head-etag"', "last-modified": "Wed, 20 Aug 2026 00:00:00 GMT", "content-length": "0" } }),
 );
 assert.equal(headResult.response.status, 304, "head status must pass through");
 assert.equal(headResult.response.headers.get("etag"), '"head-etag"', "head ETag must pass through");
 assert.equal(headResult.response.headers.get("content-length"), "0", "content-length must pass through when upstream supplies it");
-assert.equal(headResult.forwarded?.url, "https://api.github.com/repos/me/vault/contents/sync/v8/head.json?ref=main", "head must target GitHub API");
+assert.equal(headResult.forwarded?.url, "https://api.github.com/repos/me/vault/contents/sync/v9/head.json?ref=main", "head must target GitHub API");
 assert.equal(headResult.forwarded?.body, null, "Worker must not send a HEAD body upstream");
 
 // A missing upstream Content-Length is left absent; the relay must not invent
@@ -132,7 +132,7 @@ assert.equal(missingLengthResult.response.headers.get("content-length"), null, "
 for (const status of [409, 422]) {
   const casBody = JSON.stringify({ message: `CAS ${status}` });
   const casResult = await invokeWorker(
-    relayRequest("/repos/me/vault/contents/sync/v8/head.json", { method: "PUT", headers: { authorization: "Bearer test-token", "content-type": "application/json" } }),
+    relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT", headers: { authorization: "Bearer test-token", "content-type": "application/json" } }),
     new Response(casBody, { status, headers: { "content-type": "application/json" } }),
   );
   assert.equal(casResult.response.status, status, `CAS ${status} status must pass through`);
@@ -142,7 +142,7 @@ for (const status of [409, 422]) {
 // Authorization is forwarded verbatim, while edge/proxy hop headers are
 // removed from the request sent to GitHub.  Redirect handling stays manual.
 const headerResult = await invokeWorker(
-  relayRequest("/repos/me/vault/contents/sync/v8/head.json", {
+  relayRequest("/repos/me/vault/contents/sync/v9/head.json", {
     method: "PUT",
     headers: {
       authorization: "Bearer secret-token",
@@ -182,7 +182,7 @@ for (const header of [
 assert.equal(headerResult.forwarded?.redirect, "manual", "upstream redirect mode must remain manual");
 
 const deleteResult = await invokeWorker(
-  relayRequest(`/repos/me/vault/contents/sync/v8/objects/${sha256}.json`, { method: "DELETE", headers: { authorization: "Bearer test-token" } }),
+  relayRequest(`/repos/me/vault/contents/sync/v9/objects/${sha256}.json`, { method: "DELETE", headers: { authorization: "Bearer test-token" } }),
   new Response(null, { status: 204 }),
 );
 assert.equal(deleteResult.response.status, 204, "allowed immutable DELETE must reach upstream");

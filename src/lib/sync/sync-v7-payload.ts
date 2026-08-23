@@ -8,7 +8,7 @@
  * ceiling (which only postpones the wall) or split the atomic unit, a
  * change-set whose body exceeds the inline budget is *offloaded*: the body is
  * published as a content-addressed immutable object under
- * sync/v8/objects/<sha256>.json, and the segment event becomes a thin stub
+ * sync/v9/objects/<sha256>.json, and the segment event becomes a thin stub
  * carrying only the ordering/dedup metadata plus a `payloadRef` to that object.
  *
  * This is transport-only. The local Dexie change-set record always keeps the

@@ -1,4 +1,5 @@
 import { sha256DigestHex } from "../crypto/sha256";
+import { SYNC_V9_ASSET_PREFIX } from "../sync/sync-v7-head";
 
 /**
  * Browser image optimisation and content-addressed asset helpers.
@@ -519,7 +520,7 @@ export function imageMimeForExtension(extension: string): ImageMimeType {
 /** Build the immutable v7 content-addressed remote path. */
 export function remoteAssetPath(id: string, mimeType: string): string {
   assertDigest(id);
-  return `sync/v8/assets/${id}.${imageExtensionForMime(mimeType)}`;
+  return `${SYNC_V9_ASSET_PREFIX}${id}.${imageExtensionForMime(mimeType)}`;
 }
 
 function normaliseEstimateNumber(value: unknown): number | undefined {

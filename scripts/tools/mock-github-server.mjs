@@ -115,7 +115,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
 
   /**
    * Logical content paths currently stored (repo-prefixed internally, but the
-   * prefix is stripped so assertions keep using `sync/v8/...`).
+   * prefix is stripped so assertions keep using `sync/v9/...`).
    */
   function contentPaths() {
     return [...paths.keys()].map((key) => key.replace(/^[^/]+\/[^/]+\//, ""));
@@ -235,7 +235,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             putFaultFired = true;
             return sendJson(res, 500, { message: "transient mock PUT failure" });
           }
-          if (logicalPath.startsWith("sync/v8/assets/")) {
+          if (logicalPath.startsWith("sync/v9/assets/")) {
             stats.assetWrites += 1;
             inFlightAssetWrites += 1;
             stats.maxConcurrentAssetWrites = Math.max(stats.maxConcurrentAssetWrites, inFlightAssetWrites);
@@ -251,11 +251,11 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
           // readHead and publish, exercising syncWithGitHub's CAS retry/rebase loop.
           // Only fires on an existing head (a data-sync update), never on the
           // bootstrap create, so initialize is unaffected.
-          if (faults?.conflictHeadPutOnce && !putFaultFired && existed && /^sync\/v[78]\/head\.json$/.test(logicalPath)) {
+          if (faults?.conflictHeadPutOnce && !putFaultFired && existed && /^sync\/v[789]\/head\.json$/.test(logicalPath)) {
             putFaultFired = true;
             return sendJson(res, 409, { message: "Conflict" });
           }
-          if (faults?.conflictHeadPutAlways && existed && /^sync\/v[78]\/head\.json$/.test(logicalPath)) {
+          if (faults?.conflictHeadPutAlways && existed && /^sync\/v[789]\/head\.json$/.test(logicalPath)) {
             return sendJson(res, 409, { message: "Conflict" });
           }
           // CAS mode emulates GitHub's optimistic concurrency on the Contents API:

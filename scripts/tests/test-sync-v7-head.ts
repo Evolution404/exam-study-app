@@ -34,7 +34,7 @@ const vaultId = "vault:test-v7";
 const createdAt = "2026-08-13T00:00:00.000Z";
 const checkpoint = descriptor(SYNC_V7_CHECKPOINT_PREFIX, "initial checkpoint");
 const head: SyncHeadV7 = {
-  formatVersion: 8,
+  formatVersion: 9,
   vaultId,
   generatedAt: createdAt,
   generation: 0,
@@ -48,7 +48,7 @@ assertSyncV7Path(SYNC_V7_HEAD_PATH, "head");
 assertSyncV7Path(`${SYNC_V7_ASSET_PREFIX}${digest("asset")}.webp`, "asset");
 assertSyncV7Path(`${SYNC_V7_OBJECT_PREFIX}${digest("object")}.json`, "object");
 assertSyncV7Path(`${SYNC_V7_SEGMENT_PREFIX}${digest("segment")}.json`, "segment");
-assert.throws(() => assertSyncV7Path("sync/v8/head.json", "object"), /mutable/);
+assert.throws(() => assertSyncV7Path("sync/v9/head.json", "object"), /mutable/);
 assert.throws(() => validateSyncHeadV7({ ...head, vaultId: "" }), /vault identity/);
 assert.throws(() => validateSyncHeadV7({ ...head, metadata: { ...head.metadata, vaultId: "other" } }), /does not match/);
 assert.throws(() => encodeSyncV7Event({ text: "x".repeat(300_000) }), /immutable ref/);
@@ -95,9 +95,9 @@ assert.deepEqual(compactedPublication.order, ["checkpoint", "objects", "segments
 // Replay order follows generation/ordinal even when paths/hashes are reverse
 // ordered. No lexical path tie-breaker is consulted.
 const replayInput = [
-  { generation: 2, ordinal: 0, path: "sync/v8/segments/ffff.json", events: ["g2"] },
-  { generation: 1, ordinal: 1, path: "sync/v8/segments/0000.json", events: ["g1b"] },
-  { generation: 1, ordinal: 0, path: "sync/v8/segments/aaaa.json", events: ["g1a"] },
+  { generation: 2, ordinal: 0, path: "sync/v9/segments/ffff.json", events: ["g2"] },
+  { generation: 1, ordinal: 1, path: "sync/v9/segments/0000.json", events: ["g1b"] },
+  { generation: 1, ordinal: 0, path: "sync/v9/segments/aaaa.json", events: ["g1a"] },
 ];
 assert.deepEqual(replaySyncV7Segments(replayInput), ["g1a", "g1b", "g2"]);
 assert.deepEqual(orderSyncV7Segments(replayInput).map((item) => [item.generation, item.ordinal]), [[1, 0], [1, 1], [2, 0]]);
@@ -116,7 +116,7 @@ assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
 
 // storedSize（实际存储/线上字节）：合法可选字段；非法值被拒。
 {
-  const base = { path: "sync/v8/checkpoints/" + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
+  const base = { path: "sync/v9/checkpoints/" + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
   const withStored = { ...base, storedSize: 42 };
   assert.ok(validateSyncV7Descriptor(withStored, "checkpoint") === undefined, "storedSize 合法");
   let rejected = false;

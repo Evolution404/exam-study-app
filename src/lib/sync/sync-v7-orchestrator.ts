@@ -98,7 +98,7 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
       : `正在上传图片（${completed}/${total}，${transferred}）`;
     report(callback, "upload", label, 4 + 2 * (total ? completed / total : 0), 6);
   });
-  report(callback, "prepare", "正在初始化 v8 热窗口", 6, 8);
+  report(callback, "prepare", "正在初始化 v9 热窗口", 6, 8);
   const localSnapshot = await createSyncCheckpointV7Snapshot();
   const historySyncStart = historySyncStartFor(settings);
   const localProjection = filterProjectionHistoryV7(await projectionFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
@@ -109,11 +109,11 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
   const descriptor: SyncV7Descriptor = { ...(await uploadedDescriptor(client, path, bytes, "checkpoint")), generation: 0 };
   const now = new Date().toISOString();
-  const head: SyncHeadV7 = { formatVersion: 8, vaultId: vaultId(settings), generatedAt: now, generation: 0, metadata: { vaultId: vaultId(settings), producer: "exam-study-app" }, checkpoint: descriptor, segments: [], cursors: {} };
+  const head: SyncHeadV7 = { formatVersion: 9, vaultId: vaultId(settings), generatedAt: now, generation: 0, metadata: { vaultId: vaultId(settings), producer: "exam-study-app" }, checkpoint: descriptor, segments: [], cursors: {} };
   const committed = await client.putHead(head);
   if (!committed.ok) {
     const winner = await client.readHead();
-    if (!winner.initialized) throw new Error("v8 初始化冲突，请重试。");
+    if (!winner.initialized) throw new Error("v9 初始化冲突，请重试。");
     return winner.cache;
   }
   // B4: a GitHub-compatible layer may return ok on an un-CAS'd PUT and let the
@@ -121,7 +121,7 @@ async function initialize(settings: GitHubSettings, token: string, callback?: Sy
   // head to confirm ownership; if another device actually won, adopt its cache
   // instead of marking our pending changes committed against a head we don't own.
   const confirmed = await client.readHead();
-  if (!confirmed.initialized) throw new Error("v8 初始化冲突，请重试。");
+  if (!confirmed.initialized) throw new Error("v9 初始化冲突，请重试。");
   if (confirmed.cache.blobSha !== committed.blobSha) return confirmed.cache;
   await saveHeadCache(settings, committed.cache);
   // Local recovery cache remains a fully hydrated v7 projection; only the
@@ -144,7 +144,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initialize(settings, token, progress, options); read = await client.readHead(); }
-  if (!read.initialized) throw new Error("无法初始化 v8 远端。请先执行 v7→v8 数据仓库迁移。");
+  if (!read.initialized) throw new Error("无法初始化 v9 远端。请先执行 v8→v9 数据仓库迁移。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpointV7["counts"] | undefined;
@@ -155,7 +155,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   let bands = syncBands((await listChangeSetsV7(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);
-    report(progress, "download", cached ? "正在检查 v8 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
+    report(progress, "download", cached ? "正在检查 v9 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
     let downloadSteps = 0;
     const downloaded = await downloadRemoteV7(client, read.head, cached, (fraction, label) => {
       downloadSteps += 1;
@@ -307,7 +307,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 此时本地 head 缓存必须已带上最新水位/代数，否则面板读到旧缓存而不过期。
       try { await publishDeviceWatermark(client, settings, getV7DeviceId(), read.head.cursors); } catch { /* best-effort */ }
       await pruneCommittedChangeSets(read.head.cursors);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 8 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 9 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
     }
     try {
       report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.24));
@@ -348,7 +348,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           // Page-local coverage cursors (see maybeCoalesceHotWindow): lets a peer
           // skip this page when its events are below the peer's cached watermark.
           const pageCursors = cursorsFor(page.events as Array<{ deviceId: string; localSequence: number }>);
-          const segmentBytes = encodeSyncV7Segment({ formatVersion: 8 as const, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
+          const segmentBytes = encodeSyncV7Segment({ formatVersion: 9 as const, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
           const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
@@ -403,7 +403,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "upload", "正在发布新版索引", bandPercent(bands.upload!, 0.72), bandPercent(bands.upload!, 0.8));
       const committed = await client.publish(plan);
       if (committed.ok) report(progress, "upload", "远端已接受本次变更", bandPercent(bands.upload!, 0.8), bandPercent(bands.upload!, 0.88));
-      if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v8 远端索引丢失。"); continue; }
+      if (!committed.ok) { await releaseChangeSetClaimV7(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v9 远端索引丢失。"); continue; }
       await commitChangeSetClaimV7(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
       // B3: reuse the already-validated rebasedProjection (createdAt order) rather
       // than re-replaying claim.records in wire/claim order — a tombstone-sensitive
@@ -440,7 +440,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await pruneCommittedChangeSets(nextHead.cursors);
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 8 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 9 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaimV7(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
@@ -465,7 +465,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
   return withSyncLock(async () => {
     const client = remote(settings, token, options?.fetch, options?.transport);
     const read = await client.readHead();
-    if (!read.initialized) throw new Error("远端还没有 v8 数据。");
+    if (!read.initialized) throw new Error("远端还没有 v9 数据。");
     // B1: restore wipes the whole local change-set queue. Guard against silently
     // discarding un-synced local edits — surface them so the caller can sync (or
     // explicitly discard) before overwriting from remote. The same exact
@@ -476,7 +476,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
     if (unsynced.length) throw new Error(`还有 ${unsynced.length} 组未同步的本地更改，请先同步或处理后再恢复远程历史。`);
     const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
     const progress = monotonicProgress(callback);
-    report(progress, "download", "正在从远端抓取完整 v8 数据", bandPercent(bands.download, 0.02), bands.download[1]);
+    report(progress, "download", "正在从远端抓取完整 v9 数据", bandPercent(bands.download, 0.02), bands.download[1]);
     const historySyncStart = historySyncStartFor(settings);
     const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]), { historySyncStart });
     const projection = filterProjectionHistoryV7(replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1])), historySyncStart);
@@ -492,8 +492,8 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
     await saveInstalledHead(settings, installFingerprint(read.cache));
     await saveInstalledCursors(settings, read.head.cursors);
     await pruneCommittedChangeSets(read.head.cursors);
-    report(callback, "complete", "v8 远端恢复完成", 100);
-    return { pulled: downloaded.changes.length, formatVersion: 8 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns, skippedArchivedAttempts: downloaded.skippedArchivedAttempts, skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart };
+    report(callback, "complete", "v9 远端恢复完成", 100);
+    return { pulled: downloaded.changes.length, formatVersion: 9 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns, skippedArchivedAttempts: downloaded.skippedArchivedAttempts, skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart };
   });
 }
 

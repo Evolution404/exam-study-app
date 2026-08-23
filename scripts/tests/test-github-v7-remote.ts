@@ -35,7 +35,7 @@ const generatedAt = "2026-08-13T00:00:00.000Z";
 const checkpointBytes = bytes("checkpoint bytes");
 const checkpointPath = `${SYNC_V7_CHECKPOINT_PREFIX}${digest(checkpointBytes)}.json`;
 const head: SyncHeadV7 = {
-  formatVersion: 8,
+  formatVersion: 9,
   vaultId,
   generatedAt,
   generation: 0,
@@ -61,7 +61,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
   const method = String(init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   calls.push({ method, path: url.pathname, headers, ...(typeof init.body === "string" ? { body: init.body } : {}) });
-  const headPath = `/repos/${owner}/${repo}/contents/sync/v8/head.json`;
+  const headPath = `/repos/${owner}/${repo}/contents/sync/v9/head.json`;
   if (url.pathname === headPath) {
     if (method === "GET") {
       if (!headBytes || !headSha) return new Response("missing", { status: 404 });
@@ -75,7 +75,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
       headBytes = decode(String(request.content));
       headSha = nextSha();
       headEtag = `"head-${counter + 1}"`;
-      return json({ content: { path: "sync/v8/head.json", sha: headSha } }, counter === 1 ? 201 : 200, { ETag: headEtag });
+      return json({ content: { path: "sync/v9/head.json", sha: headSha } }, counter === 1 ? 201 : 200, { ETag: headEtag });
     }
   }
   const contentsMarker = `/repos/${owner}/${repo}/contents/`;

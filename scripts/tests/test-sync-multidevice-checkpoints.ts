@@ -27,7 +27,7 @@ async function fetchWithOneHeadPutConflict(): Promise<typeof fetch> {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" || input instanceof URL ? String(input) : String((input as Request).url);
     const method = (init?.method ?? "GET").toUpperCase();
-    if (!injected && method === "PUT" && url.includes("/sync/v8/head.json")) {
+    if (!injected && method === "PUT" && url.includes("/sync/v9/head.json")) {
       injected = true;
       return new Response(JSON.stringify({ message: "Conflict" }), {
         status: 409,
@@ -58,9 +58,9 @@ try {
   }
   const deviceAId = memoryLocalStorage.get("shijuan-study-v7-device-id") ?? "device-a";
   const firstSync = await syncWithGitHub(settings, token);
-  assert.equal(firstSync.formatVersion, 8, "初始化同步应返回 v8 协议版本");
+  assert.equal(firstSync.formatVersion, 9, "初始化同步应返回 v9 协议版本");
   assert.equal(firstSync.remaining, 0, "初始化后应无待同步变更");
-  assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v8/checkpoints/")).length >= 1, "初始化后应存在至少一个检查点");
+  assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v9/checkpoints/")).length >= 1, "初始化后应存在至少一个检查点");
 
   // ===== 设备 A：写入 36 条大解析，制造热窗口溢出，生成第二个检查点 =====
   const largeNote = "x".repeat(120 * 1024);
@@ -74,7 +74,7 @@ try {
   assert.equal(secondSync.pushed, 36, "第二次同步应上传 36 条解析变更");
   assert.equal(secondSync.remaining, 0, "压缩后应无待同步变更");
   assert.equal(secondSync.compacted, true, "热窗口超过 4 MiB 应生成第二个检查点");
-  const checkpointPaths = server.contentPaths().filter((path) => path.startsWith("sync/v8/checkpoints/"));
+  const checkpointPaths = server.contentPaths().filter((path) => path.startsWith("sync/v9/checkpoints/"));
   assert.ok(checkpointPaths.length >= 2, `远端应至少存在两个检查点，实际 ${checkpointPaths.length} 个`);
   assert.notEqual(checkpointPaths[0], checkpointPaths[1], "两个检查点路径应不同");
 

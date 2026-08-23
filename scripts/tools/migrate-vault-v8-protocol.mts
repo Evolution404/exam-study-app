@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** One-shot migration from the complete Sync v7 namespace to Sync v8. */
+/** One-shot migration from the complete Sync v7 namespace to the current wire protocol. */
 import { execFileSync } from "node:child_process";
 import { migrateVaultToSyncV8Protocol } from "../../src/lib/sync/sync-v8-protocol-migration";
 
@@ -39,7 +39,7 @@ function parseArgs(argv: readonly string[]): Args {
 
 const args = parseArgs(process.argv.slice(2));
 console.log(`目标：${args.owner}/${args.repo}@${args.branch}`);
-if (args.verify) console.log("只读预检：不会写入 sync/v8。\n");
+if (args.verify) console.log("只读预检：不会写入远端。\n");
 const result = await migrateVaultToSyncV8Protocol(
   { owner: args.owner, repo: args.repo, branch: args.branch, ...(args.apiBase ? { apiBaseUrl: args.apiBase } : {}) },
   args.token,

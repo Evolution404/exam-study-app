@@ -258,7 +258,7 @@ const asset: ImageAsset = {
   size: blob.size,
   width: 1,
   height: 1,
-  remote: { path: `sync/v8/assets/${digest}.png`, blobSha: "a".repeat(40), sha256: digest, size: blob.size },
+  remote: { path: `sync/v9/assets/${digest}.png`, blobSha: "a".repeat(40), sha256: digest, size: blob.size },
   blob,
 };
 await putImageAssetV7(asset);

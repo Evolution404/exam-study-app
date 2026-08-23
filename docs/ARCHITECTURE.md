@@ -53,7 +53,7 @@ Web/PWA 使用浏览器能力；iOS 使用 Capacitor 插件，但业务层仍只
 
 - native WKWebView 不注册 Service Worker；PWA 缓存只属于浏览器 Web 构建。
 - iOS 同步使用 WKWebView 可用的 `fetch` 兼容路径；Native HTTP 未启用，不能绕过统一 transport 或 Relay。
-- 只有 adapter 读取 Keychain、Preferences、App lifecycle、Haptics、Filesystem 和 Share；Dexie、Sync v8、题型与练习领域代码不分叉。
+- 只有 adapter 读取 Keychain、Preferences、App lifecycle、Haptics、Filesystem 和 Share；Dexie、Sync v9、题型与练习领域代码不分叉。
 
 ## 领域层 `src/lib/`
 
@@ -122,7 +122,7 @@ scripts/
 
 - 客户端只使用 IndexedDB v7（`shijuan-study-v7`）。
 - 客户端无论是浏览器还是 iOS WKWebView，都使用同一个 `shijuan-study-v7`；iOS 不迁移到 SQLite，也不另建业务数据库。
-- 公开同步协议为 Sync v8：head 固定为 `sync/v8/head.json`，检查点、分段、对象、历史与资产全部位于 `sync/v8/`，不可变对象走内容寻址，统一 GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
+- 公开同步协议为 Sync v9：head 固定为 `sync/v9/head.json`，检查点、分段、对象、历史与资产全部位于 `sync/v9/`，不可变对象走内容寻址，统一 GitHub transport 通过 `proxy/` 或用户配置的中转地址访问。
 - Relay 默认按部署环境选择：Cloudflare Pages 使用 `/api-github`；GitHub Pages 与 iOS native 默认使用 `https://sync.980923.xyz`。iOS 可以显式配置自定义 Relay，但 Relay 失败不会静默切换到 `https://api.github.com`。
 - 正常同步不保留 v1/v2/v5/v6/v7 传输回退；旧远端 v7 只允许由隔离的一次性迁移工具读取。
 - 旧 `shijuan-study-v6` 本地库会在启动时一次性迁移到 `shijuan-study-v7`；本地领域模型保持 v7，远端 head/segment/checkpoint envelope 均为 format 8。
@@ -132,7 +132,7 @@ scripts/
 - App 前后台事件由 lifecycle adapter 触发有限的前台 catch-up pull；后台不启动持续同步，也不因切换产生并发 sync 风暴。
 - 练习反馈的 haptics 由 Capacitor Haptics adapter 提供；没有插件或在 Web 环境时退回浏览器/无震动行为，不能影响答题事务。
 - JSON/XLSX/ZIP 导入和导出继续复用现有领域解析与 Dexie 写事务；iOS 导入第一版继续使用 WKWebView 的 `<input type="file">` 与系统 Files picker，导出才由 Filesystem adapter 写入临时文件并打开 Share Sheet。
-- 这些原生能力只处理设备边界，不改变题库模型、Sync v8 wire format、head CAS 或图片 descriptor；图片仍是本地 Blob、远端内容寻址资产。
+- 这些原生能力只处理设备边界，不改变题库模型、Sync v9 wire format、head CAS 或图片 descriptor；图片仍是本地 Blob、远端内容寻址资产。
 
 ## 主题规则
 

@@ -5,7 +5,7 @@ import {
   SYNC_V7_MAX_SEGMENT_BYTES,
   SYNC_V7_OBJECT_PREFIX,
   SYNC_V7_SEGMENT_PREFIX,
-  SYNC_V8_HISTORY_PREFIX,
+  SYNC_V9_HISTORY_PREFIX,
   SYNC_V7_HEAD_PATH,
   assertSyncV7Path,
   validateSyncHeadV7,
@@ -136,7 +136,7 @@ export class SyncV7ImmutableConflictError extends Error {
   readonly path: string;
 
   constructor(path: string) {
-    super(`immutable v8 file content differs at ${path}`);
+    super(`immutable v9 file content differs at ${path}`);
     this.name = "SyncV7ImmutableConflictError";
     this.path = path;
   }
@@ -148,7 +148,7 @@ export class SyncV7BlobIntegrityError extends Error {
   readonly actual: number | string;
 
   constructor(reason: "size" | "sha256", expected: number | string, actual: number | string) {
-    super(reason === "size" ? `v8 blob size mismatch: expected ${expected}, received ${actual}` : `v8 blob sha256 mismatch: expected ${expected}, received ${actual}`);
+    super(reason === "size" ? `v9 blob size mismatch: expected ${expected}, received ${actual}` : `v9 blob sha256 mismatch: expected ${expected}, received ${actual}`);
     this.name = "SyncV7BlobIntegrityError";
     this.reason = reason;
     this.expected = expected;
@@ -162,7 +162,7 @@ function asBytes(value: SyncV7Bytes): Uint8Array {
   if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof Uint8Array) return value.slice();
   if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  throw new TypeError("immutable v8 file bytes must be text, Uint8Array, or ArrayBuffer");
+  throw new TypeError("immutable v9 file bytes must be text, Uint8Array, or ArrayBuffer");
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -276,7 +276,7 @@ export class GitHubV7Remote {
     if (!options || typeof options.owner !== "string" || options.owner.length === 0) throw new TypeError("GitHub owner is required");
     if (typeof options.repo !== "string" || options.repo.length === 0) throw new TypeError("GitHub repo is required");
     if (typeof options.token !== "string") throw new TypeError("GitHub token is required");
-    if (options.vaultId !== undefined && (typeof options.vaultId !== "string" || options.vaultId.length === 0)) throw new TypeError("v8 vaultId must be explicit when supplied");
+    if (options.vaultId !== undefined && (typeof options.vaultId !== "string" || options.vaultId.length === 0)) throw new TypeError("v9 vaultId must be explicit when supplied");
     this.owner = options.owner;
     this.repo = options.repo;
     this.branch = options.branch || "main";
@@ -291,7 +291,7 @@ export class GitHubV7Remote {
   }
 
   private assertVault(head: SyncHeadV7): void {
-    if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubV7RemoteError("vault identity", 409, "v8 head vault identity does not match this remote");
+    if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubV7RemoteError("vault identity", 409, "v9 head vault identity does not match this remote");
   }
 
   private async request(path: string, init: RequestInit = {}, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
@@ -345,7 +345,7 @@ export class GitHubV7Remote {
   }
 
   /** List immutable files in a bounded v8 maintenance namespace. */
-  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX | typeof SYNC_V8_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
+  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX | typeof SYNC_V9_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
     const kind: SyncV7DescriptorKind = prefix === SYNC_V7_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_V7_SEGMENT_PREFIX ? "segment" : "history";
     const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
     const response = await this.request(withRef(contentPath(this.owner, this.repo, directory), this.branch));
@@ -376,7 +376,7 @@ export class GitHubV7Remote {
     const response = await this.request(contentPath(this.owner, this.repo, path), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `sync(v8): gc ${path}`, sha: blobSha, branch: this.branch }),
+      body: JSON.stringify({ message: `sync(v9): gc ${path}`, sha: blobSha, branch: this.branch }),
     });
     if (response.status === 404) return false;
     if (response.status === 409 || response.status === 422) return false;
@@ -413,7 +413,7 @@ export class GitHubV7Remote {
     validateSyncHeadV7(head);
     this.assertVault(head);
     let expectedSha: string | undefined;
-    let message = "sync(v8): update head";
+    let message = "sync(v9): update head";
     if (typeof expected === "string") expectedSha = expected;
     else if (expected && "head" in expected) expectedSha = "blobSha" in expected && typeof expected.blobSha === "string" ? expected.blobSha : undefined;
     else if (expected) { expectedSha = expected.expectedSha ?? expected.sha; if (expected.message) message = expected.message; }
@@ -461,7 +461,7 @@ export class GitHubV7Remote {
     // traffic and remote storage); the descriptor above stays addressed to the
     // LOGICAL bytes, so identity is independent of the envelope format.
     const stored = isJsonSyncPath(input.path) ? await encodeSyncV7JsonBytes(content) : content;
-    const response = await this.request(contentPath(this.owner, this.repo, input.path), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v8): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) });
+    const response = await this.request(contentPath(this.owner, this.repo, input.path), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v9): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) });
     if (response.status !== 422) {
       this.requireOk(response, `put immutable ${input.path}`);
       const blobSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`));
@@ -586,7 +586,7 @@ function inferKind(path: string): SyncV7DescriptorKind {
   if (path.startsWith(SYNC_V7_ASSET_PREFIX)) return "asset";
   if (path.startsWith(SYNC_V7_CHECKPOINT_PREFIX)) return "checkpoint";
   if (path.startsWith(SYNC_V7_OBJECT_PREFIX)) return "object";
-  if (path.startsWith(SYNC_V8_HISTORY_PREFIX)) return "history";
+  if (path.startsWith(SYNC_V9_HISTORY_PREFIX)) return "history";
   if (path.startsWith(SYNC_V7_SEGMENT_PREFIX)) return "segment";
   throw new TypeError("immutable v8 path must be in a known v8 namespace");
 }

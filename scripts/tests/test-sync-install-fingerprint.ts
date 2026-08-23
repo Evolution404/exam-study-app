@@ -26,8 +26,8 @@ Object.defineProperty(globalThis, "localStorage", {
 
 // --- 1. 纯函数 --------------------------------------------------------------
 {
-  const checkpoint = { path: "sync/v8/checkpoints/ab.json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10 };
-  const base = { formatVersion: 8 as const, vaultId: "qa/vault@main", generatedAt: "2026-08-14T00:00:00.000Z", generation: 3, metadata: { vaultId: "qa/vault@main", producer: "t" }, checkpoint, segments: [], cursors: { "device-a": 5 } };
+  const checkpoint = { path: "sync/v9/checkpoints/ab.json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10 };
+  const base = { formatVersion: 9 as const, vaultId: "qa/vault@main", generatedAt: "2026-08-14T00:00:00.000Z", generation: 3, metadata: { vaultId: "qa/vault@main", producer: "t" }, checkpoint, segments: [], cursors: { "device-a": 5 } };
   const fingerprint = installFingerprint({ head: base });
   // generatedAt 变化 / 分段重排（coalesce）不改指纹。
   assert.equal(installFingerprint({ head: { ...base, generatedAt: "2026-08-15T09:00:00.000Z", segments: [{ ...checkpoint, generation: 4, ordinal: 0, count: 1, cursors: { "device-a": 5 }, metadata: { vaultId: "qa/vault@main", createdAt: "2026-08-15T09:00:00.000Z", producer: "t" } }] } }), fingerprint, "coalesce/时间戳变化不改安装指纹");
@@ -72,7 +72,7 @@ async function currentHead() {
 // --- 2. tier 判定（downloadRemoteV7 直接驱动）--------------------------------
 async function remoteCacheEntry() {
   const entries = await dbV7.syncMeta.toArray();
-  const entry = entries.find((item) => item.key.startsWith("v8:sync:checkpoint:"));
+  const entry = entries.find((item) => item.key.startsWith("v9:sync:checkpoint:"));
   assert.ok(entry, "应存在远端缓存条目");
   return entry.value as { cachedAt: string; checkpoint: { cursors: Record<string, number>; counts: Record<string, number> }; head: { head: { checkpoint: { sha256: string }; segments: Array<{ path: string }> } } };
 }

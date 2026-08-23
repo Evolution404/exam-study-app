@@ -77,7 +77,7 @@ try {
     assert.equal(await dbV7.questions.count(), 200, "本地应导入 200 题");
     const fingerprints = new Set((await dbV7.questions.toArray()).map((question) => question.contentFingerprint));
     await sync();
-    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v8/objects/")), "大导入应卸载为不可变对象");
+    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "大导入应卸载为不可变对象");
 
     await freshClient("device-b");
     await sync();

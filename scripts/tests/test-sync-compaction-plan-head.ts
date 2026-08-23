@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { planSyncV7Compaction } from "../../src/lib/sync/sync-v7-head";
 
 const head = {
-  formatVersion: 8 as const,
+  formatVersion: 9 as const,
   vaultId: "vault",
   generatedAt: "2026-08-13T00:00:00.000Z",
   generation: 5,
   metadata: { vaultId: "vault" },
-  checkpoint: { path: "sync/v8/checkpoints/checkpoint.json", blobSha: "a".repeat(40), sha256: "b".repeat(64), size: 1024 },
+  checkpoint: { path: "sync/v9/checkpoints/checkpoint.json", blobSha: "a".repeat(40), sha256: "b".repeat(64), size: 1024 },
   segments: [
-    { path: "sync/v8/segments/1.json", blobSha: "a".repeat(40), sha256: "c".repeat(64), size: 3 * 1024 * 1024, generation: 5, ordinal: 0, count: 1, cursors: {}, metadata: { vaultId: "vault", createdAt: "2026-08-13T00:00:00.000Z" } },
-    { path: "sync/v8/segments/2.json", blobSha: "a".repeat(40), sha256: "d".repeat(64), size: 2 * 1024 * 1024, generation: 5, ordinal: 1, count: 1, cursors: {}, metadata: { vaultId: "vault", createdAt: "2026-08-13T00:00:00.000Z" } },
+    { path: "sync/v9/segments/1.json", blobSha: "a".repeat(40), sha256: "c".repeat(64), size: 3 * 1024 * 1024, generation: 5, ordinal: 0, count: 1, cursors: {}, metadata: { vaultId: "vault", createdAt: "2026-08-13T00:00:00.000Z" } },
+    { path: "sync/v9/segments/2.json", blobSha: "a".repeat(40), sha256: "d".repeat(64), size: 2 * 1024 * 1024, generation: 5, ordinal: 1, count: 1, cursors: {}, metadata: { vaultId: "vault", createdAt: "2026-08-13T00:00:00.000Z" } },
   ],
   cursors: {},
 };

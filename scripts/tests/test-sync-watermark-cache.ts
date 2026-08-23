@@ -30,7 +30,7 @@ try {
   let conditionalHeadGets = 0;
   const fetchWrapper = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" || input instanceof URL ? String(input) : String((input as Request).url);
-    if (url.includes("/sync/v8/head.json") && (init?.method ?? "GET").toUpperCase() === "GET") {
+    if (url.includes("/sync/v9/head.json") && (init?.method ?? "GET").toUpperCase() === "GET") {
       headGets += 1;
       const headers = new Headers(init?.headers);
       if (headers.get("If-None-Match")) conditionalHeadGets += 1;

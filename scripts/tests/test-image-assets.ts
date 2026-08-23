@@ -201,9 +201,9 @@ const [first, second] = await Promise.all([
 assert.equal(first.id, second.id);
 
 const digest = "a".repeat(64);
-assert.equal(remoteAssetPath(digest, "image/webp"), `sync/v8/assets/${digest}.webp`);
-assert.equal(remoteAssetPath(digest, "image/jpeg"), `sync/v8/assets/${digest}.jpg`);
-assert.equal(remoteAssetPath(digest, "image/png"), `sync/v8/assets/${digest}.png`);
+assert.equal(remoteAssetPath(digest, "image/webp"), `sync/v9/assets/${digest}.webp`);
+assert.equal(remoteAssetPath(digest, "image/jpeg"), `sync/v9/assets/${digest}.jpg`);
+assert.equal(remoteAssetPath(digest, "image/png"), `sync/v9/assets/${digest}.png`);
 expectThrow(() => remoteAssetPath(digest.toUpperCase(), "image/webp"), /小写/);
 expectThrow(() => remoteAssetPath("short", "image/webp"), /64 位/);
 expectThrow(() => remoteAssetPath(digest, "image/gif"), /不受支持/);
