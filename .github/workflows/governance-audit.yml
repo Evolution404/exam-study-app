@@ -26,9 +26,10 @@ jobs:
       - run: npm ci
       - name: Structural dead-code gate
         run: npx knip --include files,dependencies,unlisted,unresolved
-      - name: Export surface audit
-        continue-on-error: true
-        run: npx knip --include exports,types
+      - name: Export surface ratchet
+        run: node scripts/tools/check-export-surface.mjs
+      - name: Require committed export ratchet baseline
+        run: git diff --exit-code -- scripts/tools/check-export-surface.mjs
       - name: CSS architecture ratchets
         run: node scripts/tools/check-css-architecture.mjs
       - name: Require committed CSS ratchet baseline
