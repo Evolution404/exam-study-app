@@ -4,34 +4,18 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: 26
           cache: npm
       - run: npm ci
-      - name: Regenerate XLSX template
-        run: npm run template:xlsx
-      - name: Persist regenerated XLSX template once
-        shell: bash
-        run: |
-          if git diff --quiet -- public/题库模板.xlsx; then
-            echo "template already current"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/题库模板.xlsx
-          git commit -m "chore: regenerate xlsx template"
-          git push origin HEAD:${{ github.head_ref }}
       - name: Production build
         run: npm run build
       - name: Fast checks
