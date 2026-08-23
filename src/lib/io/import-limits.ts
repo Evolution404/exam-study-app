@@ -5,7 +5,7 @@
  * bundle reader cannot silently drift apart as the accepted data set grows.
  * All byte limits are logical bytes (MiB = 1024 * 1024).
  */
-export interface ImportLimitSet {
+interface ImportLimitSet {
   maxBytes: number;
   maxQuestions: number;
   maxOptionsPerQuestion: number;
@@ -55,5 +55,3 @@ export const IMPORT_LIMITS: Readonly<ImportLimits> = Object.freeze({
     maxImages: 10_000,
   }),
 });
-
-export const IMPORT_MIB = MiB;
