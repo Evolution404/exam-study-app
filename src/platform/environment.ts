@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 
-export type AppPlatform = "web" | "ios";
+type AppPlatform = "web" | "ios";
 
 export interface PlatformEnvironment {
   platform: AppPlatform;
