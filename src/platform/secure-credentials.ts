@@ -1,4 +1,4 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { registerPlugin } from "@capacitor/core";
 import type { PlatformEnvironment } from "./environment";
 import { getPlatformEnvironment } from "./environment";
 
@@ -8,7 +8,7 @@ export interface SecureCredentialsPlugin {
   remove(options: { key: string }): Promise<void>;
 }
 
-export const SECURE_GITHUB_TOKEN_KEY = "github-token";
+const SECURE_GITHUB_TOKEN_KEY = "github-token";
 
 const registeredPlugin = registerPlugin<SecureCredentialsPlugin>("SecureCredentials");
 let plugin: SecureCredentialsPlugin = registeredPlugin;
@@ -107,10 +107,4 @@ export function resetSecureCredentialsForTests(): void {
   nativeEnabled = false;
   hydrated = false;
   tokenCache = "";
-}
-
-// Keep Capacitor in this module's implementation boundary; no caller needs to
-// inspect a native global or know how plugin availability is determined.
-export function secureCredentialsPluginAvailable(): boolean {
-  return Capacitor.isPluginAvailable("SecureCredentials");
 }
