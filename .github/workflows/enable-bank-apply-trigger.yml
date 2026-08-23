@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
-      - name: Normalize patch script against current import layout
+      - name: Normalize patch script against current source layout
         shell: bash
         run: |
           python - <<'PY'
@@ -32,6 +32,10 @@ jobs:
           s = s.replace(
             'import { isBankEnabled, type AttemptStatsV7, type BankFolderV7, type NoteV7, type PracticeRunV7, type QuestionTypeV7 } from "@/lib/db/v7-types";',
             'import { isBankEnabled, type AttemptStatsV7, type BankFolderV7, type BankV7, type NoteV7, type PracticeRunV7, type QuestionTypeV7 } from "@/lib/db/v7-types";',
+          )
+          s = s.replace(
+            "'<ShellTopbar banks={banks}': '<ShellTopbar banks={enabledBanks}',",
+            "'        <ShellTopbar\\n          banks={banks}': '        <ShellTopbar\\n          banks={enabledBanks}',",
           )
           p.write_text(s)
           PY
