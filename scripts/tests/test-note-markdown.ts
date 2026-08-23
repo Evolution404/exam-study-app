@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { parseNoteMarkdown } from "../../src/lib/practice/note-markdown";
 
 // 个人解析的 Markdown + LaTeX 渲染：解析器是纯函数（lib/note-markdown.ts），
@@ -121,7 +121,11 @@ const practiceView = await readFile(new URL("../../src/app/shell/views/practice.
 const searchView = await readFile(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
 const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
 const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
-const styles = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
+const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
+const styles = (await Promise.all((await readdir(stylesRoot))
+  .filter((file) => file.endsWith(".css"))
+  .sort()
+  .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\n");
 const renderer = await readFile(new URL("../../src/app/ui/note-markdown.tsx", import.meta.url), "utf8");
 
 assert.match(detail, /import \{ NoteMarkdown \} from "@\/app\/ui\/note-markdown"/, "题目详情接入 NoteMarkdown");
@@ -147,14 +151,14 @@ assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.note-markdown p/, "�
 // .search-detail-body 的选项列表样式必须收敛到直接子级（> ol > li），
 // 否则 .note-markdown 的 ol/li/span 会被渲染成答题选项按钮。
 const bareDescendant = /\.search-detail-body\s+(ol|li)[{,>:]/;
-assert.ok(!bareDescendant.test(styles), "components.css 不得存在 .search-detail-body ol/li 裸后代选择器（会穿透 markdown 列表）");
+assert.ok(!bareDescendant.test(styles), "样式图不得存在 .search-detail-body ol/li 裸后代选择器（会穿透 markdown 列表）");
 assert.match(styles, /\.search-detail-body>ol>li>span\s*\{/, "选项徽章样式限定为直接子级");
 assert.ok(!/html\[data-theme="dark"\][^{}]*\.search-detail-body\s+li[{,>]/.test(styles), "夜间规则同样不得用裸后代选择器命中 markdown li");
 assert.match(styles, /\.note-markdown ol\{[^}]*display:block/, "markdown 有序列表兜底 display:block");
 assert.match(styles, /\.note-markdown li\{[^}]*display:list-item/, "markdown 列表项兜底 display:list-item（::marker 序号可见）");
 
 // --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
-// :288 的夜间 input 规则强制 #111813；搜索类输入框必须显式补 transparent!important。
+// 夜间 input 规则强制深色底；搜索类输入框必须显式补 transparent!important。
 assert.match(
   styles,
   /html\[data-theme="dark"\] :is\([^)]*\.searchbox input[^)]*\.search-home-query input[^)]*\)\{background:transparent!important\}/,
@@ -173,7 +177,7 @@ assert.match(practiceView, /onFocus=\{\(\) => setNoteEditing\(true\)\}/, "解析
 
 // --- 防回退：搜索页吸附设计（顶栏滚走 / 搜索框钉顶 / 批量栏紧贴） ------------
 assert.match(studyApp, /className=\{`workspace \$\{view === "search" \? "view-search" : ""\}`\}/, "搜索视图给 workspace 打 view-search 标记");
-assert.match(styles, /\.workspace\.view-search \.topbar\s*\{\s*position:relative;\s*z-index:30/, "搜索页内全局顶栏不固定（随内容滚走，但需要更高层叠让快速搜索预览不被遮挡）");
+assert.match(styles, /\.workspace\.view-search \.topbar\s*\{\s*position:\s*relative;\s*z-index:\s*30/, "搜索页内全局顶栏不固定（随内容滚走，但需要更高层叠让快速搜索预览不被遮挡）");
 assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19/, "搜索页搜索框钉在顶部");
 assert.match(styles, /--search-query-h:58px/, "搜索框高度以变量定义");
 assert.match(styles, /\.search-batch-bar \{ position:sticky; top:var\(--search-query-sticky-height,var\(--search-query-h\)\)/, "批量栏吸附位置必须跟随搜索框实际渲染高度");
