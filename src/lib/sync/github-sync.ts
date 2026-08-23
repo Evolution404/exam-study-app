@@ -4,6 +4,7 @@ export {
   getLastRemoteCache,
   getSyncHotWindowState,
   pullFromGitHub,
+  restoreFromGitHub,
   restoreFullHistoryFromGitHub,
   restoreLastRemoteCache,
   syncWithGitHub,
