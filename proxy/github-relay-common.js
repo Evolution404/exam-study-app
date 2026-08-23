@@ -36,19 +36,32 @@ export function buildUpstreamUrl(requestUrl, { pathPrefix } = {}) {
 /** Restrict the public relay to the small GitHub API surface used by sync. */
 export function relayRequestPolicy(request, { pathPrefix } = {}) {
   const method = request.method.toUpperCase();
-  if (!["GET", "HEAD", "PUT", "DELETE"].includes(method)) return { allowed: false, status: 405 };
+  if (!["GET", "HEAD", "PUT", "DELETE", "POST", "PATCH"].includes(method)) return { allowed: false, status: 405 };
   const upstream = buildUpstreamUrl(request.url, { pathPrefix });
   const path = upstream.pathname;
   const userLookup = path === "/user" && (method === "GET" || method === "HEAD");
   const repositoryRead = /^\/repos\/[^/]+\/[^/]+\/(?:contents(?:\/.*)?|git\/blobs\/[a-f0-9]{40})$/i.test(path)
     && (method === "GET" || method === "HEAD");
   const contentsWrite = /^\/repos\/[^/]+\/[^/]+\/contents(?:\/.*)?$/i.test(path) && method === "PUT";
-  // GC is deliberately narrower than ordinary contents writes.  Only
+
+  // Asset Pack publication uses Git Data API so dozens/hundreds of image
+  // objects become one tree/commit/ref update instead of one Contents commit
+  // per file. Keep this allowlist deliberately narrower than a general Git API
+  // proxy: one branch ref, commit/tree reads, blob/tree/commit creates and a
+  // non-forced heads ref update are the only additional operations.
+  const gitBranchRead = /^\/repos\/[^/]+\/[^/]+\/git\/ref\/heads\/[A-Za-z0-9._~\/-]+$/.test(path) && method === "GET";
+  const gitCommitRead = /^\/repos\/[^/]+\/[^/]+\/git\/commits\/[a-f0-9]{40}$/i.test(path) && method === "GET";
+  const gitObjectCreate = /^\/repos\/[^/]+\/[^/]+\/git\/(?:blobs|trees|commits)$/i.test(path) && method === "POST";
+  const gitHeadUpdate = /^\/repos\/[^/]+\/[^/]+\/git\/refs\/heads\/[A-Za-z0-9._~\/-]+$/.test(path) && method === "PATCH";
+
+  // GC is deliberately narrower than ordinary contents writes. Only
   // content-addressed v9 objects can be removed; head.json is mutable and
   // assets are user data, so neither may be deleted through the public relay.
   const immutableDelete = /^\/repos\/[^/]+\/[^/]+\/contents\/sync\/v9\/(?:checkpoints|segments|objects|history)\/[a-f0-9]{64}\.json$/.test(path)
     && method === "DELETE";
-  if (!userLookup && !repositoryRead && !contentsWrite && !immutableDelete) return { allowed: false, status: 404 };
+  if (!userLookup && !repositoryRead && !contentsWrite && !gitBranchRead && !gitCommitRead && !gitObjectCreate && !gitHeadUpdate && !immutableDelete) {
+    return { allowed: false, status: 404 };
+  }
   const declaredBytes = Number(request.headers.get("content-length"));
   if (Number.isFinite(declaredBytes) && (declaredBytes < 0 || declaredBytes > MAX_RELAY_BODY_BYTES)) return { allowed: false, status: 413 };
   return { allowed: true, status: 200 };
