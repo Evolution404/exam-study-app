@@ -167,14 +167,38 @@ class LegacyReader {
     this.fetchImpl = fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
-  private async request(path: string, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+  /**
+   * GETs are read-only and idempotent, so transient transport failures
+   * (connection resets, refused HTTP/2 streams under Node's default fetch)
+   * and 5xx replies retry once before surfacing — mirroring the production
+   * remote's GET retry contract.
+   */
+  private async fetchGet(url: string, accept: string): Promise<Response> {
+    const run = () => this.fetchImpl(url, {
       headers: {
         Accept: accept,
         Authorization: `Bearer ${this.token}`,
         "X-GitHub-Api-Version": GITHUB_V7_API_VERSION,
       },
     });
+    let response: Response;
+    try {
+      response = await run();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      response = await run();
+    }
+    if (response.status >= 500) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const retried = await run();
+      if (retried.ok) return retried;
+      response = retried;
+    }
+    return response;
+  }
+
+  private async request(path: string, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
+    const response = await this.fetchGet(`${this.baseUrl}${path}`, accept);
     if (!response.ok) throw new GitHubV7RemoteError(`read legacy ${path}`, response.status);
     return response;
   }
@@ -194,9 +218,7 @@ class LegacyReader {
     // v8 vault never accidentally reads a stale v7 head left behind earlier.
     for (const version of [8, 7] as const) {
       const path = LEGACY_HEAD_PATHS[version];
-      const response = await this.fetchImpl(`${this.baseUrl}${contentPath(this.settings.owner, this.settings.repo, path)}?ref=${encodeURIComponent(this.settings.branch || "main")}`, {
-        headers: { Accept: GITHUB_V7_JSON_MEDIA_TYPE, Authorization: `Bearer ${this.token}`, "X-GitHub-Api-Version": GITHUB_V7_API_VERSION },
-      }).then((value) => value, () => undefined);
+      const response = await this.fetchGet(`${this.baseUrl}${contentPath(this.settings.owner, this.settings.repo, path)}?ref=${encodeURIComponent(this.settings.branch || "main")}`, GITHUB_V7_JSON_MEDIA_TYPE).then((value) => value, () => undefined);
       if (!response || !response.ok) continue;
       const value = await response.json() as unknown;
       if (!isRecord(value) || typeof value.content !== "string" || typeof value.sha !== "string" || !SHA1.test(value.sha)) throw new Error(`GitHub 未返回有效的旧 head：${path}`);
