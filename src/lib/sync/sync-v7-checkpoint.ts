@@ -181,6 +181,7 @@ function validateBank(value: unknown, folders: Set<string>, index: number): asse
   assertString(value.name, `state.banks[${index}].name`);
   assertSafeInt(value.sortOrder, `state.banks[${index}].sortOrder`);
   assertSafeInt(value.questionCount, `state.banks[${index}].questionCount`);
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") fail(`state.banks[${index}].enabled must be boolean`);
   assertDate(value.importedAt, `state.banks[${index}].importedAt`);
   assertDate(value.updatedAt, `state.banks[${index}].updatedAt`);
   assertString(value.deviceId, `state.banks[${index}].deviceId`);

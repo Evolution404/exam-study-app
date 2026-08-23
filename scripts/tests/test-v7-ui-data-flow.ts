@@ -3,6 +3,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { isQuestionDoneInScope, normalizeProgressScope } from "../../src/lib/practice/progress-scope";
 import { classifyNoticeTone } from "../../src/lib/practice/notice-tone";
 import { resumeIndexAfterLastAnswer } from "../../src/lib/practice/practice-resume";
+import { isBankEnabled } from "../../src/lib/db/v7-types";
+
+assert.equal(isBankEnabled({}), true, "旧题库缺少 enabled 字段时必须默认启用");
+assert.equal(isBankEnabled({ enabled: true }), true);
+assert.equal(isBankEnabled({ enabled: false }), false);
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");
@@ -140,6 +145,15 @@ assert.equal(resumeIndexAfterLastAnswer(resumeIds, {}), 0, "未作答从第一�
 assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 
 const study = source("shell/app-shell.tsx");
+assert.match(study, /const enabledBanks = banks\.filter\(isBankEnabled\)/, "AppShell 必须集中定义学习可见题库");
+assert.match(study, /BankLibraryView banks=\{banks\}/, "题库管理必须继续接收全部题库");
+assert.match(study, /Dashboard[\s\S]*?banks=\{enabledBanks\}/, "首页只显示启用题库");
+assert.match(study, /PracticeSetupView[\s\S]*?banks=\{enabledBanks\}/, "新练习只使用启用题库");
+assert.match(study, /SearchView[\s\S]*?banks=\{enabledBanks\}/, "搜索只使用启用题库");
+assert.match(study, /localStorage\.setItem\("study-current-banks", JSON\.stringify\(next\)\)/, "远端停用后必须清理本机幽灵选择");
+assert.match(bank, /已启用 \{enabledCount\}/, "题库管理应提供启用筛选");
+assert.match(bank, /已停用 \{disabledCount\}/, "题库管理应提供停用筛选");
+assert.match(bank, /saveBank\(bank\.id, \{ enabled \}\)/, "启停必须走同步题库更新");
 assert.match(study, /importTargetBankIdRef/, "app-shell 应以 ref 记住导入目标题库后复用全局文件输入");
 const shellHelpers = source("shell/helpers.ts");
 const dashboardView = source("shell/views/dashboard.tsx");

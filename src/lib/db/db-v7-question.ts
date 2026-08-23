@@ -569,6 +569,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       name: sourceName,
       sortOrder: await dbV7.banks.count(),
       questionCount: 0,
+      enabled: true,
       importedAt: timestamp,
       updatedAt: timestamp,
       deviceId,

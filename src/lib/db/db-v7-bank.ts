@@ -69,6 +69,7 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
     folderId: values.folderId,
     sortOrder: Number.isFinite(values.sortOrder) ? Number(values.sortOrder) : await dbV7.banks.count(),
     questionCount: 0,
+    enabled: values.enabled ?? true,
     importedAt: values.importedAt ?? timestamp,
     updatedAt: values.updatedAt ?? timestamp,
     deviceId: values.deviceId ?? getV7DeviceId(),
@@ -80,7 +81,7 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
   return bank;
 }
 
-export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>): Promise<BankV7> {
+export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder" | "enabled">>): Promise<BankV7> {
   const current = await dbV7.banks.get(bankId);
   if (!current) throw new Error("题库不存在或已被删除。");
   if (changes.folderId) {

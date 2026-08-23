@@ -1,5 +1,5 @@
 import { deleteBankFolderV7, reorderBanksV7, saveBankFolderV7, updateBankV7 } from "@/lib/db/db-v7";
-import type { AttemptStatsV7, BankFolderV7, BankV7, NoteV7, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { isBankEnabled, type AttemptStatsV7, type BankFolderV7, type BankV7, type NoteV7, type PracticeRunV7, type QuestionTypeV7 } from "@/lib/db/v7-types";
 import type { QuestionViewModel } from "@/app/bank/question-editor";
 
 export type Bank = BankV7;
@@ -9,6 +9,7 @@ export type QuestionType = QuestionTypeV7;
 export type Note = NoteV7;
 export type PracticeRun = PracticeRunV7;
 export type AttemptStats = AttemptStatsV7 & { bankId: string };
+export { isBankEnabled };
 
 export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
@@ -43,6 +44,6 @@ export function runAccuracy(run: PracticeRun) {
 }
 
 export async function reorderBanks(ids: string[], folderId?: string) { await reorderBanksV7(ids, folderId); }
-export async function saveBank(id: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder">>) { return updateBankV7(id, changes); }
+export async function saveBank(id: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder" | "enabled">>) { return updateBankV7(id, changes); }
 export async function saveBankFolder(input: Partial<BankFolder>): Promise<BankFolder> { return saveBankFolderV7({ id: input.id, name: input.name?.trim() || "未命名文件夹", description: input.description ?? "" }); }
 export async function deleteBankFolder(id: string): Promise<void> { await deleteBankFolderV7(id); }

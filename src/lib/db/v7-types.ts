@@ -21,6 +21,12 @@ import type {
 export interface BankV7 extends Omit<LegacyBank, "questionCount"> {
   sortOrder: number;
   questionCount: number;
+  /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
+  enabled?: boolean;
+}
+
+export function isBankEnabled(bank: Pick<BankV7, "enabled">): boolean {
+  return bank.enabled !== false;
 }
 
 export type BankFolderV7 = LegacyBankFolder;
