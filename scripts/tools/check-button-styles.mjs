@@ -4,20 +4,11 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = process.cwd();
-const styleFiles = [
-  "components.css",
-  "controls.css",
-  "content-blocks.css",
-  "hint.css",
-  "practice-setup.css",
-  "review-scope.css",
-  "sync-events.css",
-];
+const stylesDir = path.join(root, "src/app/styles");
+const styleFiles = fs.readdirSync(stylesDir).filter((file) => file.endsWith(".css")).sort();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const fail = (message) => { throw new Error(`按钮样式守卫失败：${message}`); };
 
-// These two values are deliberately rewritten downward after a successful run.
-// A fresh checkout starts with null so the existing baseline is seeded once.
 let buttonHexBudget = 139;
 let bareButtonBudget = {
   "src/app/bank/bank-library/bank-dashboard-widgets.tsx": 0,
@@ -134,12 +125,12 @@ const cssRules = styleFiles.flatMap((file) => collectCssRules(read(`src/app/styl
 const buttonRules = cssRules.flatMap((rule) => buttonSelectors(rule).map((selector) => ({ ...rule, selector })));
 
 const shared = new Map();
-for (const rule of cssRules.filter(({ file, selector }) => file === "components.css" && /^\.(primary|secondary|danger-button)$/.test(selector.trim()))) {
+for (const rule of cssRules.filter(({ selector }) => /^\.(primary|secondary|danger-button)$/.test(selector.trim()))) {
   shared.set(rule.selector.trim(), rule);
 }
 for (const name of [".primary", ".secondary", ".danger-button"]) {
   const rule = shared.get(name);
-  if (!rule) fail(`components.css 缺少 ${name} 基础规则`);
+  if (!rule) fail(`样式图缺少 ${name} 基础规则`);
   const body = rule.body.replace(/\s+/g, "");
   if (!/min-height:42px/.test(body) || !/border-radius:10px/.test(body)) fail(`${name} 必须为 42px 高、10px 圆角`);
   if (/#(?:[0-9a-f]{3,8})\b/i.test(rule.body)) fail(`${name} 基础规则不得包含 hex 颜色`);
@@ -157,7 +148,6 @@ for (const rule of buttonRules) {
 }
 
 const buttonHexCount = buttonRules.reduce((total, rule) => total + (rule.body.match(/#[0-9a-f]{3,8}\b/gi)?.length ?? 0), 0);
-if (buttonHexBudget === null) buttonHexBudget = buttonHexCount;
 if (buttonHexCount > buttonHexBudget) fail(`按钮规则 hex 颜色由 ${buttonHexBudget} 增至 ${buttonHexCount}，只能减少`);
 
 const tsxFiles = [];
@@ -184,7 +174,6 @@ const bareCounts = Object.fromEntries(tsxFiles.map((file) => {
   return [path.relative(root, file), count];
 }));
 
-if (bareButtonBudget === null) bareButtonBudget = bareCounts;
 for (const [file, count] of Object.entries(bareCounts)) {
   const budget = bareButtonBudget[file] ?? 0;
   if (count > budget) fail(`${file} 裸 <button> 由 ${budget} 增至 ${count}，必须挂共享按钮类`);
@@ -194,15 +183,14 @@ const scriptPath = fileURLToPath(import.meta.url);
 let scriptSource = fs.readFileSync(scriptPath, "utf8");
 const tightenedHexBudget = Math.min(buttonHexBudget, buttonHexCount);
 const tightenedBareBudget = Object.fromEntries(Object.entries(bareButtonBudget).map(([file, budget]) => [file, Math.min(budget, bareCounts[file] ?? 0)]));
-const shouldWrite = buttonHexBudget !== tightenedHexBudget || JSON.stringify(bareButtonBudget) !== JSON.stringify(tightenedBareBudget)
-  || scriptSource.includes("let buttonHexBudget = null;") || scriptSource.includes("let bareButtonBudget = null;");
+const shouldWrite = buttonHexBudget !== tightenedHexBudget || JSON.stringify(bareButtonBudget) !== JSON.stringify(tightenedBareBudget);
 if (shouldWrite) {
   const previousHex = buttonHexBudget;
   buttonHexBudget = tightenedHexBudget;
   bareButtonBudget = tightenedBareBudget;
   scriptSource = scriptSource
-    .replace(/let buttonHexBudget = (?:null|\d+);/, `let buttonHexBudget = ${buttonHexBudget};`)
-    .replace(/let bareButtonBudget = (?:null|\{[\s\S]*?\});/, `let bareButtonBudget = ${JSON.stringify(bareButtonBudget, null, 2)};`);
+    .replace(/let buttonHexBudget = \d+;/, `let buttonHexBudget = ${buttonHexBudget};`)
+    .replace(/let bareButtonBudget = \{[\s\S]*?\n\};/, `let bareButtonBudget = ${JSON.stringify(bareButtonBudget, null, 2)};`);
   fs.writeFileSync(scriptPath, scriptSource);
   if (previousHex !== buttonHexBudget) console.log(`按钮 hex 预算棘轮已收紧：${previousHex}→${buttonHexBudget}`);
 }
