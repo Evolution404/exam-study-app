@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { answerText, buildQuestionCopyText, displayedAnswer } from "../../src/lib/question/question-copy";
 
 // ===== 纯函数：buildQuestionCopyText =====
@@ -90,20 +90,22 @@ assert.match(questionDetail, /buildQuestionCopyText\(question, \{ includeAnswer:
 assert.match(questionDetail, /answer\?\.submitted && answer\.correct === false && answer\.selected\.includes\(letter\) && !isAnswer/, "详情页做错时选项须标 wrong（与做题界面一致）");
 assert.match(questionDetail, /\{isWrong && <X size=\{16\} \/>\}/, "做错选项须带 X 图标（与做题界面一致）");
 
-// ===== 静态断言：CSS token 化与旧暗色规则清除 =====
+// ===== 静态断言：最终 CSS 架构 / token 化 =====
 
-const styles = await readFile("src/app/styles/components.css", "utf8");
-const copyButtonStyles = await readFile("src/app/ui/copy-question-button.module.css", "utf8");
+const styleNames = (await readdir("src/app/styles")).filter((file) => file.endsWith(".css")).sort();
+const styles = (await Promise.all(styleNames.map((file) => readFile(`src/app/styles/${file}`, "utf8")))).join("\n");
+const mainSource = await readFile("src/main.tsx", "utf8");
 assert.match(styles, /\.question-meta \.question-meta-copy\{margin-left:auto/, "复制按钮容器应持有 margin-left:auto");
-assert.match(copyButtonStyles, /\.scope :global\(\.copy-question\.copied\)[\s\S]*color: var\(--color-surface-raised\);[\s\S]*background: var\(--color-success\);/, "copied 态应走 success token");
-assert.match(copyButtonStyles, /\.scope :global\(\.copy-question\.error\)[\s\S]*color: var\(--color-danger\);[\s\S]*background: var\(--color-danger-soft\);/, "error 态应走 danger token");
-assert.match(copyButtonStyles, /width: 30px;[\s\S]*height: 30px;/, "复制按钮视觉尺寸应紧凑为 30px");
+assert.match(styles, /\.copy-question\.copied\s*\{[\s\S]*?color:\s*var\(--color-surface-raised\);[\s\S]*?background:\s*var\(--color-success\);/, "copied 态应走 success token");
+assert.match(styles, /\.copy-question\.error\s*\{[\s\S]*?color:\s*var\(--color-danger\);[\s\S]*?background:\s*var\(--color-danger-soft\);/, "error 态应走 danger token");
+assert.match(styles, /\.copy-question\s*\{[\s\S]*?width:\s*30px;[\s\S]*?height:\s*30px;/, "复制按钮视觉尺寸应紧凑为 30px");
+assert.doesNotMatch(styles, /:global\(/, "CSS Module 全局逃逸必须保持为 0");
+assert.doesNotMatch(mainSource, /copy-question-button\.module\.css|copyQuestionButtonStyles|document\.documentElement\.classList\.add/, "启动入口不得恢复 document 级 CSS Module scope 桥");
 assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*copy-question/, "复制按钮不得依赖暗色前缀（token 自适应）");
 assert.match(styles, /\.search-detail-body>ol>li\.wrong\{border-color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "详情页做错选项标记应全 token 化");
-// 选项文字保持正文墨色（与做题界面一致）：answer/wrong 规则不得染文字色，只有状态图标着色。
 assert.doesNotMatch(styles, /search-detail-body>ol>li\.answer\s*\{[^}]*[^-]color:/, "正确选项文字不得染绿（做题界面文字为墨色）");
 assert.doesNotMatch(styles, /search-detail-body>ol>li\.wrong\s*\{[^}]*[^-]color:/, "做错选项文字不得染红（做题界面文字为墨色）");
 assert.match(styles, /li\.answer>svg\{color:var\(--color-success\)\}/, "正确选项状态图标保持成功色");
 assert.match(styles, /li\.wrong>svg\{color:var\(--color-danger\)\}/, "做错选项状态图标保持危险色");
 
-console.log("question copy tests passed: 文本构造（含做错附我的选择）、练习页双按钮、详情页复制、token 化样式");
+console.log("question copy tests passed: 文本构造、练习页双按钮、详情页复制、最终 token 化 CSS 架构");
