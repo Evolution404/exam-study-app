@@ -1,0 +1,14 @@
+/* Platform-specific rendering fixes that should stay isolated from feature CSS. */
+
+/* iOS/WebKit can briefly paint a dark tap highlight before a text input's
+ * focus state settles. Suppress only the native transient highlight/appearance;
+ * the normal .searchbox:focus-within border remains the visible focus cue. */
+.topbar .searchbox,
+.topbar .searchbox input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.topbar .searchbox input {
+  -webkit-appearance: none;
+  appearance: none;
+}
