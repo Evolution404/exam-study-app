@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolveBuildBase } from "../../vite.config";
+import { resolveBuildBase, resolveViteBase } from "../../vite.config";
 
 assert.equal(resolveBuildBase({}), "/exam-study-app/", "默认构建必须保持 GitHub Pages 子路径");
 assert.equal(resolveBuildBase({ CF_PAGES: "1" }), "/", "Cloudflare Pages 构建必须使用根路径");
 assert.equal(resolveBuildBase({ APP_TARGET: "ios" }), "./", "iOS 容器构建必须使用相对资源路径");
 assert.equal(resolveBuildBase({ APP_TARGET: "ios", CF_PAGES: "1" }), "./", "iOS target 优先于部署环境变量");
+assert.equal(resolveViteBase("serve", {}), "/", "本地 Vite dev 必须固定根路径，避免浏览器测试探测部署子路径");
+assert.equal(resolveViteBase("build", {}), "/exam-study-app/", "Vite build 必须继续遵守 GitHub Pages 子路径");
+assert.equal(resolveViteBase("build", { CF_PAGES: "1" }), "/", "Cloudflare Pages build 必须继续使用根路径");
+assert.equal(resolveViteBase("build", { APP_TARGET: "ios" }), "./", "iOS build 必须继续使用相对资源路径");
 
 const capacitorConfig = readFileSync(new URL("../../capacitor.config.ts", import.meta.url), "utf8");
 const platformRuntime = readFileSync(new URL("../../src/platform/runtime.ts", import.meta.url), "utf8");
@@ -16,4 +20,4 @@ assert.match(platformRuntime, /setOverlaysWebView\(\{\s*overlay:\s*false\s*\}\)/
 assert.match(platformRuntime, /setBackgroundColor\(\{\s*color:\s*currentStatusBarBackgroundColor\(\)\s*\}\)/, "iOS 状态栏背景必须跟随当前主题");
 assert.doesNotMatch(platformRuntime, /setOverlaysWebView\(\{\s*overlay:\s*true\s*\}\)/, "iOS 运行时不得让搜索栏进入状态栏区域");
 
-console.log("build target tests passed: web, Cloudflare Pages, iOS base paths and status-bar geometry");
+console.log("build target tests passed: local dev, web deploys, iOS base paths and status-bar geometry");
