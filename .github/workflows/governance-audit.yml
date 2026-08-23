@@ -31,5 +31,7 @@ jobs:
         run: npx knip --include exports,types
       - name: CSS architecture ratchets
         run: node scripts/tools/check-css-architecture.mjs
+      - name: Require committed CSS ratchet baseline
+        run: git diff --exit-code -- scripts/tools/check-css-architecture.mjs
       - name: CSS governance baseline
         run: node scripts/tools/report-css-governance.mjs
