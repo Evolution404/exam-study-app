@@ -38,6 +38,24 @@ replace(
   'const primaryRule = componentStyles.match(/\\.primary\\s*\\{[^}]*min-height:\\s*42px[^}]*\\}/)?.[0] ?? "";',
   "base primary rule lookup",
 );
+replace(
+  "scripts/tests/test-v7-ui-data-flow.ts",
+  'const dashboardView = source("shell/views/dashboard.tsx");',
+  'const dashboardView = source("shell/views/dashboard.tsx");\nconst shellTopbar = source("shell/topbar.tsx");',
+  "topbar test source",
+);
+replace(
+  "scripts/tests/test-v7-ui-data-flow.ts",
+  'assert.match(study, /stats\\.pending\\.toLocaleString\\("zh-CN"\\)/, "右上角同步按钮应显示真实待同步数量");',
+  'assert.match(study, /pending=\\{stats\\.pending\\}/, "AppShell 应把真实待同步数量传给右上角同步区");\nassert.match(shellTopbar, /pending\\.toLocaleString\\("zh-CN"\\)/, "右上角同步按钮应显示真实待同步数量");',
+  "pending count ownership",
+);
+replace(
+  "scripts/tests/test-v7-ui-data-flow.ts",
+  'assert.match(study, /<QuickSearch /, "StudyApp 应使用 QuickSearch 组件");',
+  'assert.match(study, /<ShellTopbar/, "AppShell 应通过独立 ShellTopbar 承载顶部交互");\nassert.match(shellTopbar, /<QuickSearch /, "ShellTopbar 应使用 QuickSearch 组件");',
+  "QuickSearch ownership",
+);
 
 for (const file of fs.readdirSync("scripts/tests").filter((name) => /\.(?:ts|mjs)$/.test(name))) {
   const source = fs.readFileSync(`scripts/tests/${file}`, "utf8");
