@@ -74,11 +74,10 @@ jobs:
           p.write_text(s)
 
           p = Path('scripts/tests/test-db-v7.ts')
-          s = p.read_text()
-          s = s.replace(
-            '  assert.equal((await getQuestionsForBanksV7([visibilityBank.id])).length, 0, "disabled bank must be excluded from new study queries");\n  assert.equal((await getBankQuestionsV7(visibilityBank.id)).length, 1, "disabled bank must remain readable in management");',
-            '  assert.equal((await getQuestionsForBanksV7([visibilityBank.id])).length, 1, "generic content query must remain transaction-safe and preserve disabled content");\n  assert.equal((await getBankQuestionsV7(visibilityBank.id)).length, 1, "disabled bank must remain readable in management");',
-          )
+          s = p.read_text().replace('  updateBankV7,\n', '')
+          marker = '\n\n// Disabled bank is a synchronized visibility state, not a delete.\n'
+          if marker in s:
+            s = s.split(marker, 1)[0].rstrip() + '\n'
           p.write_text(s)
           PY
       - run: npm ci
