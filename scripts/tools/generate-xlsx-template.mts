@@ -4,8 +4,8 @@ import { buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../../src/lib
 
 const templateImageId = "ID_TEMPLATE_SHIJUAN_APP_ICON";
 const appIcon = new Uint8Array(await readFile(fileURLToPath(new URL("../../public/icons/app-icon-192.png", import.meta.url))));
-const answerColumnCount = 12;
-const optionHeaders = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const answerColumnCount = 2;
+const optionHeaders = ["A", "B", "C", "D"];
 const answerHeaders = Array.from({ length: answerColumnCount }, (_, index) => `答案${index + 1}`);
 
 function questionRow(
@@ -47,18 +47,18 @@ const instructionRows = [
   ["导入步骤", "1. 复制本模板；2. 删除题库页全部示例行；3. 按列填写；4. 将文件命名为送电线路工-初级工/中级工/高级工/技师.xlsx；5. 在题库页点击导入 Excel。"],
   ["题干", "必填。支持普通文字、公式、【图1】等图片占位符，以及计算题/填空题的【空1】【空2】等答题占位符。"],
   ["题型", "必填，只能填写：单选、多选、判断、计算、填空、简答。"],
-  ["答案列", "所有题至少填写答案1。单选、多选、判断、简答只填写答案1；计算题、填空题按空位顺序分别填写答案1、答案2…，答案列之间不得留空。模板预留答案1~答案12。"],
+  ["答案列", "模板只预留答案1、答案2两列。所有题至少填写答案1；单选、多选、判断、简答只填写答案1；计算题、填空题按空位顺序填写答案1、答案2……。如需更多空位，请在选项A之前继续插入答案3、答案4……，答案/填空最多 12 列，且答案列之间不得留空。"],
   ["标签", "可选。多个标签使用中文逗号、英文逗号或顿号分隔。"],
   ["解析", "可选。该题的个人解析，导入时会写回为本机笔记（不会覆盖已有解析）。"],
-  ["选项", "只有单选、多选、判断题填写选项；选项从全部答案列右侧的 A 列开始连续填写，不得断列。判断题必须依次为“正确、错误”。计算、填空、简答题不要填写选项。"],
+  ["选项", "模板只预留 A、B、C、D 四列。只有单选、多选、判断题填写选项；需要更多选项时可在图片列之前继续按 E、F、G……连续增加。判断题必须依次为“正确、错误”。计算、填空、简答题不要填写选项。"],
   ["多空计算题", "题干必须从【空1】开始连续编号，每个编号只能出现一次；答案1对应空1、答案2对应空2。每个空独立应用误差规则，全部正确才算整题正确。"],
   ["计算题误差", "非零标准答案按相对误差百分比判定；标准答案为0时改用绝对误差，允许偏差=误差百分比÷100。例如1%时，-0.01至0.01均正确。"],
   ["填空题", "答案1对应第1空、答案2对应第2空……；同一空有多个可接受答案时，在同一个答案单元格内用 || 分隔，例如“电流||电流强度”。答案比较会忽略首尾空格并统一大小写/全半角。填空题不填写选项。"],
   ["简答题", "只填写答案1作为参考答案，其余答案列与全部选项列留空。练习时先作答，再对照参考答案自行判定正确或错误。"],
   ["图片题", "支持题干图片和选项图片。先在题干或选项文字中写【图1】【图2】等占位符，再把对应图片按编号放入本行末尾的“图片1”“图片2”列。每一题都从图1重新编号。"],
   ["插入图片", "推荐使用 WPS 的“插入图片→嵌入单元格”，并保持图片列位于全部选项列之后且从“图片1”连续编号。不要填写本机路径或网络图片地址。"],
-  ["兼容提示", "模板图片采用 WPS DISPIMG 单元格图片格式；WPS 可正常查看和编辑。部分 Microsoft Excel 版本可能显示 #NAME?，但请勿删除图片列或公式，以免导入时丢图。"],
-  ["限制", "单次最多导入 20,000 题；每题最多 12 个答案/填空、24 个选项、12 张图片；Excel 文件最大 12 MB。"],
+  ["兼容提示", "模板图片继续使用原模板同一张拾卷图标，并采用 WPS DISPIMG 单元格图片格式；WPS 可正常查看和编辑。部分 Microsoft Excel 版本可能显示 #NAME?，但请勿删除图片列或公式，以免导入时丢图。"],
+  ["限制", "模板仅预留 2 个答案列和 4 个选项列；系统答案/填空上限为 12 列。需要更多列时按上述规则连续扩展。"],
   ["安全提醒", "图片会作为本地私有资产导入并随私有仓库同步；不要在工作簿中填写 GitHub 令牌或其他账号凭据。"],
 ];
 
@@ -76,8 +76,14 @@ const sheets: XlsxSheet[] = [
   },
 ];
 
-const images: XlsxEmbeddedImage[] = [{ id: templateImageId, bytes: appIcon, extension: "png", width: 192, height: 192 }];
+const images: XlsxEmbeddedImage[] = [{
+  id: templateImageId,
+  bytes: appIcon,
+  extension: "png",
+  width: 192,
+  height: 192,
+}];
 
 const outputPath = fileURLToPath(new URL("../../public/题库模板.xlsx", import.meta.url));
 await writeFile(outputPath, buildXlsx(sheets, images));
-console.log(`题库模板已生成：${outputPath}（6 种题型、12 个答案列，含填空/简答/图片示例）`);
+console.log(`题库模板已生成：${outputPath}（6 种题型、2 个答案列、4 个选项列，含填空/简答/原图片示例）`);
