@@ -7,19 +7,20 @@ import { CSS } from "@dnd-kit/utilities";
 import { bankTitle, fullDate, isBankEnabled, type Bank, type BankFolder } from "./bank-library-shared";
 
 const FOLDER_COLLAPSE_STORAGE_PREFIX = "study-bank-folder-collapsed:";
+const UNFILED_COLLAPSE_STORAGE_ID = "__unfiled__";
 
-function readFolderCollapsed(folderId?: string) {
-  if (!folderId || typeof window === "undefined") return false;
+function readFolderCollapsed(storageId: string) {
+  if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${folderId}`) === "1";
+    return window.localStorage.getItem(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${storageId}`) === "1";
   } catch {
     return false;
   }
 }
 
-function writeFolderCollapsed(folderId: string, collapsed: boolean) {
+function writeFolderCollapsed(storageId: string, collapsed: boolean) {
   try {
-    const key = `${FOLDER_COLLAPSE_STORAGE_PREFIX}${folderId}`;
+    const key = `${FOLDER_COLLAPSE_STORAGE_PREFIX}${storageId}`;
     if (collapsed) window.localStorage.setItem(key, "1");
     else window.localStorage.removeItem(key);
   } catch {
@@ -35,7 +36,8 @@ function SortableBankItem({ bank, index, total, onOpen, onMove, onToggleEnabled,
 
 export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop, onOpen, onMove, onToggleEnabled, reorderEnabled = true, onEditFolder, onDeleteFolder }: { folder?: BankFolder; banks: Bank[]; draggedBankId?: string; onDrag: (id?: string) => void; onDrop: (beforeId?: string) => void; onOpen: (bank: Bank) => void; onMove: (bank: Bank, offset: number) => void; onToggleEnabled: (bank: Bank) => void; reorderEnabled?: boolean; onEditFolder?: () => void; onDeleteFolder?: () => void }) {
   const [preview, setPreview] = useState<{ source: Bank[]; value: Bank[] }>(() => ({ source: banks, value: banks }));
-  const [collapsed, setCollapsed] = useState(() => readFolderCollapsed(folder?.id));
+  const collapseStorageId = folder?.id ?? UNFILED_COLLAPSE_STORAGE_ID;
+  const [collapsed, setCollapsed] = useState(() => readFolderCollapsed(collapseStorageId));
   const ordered = preview.value;
   // 同步父级顺序：仅在父级数据变化时重置预览，不在 effect 中 setState。
   if (preview.source !== banks) {
@@ -89,13 +91,14 @@ export function BankFolderSection({ folder, banks, draggedBankId, onDrag, onDrop
   }
 
   function toggleCollapsed() {
-    if (!folder) return;
     setCollapsed((value) => {
       const next = !value;
-      writeFolderCollapsed(folder.id, next);
+      writeFolderCollapsed(collapseStorageId, next);
       return next;
     });
   }
 
-  return <section className={`bank-folder ${draggedBankId ? "drag-active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onDrop(); }}><header><span className="folder-icon">{folder ? (collapsed ? <Folder size={18} /> : <FolderOpen size={18} />) : <Library size={18} />}</span><div><h2>{folder?.name ?? "未分组"}</h2><p>{folder?.description || `${banks.length} 个题库`}</p></div><strong>{banks.length}</strong>{folder && <div className="folder-actions"><button type="button" className="secondary" style={{ minHeight: 30, padding: 0 }} aria-label={`${collapsed ? "展开" : "折叠"}文件夹${folder.name}`} aria-expanded={!collapsed} onClick={toggleCollapsed}><ChevronRight size={15} style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform .15s ease" }} /></button><button aria-label={`编辑文件夹${folder.name}`} onClick={onEditFolder}><Pencil size={15} /></button><button aria-label={`删除文件夹${folder.name}`} onClick={onDeleteFolder}><Trash2 size={15} /></button></div>}</header>{!collapsed && <><DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}><SortableContext items={ordered.map((bank) => bank.id)} strategy={verticalListSortingStrategy}><div className="bank-management-grid">{ordered.map((bank, index) => <SortableBankItem key={bank.id} bank={bank} index={index} total={ordered.length} onOpen={onOpen} onMove={onMove} onToggleEnabled={onToggleEnabled} reorderEnabled={reorderEnabled} />)}</div></SortableContext></DndContext>{!ordered.length && <div className="folder-drop-empty"><Folder size={20} />将题库拖到这里</div>}</>}</section>;
+  const collapseLabel = folder ? `${collapsed ? "展开" : "折叠"}文件夹${folder.name}` : `${collapsed ? "展开" : "折叠"}未分组题库`;
+
+  return <section className={`bank-folder ${draggedBankId ? "drag-active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onDrop(); }}><header><span className="folder-icon">{folder ? (collapsed ? <Folder size={18} /> : <FolderOpen size={18} />) : <Library size={18} />}</span><div><h2>{folder?.name ?? "未分组"}</h2><p>{folder?.description || `${banks.length} 个题库`}</p></div><strong>{banks.length}</strong><div className="folder-actions"><button type="button" className="secondary" style={{ minHeight: 30, padding: 0 }} aria-label={collapseLabel} aria-expanded={!collapsed} onClick={toggleCollapsed}><ChevronRight size={15} style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform .15s ease" }} /></button>{folder && <><button aria-label={`编辑文件夹${folder.name}`} onClick={onEditFolder}><Pencil size={15} /></button><button aria-label={`删除文件夹${folder.name}`} onClick={onDeleteFolder}><Trash2 size={15} /></button></>}</div></header>{!collapsed && <><DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}><SortableContext items={ordered.map((bank) => bank.id)} strategy={verticalListSortingStrategy}><div className="bank-management-grid">{ordered.map((bank, index) => <SortableBankItem key={bank.id} bank={bank} index={index} total={ordered.length} onOpen={onOpen} onMove={onMove} onToggleEnabled={onToggleEnabled} reorderEnabled={reorderEnabled} />)}</div></SortableContext></DndContext>{!ordered.length && <div className="folder-drop-empty"><Folder size={20} />将题库拖到这里</div>}</>}</section>;
 }
