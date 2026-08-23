@@ -5,22 +5,22 @@ import { getPlatformEnvironment } from "./environment";
 
 export type ExportData = Blob | Uint8Array | ArrayBuffer;
 
-export interface FileNavigatorLike {
+interface FileNavigatorLike {
   share?: (data?: ShareData) => Promise<void>;
   canShare?: (data?: ShareData) => boolean;
 }
 
-export interface FileWindowLike {
+interface FileWindowLike {
   matchMedia?: (query: string) => { matches: boolean };
   setTimeout?: typeof setTimeout;
 }
 
-export interface FileDocumentLike {
+interface FileDocumentLike {
   createElement(tagName: "a"): HTMLAnchorElement;
   body: { appendChild(node: Node): Node };
 }
 
-export interface FileUrlLike {
+interface FileUrlLike {
   createObjectURL(object: Blob | MediaSource): string;
   revokeObjectURL(url: string): void;
 }
@@ -163,10 +163,4 @@ export class PlatformFileService {
 }
 
 export const platformFileService = new PlatformFileService();
-
-/** Convenience boundary for callers that do not need a custom adapter. */
-export function downloadPlatformExport(filename: string, data: ExportData, contentType?: string): Promise<void> {
-  return platformFileService.downloadExport(filename, data, contentType);
-}
-
 export { base64For as encodeExportBytesBase64 };
