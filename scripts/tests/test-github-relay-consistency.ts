@@ -47,25 +47,40 @@ for (const header of ["etag", "content-type", "last-modified", "x-ratelimit-limi
   assert.match(worker, new RegExp(`"${header}"`), `worker relay must expose ${header}`);
 }
 assert.match(worker, /Access-Control-Allow-Origin": "\*"/, "worker relay must allow cross-origin browser clients");
-assert.match(worker, /Access-Control-Allow-Methods": "GET, HEAD, PUT, DELETE, OPTIONS"/, "worker relay must allow the complete method set");
+assert.match(worker, /Access-Control-Allow-Methods": "GET, HEAD, PUT, DELETE, POST, PATCH, OPTIONS"/, "worker relay must allow the complete method set");
 assert.match(worker, /Access-Control-Expose-Headers": "etag, last-modified, content-length, x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset"/, "worker relay must expose every sync response header");
 
 const sha256 = "a".repeat(64);
 const sha1 = "b".repeat(40);
 const relayRequest = (path: string, init?: RequestInit): Request => new Request(`https://sync.example${path}`, init);
 
-// The policy matrix is intentionally explicit: all ordinary reads/writes stay
-// available, while DELETE is limited to one content-addressed object at a time.
+// The policy matrix is intentionally explicit: ordinary contents traffic stays
+// available and Asset Pack publication gets only the narrow Git Data surface it
+// needs to create one tree/commit and fast-forward one heads ref.
 assert.equal(relayRequestPolicy(relayRequest("/user")).allowed, true, "/user GET");
 assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json")).allowed, true, "contents GET");
 assert.equal(relayRequestPolicy(relayRequest(`/repos/me/vault/git/blobs/${sha1}`)).allowed, true, "blob GET");
 assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "HEAD" })).allowed, true, "head HEAD");
 assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT" })).allowed, true, "contents PUT");
+assert.equal(relayRequestPolicy(relayRequest("/repos/me/vault/git/ref/heads/main")).allowed, true, "git branch ref GET");
+assert.equal(relayRequestPolicy(relayRequest(`/repos/me/vault/git/commits/${sha1}`)).allowed, true, "git commit GET");
+for (const object of ["blobs", "trees", "commits"]) {
+  assert.deepEqual(
+    relayRequestPolicy(relayRequest(`/repos/me/vault/git/${object}`, { method: "POST" })),
+    { allowed: true, status: 200 },
+    `git ${object} POST`,
+  );
+}
+assert.deepEqual(
+  relayRequestPolicy(relayRequest("/repos/me/vault/git/refs/heads/main", { method: "PATCH" })),
+  { allowed: true, status: 200 },
+  "git heads ref PATCH",
+);
 for (const namespace of ["checkpoints", "segments", "objects", "history"]) {
   assert.deepEqual(
     relayRequestPolicy(relayRequest(`/repos/me/vault/contents/sync/v9/${namespace}/${sha256}.json`, { method: "DELETE" })),
     { allowed: true, status: 200 },
-    `v8 ${namespace} DELETE`,
+    `v9 ${namespace} DELETE`,
   );
 }
 
@@ -79,9 +94,10 @@ for (const path of [
 ]) {
   assert.deepEqual(relayRequestPolicy(relayRequest(path, { method: "DELETE" })), { allowed: false, status: 404 }, `DELETE must reject ${path}`);
 }
-assert.deepEqual(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/issues", { method: "POST" })), { allowed: false, status: 405 });
+assert.deepEqual(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/issues", { method: "POST" })), { allowed: false, status: 404 });
 assert.deepEqual(relayRequestPolicy(relayRequest("/repos/me/vault/issues")), { allowed: false, status: 404 }, "unrelated GitHub API must be rejected");
 assert.deepEqual(relayRequestPolicy(new Request("https://pages.example/api-github/repos/me/vault/issues"), { pathPrefix: "/api-github" }), { allowed: false, status: 404 });
+assert.deepEqual(relayRequestPolicy(new Request("https://sync.example/repos/me/vault/git/tags", { method: "POST" })), { allowed: false, status: 404 }, "Git Data allowlist must not become generic");
 assert.deepEqual(
   relayRequestPolicy(relayRequest("/repos/me/vault/contents/sync/v9/head.json", { method: "PUT", headers: { "content-length": String(MAX_RELAY_BODY_BYTES + 1) } })),
   { allowed: false, status: 413 },
@@ -140,7 +156,7 @@ for (const status of [409, 422]) {
 }
 
 // Authorization is forwarded verbatim, while edge/proxy hop headers are
-// removed from the request sent to GitHub.  Redirect handling stays manual.
+// removed from the request sent to GitHub. Redirect handling stays manual.
 const headerResult = await invokeWorker(
   relayRequest("/repos/me/vault/contents/sync/v9/head.json", {
     method: "PUT",
@@ -188,9 +204,17 @@ const deleteResult = await invokeWorker(
 assert.equal(deleteResult.response.status, 204, "allowed immutable DELETE must reach upstream");
 assert.equal(deleteResult.forwarded?.method, "DELETE", "immutable DELETE method must pass through");
 
+const gitPostResult = await invokeWorker(
+  relayRequest("/repos/me/vault/git/blobs", { method: "POST", headers: { authorization: "Bearer test-token", "content-type": "application/json" }, body: "{}" }),
+  new Response(JSON.stringify({ sha: sha1 }), { status: 201, headers: { "content-type": "application/json" } }),
+);
+assert.equal(gitPostResult.response.status, 201, "Git Data POST status must pass through");
+assert.equal(gitPostResult.forwarded?.method, "POST", "Git Data POST method must pass through");
+assert.equal(gitPostResult.forwarded?.url, "https://api.github.com/repos/me/vault/git/blobs", "Git Data POST must target GitHub API");
+
 const corsPreflight = await workerRelay.fetch(relayRequest("/user", { method: "OPTIONS", headers: { origin: "https://app.example" } }));
 assert.equal(corsPreflight.status, 204, "Worker must answer CORS OPTIONS");
-assert.equal(corsPreflight.headers.get("access-control-allow-methods"), "GET, HEAD, PUT, DELETE, OPTIONS", "CORS must allow the full relay method set");
+assert.equal(corsPreflight.headers.get("access-control-allow-methods"), "GET, HEAD, PUT, DELETE, POST, PATCH, OPTIONS", "CORS must allow the full relay method set");
 assert.equal(corsPreflight.headers.get("access-control-allow-headers"), "authorization, x-github-api-version, accept, content-type, if-none-match", "CORS request-header allowlist must stay minimal");
 assert.equal(corsPreflight.headers.get("access-control-expose-headers"), "etag, last-modified, content-length, x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset", "CORS expose list must include all sync response headers");
 
@@ -204,4 +228,4 @@ assert.equal(resolveDefaultGitHubApiBaseUrl("evolution404.github.io"), GITHUB_PA
 assert.equal(resolveDefaultGitHubApiBaseUrl("exam-study-app.pages.dev"), "/api-github");
 assert.equal(resolveDefaultGitHubApiBaseUrl("localhost"), "/api-github");
 
-console.log("GitHub relay consistency tests passed: shared upstream/strip-list/redirect, deploy-specific defaults, worker CORS, pages routes");
+console.log("GitHub relay consistency tests passed: shared upstream/strip-list/redirect, Git Data batch surface, worker CORS, pages routes");
