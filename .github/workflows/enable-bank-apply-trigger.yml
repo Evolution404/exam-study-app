@@ -14,21 +14,21 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
-      - name: Enable the one-shot workflow on PR events
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply bank enable/disable feature
+        run: python scripts/tools/apply-bank-enabled-once.py
+      - run: npm ci
+      - name: Focused verification
+        run: npm run test:db-v7 && npm run test:v7-ui && npm run typecheck
+      - name: Commit feature to PR branch
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/apply-bank-enabled-once.yml')
-          s = p.read_text()
-          old = 'on:\n  push:\n    branches: [fix/ios-dark-startup-status-bar]\n    paths: [.github/workflows/apply-bank-enabled-once.yml]\n'
-          new = 'on:\n  pull_request:\n    paths: [.github/workflows/apply-bank-enabled-once.yml]\n'
-          if old in s:
-              p.write_text(s.replace(old, new, 1))
-          PY
-          if git diff --quiet; then exit 0; fi
+          set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows/apply-bank-enabled-once.yml
-          git commit -m 'chore: enable one-shot bank feature workflow'
+          git add src scripts/tests
+          git commit -m 'feat: add synced bank enable state'
           git push origin HEAD:${{ github.head_ref }}
