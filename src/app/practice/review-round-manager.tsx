@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import type { Bank } from "@/types/types";
-import type { ReviewRound, ReviewRoundStatus } from "@/lib/db/v7-types";
+import { isBankEnabled, type ReviewRound, type ReviewRoundStatus } from "@/lib/db/v7-types";
 
 export interface ReviewRoundMetrics {
   /** Current number of distinct questions in the round. */
@@ -10,7 +10,7 @@ export interface ReviewRoundMetrics {
 }
 
 /** Minimal bank shape needed by the controls; full `Bank` records are accepted too. */
-export type ReviewRoundBank = Pick<Bank, "id" | "name" | "questionCount"> & Partial<Pick<Bank, "displayName">>;
+export type ReviewRoundBank = Pick<Bank, "id" | "name" | "questionCount"> & Partial<Pick<Bank, "displayName">> & { enabled?: boolean };
 
 export type ReviewRoundMetricsMap = Readonly<Record<string, ReviewRoundMetrics>>;
 export type ReviewRoundMetricsSource = ReviewRoundMetricsMap | ((round: ReviewRound) => ReviewRoundMetrics | undefined);
@@ -102,6 +102,7 @@ export function ReviewRoundManager({
   const id = useId();
   const source = metrics ?? roundMetrics;
   const visibleRounds = useMemo(() => visibleReviewRounds(rounds), [rounds]);
+  const selectableBanks = useMemo(() => banks.filter(isBankEnabled), [banks]);
   const [editor, setEditor] = useState<"create" | string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftBankIds, setDraftBankIds] = useState<string[]>([]);
@@ -235,9 +236,9 @@ export function ReviewRoundManager({
       <fieldset className="review-round-bank-picker">
         <legend>选择题库</legend>
         <div>
-          {banks.map((bank) => <label key={bank.id} htmlFor={`${id}-bank-${bank.id}`} aria-label={`选择题库 ${bankTitle(bank)}`}><input id={`${id}-bank-${bank.id}`} type="checkbox" checked={draftBankIds.includes(bank.id)} onChange={() => toggleBank(bank.id)} /><span><strong>{bankTitle(bank)}</strong><small>{Math.max(0, bank.questionCount).toLocaleString()} 题</small></span></label>)}
+          {selectableBanks.map((bank) => <label key={bank.id} htmlFor={`${id}-bank-${bank.id}`} aria-label={`选择题库 ${bankTitle(bank)}`}><input id={`${id}-bank-${bank.id}`} type="checkbox" checked={draftBankIds.includes(bank.id)} onChange={() => toggleBank(bank.id)} /><span><strong>{bankTitle(bank)}</strong><small>{Math.max(0, bank.questionCount).toLocaleString()} 题</small></span></label>)}
         </div>
-        {banks.length === 0 && <p>还没有可选题库。</p>}
+        {selectableBanks.length === 0 && <p>还没有已启用的可选题库。</p>}
       </fieldset>
       {editorError && <p className="review-round-editor-error" role="alert">{editorError}</p>}
       <footer><button type="button" onClick={closeEditor}>取消</button><button type="button" className="review-round-primary" onClick={saveEditor}>保存轮次</button></footer>
