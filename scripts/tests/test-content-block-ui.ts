@@ -21,6 +21,7 @@ const assetImage = read("src/app/ui/asset-image.tsx");
 const renderer = read("src/app/bank/content-block-renderer.tsx");
 const editor = read("src/app/bank/content-block-editor.tsx");
 const styles = read("src/app/styles/content-blocks.css");
+const globals = read("src/app/globals.css");
 
 // Browser lifecycle and security contracts are source-level assertions because
 // this project intentionally has no jsdom/DOM test dependency.
@@ -39,6 +40,11 @@ assert.match(assetImage, /lightbox\?\.addEventListener\("click", onBackdropClick
 assert.match(assetImage, /className="asset-image-lightbox-image-trigger"[\s\S]*?onClick=\{increaseZoom\}/, "lightbox image click must zoom in instead of closing");
 assert.match(assetImage, /aria-label="缩小图片"/, "lightbox must expose a zoom-out control");
 assert.match(assetImage, /aria-label="放大图片"/, "lightbox must expose a zoom-in control");
+assert.match(assetImage, /window\.addEventListener\("keydown", onKeyDown, true\)/, "lightbox keyboard handling must run in capture phase before page shortcuts");
+assert.match(assetImage, /event\.stopImmediatePropagation\(\)/, "lightbox close and zoom shortcuts must not leak to other modal handlers");
+assert.match(assetImage, /if \(event\.target !== event\.currentTarget\) openZoom\(event\)/, "only the rendered thumbnail itself may open the lightbox");
+assert.match(globals, /\.asset-image-zoom-trigger\{[^}]*width:fit-content[^}]*justify-self:center/, "thumbnail hit target must shrink to the image instead of the full option row");
+assert.match(globals, /\.asset-image-lightbox-close::before,.asset-image-lightbox-close::after/, "lightbox close icon must use geometrically centered strokes");
 
 assert.deepEqual([...IMAGE_ZOOM_LEVELS], [1, 1.5, 2, 3, 4], "lightbox zoom levels must stay predictable");
 assert.equal(stepImageZoomIndex(0, 1), 1, "zoom-in advances one level");
@@ -101,4 +107,4 @@ const replaced = replaceContentBlock(inserted, "image-a", { ...image, id: "image
 assert.equal(replaced.find((block) => block.type === "image")?.assetId, "asset-c");
 assert.deepEqual(deleteContentBlock(replaced, "image-c").map((block) => block.type), ["text", "text", "text"]);
 
-console.log("content block UI tests passed: Blob URL lifecycle, local image source, lightbox zoom, MathText, selection and block operations");
+console.log("content block UI tests passed: Blob URL lifecycle, local image source, isolated lightbox interactions, MathText, selection and block operations");

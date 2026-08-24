@@ -182,21 +182,28 @@ export function AssetImage({
       const fitted = fitLightboxImageWidth(image.naturalWidth, image.naturalHeight, window.innerWidth, window.innerHeight);
       if (fitted > 0) setZoomFitWidth(fitted);
     };
+    const isolateEvent = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
     const onBackdropClick = (event: MouseEvent) => {
       const target = event.target;
       if (target instanceof Element && target.closest(".asset-image-lightbox-image-trigger,.asset-image-lightbox-close,.asset-image-lightbox-controls")) return;
+      isolateEvent(event);
       setZoomed(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        isolateEvent(event);
         setZoomed(false);
         return;
       }
       if (event.key === "+" || event.key === "=") {
-        event.preventDefault();
+        isolateEvent(event);
         setZoomLevelIndex((index) => stepImageZoomIndex(index, 1));
       } else if (event.key === "-") {
-        event.preventDefault();
+        isolateEvent(event);
         setZoomLevelIndex((index) => stepImageZoomIndex(index, -1));
       }
     };
@@ -204,12 +211,12 @@ export function AssetImage({
     const lightbox = lightboxRef.current;
     lightbox?.addEventListener("click", onBackdropClick);
     window.addEventListener("resize", syncFitWidth);
-    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     syncFitWidth();
     return () => {
       lightbox?.removeEventListener("click", onBackdropClick);
       window.removeEventListener("resize", syncFitWidth);
-      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = previousOverflow;
     };
   }, [zoomed]);
@@ -267,7 +274,9 @@ export function AssetImage({
               role="button"
               tabIndex={0}
               aria-label={`放大查看：${alt}`}
-              onClick={openZoom}
+              onClick={(event) => {
+                if (event.target !== event.currentTarget) openZoom(event);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") openZoom(event);
               }}
@@ -321,7 +330,7 @@ export function AssetImage({
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") closeZoom(event);
               }}
-            >×</span>
+            />
             <div className="asset-image-lightbox-controls" role="toolbar" aria-label="图片缩放">
               <span
                 className="asset-image-lightbox-control"
