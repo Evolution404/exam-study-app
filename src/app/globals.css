@@ -11,7 +11,15 @@
 /* Practice question images stay compact until the learner asks for detail. */
 .practice-stem .asset-image img{width:auto;max-height:min(520px,56vh);margin-inline:auto}
 .asset-image[data-zoomable="true"] img{cursor:zoom-in}
-.asset-image-lightbox{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:24px;background:var(--color-overlay);backdrop-filter:blur(6px)}
-.asset-image-lightbox>img{max-width:min(94vw,1600px);max-height:90vh;width:auto;height:auto;object-fit:contain;border-radius:12px;background:var(--color-surface-raised);box-shadow:0 24px 80px var(--color-overlay);cursor:zoom-out}
-.asset-image-lightbox-close{position:fixed;right:24px;top:24px;width:42px;height:42px;border:1px solid var(--color-border);border-radius:50%;display:grid;place-items:center;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;font-size:26px;line-height:1}
-@media(max-width:760px){.practice-stem .asset-image img{max-height:min(380px,46vh)}.asset-image-lightbox{padding:12px}.asset-image-lightbox-close{right:12px;top:12px}}
+.asset-image-lightbox{position:fixed;inset:0;z-index:300;overflow:hidden;background:var(--color-overlay);backdrop-filter:blur(6px)}
+.asset-image-lightbox-viewport{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;padding:72px 24px 92px}
+.asset-image-lightbox-canvas{display:grid;place-items:center;width:max-content;min-width:100%;min-height:100%}
+.asset-image-lightbox-image{display:block;max-width:min(94vw,1600px);max-height:90vh;width:auto;height:auto;object-fit:contain;border-radius:12px;background:var(--color-surface-raised);box-shadow:0 24px 80px var(--color-overlay);cursor:zoom-in}
+.asset-image-lightbox-image[data-zoom-ready="true"]{max-width:none;max-height:none}
+.asset-image-lightbox-image[data-can-zoom-in="false"]{cursor:default}
+.asset-image-lightbox-close{position:fixed;z-index:2;right:24px;top:24px;width:46px;height:46px;border:1px solid var(--color-border);border-radius:50%;display:grid;place-items:center;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;font-size:28px;line-height:1}
+.asset-image-lightbox-controls{position:fixed;z-index:2;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px;border:1px solid var(--color-border);border-radius:999px;background:var(--color-surface-raised);box-shadow:0 10px 32px var(--color-overlay)}
+.asset-image-lightbox-control{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--color-text);font-size:28px;line-height:1;user-select:none}
+.asset-image-lightbox-control[data-disabled="true"]{opacity:.38;cursor:default}
+.asset-image-lightbox-scale{min-width:66px;text-align:center;color:var(--color-text);font-variant-numeric:tabular-nums;font-weight:600;user-select:none}
+@media(max-width:760px){.practice-stem .asset-image img{max-height:min(380px,46vh)}.asset-image-lightbox-viewport{padding:64px 12px 84px}.asset-image-lightbox-close{right:12px;top:12px}.asset-image-lightbox-controls{bottom:12px}.asset-image-lightbox-control{width:48px;height:48px}}
