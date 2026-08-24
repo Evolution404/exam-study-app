@@ -14,25 +14,91 @@
 .practice-segment-row button:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); background: var(--color-surface); }
 .practice-segment-row button[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent); font-weight: 700; }
 
-.type-choice-row button { border-radius: 99px; padding: 7px 12px; font-size: 12px; }
+.type-choice-row button { min-width: 76px; border-radius: 99px; padding: 7px 13px; font-size: 12px; }
 
 .advanced-toggle { width: 100%; min-height: 42px; margin-top: 10px; border: 1px solid var(--color-border); border-radius: 11px; padding: 10px 14px; display: flex; align-items: center; gap: 8px; color: var(--color-text); background: var(--color-surface-raised); cursor: pointer; font-size: 12px; }
 .advanced-toggle:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); }
-.advanced-toggle[aria-expanded="true"] { border-color: var(--color-primary); color: var(--color-primary); }
+.advanced-toggle[aria-expanded="true"] { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-surface); }
 .advanced-toggle small { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--color-text-muted); font-size: 10px; }
 .advanced-toggle > svg { flex: none; color: var(--color-text-muted); }
 
-/* 最近作答日期区间：挂在 TSX 真实类名 .date-range 上（旧 .date-range-filter
-   从未匹配任何元素，是日期控件样式破碎的根因）。 */
-.date-range { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: var(--color-text-muted); font-size: 10px; }
-.date-range label { display: grid; gap: 6px; }
-.date-range input { width: 100%; min-height: 42px; border: 1px solid var(--color-border); border-radius: 10px; padding: 9px 11px; color: var(--color-text); background: var(--color-surface-raised); outline: none; font-family: inherit; }
-.date-range input:focus { border-color: var(--color-primary); }
+/* 高级筛选采用“轻量工具面板”而不是多层大卡片。关键词、统计和日期均保持紧凑，
+   进度口径在此处复用通用组件，但用局部样式压缩为练习页规格。 */
+.practice-advanced-panel { margin-top: 8px; border: 1px solid var(--color-border); border-radius: 14px; padding: 13px; display: grid; gap: 10px; background: var(--color-surface-raised); }
+.practice-advanced-head { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 1px 2px 3px; }
+.practice-advanced-head > div { min-width: 0; display: grid; gap: 2px; }
+.practice-advanced-head strong { font-size: 12px; }
+.practice-advanced-head small { color: var(--color-text-muted); font-size: 10px; }
+.practice-advanced-reset { flex: none; min-height: 32px; border: 1px solid var(--color-border); border-radius: 9px; padding: 6px 9px; display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); background: var(--color-surface); cursor: pointer; font-size: 10px; font-weight: 700; }
+.practice-advanced-reset:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+.practice-advanced-reset:disabled { opacity: .45; cursor: default; }
+
+.practice-advanced-grid { min-width: 0; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr); gap: 9px; }
+.advanced-compact-card { min-width: 0; border: 1px solid var(--color-border); border-radius: 12px; padding: 12px; background: var(--color-surface); }
+.advanced-compact-card > header { min-width: 0; margin-bottom: 9px; display: flex; align-items: center; gap: 7px; }
+.advanced-compact-card > header > svg { flex: none; color: var(--color-primary); }
+.advanced-compact-card > header > span { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.advanced-compact-card > header strong { font-size: 11px; }
+.advanced-compact-card > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); font-size: 9px; }
+
+.advanced-keyword-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 7px; }
+.advanced-keyword-row > input,
+.advanced-range-pair input,
+.advanced-date-row input { width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--color-border); border-radius: 9px; padding: 8px 10px; color: var(--color-text); background: var(--color-surface-raised); outline: none; font: inherit; font-size: 11px; }
+.advanced-keyword-row > input:focus,
+.advanced-range-pair input:focus,
+.advanced-date-row input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent); }
+.advanced-keyword-mode { width: 100%; min-height: 38px; border-radius: 9px; font-size: 11px; }
+
+.advanced-range-list { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.advanced-range-list > label { min-width: 0; display: grid; gap: 6px; color: var(--color-text-muted); font-size: 9px; }
+.advanced-range-pair { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; }
+.advanced-range-pair i { color: var(--color-text-muted); font-style: normal; font-size: 9px; }
+
+.advanced-date-card { grid-column: 1 / -1; padding-top: 10px; padding-bottom: 10px; }
+.advanced-date-card > header { margin-bottom: 7px; }
+.advanced-date-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.advanced-date-row label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; color: var(--color-text-muted); font-size: 9px; }
+
+.practice-advanced-panel .filter-error { margin: 8px 0 0; }
+
+.practice-scope-compact .review-scope-control { max-width: none; margin: 0; border-radius: 12px; padding: 12px; background: var(--color-surface); }
+.practice-scope-compact .review-scope-heading { align-items: center; gap: 10px; }
+.practice-scope-compact .review-scope-kicker,
+.practice-scope-compact .review-scope-heading p { display: none; }
+.practice-scope-compact .review-scope-heading h2 { margin: 0; font: 700 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.practice-scope-compact .review-scope-current { max-width: none; padding: 5px 8px; font-size: 9px; }
+.practice-scope-compact .review-scope-choice-grid { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
+.practice-scope-compact .review-scope-choice-grid button { flex: 0 0 auto; min-height: 34px; border-radius: 9px; padding: 6px 9px; display: flex; align-items: center; }
+.practice-scope-compact .review-scope-choice-grid button small { display: none; }
+.practice-scope-compact .review-scope-choice-grid button strong { font-size: 10px; }
+.practice-scope-compact .review-scope-custom { margin-top: 8px; padding: 8px 9px; border-radius: 9px; }
+.practice-scope-compact .review-scope-custom:not(.active) { display: none; }
+.practice-scope-compact .review-scope-custom input { width: 86px; min-height: 34px; padding: 6px 8px; font-size: 10px; }
+.practice-scope-compact .review-scope-custom > small { font-size: 9px; }
+.practice-scope-compact .review-scope-rounds { margin-top: 12px; padding-top: 11px; }
+.practice-scope-compact .review-scope-round-list { margin-top: 7px; }
+.practice-scope-compact .review-scope-round-list button { min-height: 48px; padding: 8px 9px; }
 
 .setup-error-summary { display: grid; gap: 4px; margin: 12px 2px 0; }
 
 @media(max-width:760px) {
-  .date-range { grid-template-columns: 1fr; }
+  .custom-combo { padding: 14px; }
   .practice-segment-row { gap: 7px; }
   .practice-segment-row button { flex: 1 1 88px; padding: 8px 10px; }
+  .type-choice-row button { flex: 1 1 82px; min-width: 0; }
+  .practice-advanced-grid { grid-template-columns: 1fr; }
+  .advanced-date-card { grid-column: auto; }
+  .advanced-range-list { grid-template-columns: 1fr; }
+}
+
+@media(max-width:520px) {
+  .practice-advanced-panel { padding: 10px; }
+  .practice-advanced-head { align-items: flex-start; }
+  .practice-advanced-head small { line-height: 1.45; }
+  .advanced-keyword-row { grid-template-columns: 1fr; }
+  .advanced-keyword-mode { min-height: 38px; }
+  .advanced-date-row { grid-template-columns: 1fr; }
+  .advanced-date-row label { grid-template-columns: 32px minmax(0, 1fr); }
+  .practice-scope-compact .review-scope-heading { align-items: flex-start; }
 }
