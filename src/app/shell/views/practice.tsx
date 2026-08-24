@@ -88,8 +88,6 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const gaveUp = submitted && selected.length === 0;
   const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
   const isLast = index === total - 1;
-  const contextTags = question.tags.filter((tag) => /^(考点|公式)[：:]/.test(tag));
-  const categoryTags = question.tags.filter((tag) => !/^(考点|公式)[：:]/.test(tag));
 
   useEffect(() => {
     activeTimer.current = new ActiveElapsedTimer(performance.now());
@@ -344,9 +342,8 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
             <div className="question-meta">
               <em className="question-type-chip">{question.type}</em>
               <Hint label="个人难度按有效作答时间与作答间隔动态估计：明显快于自己常态、且间隔够久（约半天以上）的做对才显著降低难度；做错会立即推高难度。"><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>个人难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em></Hint>
-              {categoryTags.map((tag) => <em key={tag}>{tag}</em>)}
+              {question.tags.map((tag) => <em key={tag}>{tag}</em>)}
             </div>
-            {contextTags.length > 0 && <div className="question-contexts">{contextTags.map((tag) => <span key={tag}>{tag.replace(/^([^：:]+)[：:]\s*/, "$1 · ")}</span>)}</div>}
             <div className="question-tools">
               <QuestionCopyAction status={copyStatusOf("question")} onClick={() => void handleCopyQuestion("question")} />
               {submitted && <QuestionCopyAction includeAnswer status={copyStatusOf("questionWithAnswer")} onClick={() => void handleCopyQuestion("questionWithAnswer")} />}
