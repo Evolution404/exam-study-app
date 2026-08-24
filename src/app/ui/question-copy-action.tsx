@@ -24,5 +24,5 @@ export function QuestionCopyAction({ includeAnswer = false, status = "idle", onC
     className={`question-copy-action question-meta ${includeAnswer ? "with-answer" : ""} ${status} ${compact ? "compact" : ""}`}
     aria-label={ariaLabel}
     onClick={onClick}
-  ><span className={`copy-question ${status}`}>{icon}<span>{label}</span></span></button>;
+  ><span className={`copy-question ${status}`} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{icon}<span>{label}</span></span></button>;
 }
