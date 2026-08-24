@@ -1,4 +1,4 @@
-/* Shared question metadata and high-frequency actions. */
+/* Question actions. */
 .question-heading{display:grid;gap:8px;margin-bottom:12px}
 .question-source{min-width:0;color:var(--color-text-muted);font-size:11px;line-height:1.45}
 .question-meta{display:flex;flex-wrap:wrap;align-items:center;gap:7px;color:var(--color-text-muted);font-size:11px}
@@ -21,8 +21,8 @@
 .question-detail-actions>button{width:30px;min-width:30px;min-height:30px;border:0;border-radius:8px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--color-text-muted);background:transparent;cursor:pointer;font:inherit;font-size:0;line-height:1;box-shadow:none;-webkit-tap-highlight-color:transparent}
 .question-detail-actions>button svg{width:15px;height:15px}
 .question-detail-actions>button:hover,.question-detail-actions>button:focus-visible{outline:0;color:var(--color-primary);background:var(--color-primary-soft)}
-.question-detail-actions>.danger-button{border:0;color:var(--color-text-muted);background:transparent}
-.question-detail-actions>.danger-button:hover,.question-detail-actions>.danger-button:focus-visible{color:var(--color-danger);background:var(--color-danger-soft)}
+.question-detail-actions>button:has(.lucide-trash-2){color:var(--color-danger)}
+.question-detail-actions>button:has(.lucide-trash-2):hover,.question-detail-actions>button:has(.lucide-trash-2):focus-visible{color:var(--color-danger);background:var(--color-danger-soft)}
 .question-detail-close{flex:none}
 
 .search-question-detail>footer.question-detail-pager{padding:12px 20px;border-top:1px solid var(--color-border);display:block;background:var(--color-surface)}
