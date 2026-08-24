@@ -118,6 +118,7 @@ export function AssetImage({
   const [zoomFitWidth, setZoomFitWidth] = useState<number>();
   const loader = loadAsset ?? unavailableLoader;
   const loaderRef = useRef<LoadAsset>(loader);
+  const lightboxRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
@@ -181,6 +182,11 @@ export function AssetImage({
       const fitted = fitLightboxImageWidth(image.naturalWidth, image.naturalHeight, window.innerWidth, window.innerHeight);
       if (fitted > 0) setZoomFitWidth(fitted);
     };
+    const onBackdropClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".asset-image-lightbox-image-trigger,.asset-image-lightbox-close,.asset-image-lightbox-controls")) return;
+      setZoomed(false);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setZoomed(false);
@@ -195,10 +201,13 @@ export function AssetImage({
       }
     };
 
+    const lightbox = lightboxRef.current;
+    lightbox?.addEventListener("click", onBackdropClick);
     window.addEventListener("resize", syncFitWidth);
     document.addEventListener("keydown", onKeyDown);
     syncFitWidth();
     return () => {
+      lightbox?.removeEventListener("click", onBackdropClick);
       window.removeEventListener("resize", syncFitWidth);
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
@@ -226,10 +235,8 @@ export function AssetImage({
     };
     const closeZoom = (event: SyntheticEvent) => {
       event.preventDefault();
-      setZoomed(false);
-    };
-    const stopLightboxClose = (event: SyntheticEvent) => {
       event.stopPropagation();
+      setZoomed(false);
     };
     const changeZoom = (event: SyntheticEvent, direction: 1 | -1) => {
       event.preventDefault();
@@ -268,29 +275,41 @@ export function AssetImage({
           ) : image}
         </div>
         {zoomable && zoomed && typeof document !== "undefined" && createPortal(
-          <div className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`} onClick={closeZoom}>
+          <div ref={lightboxRef} className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`}>
             <div className="asset-image-lightbox-viewport">
               <div className="asset-image-lightbox-canvas">
-                <img
-                  ref={lightboxImageRef}
-                  className="asset-image-lightbox-image"
-                  src={objectUrl}
-                  alt={alt}
-                  decoding="async"
-                  data-zoom-ready={Boolean(zoomFitWidth)}
-                  data-can-zoom-in={canZoomIn}
-                  style={zoomWidth ? { width: `${zoomWidth}px` } : undefined}
-                  onLoad={(event) => {
-                    const fitted = fitLightboxImageWidth(
-                      event.currentTarget.naturalWidth,
-                      event.currentTarget.naturalHeight,
-                      window.innerWidth,
-                      window.innerHeight,
-                    );
-                    if (fitted > 0) setZoomFitWidth(fitted);
-                  }}
+                <span
+                  className="asset-image-lightbox-image-trigger"
+                  role="button"
+                  tabIndex={canZoomIn ? 0 : -1}
+                  aria-label={canZoomIn ? "继续放大图片" : "图片已放大到最大"}
+                  aria-disabled={!canZoomIn}
+                  style={{ display: "block", lineHeight: 0 }}
                   onClick={increaseZoom}
-                />
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") increaseZoom(event);
+                  }}
+                >
+                  <img
+                    ref={lightboxImageRef}
+                    className="asset-image-lightbox-image"
+                    src={objectUrl}
+                    alt={alt}
+                    decoding="async"
+                    data-zoom-ready={Boolean(zoomFitWidth)}
+                    data-can-zoom-in={canZoomIn}
+                    style={zoomWidth ? { width: `${zoomWidth}px` } : undefined}
+                    onLoad={(event) => {
+                      const fitted = fitLightboxImageWidth(
+                        event.currentTarget.naturalWidth,
+                        event.currentTarget.naturalHeight,
+                        window.innerWidth,
+                        window.innerHeight,
+                      );
+                      if (fitted > 0) setZoomFitWidth(fitted);
+                    }}
+                  />
+                </span>
               </div>
             </div>
             <span
@@ -298,18 +317,12 @@ export function AssetImage({
               role="button"
               tabIndex={0}
               aria-label="关闭大图"
-              onClick={(event) => {
-                stopLightboxClose(event);
-                closeZoom(event);
-              }}
+              onClick={closeZoom}
               onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  stopLightboxClose(event);
-                  closeZoom(event);
-                }
+                if (event.key === "Enter" || event.key === " ") closeZoom(event);
               }}
             >×</span>
-            <div className="asset-image-lightbox-controls" role="toolbar" aria-label="图片缩放" onClick={stopLightboxClose}>
+            <div className="asset-image-lightbox-controls" role="toolbar" aria-label="图片缩放">
               <span
                 className="asset-image-lightbox-control"
                 role="button"
