@@ -7,7 +7,13 @@ import {
   moveContentBlock,
   replaceContentBlock,
 } from "../../src/lib/question/question-content";
-import { performAssetRetry, resolveAssetLoad } from "../../src/app/ui/asset-image";
+import {
+  fitLightboxImageWidth,
+  IMAGE_ZOOM_LEVELS,
+  performAssetRetry,
+  resolveAssetLoad,
+  stepImageZoomIndex,
+} from "../../src/app/ui/asset-image";
 import type { ContentBlock } from "../../src/lib/db/v7-types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
@@ -29,6 +35,18 @@ assert.match(assetImage, /aria-label=\{`重试加载图片/, "asset failures nee
 assert.match(assetImage, /performAssetRetry\(assetId, callback, \(\) => setAttempt/, "retry must reload only after the refresh callback resolves");
 assert.doesNotMatch(assetImage, /setAttempt\([\s\S]*?\n\s*try \{[\s\S]*?onRetry/, "retry must not increment the load attempt before onRetry");
 assert.doesNotMatch(assetImage, /<figure/, "AssetImage must not add a nested figure around renderer figures");
+assert.match(assetImage, /className="asset-image-lightbox"[\s\S]*?onClick=\{closeZoom\}/, "lightbox backdrop must close on blank-area click");
+assert.match(assetImage, /className="asset-image-lightbox-image"[\s\S]*?onClick=\{increaseZoom\}/, "lightbox image click must zoom in instead of closing");
+assert.match(assetImage, /aria-label="缩小图片"/, "lightbox must expose a zoom-out control");
+assert.match(assetImage, /aria-label="放大图片"/, "lightbox must expose a zoom-in control");
+
+assert.deepEqual([...IMAGE_ZOOM_LEVELS], [1, 1.5, 2, 3, 4], "lightbox zoom levels must stay predictable");
+assert.equal(stepImageZoomIndex(0, 1), 1, "zoom-in advances one level");
+assert.equal(stepImageZoomIndex(4, 1), 4, "zoom-in clamps at the maximum");
+assert.equal(stepImageZoomIndex(0, -1), 0, "zoom-out clamps at fit-to-screen");
+assert.equal(stepImageZoomIndex(3, -1), 2, "zoom-out returns one level");
+assert.equal(fitLightboxImageWidth(2000, 1000, 1000, 800), 940, "wide images fit the viewport width at 100%");
+assert.equal(fitLightboxImageWidth(1000, 2000, 1000, 800), 360, "tall images fit the viewport height at 100%");
 
 assert.match(renderer, /<MathText/, "text blocks must use MathText");
 assert.match(renderer, /<AssetImage/, "image blocks must use AssetImage");
@@ -83,4 +101,4 @@ const replaced = replaceContentBlock(inserted, "image-a", { ...image, id: "image
 assert.equal(replaced.find((block) => block.type === "image")?.assetId, "asset-c");
 assert.deepEqual(deleteContentBlock(replaced, "image-c").map((block) => block.type), ["text", "text", "text"]);
 
-console.log("content block UI tests passed: Blob URL lifecycle, local image source, MathText, selection and block operations");
+console.log("content block UI tests passed: Blob URL lifecycle, local image source, lightbox zoom, MathText, selection and block operations");
