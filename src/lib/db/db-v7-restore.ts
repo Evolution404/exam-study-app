@@ -13,7 +13,7 @@ export interface V7ChangeSetQueueGuard {
   claimedAt?: string;
 }
 
-export interface RestoreV7CheckpointProgress {
+interface RestoreV7CheckpointProgress {
   completed: number;
   total: number;
   label: string;
