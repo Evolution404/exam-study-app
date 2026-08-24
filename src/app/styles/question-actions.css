@@ -22,7 +22,7 @@
   .question-heading{gap:7px;margin-bottom:10px}
   .question-source{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .question-tools{gap:2px}
-  .question-copy-action,.question-tool{width:38px;min-width:38px;min-height:38px}
+  .question-copy-action,.question-tool{min-height:38px;width:38px;min-width:38px}
   .question-copy-action.compact{width:34px;min-width:34px;min-height:34px}
   .question-detail-toolbar{padding:8px 14px}
 }
