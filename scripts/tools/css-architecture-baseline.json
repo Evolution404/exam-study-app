@@ -1,9 +1,9 @@
 {
-  "totalBytes": 259541,
+  "totalBytes": 262392,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
-      "bytes": 4430,
+      "bytes": 4420,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -77,6 +77,12 @@
     "src/app/styles/primitives.css": {
       "bytes": 7336,
       "hexColors": 13,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/question-actions.css": {
+      "bytes": 2861,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
     },
