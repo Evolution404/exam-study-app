@@ -8,6 +8,16 @@
 
 .question-meta .question-meta-copy{margin-left:0}
 
+/* Bank enabled state uses a compact switch instead of another text pill. */
+.bank-row-actions{padding-right:7px;display:flex;align-items:center;gap:6px}
+.bank-enable-toggle{width:48px;height:42px;border:0;padding:0;display:grid;place-items:center;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bank-enable-toggle-track{width:36px;height:22px;border:1px solid var(--color-border);border-radius:999px;padding:2px;display:block;background:var(--color-surface-muted);transition:background .16s ease,border-color .16s ease}
+.bank-enable-toggle-track>span{width:16px;height:16px;border-radius:50%;display:block;background:var(--color-text-muted);opacity:.55;transform:translateX(0);transition:transform .18s ease,background .16s ease,opacity .16s ease}
+.bank-enable-toggle[aria-checked="true"] .bank-enable-toggle-track{border-color:color-mix(in srgb,var(--color-primary) 42%,var(--color-border));background:var(--color-primary-soft)}
+.bank-enable-toggle[aria-checked="true"] .bank-enable-toggle-track>span{background:var(--color-primary);opacity:1;transform:translateX(14px)}
+.bank-enable-toggle:focus-visible{outline:0}
+.bank-enable-toggle:focus-visible .bank-enable-toggle-track{box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 18%,transparent)}
+
 /* Practice question images stay compact until the learner asks for detail. */
 .practice-stem .asset-image img{width:auto;max-height:min(520px,56vh);margin-inline:auto}
 .asset-image[data-zoomable="true"] img{cursor:zoom-in}

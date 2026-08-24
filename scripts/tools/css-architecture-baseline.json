@@ -1,9 +1,9 @@
 {
-  "totalBytes": 258252,
+  "totalBytes": 259541,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
-      "bytes": 3141,
+      "bytes": 4430,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
