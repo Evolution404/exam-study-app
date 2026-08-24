@@ -140,7 +140,7 @@ export function AssetImage({
   const [objectUrlAssetId, setObjectUrlAssetId] = useState<string>();
   const [state, setState] = useState<AssetImageState>({ status: "loading" });
   const [zoomed, setZoomed] = useState(false);
-  const [zoomScale, setZoomScale] = useState(IMAGE_ZOOM_MIN);
+  const [zoomScale, setZoomScale] = useState<number>(IMAGE_ZOOM_MIN);
   const [zoomFitWidth, setZoomFitWidth] = useState<number>();
   const loader = loadAsset ?? unavailableLoader;
   const loaderRef = useRef<LoadAsset>(loader);
@@ -148,7 +148,7 @@ export function AssetImage({
   const lightboxViewportRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
   const zoomScaleRef = useRef<number>(IMAGE_ZOOM_MIN);
-  const pinchRef = useRef<{ distance: number; scale: number }>();
+  const pinchRef = useRef<{ distance: number; scale: number } | undefined>(undefined);
   const suppressImageTapUntilRef = useRef(0);
 
   useEffect(() => {
