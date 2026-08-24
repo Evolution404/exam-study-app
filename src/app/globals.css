@@ -7,3 +7,11 @@
 @import "./styles/hint.css";
 
 .question-meta .question-meta-copy{margin-left:0}
+
+/* Practice question images stay compact until the learner asks for detail. */
+.practice-stem .asset-image img{width:auto;max-height:min(520px,56vh);margin-inline:auto}
+.asset-image[data-zoomable="true"] img{cursor:zoom-in}
+.asset-image-lightbox{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:24px;background:var(--color-overlay);backdrop-filter:blur(6px)}
+.asset-image-lightbox>img{max-width:min(94vw,1600px);max-height:90vh;width:auto;height:auto;object-fit:contain;border-radius:12px;background:var(--color-surface-raised);box-shadow:0 24px 80px var(--color-overlay);cursor:zoom-out}
+.asset-image-lightbox-close{position:fixed;right:24px;top:24px;width:42px;height:42px;border:1px solid var(--color-border);border-radius:50%;display:grid;place-items:center;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;font-size:26px;line-height:1}
+@media(max-width:760px){.practice-stem .asset-image img{max-height:min(380px,46vh)}.asset-image-lightbox{padding:12px}.asset-image-lightbox-close{right:12px;top:12px}}
