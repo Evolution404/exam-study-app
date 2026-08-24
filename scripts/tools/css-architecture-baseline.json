@@ -1,9 +1,9 @@
 {
-  "totalBytes": 255671,
+  "totalBytes": 255411,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
-      "bytes": 249,
+      "bytes": 300,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -51,7 +51,7 @@
       "important": 1
     },
     "src/app/styles/hint.css": {
-      "bytes": 769,
+      "bytes": 458,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
