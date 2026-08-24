@@ -5,3 +5,5 @@
 @import "./styles/content-blocks.css";
 @import "./styles/review-scope.css";
 @import "./styles/hint.css";
+
+.question-meta .question-meta-copy{margin-left:0}
