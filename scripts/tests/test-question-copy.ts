@@ -88,7 +88,8 @@ assert.match(practiceView, /submitted && !correct \? selected : undefined/, "做
 assert.match(practiceView, /className="question-tools"/, "复制、收藏、编辑应进入独立操作区而非混入标签行");
 assert.match(practiceView, /className=\{`question-tool favorite/, "收藏应使用统一轻量工具动作");
 assert.match(practiceView, /className="question-tool edit"/, "编辑应使用统一轻量工具动作");
-assert.match(practiceView, /contextTags = question\.tags\.filter/, "考点/公式标签应拆到辅助信息层");
+assert.match(practiceView, /\{question\.tags\.map\(\(tag\) => <em key=\{tag\}>\{tag\}<\/em>\)\}/, "所有用户标签都应按同一标签样式渲染");
+assert.doesNotMatch(practiceView, /contextTags|categoryTags|question-contexts|tag\.replace/, "考点/公式等用户标签不得被特殊拆分或改写");
 assert.doesNotMatch(practiceView, /question-meta-copy/, "旧复制图标容器应清除");
 assert.doesNotMatch(practiceView, /className=\{`icon-button copy-question/, "练习页不应恢复孤立方形复制图标");
 assert.doesNotMatch(practiceView, /复制题目、选项和答案|复制题目和选项/, "旧的单按钮文案应清除");
@@ -123,4 +124,4 @@ assert.doesNotMatch(styles, /search-detail-body>ol>li\.wrong\s*\{[^}]*[^-]color:
 assert.match(styles, /li\.answer>svg\{color:var\(--color-success\)\}/, "正确选项状态图标保持成功色");
 assert.match(styles, /li\.wrong>svg\{color:var\(--color-danger\)\}/, "做错选项状态图标保持危险色");
 
-console.log("question copy tests passed: 文本构造、练习页双动作、共享详情复制、题目信息分层与 token 化样式");
+console.log("question copy tests passed: 文本构造、练习页双动作、共享详情复制、用户标签统一与 token 化样式");
