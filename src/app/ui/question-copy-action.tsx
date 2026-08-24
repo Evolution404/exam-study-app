@@ -1,4 +1,5 @@
 import { CircleAlert, ClipboardCheck, ClipboardList, Copy } from "lucide-react";
+import { Hint } from "./hint";
 
 export type QuestionCopyStatus = "idle" | "copied" | "error";
 
@@ -19,14 +20,16 @@ export function QuestionCopyAction({ includeAnswer = false, status = "idle", onC
         ? <ClipboardList size={15} />
         : <Copy size={15} />;
 
-  return <button
-    type="button"
-    className={`question-copy-action ${includeAnswer ? "with-answer" : ""} ${status} ${compact ? "compact" : ""}`}
-    aria-label={ariaLabel}
-    onClick={onClick}
-  >
-    <span className="question-meta question-copy-state-marker">
-      <span className={`copy-question ${status}`}>{icon}<span>{label}</span></span>
-    </span>
-  </button>;
+  return <Hint label={label}>
+    <button
+      type="button"
+      className={`question-copy-action ${includeAnswer ? "with-answer" : ""} ${status} ${compact ? "compact" : ""}`}
+      aria-label={ariaLabel}
+      onClick={onClick}
+    >
+      <span className="question-meta question-copy-state-marker">
+        <span className={`copy-question ${status}`} aria-hidden="true">{icon}</span>
+      </span>
+    </button>
+  </Hint>;
 }
