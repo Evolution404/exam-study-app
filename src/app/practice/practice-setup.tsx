@@ -364,10 +364,10 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
 
             <section className="advanced-compact-card advanced-date-card">
               <header><CalendarDays size={15} /><span><strong>最近作答时间</strong><small>按最后一次作答日期筛选</small></span></header>
-              <div className="advanced-date-row">
+              <div className="date-range"><div className="advanced-date-row">
                 <label><span>从</span><input type="date" value={lastAttemptFrom} onChange={(event) => setLastAttemptFrom(event.target.value)} /></label>
                 <label><span>到</span><input type="date" value={lastAttemptTo} onChange={(event) => setLastAttemptTo(event.target.value)} /></label>
-              </div>
+              </div></div>
               {dateError && <p className="filter-error">{dateError}</p>}
             </section>
           </div>
