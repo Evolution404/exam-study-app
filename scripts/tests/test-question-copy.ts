@@ -71,41 +71,56 @@ assert.doesNotMatch(mixed, /正确答案|答案内容/, "includeAnswer:false 不
 assert.equal(displayedAnswer(single, [2, 0, 1]), "B", "displayedAnswer 应按显示字母映射");
 assert.equal(answerText(single, [2, 0, 1]), "B. 传输电能", "answerText 应为显示字母+文本");
 
-// ===== 静态断言：练习页双 icon 按钮 =====
+// ===== 静态断言：共享复制动作 + 练习页双按钮 =====
+
+const copyAction = await readFile("src/app/ui/question-copy-action.tsx", "utf8");
+assert.match(copyAction, /includeAnswer \? "复制含答案" : "复制题目"/, "共享动作应区分复制题目与复制含答案的可见文案");
+assert.match(copyAction, /includeAnswer \? "复制题目和答案" : "复制题目"/, "共享动作 aria 应明确含答案语义");
+assert.match(copyAction, /status === "copied" \? "已复制"/, "复制成功应有明确文字反馈");
+assert.match(copyAction, /status === "error" \? "复制失败"/, "复制失败应有明确文字反馈");
+assert.match(copyAction, /aria-label=\{ariaLabel\}/, "共享按钮必须保留无障碍名称");
 
 const practiceView = await readFile("src/app/shell/views/practice.tsx", "utf8");
-assert.match(practiceView, /aria-label=\{copyLabel\("question", copyStatusOf\("question"\)\)\}/, "练习页复制题目按钮 aria 应动态标注");
-assert.match(practiceView, /copyLabel\("questionWithAnswer"/, "练习页应提供复制题目和答案按钮");
+assert.match(practiceView, /<QuestionCopyAction status=\{copyStatusOf\("question"\)\}/, "练习页应始终提供复制题目动作");
+assert.match(practiceView, /\{submitted && <QuestionCopyAction includeAnswer status=\{copyStatusOf\("questionWithAnswer"\)\}/, "作答后应同时出现第二个复制含答案动作");
 assert.match(practiceView, /target === "questionWithAnswer"/, "含答案版应由 target 区分 includeAnswer");
 assert.match(practiceView, /submitted && !correct \? selected : undefined/, "做错时两个按钮都应附我的选择");
+assert.match(practiceView, /className="question-tools"/, "复制、收藏、编辑应进入独立操作区而非混入标签行");
+assert.match(practiceView, /className=\{`question-tool favorite/, "收藏应使用统一轻量工具动作");
+assert.match(practiceView, /className="question-tool edit"/, "编辑应使用统一轻量工具动作");
+assert.match(practiceView, /contextTags = question\.tags\.filter/, "考点/公式标签应拆到辅助信息层");
+assert.doesNotMatch(practiceView, /question-meta-copy/, "旧复制图标容器应清除");
+assert.doesNotMatch(practiceView, /className=\{`icon-button copy-question/, "练习页不应恢复孤立方形复制图标");
 assert.doesNotMatch(practiceView, /复制题目、选项和答案|复制题目和选项/, "旧的单按钮文案应清除");
-assert.match(practiceView, /question-meta-copy/, "双按钮应外包容器避免 margin-left:auto 分离");
 
-// ===== 静态断言：题目详情页复制按钮 =====
+// ===== 静态断言：所有复用 QuestionDetail 的查看界面 =====
 
 const questionDetail = await readFile("src/app/bank/question-detail.tsx", "utf8");
-assert.match(questionDetail, /aria-label="复制题目和答案"/, "详情页复制按钮应与练习页含答案版同名");
+assert.match(questionDetail, /className="question-detail-toolbar"/, "共享详情应把复制动作放入独立工具条");
+assert.match(questionDetail, /<QuestionCopyAction includeAnswer status=\{copyStatus\}/, "共享详情统一使用带文字的复制含答案动作");
 assert.match(questionDetail, /answer\?\.submitted && answer\.correct === false \? answer\.selected : undefined/, "详情页做错时应附我的选择");
 assert.match(questionDetail, /buildQuestionCopyText\(question, \{ includeAnswer: true, wrongSelection \}\)/, "详情页复制必须带正确答案（与练习页作答后一致）");
 assert.match(questionDetail, /answer\?\.submitted && answer\.correct === false && answer\.selected\.includes\(letter\) && !isAnswer/, "详情页做错时选项须标 wrong（与做题界面一致）");
 assert.match(questionDetail, /\{isWrong && <X size=\{16\} \/>\}/, "做错选项须带 X 图标（与做题界面一致）");
+assert.doesNotMatch(questionDetail, /icon-button copy-question/, "共享详情不应再使用 icon-only 复制按钮");
 
 // ===== 静态断言：最终 CSS 架构 / token 化 =====
 
 const styleNames = (await readdir("src/app/styles")).filter((file) => file.endsWith(".css")).sort();
 const styles = (await Promise.all(styleNames.map((file) => readFile(`src/app/styles/${file}`, "utf8")))).join("\n");
 const mainSource = await readFile("src/main.tsx", "utf8");
-assert.match(styles, /\.question-meta \.question-meta-copy\{margin-left:auto/, "复制按钮容器应持有 margin-left:auto");
-assert.match(styles, /\.copy-question\.copied\s*\{[\s\S]*?color:\s*var\(--color-surface-raised\);[\s\S]*?background:\s*var\(--color-success\);/, "copied 态应走 success token");
-assert.match(styles, /\.copy-question\.error\s*\{[\s\S]*?color:\s*var\(--color-danger\);[\s\S]*?background:\s*var\(--color-danger-soft\);/, "error 态应走 danger token");
-assert.match(styles, /\.copy-question\s*\{[\s\S]*?width:\s*30px;[\s\S]*?height:\s*30px;/, "复制按钮视觉尺寸应紧凑为 30px");
+assert.match(styles, /\.question-tools\{display:flex;flex-wrap:wrap/, "题目操作区应自然换行，避免窄屏右漂");
+assert.match(styles, /\.question-copy-action\{[^}]*var\(--color-primary-soft\)/, "一级复制动作应使用主题色轻背景");
+assert.match(styles, /\.question-copy-action\.copied\{[^}]*var\(--color-success\)[^}]*var\(--color-success-soft\)/, "copied 态应走 success token");
+assert.match(styles, /\.question-copy-action\.error\{[^}]*var\(--color-danger\)[^}]*var\(--color-danger-soft\)/, "error 态应走 danger token");
+assert.match(styles, /@media\(max-width:760px\)[\s\S]*?\.question-copy-action,\.question-tool\{min-height:38px/, "手机端题目工具应保持足够触控高度");
 assert.doesNotMatch(styles, /:global\(/, "CSS Module 全局逃逸必须保持为 0");
 assert.doesNotMatch(mainSource, /copy-question-button\.module\.css|copyQuestionButtonStyles|document\.documentElement\.classList\.add/, "启动入口不得恢复 document 级 CSS Module scope 桥");
-assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*copy-question/, "复制按钮不得依赖暗色前缀（token 自适应）");
+assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*question-copy-action/, "复制动作不得依赖暗色前缀（token 自适应）");
 assert.match(styles, /\.search-detail-body>ol>li\.wrong\{border-color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "详情页做错选项标记应全 token 化");
 assert.doesNotMatch(styles, /search-detail-body>ol>li\.answer\s*\{[^}]*[^-]color:/, "正确选项文字不得染绿（做题界面文字为墨色）");
 assert.doesNotMatch(styles, /search-detail-body>ol>li\.wrong\s*\{[^}]*[^-]color:/, "做错选项文字不得染红（做题界面文字为墨色）");
 assert.match(styles, /li\.answer>svg\{color:var\(--color-success\)\}/, "正确选项状态图标保持成功色");
 assert.match(styles, /li\.wrong>svg\{color:var\(--color-danger\)\}/, "做错选项状态图标保持危险色");
 
-console.log("question copy tests passed: 文本构造、练习页双按钮、详情页复制、最终 token 化 CSS 架构");
+console.log("question copy tests passed: 文本构造、练习页双动作、共享详情复制、题目信息分层与 token 化样式");

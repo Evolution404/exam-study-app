@@ -5,8 +5,7 @@
 @import "./styles/content-blocks.css";
 @import "./styles/review-scope.css";
 @import "./styles/hint.css";
-
-.question-meta .question-meta-copy{margin-left:0}
+@import "./styles/question-actions.css";
 
 /* Bank enabled state uses a compact switch instead of another text pill. */
 .bank-row-actions{padding-right:7px;display:flex;align-items:center;gap:6px}
