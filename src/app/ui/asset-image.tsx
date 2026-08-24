@@ -39,6 +39,24 @@ interface AssetImageState {
 
 const unavailableLoader: LoadAsset = () => Promise.resolve(undefined);
 
+export const IMAGE_ZOOM_LEVELS = [1, 1.5, 2, 3, 4] as const;
+
+export function stepImageZoomIndex(index: number, direction: 1 | -1): number {
+  return Math.min(IMAGE_ZOOM_LEVELS.length - 1, Math.max(0, Math.round(index) + direction));
+}
+
+export function fitLightboxImageWidth(
+  naturalWidth: number,
+  naturalHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  if (![naturalWidth, naturalHeight, viewportWidth, viewportHeight].every((value) => Number.isFinite(value) && value > 0)) return 0;
+  const availableWidth = Math.min(viewportWidth * 0.94, 1600);
+  const availableHeight = viewportHeight * 0.9;
+  return Math.min(naturalWidth, availableWidth, naturalWidth * (availableHeight / naturalHeight));
+}
+
 function isRenderableBlob(value: Blob | undefined): value is Blob {
   return Boolean(value && typeof value.size === "number" && Number.isFinite(value.size) && value.size > 0);
 }
@@ -96,8 +114,11 @@ export function AssetImage({
   const [objectUrlAssetId, setObjectUrlAssetId] = useState<string>();
   const [state, setState] = useState<AssetImageState>({ status: "loading" });
   const [zoomed, setZoomed] = useState(false);
+  const [zoomLevelIndex, setZoomLevelIndex] = useState(0);
+  const [zoomFitWidth, setZoomFitWidth] = useState<number>();
   const loader = loadAsset ?? unavailableLoader;
   const loaderRef = useRef<LoadAsset>(loader);
+  const lightboxImageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     loaderRef.current = loader;
@@ -153,11 +174,32 @@ export function AssetImage({
     if (!zoomed || typeof document === "undefined") return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setZoomed(false);
+
+    const syncFitWidth = () => {
+      const image = lightboxImageRef.current;
+      if (!image || !image.naturalWidth || !image.naturalHeight) return;
+      const fitted = fitLightboxImageWidth(image.naturalWidth, image.naturalHeight, window.innerWidth, window.innerHeight);
+      if (fitted > 0) setZoomFitWidth(fitted);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setZoomed(false);
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoomLevelIndex((index) => stepImageZoomIndex(index, 1));
+      } else if (event.key === "-") {
+        event.preventDefault();
+        setZoomLevelIndex((index) => stepImageZoomIndex(index, -1));
+      }
+    };
+
+    window.addEventListener("resize", syncFitWidth);
     document.addEventListener("keydown", onKeyDown);
+    syncFitWidth();
     return () => {
+      window.removeEventListener("resize", syncFitWidth);
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
@@ -178,13 +220,27 @@ export function AssetImage({
       if (!zoomable) return;
       event.preventDefault();
       event.stopPropagation();
+      setZoomLevelIndex(0);
+      setZoomFitWidth(undefined);
       setZoomed(true);
     };
     const closeZoom = (event: SyntheticEvent) => {
       event.preventDefault();
-      event.stopPropagation();
       setZoomed(false);
     };
+    const stopLightboxClose = (event: SyntheticEvent) => {
+      event.stopPropagation();
+    };
+    const changeZoom = (event: SyntheticEvent, direction: 1 | -1) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setZoomLevelIndex((index) => stepImageZoomIndex(index, direction));
+    };
+    const increaseZoom = (event: SyntheticEvent) => changeZoom(event, 1);
+    const zoomScale = IMAGE_ZOOM_LEVELS[zoomLevelIndex];
+    const canZoomOut = zoomLevelIndex > 0;
+    const canZoomIn = zoomLevelIndex < IMAGE_ZOOM_LEVELS.length - 1;
+    const zoomWidth = zoomFitWidth ? zoomFitWidth * zoomScale : undefined;
     const image = (
       <img
         className={imageClassName}
@@ -212,11 +268,74 @@ export function AssetImage({
           ) : image}
         </div>
         {zoomable && zoomed && typeof document !== "undefined" && createPortal(
-          <div className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`}>
-            <span className="asset-image-lightbox-close" role="button" tabIndex={0} aria-label="关闭大图" onClick={closeZoom} onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") closeZoom(event);
-            }}>×</span>
-            <img src={objectUrl} alt={alt} />
+          <div className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`} onClick={closeZoom}>
+            <div className="asset-image-lightbox-viewport">
+              <div className="asset-image-lightbox-canvas">
+                <img
+                  ref={lightboxImageRef}
+                  className="asset-image-lightbox-image"
+                  src={objectUrl}
+                  alt={alt}
+                  decoding="async"
+                  data-zoom-ready={Boolean(zoomFitWidth)}
+                  data-can-zoom-in={canZoomIn}
+                  style={zoomWidth ? { width: `${zoomWidth}px` } : undefined}
+                  onLoad={(event) => {
+                    const fitted = fitLightboxImageWidth(
+                      event.currentTarget.naturalWidth,
+                      event.currentTarget.naturalHeight,
+                      window.innerWidth,
+                      window.innerHeight,
+                    );
+                    if (fitted > 0) setZoomFitWidth(fitted);
+                  }}
+                  onClick={increaseZoom}
+                />
+              </div>
+            </div>
+            <span
+              className="asset-image-lightbox-close"
+              role="button"
+              tabIndex={0}
+              aria-label="关闭大图"
+              onClick={(event) => {
+                stopLightboxClose(event);
+                closeZoom(event);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  stopLightboxClose(event);
+                  closeZoom(event);
+                }
+              }}
+            >×</span>
+            <div className="asset-image-lightbox-controls" role="toolbar" aria-label="图片缩放" onClick={stopLightboxClose}>
+              <span
+                className="asset-image-lightbox-control"
+                role="button"
+                tabIndex={canZoomOut ? 0 : -1}
+                aria-label="缩小图片"
+                aria-disabled={!canZoomOut}
+                data-disabled={!canZoomOut}
+                onClick={(event) => changeZoom(event, -1)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") changeZoom(event, -1);
+                }}
+              >−</span>
+              <span className="asset-image-lightbox-scale" aria-live="polite">{Math.round(zoomScale * 100)}%</span>
+              <span
+                className="asset-image-lightbox-control"
+                role="button"
+                tabIndex={canZoomIn ? 0 : -1}
+                aria-label="放大图片"
+                aria-disabled={!canZoomIn}
+                data-disabled={!canZoomIn}
+                onClick={(event) => changeZoom(event, 1)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") changeZoom(event, 1);
+                }}
+              >+</span>
+            </div>
           </div>,
           document.body,
         )}
