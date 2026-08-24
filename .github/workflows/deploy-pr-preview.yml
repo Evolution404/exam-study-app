@@ -1,0 +1,112 @@
+name: PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_PROJECT_NAME: exam-study-app
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Require Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN" >&2; exit 2; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID" >&2; exit 2; }
+
+      - name: Build preview
+        run: env -u GITHUB_SHA CF_PAGES=1 npm run build
+
+      - name: Deploy Cloudflare PR preview
+        id: preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview_branch="pr-${PR_NUMBER}"
+          preview_url="https://${preview_branch}.${CLOUDFLARE_PROJECT_NAME}.pages.dev"
+
+          npx wrangler@4 pages deploy dist \
+            --project-name "$CLOUDFLARE_PROJECT_NAME" \
+            --branch "$preview_branch" \
+            --commit-hash "$PR_HEAD_SHA" \
+            --commit-dirty=true
+
+          for attempt in $(seq 1 20); do
+            if curl -fsS --max-time 10 "$preview_url" >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "Preview did not become reachable: $preview_url" >&2
+              exit 1
+            fi
+            sleep 3
+          done
+
+          echo "url=$preview_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## PR Preview"
+            echo
+            echo "- URL: $preview_url"
+            echo "- PR: #${PR_NUMBER}"
+            echo "- Commit: \`${PR_HEAD_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish preview link to PR
+        shell: bash
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        run: |
+          set -euo pipefail
+          marker='<!-- exam-study-app-pr-preview -->'
+          body=$(cat <<EOF
+          ${marker}
+          ### PR 预览已更新
+
+          [打开 Cloudflare Preview](${PREVIEW_URL})
+
+          - PR: #${PR_NUMBER}
+          - Commit: \`${PR_HEAD_SHA}\`
+          - 每次提交到这个 PR 后会自动重新构建并更新同一个预览地址。
+          EOF
+          )
+
+          comments="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100")"
+          comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.body | contains($marker))][0].id // empty' <<<"$comments")"
+
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$body" >/dev/null
+          fi
