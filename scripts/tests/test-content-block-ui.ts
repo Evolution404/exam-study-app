@@ -35,8 +35,8 @@ assert.match(assetImage, /aria-label=\{`重试加载图片/, "asset failures nee
 assert.match(assetImage, /performAssetRetry\(assetId, callback, \(\) => setAttempt/, "retry must reload only after the refresh callback resolves");
 assert.doesNotMatch(assetImage, /setAttempt\([\s\S]*?\n\s*try \{[\s\S]*?onRetry/, "retry must not increment the load attempt before onRetry");
 assert.doesNotMatch(assetImage, /<figure/, "AssetImage must not add a nested figure around renderer figures");
-assert.match(assetImage, /className="asset-image-lightbox"[\s\S]*?onClick=\{closeZoom\}/, "lightbox backdrop must close on blank-area click");
-assert.match(assetImage, /className="asset-image-lightbox-image"[\s\S]*?onClick=\{increaseZoom\}/, "lightbox image click must zoom in instead of closing");
+assert.match(assetImage, /lightbox\?\.addEventListener\("click", onBackdropClick\)/, "lightbox backdrop must close on blank-area click");
+assert.match(assetImage, /className="asset-image-lightbox-image-trigger"[\s\S]*?onClick=\{increaseZoom\}/, "lightbox image click must zoom in instead of closing");
 assert.match(assetImage, /aria-label="缩小图片"/, "lightbox must expose a zoom-out control");
 assert.match(assetImage, /aria-label="放大图片"/, "lightbox must expose a zoom-in control");
 
