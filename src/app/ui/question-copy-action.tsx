@@ -8,12 +8,9 @@ export function QuestionCopyAction({ includeAnswer = false, status = "idle", onC
   onClick: () => void;
   compact?: boolean;
 }) {
-  const actionLabel = includeAnswer ? "复制题目和答案" : "复制题目";
-  const ariaLabel = status === "copied"
-    ? `${actionLabel}，已复制`
-    : status === "error"
-      ? `${actionLabel}，复制失败`
-      : actionLabel;
+  const idleLabel = includeAnswer ? "复制含答案" : "复制题目";
+  const ariaLabel = includeAnswer ? "复制题目和答案" : "复制题目";
+  const label = status === "copied" ? "已复制" : status === "error" ? "复制失败" : idleLabel;
   const icon = status === "copied"
     ? <ClipboardCheck size={15} />
     : status === "error"
@@ -26,7 +23,7 @@ export function QuestionCopyAction({ includeAnswer = false, status = "idle", onC
     type="button"
     className={`question-copy-action ${includeAnswer ? "with-answer" : ""} ${status} ${compact ? "compact" : ""}`}
     aria-label={ariaLabel}
-    title={ariaLabel}
+    title={label}
     onClick={onClick}
   >
     <span className="question-meta question-copy-state-marker">
