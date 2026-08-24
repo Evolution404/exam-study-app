@@ -1,5 +1,5 @@
 {
-  "totalBytes": 250233,
+  "totalBytes": 255671,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
@@ -57,7 +57,7 @@
       "important": 0
     },
     "src/app/styles/practice-setup.css": {
-      "bytes": 3250,
+      "bytes": 8688,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
