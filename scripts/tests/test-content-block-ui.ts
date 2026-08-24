@@ -8,11 +8,13 @@ import {
   replaceContentBlock,
 } from "../../src/lib/question/question-content";
 import {
+  clampImageZoomScale,
   fitLightboxImageWidth,
   IMAGE_ZOOM_LEVELS,
   performAssetRetry,
   resolveAssetLoad,
   stepImageZoomIndex,
+  stepImageZoomScale,
 } from "../../src/app/ui/asset-image";
 import type { ContentBlock } from "../../src/lib/db/v7-types";
 
@@ -43,14 +45,22 @@ assert.match(assetImage, /aria-label="放大图片"/, "lightbox must expose a zo
 assert.match(assetImage, /window\.addEventListener\("keydown", onKeyDown, true\)/, "lightbox keyboard handling must run in capture phase before page shortcuts");
 assert.match(assetImage, /event\.stopImmediatePropagation\(\)/, "lightbox close and zoom shortcuts must not leak to other modal handlers");
 assert.match(assetImage, /if \(event\.target !== event\.currentTarget\) openZoom\(event\)/, "only the rendered thumbnail itself may open the lightbox");
+assert.match(assetImage, /addEventListener\("touchmove", onTouchMove, \{ passive: false \}\)/, "mobile lightbox pinch must intercept two-finger movement without passive touch handling");
+assert.match(assetImage, /pinch\.scale \* distance \/ pinch\.distance/, "pinch zoom must scale continuously from finger distance");
+assert.match(assetImage, /suppressImageTapUntilRef/, "finishing a pinch must not synthesize an extra tap-to-zoom step");
 assert.match(globals, /\.asset-image-zoom-trigger\{[^}]*width:fit-content[^}]*justify-self:center/, "thumbnail hit target must shrink to the image instead of the full option row");
 assert.match(globals, /\.asset-image-lightbox-close::before,.asset-image-lightbox-close::after/, "lightbox close icon must use geometrically centered strokes");
+assert.match(globals, /\.asset-image-lightbox-viewport\{[^}]*touch-action:pan-x pan-y/, "lightbox viewport must keep one-finger pan while app code owns pinch zoom");
 
 assert.deepEqual([...IMAGE_ZOOM_LEVELS], [1, 1.5, 2, 3, 4], "lightbox zoom levels must stay predictable");
 assert.equal(stepImageZoomIndex(0, 1), 1, "zoom-in advances one level");
 assert.equal(stepImageZoomIndex(4, 1), 4, "zoom-in clamps at the maximum");
 assert.equal(stepImageZoomIndex(0, -1), 0, "zoom-out clamps at fit-to-screen");
 assert.equal(stepImageZoomIndex(3, -1), 2, "zoom-out returns one level");
+assert.equal(clampImageZoomScale(0.4), 1, "pinch zoom clamps at fit-to-screen");
+assert.equal(clampImageZoomScale(5), 4, "pinch zoom clamps at 400%");
+assert.equal(stepImageZoomScale(1.72, 1), 2, "zoom button advances from a free pinch scale to the next landmark");
+assert.equal(stepImageZoomScale(1.72, -1), 1.5, "zoom button decreases from a free pinch scale to the previous landmark");
 assert.equal(fitLightboxImageWidth(2000, 1000, 1000, 800), 940, "wide images fit the viewport width at 100%");
 assert.equal(fitLightboxImageWidth(1000, 2000, 1000, 800), 360, "tall images fit the viewport height at 100%");
 
@@ -107,4 +117,4 @@ const replaced = replaceContentBlock(inserted, "image-a", { ...image, id: "image
 assert.equal(replaced.find((block) => block.type === "image")?.assetId, "asset-c");
 assert.deepEqual(deleteContentBlock(replaced, "image-c").map((block) => block.type), ["text", "text", "text"]);
 
-console.log("content block UI tests passed: Blob URL lifecycle, local image source, isolated lightbox interactions, MathText, selection and block operations");
+console.log("content block UI tests passed: Blob URL lifecycle, local image source, pinch/lightbox interactions, MathText, selection and block operations");
