@@ -102,7 +102,11 @@ export function replayRemoteResilient(projection: ChangeSetProjectionV7, changes
 
 export async function installProjection(
   projection: ChangeSetProjectionV7,
-  options?: { queueGuard?: readonly V7ChangeSetQueueGuard[]; clearChangeSets?: boolean },
+  options?: {
+    queueGuard?: readonly V7ChangeSetQueueGuard[];
+    clearChangeSets?: boolean;
+    onProgress?: (progress: { completed: number; total: number; label: string }) => void;
+  },
 ): Promise<boolean> {
   // Restore directly from the projection state — building a full checkpoint
   // envelope (with counts/cursors) just to unwrap it was pure overhead.
