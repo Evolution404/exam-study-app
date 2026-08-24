@@ -1,5 +1,5 @@
 {
-  "totalBytes": 262058,
+  "totalBytes": 264690,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
@@ -81,7 +81,7 @@
       "important": 0
     },
     "src/app/styles/question-actions.css": {
-      "bytes": 2527,
+      "bytes": 5159,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
