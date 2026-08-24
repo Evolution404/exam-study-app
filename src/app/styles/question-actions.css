@@ -15,8 +15,24 @@
 .question-copy-action:hover,.question-copy-action:focus-visible,.question-tool:hover,.question-tool:focus-visible{outline:0;color:var(--color-primary);background:var(--color-primary-soft)}
 .question-copy-action.copied:hover,.question-copy-action.copied:focus-visible{color:var(--color-success);background:var(--color-success-soft)}
 .question-copy-action.error:hover,.question-copy-action.error:focus-visible{color:var(--color-danger);background:var(--color-danger-soft)}
-.question-detail-toolbar{padding:8px 20px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;gap:2px;background:color-mix(in srgb,var(--color-surface) 88%,var(--color-surface-muted))}
+
+.question-detail-toolbar{padding:8px 20px;border-bottom:1px solid var(--color-border);display:flex;flex-wrap:wrap;align-items:center;gap:2px;background:color-mix(in srgb,var(--color-surface) 88%,var(--color-surface-muted))}
+.question-detail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:2px}
+.question-detail-actions>button{width:30px;min-width:30px;min-height:30px;border:0;border-radius:8px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--color-text-muted);background:transparent;cursor:pointer;font:inherit;font-size:0;line-height:1;box-shadow:none;-webkit-tap-highlight-color:transparent}
+.question-detail-actions>button svg{width:15px;height:15px}
+.question-detail-actions>button:hover,.question-detail-actions>button:focus-visible{outline:0;color:var(--color-primary);background:var(--color-primary-soft)}
+.question-detail-actions>.danger-button{border:0;color:var(--color-text-muted);background:transparent}
+.question-detail-actions>.danger-button:hover,.question-detail-actions>.danger-button:focus-visible{color:var(--color-danger);background:var(--color-danger-soft)}
 .question-detail-close{flex:none}
+
+.search-question-detail>footer.question-detail-pager{padding:12px 20px;border-top:1px solid var(--color-border);display:block;background:var(--color-surface)}
+.question-detail-pager .search-detail-nav{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px}
+.question-detail-pager .search-detail-position{grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;min-width:54px}
+.search-question-detail>footer.question-detail-pager button{min-height:42px;border:1px solid var(--color-border);border-radius:11px;padding:9px 13px;display:flex;align-items:center;justify-content:center;gap:5px;color:var(--color-text);background:var(--color-surface-raised);box-shadow:none;cursor:pointer}
+.search-question-detail>footer.question-detail-pager .question-detail-previous{grid-column:1;grid-row:1}
+.search-question-detail>footer.question-detail-pager .question-detail-next{grid-column:3;grid-row:1;border-color:var(--color-primary);color:var(--color-primary);background:var(--color-primary-soft)}
+.search-question-detail>footer.question-detail-pager .question-detail-next:hover,.search-question-detail>footer.question-detail-pager .question-detail-next:focus-visible{outline:0;background:var(--color-surface-muted)}
+.search-question-detail>footer.question-detail-pager button:disabled{opacity:.38;cursor:not-allowed}
 
 @media(max-width:760px){
   .question-heading{gap:7px;margin-bottom:10px}
@@ -24,5 +40,10 @@
   .question-tools{gap:2px}
   .question-copy-action,.question-tool{min-height:38px;width:38px;min-width:38px}
   .question-copy-action.compact{width:34px;min-width:34px;min-height:34px}
-  .question-detail-toolbar{padding:8px 14px}
+  .question-detail-toolbar{padding:7px 14px;gap:0}
+  .question-detail-actions{gap:0}
+  .question-detail-actions>button{width:38px;min-width:38px;min-height:38px}
+  .search-question-detail>footer.question-detail-pager{padding:10px 14px}
+  .question-detail-pager .search-detail-nav{gap:8px}
+  .search-question-detail>footer.question-detail-pager button{min-height:44px;padding:8px 10px}
 }
