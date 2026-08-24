@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
 /** Resolve an image asset to its local Blob representation. */
@@ -174,42 +174,49 @@ export function AssetImage({
 
   const rootClassName = `asset-image${className ? ` ${className}` : ""}`;
   if (objectUrl && objectUrlAssetId === assetId.trim() && state.status === "ready") {
-    const openZoom = (event: React.SyntheticEvent) => {
+    const openZoom = (event: SyntheticEvent) => {
       if (!zoomable) return;
       event.preventDefault();
       event.stopPropagation();
       setZoomed(true);
     };
-    const closeZoom = (event: React.SyntheticEvent) => {
+    const closeZoom = (event: SyntheticEvent) => {
       event.preventDefault();
       event.stopPropagation();
       setZoomed(false);
     };
+    const image = (
+      <img
+        className={imageClassName}
+        src={objectUrl}
+        alt={alt}
+        width={width}
+        height={height}
+        decoding="async"
+      />
+    );
     return (
       <>
         <div className={rootClassName} data-asset-id={assetId} data-state="ready" data-zoomable={zoomable || undefined}>
-          <img
-            className={imageClassName}
-            src={objectUrl}
-            alt={alt}
-            width={width}
-            height={height}
-            decoding="async"
-            role={zoomable ? "button" : undefined}
-            tabIndex={zoomable ? 0 : undefined}
-            aria-label={zoomable ? `放大查看：${alt}` : undefined}
-            onClick={zoomable ? openZoom : undefined}
-            onKeyDown={zoomable ? (event) => {
-              if (event.key === "Enter" || event.key === " ") openZoom(event);
-            } : undefined}
-          />
+          {zoomable ? (
+            <span
+              className="asset-image-zoom-trigger"
+              role="button"
+              tabIndex={0}
+              aria-label={`放大查看：${alt}`}
+              onClick={openZoom}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openZoom(event);
+              }}
+            >{image}</span>
+          ) : image}
         </div>
         {zoomable && zoomed && typeof document !== "undefined" && createPortal(
-          <div className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`} onClick={closeZoom}>
+          <div className="asset-image-lightbox" role="dialog" aria-modal="true" aria-label={`查看大图：${alt}`}>
             <span className="asset-image-lightbox-close" role="button" tabIndex={0} aria-label="关闭大图" onClick={closeZoom} onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") closeZoom(event);
             }}>×</span>
-            <img src={objectUrl} alt={alt} onClick={(event) => event.stopPropagation()} />
+            <img src={objectUrl} alt={alt} />
           </div>,
           document.body,
         )}
