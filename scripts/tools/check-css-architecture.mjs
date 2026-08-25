@@ -10,6 +10,7 @@ const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}
 const globalStyleOrder = [
   "./theme-tokens.css",
   "../shell/shell-tokens.css",
+  "../search/search-tokens.css",
   "../practice/practice-tokens.css",
   "./controls.css",
   "./base.css",
@@ -47,6 +48,7 @@ const migrationDebtFiles = new Set([
 const tokenFileRelatives = new Set([
   "src/app/styles/theme-tokens.css",
   "src/app/shell/shell-tokens.css",
+  "src/app/search/search-tokens.css",
   "src/app/practice/practice-tokens.css",
 ]);
 const structuralStyleFiles = new Set([
