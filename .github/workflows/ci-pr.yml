@@ -47,7 +47,7 @@ jobs:
       - run: npm ci
       - name: Restore Playwright browser cache
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ matrix.engine }}-${{ hashFiles('package-lock.json') }}
@@ -63,6 +63,8 @@ jobs:
         run: node scripts/tests/run-browser-local.mjs
       - name: Build PWA preview
         if: matrix.run_pwa == true
+        env:
+          CF_PAGES: "1"
         run: npm run build
       - name: PWA preview smoke
         if: matrix.run_pwa == true
