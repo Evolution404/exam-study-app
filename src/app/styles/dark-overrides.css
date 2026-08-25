@@ -32,8 +32,6 @@ html[data-theme="dark"] :where(.result-box.error,.editor-error,.search-session-w
 
 html[data-theme="dark"] :where(.restore-card,.dont-know-action,.options .wrong){border-color:#744b3d;color:#efb39b;background:#2e201b}
 
-html[data-theme="dark"] :where(.mobile-tabbar,.practice-content .practice-actions){border-color:#35423a;background:#161e19f2;box-shadow:0 -10px 28px #0007}
-
 html[data-theme="dark"] :where(.sync-pill,.search-page-trigger){border-color:#3c5145;color:#b9d5c4;background:#23352b}
 
 html[data-theme="dark"] :where(.sync-pill.syncing,.search-page-trigger:hover,.search-page-trigger:focus-visible){color:#d7e9dd;background:#315c46}
