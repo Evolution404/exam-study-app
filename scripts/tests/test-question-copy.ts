@@ -111,8 +111,9 @@ assert.match(questionDetail, /\{isWrong && <X size=\{16\} \/>\}/, "做错选项�
 
 // ===== 静态断言：最终 CSS 架构 / token 化 =====
 
-const styleNames = (await readdir("src/app/styles")).filter((file) => file.endsWith(".css")).sort();
-const styles = (await Promise.all(styleNames.map((file) => readFile(`src/app/styles/${file}`, "utf8")))).join("\n");
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const styleNames = (await readdir(appStylesRoot, { recursive: true })).filter((file) => file.endsWith(".css")).sort();
+const styles = (await Promise.all(styleNames.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\n");
 const mainSource = await readFile("src/main.tsx", "utf8");
 assert.match(styles, /\.question-tools\{display:flex;flex-wrap:wrap/, "题目操作区应自然换行，避免窄屏右漂");
 assert.match(styles, /\.question-copy-action,\.question-tool\{[^}]*border:0[^}]*background:transparent[^}]*font-size:0/, "答题页题目操作应为无文字、无边框、无底色的扁平图标");

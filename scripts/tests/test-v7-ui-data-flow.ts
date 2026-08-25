@@ -47,7 +47,6 @@ const bank = [
 assert.match(bank, /仅从当前题库移除/);
 assert.match(bank, /全局删除题目及学习记录/);
 assert.match(bank, /listUnfiledQuestionsV7/);
-// 往既有题库继续导入：数据层带 targetBankId、UI 入口在试题管理头部。
 const questionManagerSource = source("bank/bank-library/question-manager.tsx");
 assert.match(questionManagerSource, /导入题目/, "试题管理头部应提供往当前题库导入题目的入口");
 assert.match(questionManagerSource, /onImportQuestions/, "试题管理应把导入入口上抛给题库详情");
@@ -64,13 +63,11 @@ assert.match(bank, /removeMembershipsV7/, "试题管理应支持批量移出当�
 assert.match(bank, /deleteQuestionsV7/, "试题管理与未归档区应支持批量永久删除");
 assert.match(bank, /选择当前筛选/, "试题管理应支持按当前筛选结果全选");
 assert.match(bank, /批量删除/, "未归档题目应支持批量删除");
-// 试题管理：点题目卡片看详情（setViewing），铅笔才编辑；行内统计按区间口径。
 assert.match(bank, /setViewing\(question\)/, "题目卡片点击应打开详情而非直接编辑");
 assert.match(bank, /作答 \{summary\.total\} 次（\{progressScopeLabel\}）/, "试题管理行内统计应标注区间口径");
 assert.match(bank, /<QuestionDetail/, "试题管理应复用共享 QuestionDetail");
 assert.match(bank, /@dnd-kit\/sortable/, "题库拖动必须使用成熟拖拽组件 dnd-kit");
 assert.match(bank, /useSortable/, "题库拖动卡片必须通过 useSortable 接入 dnd-kit");
-
 
 const detail = source("bank/question-detail.tsx");
 assert.match(detail, /export function QuestionDetail/, "题目详情应抽出为共享组件");
@@ -81,10 +78,9 @@ assert.doesNotMatch(detail, /终身/, "题目详情不应再硬编码终身口�
 const renderer = source("bank/content-block-renderer.tsx");
 assert.match(renderer, /retry=\{retryAsset/);
 
-const splitStyleNames = readdirSync(new URL("../../src/app/styles/", import.meta.url)).filter((file) => file.endsWith(".css")).sort();
-const componentStyles = splitStyleNames.map((file) => readFileSync(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")).join("\n");
-// 按钮体系统一：全局 .primary/.secondary 必须是 42px 高、10px 圆角的令牌化规格，
-// 主按钮不再叠加投影（与同行控件完全同高同角）；裸 <button> 无样式会回退浏览器默认灰底。
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const splitStyleNames = readdirSync(appStylesRoot, { recursive: true }).filter((file) => file.endsWith(".css")).sort();
+const componentStyles = splitStyleNames.map((file) => readFileSync(new URL(file, appStylesRoot), "utf8")).join("\n");
 assert.match(componentStyles, /\.secondary\s*\{[^}]*min-height:42px[^}]*var\(--color-surface-raised\)/, "全局二级按钮应为 42px 令牌化表面样式");
 const primaryRule = componentStyles.match(/\.primary\s*\{[^}]*min-height:\s*42px[^}]*\}/)?.[0] ?? "";
 assert.match(primaryRule, /min-height:42px/, "全局主按钮统一 42px 高");
@@ -110,26 +106,19 @@ assert.match(history, /已收藏这道题/, "练习结果详情应支持收藏�
 assert.doesNotMatch(history, /只练这一题/, "全项目不应再保留只练这一题入口");
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
-// 练习记录排序：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），
-// 不再按开始时间——恢复旧练习并作答后应浮到最前。
 assert.match(history, /runActivityAt\(b\)\.localeCompare\(runActivityAt\(a\)\)/, "练习记录必须按活动时间倒序");
 assert.doesNotMatch(history, /orderBy\("startedAt"\)/, "练习记录不得再按开始时间排序");
 assert.match(history, /formatTime\(runActivityAt\(run\)\)/, "记录卡片时间戳应与排序同口径（最后活动时间）");
 assert.match(history, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮应带 danger 红色调");
-// 结果页全览 + 按题型折叠：总览必须复用做题界面的 QuestionOverview（同一交互与口径）。
 assert.match(history, /import \{ QuestionOverview \} from "@\/app\/shell\/views\/question-overview"/, "结果页总览必须复用做题界面组件");
 assert.match(history, /aria-label="打开题目总览"/, "结果页筛选行应有题目总览入口");
 assert.match(history, /aria-expanded=\{!collapsed\}/, "题型分组头必须支持折叠并标注 aria-expanded");
 assert.match(history, /className=\{collapsed \? "collapsed" : ""\}/, "折叠态需要稳定的 collapsed 类名");
 assert.match(history, /onJump=\{\(target\) =>/, "总览点击题号应跳转打开对应题目详情");
 
-// 浏览器测试不得再用 osascript 切换窗口焦点（用户要求移除该功能，防回潮）。
 const browserTest = readFileSync(new URL("./test-browser-visible.mjs", import.meta.url), "utf8");
 assert.doesNotMatch(browserTest, /osascript|keepBrowserInBackground|frontmostAppName/, "浏览器测试不得切换系统窗口焦点");
 
-// Continue-practice resume position: one past the furthest answered question,
-// except when the final question is answered — then jump to the first
-// unanswered question instead of re-showing the answered last one.
 const answered = (indexes: number[]) => {
   const answers: Record<string, { submitted: boolean }> = {};
   for (const index of indexes) answers[`q${index}`] = { submitted: true, selected: ["A"] };
@@ -167,8 +156,6 @@ assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 const topbar = source("shell/topbar.tsx");
 assert.match(study, /pending=\{stats\.pending\}/, "AppShell 应把真实待同步数量传给顶部栏");
 assert.match(topbar, /pending\.toLocaleString\("zh-CN"\)/, "右上角同步按钮应显示真实待同步数量");
-// 自动同步不卡界面：空闲调度与队列计数均下沉到同步 application/runtime，
-// React 只订阅轻量公开接口；本地归并仍逐条让出主线程且派生只跑一次。
 const syncRuntimeSource = readFileSync(new URL("../../src/lib/sync/sync-runtime.ts", import.meta.url), "utf8");
 const syncApplicationSource = readFileSync(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
 assert.match(study, /syncRuntime\.scheduleAutomaticSync/, "AppShell 应把自动同步调度委托给 runtime");

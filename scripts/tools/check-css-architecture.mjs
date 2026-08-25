@@ -9,20 +9,33 @@ const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}
 
 const globalStyleOrder = [
   "./theme-tokens.css",
+  "./palette-tokens.css",
+  "../bank/bank-tokens.css",
   "../shell/shell-tokens.css",
   "../search/search-tokens.css",
   "../practice/practice-tokens.css",
   "./controls.css",
   "./base.css",
   "./primitives.css",
-  "./shared.css",
+  "./shared-core-1.css",
+  "./shared-core-2.css",
+  "./shared-core-3.css",
+  "../bank/bank-shared.css",
+  "./app-utility.css",
   "./shell.css",
   "./dashboard.css",
-  "./search.css",
-  "./bank.css",
-  "./practice.css",
+  "../search/search-main-1.css",
+  "../search/search-main-2.css",
+  "../search/search-main-3.css",
+  "../bank/bank-main-1.css",
+  "../bank/bank-main-2.css",
+  "../bank/bank-main-3.css",
+  "../bank/bank-knowledge.css",
+  "../practice/practice-main-1.css",
+  "../practice/practice-main-2.css",
   "./preferences.css",
   "./responsive.css",
+  "./responsive-shared.css",
   "./dark-overrides.css",
   "./practice-setup.css",
   "./content-blocks.css",
@@ -32,7 +45,7 @@ const globalStyleOrder = [
   "./bank-controls.css",
   "./asset-image.css",
 ];
-const featureLocalStyles = new Set(["src/app/styles/sync-events.css"]);
+const featureLocalStyles = new Set(["src/app/styles/sync-events-1.css","src/app/styles/sync-events-2.css"]);
 const requiredCoreStyles = [
   "src/app/styles/theme-tokens.css",
   "src/app/styles/base.css",
@@ -41,12 +54,13 @@ const requiredCoreStyles = [
   "src/app/styles/components.css",
 ];
 const migrationDebtFiles = new Set([
-  "src/app/styles/shared.css",
   "src/app/styles/responsive.css",
   "src/app/styles/dark-overrides.css",
 ]);
 const tokenFileRelatives = new Set([
   "src/app/styles/theme-tokens.css",
+  "src/app/styles/palette-tokens.css",
+  "src/app/bank/bank-tokens.css",
   "src/app/shell/shell-tokens.css",
   "src/app/search/search-tokens.css",
   "src/app/practice/practice-tokens.css",
@@ -215,6 +229,12 @@ const baselineNonTokenMetrics = Object.entries(baseline.files)
   }), { bytes: 0, hexColors: 0, darkSelectors: 0, important: 0 });
 const allowedTotalDebtScore = baseline.totalDebtScore ?? debtScore(baselineNonTokenMetrics);
 const allowedNonTokenHexColors = baseline.nonTokenHexColors ?? baselineNonTokenMetrics.hexColors;
+if (nonTokenHexColors !== 0) {
+  fail(`最终业务 CSS 禁止硬编码颜色；token 文件之外当前仍有 ${nonTokenHexColors} 处`);
+}
+if (maxFileBytes > newCssMaxBytes) {
+  fail(`最终 CSS 单文件不得超过 ${newCssMaxBytes} bytes；当前最大 ${maxFileBytes} bytes`);
+}
 if (nonTokenHexColors > allowedNonTokenHexColors) {
   fail(`token 文件之外的硬编码颜色由 ${allowedNonTokenHexColors} 增至 ${nonTokenHexColors}，业务 CSS 颜色债务只能减少`);
 }

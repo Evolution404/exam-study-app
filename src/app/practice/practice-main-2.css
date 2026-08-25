@@ -1,0 +1,104 @@
+.latest-practice-score{min-width:108px;min-height:108px;border:1px solid color-mix(in srgb,white 22%,transparent);border-radius:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:color-mix(in srgb,white 8%,transparent)}
+.latest-practice-score strong{font:600 38px Georgia,serif;line-height:1}
+.latest-practice-score small{margin-top:4px;color:color-mix(in srgb,white 72%,transparent)}
+.latest-practice-score span{margin-top:7px;color:color-mix(in srgb,white 68%,transparent);font-size:9px}
+.tag-quick-practice { border:0; border-left:1px solid var(--p-e3e1da); padding:9px; display:grid; place-items:center; align-content:center; gap:3px; color:var(--p-37644e); background:var(--p-f4f7f4); cursor:pointer; font-size:9px; }
+.shortcut-option-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.shortcut-option-grid label{display:grid;gap:6px;color:var(--color-text-muted);font-size:9px}
+
+.practice-content{overflow-x:hidden}
+
+.app-shell.transition-slide.transition-forward .practice-content .practice-layout{animation:question-page-forward .34s cubic-bezier(.22,.8,.32,1)}
+
+.app-shell.transition-slide.transition-back .practice-content .practice-layout{animation:question-page-back .34s cubic-bezier(.22,.8,.32,1)}
+
+.calculation-answer{margin:16px 0;padding:17px;border:1px solid var(--color-border);border-radius:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px 14px;background:var(--color-surface)}
+.calculation-answer label{font-weight:700}
+.calculation-answer input{grid-row:1/3;grid-column:2;width:min(220px,42vw);min-height:48px;border:1px solid var(--color-border);border-radius:11px;padding:10px 12px;color:var(--color-text);background:var(--color-surface-raised);font-size:18px;font-weight:700;text-align:right;outline:none}
+.calculation-answer small{color:var(--color-text-muted);font-size:10px}
+.calculation-answer.correct{border-color:var(--color-success);background:var(--color-success-soft)}
+.calculation-answer.wrong{border-color:var(--color-danger);background:var(--color-danger-soft)}
+.result-question-groups button{cursor:pointer}
+
+
+.calculation-practice-stem{font-size:1.02em}
+.calculation-answer>div:first-child{display:grid;gap:5px}
+.calculation-answer>div:first-child small{line-height:1.5}
+.calculation-answer.fallback-grid{grid-template-columns:minmax(0,.7fr) minmax(260px,1.3fr)}
+.calculation-fallback-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
+.calculation-fallback-inputs label{display:grid;gap:4px;color:var(--color-text-muted);font-size:10px}
+.calculation-fallback-inputs input{position:static;grid-row:auto;grid-column:auto;width:100%;text-align:left}
+.calculation-answer-editor{display:grid;gap:10px}
+.calculation-answer-editor>div:nth-child(2){display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px}
+.calculation-answer-editor>div:nth-child(2)>label{position:relative;display:grid;gap:5px}
+.calculation-answer-editor>div:nth-child(2)>label>span{color:var(--color-text-muted);font-size:10px;font-weight:700}
+.calculation-answer-editor>div:nth-child(2)>label>input{padding-right:42px}
+.calculation-answer-editor>div:nth-child(2)>label>button{position:absolute;right:5px;bottom:5px;width:34px;height:34px;border:0;border-radius:8px;display:grid;place-items:center;color:var(--color-danger);background:var(--color-danger-soft);cursor:pointer}
+
+.preferences-view>.preference-card,.preferences-view>.desktop-shortcut-settings>.preference-card,.preferences-view>.review-round-manager{max-width:none;margin:0}
+
+/* 结果页按钮基础 border:0（无四周边框），边框/描边方案会同时改动顶边（inset 线）
+   与底部分隔线，产生上下等宽绿边。选中反馈只用主色软背景——背景本身已足够明显，
+   不再叠加任何边框或描边；夜间随 token 自动适配。 */
+.result-question-groups>section>div>button.detail-current {
+  background: var(--color-primary-soft);
+}
+
+/* Practice owns option colors; shared.css keeps only the transitional structure. */
+.options button{border-color:var(--practice-option-border);color:var(--practice-option-text);background:var(--practice-option-bg)}
+.options button>span{border-color:var(--practice-option-key-border);color:var(--practice-option-key-text);background:var(--practice-option-key-bg)}
+.options .selected{border-color:var(--practice-option-selected-border);background:var(--practice-option-selected-bg)}
+.options .selected>span{color:var(--practice-option-selected-key-text);background:var(--practice-option-selected-key-bg)}
+.options .right{border-color:var(--practice-option-right-border);color:var(--practice-option-right-text);background:var(--practice-option-right-bg)}
+.options .right>span{color:var(--practice-option-right-key-text);background:var(--practice-option-right-key-bg)}
+.options .wrong{border-color:var(--practice-option-wrong-border);color:var(--practice-option-wrong-text);background:var(--practice-option-wrong-bg)}
+.options .wrong>span{color:var(--practice-option-wrong-key-text);background:var(--practice-option-wrong-key-bg)}
+
+/* Practice owns question-overview colors; shared.css keeps transitional structure. */
+.question-overview{border-color:var(--overview-panel-border);color:var(--color-text);background:var(--overview-panel-bg)}
+.question-overview>header{background:var(--overview-section-bg)}
+.question-overview .overview-legend{border-color:var(--overview-legend-border);color:var(--overview-legend-text);background:var(--overview-legend-bg)}
+.question-overview .overview-score{border-color:var(--overview-score-border);color:var(--color-text);background:var(--overview-score-bg)}
+.overview-score span{color:var(--overview-score-metric-text);background:var(--overview-score-metric-bg)}
+.overview-score strong{color:var(--overview-score-value)}
+.overview-score span:nth-child(2) strong{color:var(--overview-score-wrong-value)}
+.overview-number-grid button{border-color:var(--overview-number-border);color:var(--overview-number-text);background:var(--overview-number-bg)}
+.overview-number-grid button.current{box-shadow:var(--overview-number-current-shadow)}
+.overview-number-grid button.correct{border-color:var(--overview-number-correct-border);color:var(--overview-number-correct-text);background:var(--overview-number-correct-bg)}
+.overview-number-grid button.wrong{border-color:var(--overview-number-wrong-border);color:var(--overview-number-wrong-text);background:var(--overview-number-wrong-bg)}
+.overview-number-grid button.pending{border-color:var(--overview-number-pending-border);color:var(--overview-number-pending-text);background:var(--overview-number-pending-bg)}
+.overview-legend i{border-color:var(--overview-legend-marker-border);background:var(--overview-legend-marker-bg)}
+.overview-legend i.correct{border-color:var(--overview-legend-correct-border);background:var(--overview-legend-correct-bg)}
+.overview-legend i.wrong{border-color:var(--overview-legend-wrong-border);background:var(--overview-legend-wrong-bg)}
+.overview-legend i.pending{border-color:var(--overview-legend-pending-border);background:var(--overview-legend-pending-bg)}
+.overview-empty{border-color:var(--overview-empty-border);color:var(--overview-empty-text);background:var(--overview-empty-bg)}
+
+/* Practice owns history control colors while legacy structure remains shared. */
+.history-filters button{border-color:var(--history-filter-border);color:var(--history-filter-text);background:var(--history-filter-bg)}
+.history-filters button span{color:var(--history-filter-count-text);background:var(--history-filter-count-bg)}
+.history-filters button.active{border-color:var(--history-filter-active-border);color:var(--history-filter-active-text);background:var(--history-filter-active-bg)}
+.history-swipe-content{background:var(--history-swipe-bg)}
+.history-card-actions button{border-color:var(--history-action-border);color:var(--history-action-text);background:var(--history-action-bg)}
+.history-card-actions .abandon{border-color:var(--history-abandon-border);color:var(--history-abandon-text);background:var(--history-abandon-bg)}
+.run-status.in_progress{color:var(--history-status-progress-text);background:var(--history-status-progress-bg)}
+.run-status.completed{color:var(--history-status-completed-text);background:var(--history-status-completed-bg)}
+.run-status.abandoned{color:var(--history-status-abandoned-text);background:var(--history-status-abandoned-bg)}
+.run-result>header .run-status.in_progress{color:var(--history-header-progress-text);background:var(--history-header-progress-bg)}
+.run-result>header .run-status.completed{color:var(--history-header-completed-text);background:var(--history-header-completed-bg)}
+.run-result>header .run-status.abandoned{color:var(--history-header-abandoned-text);background:var(--history-header-abandoned-bg)}
+.run-result>header{background:var(--run-result-header-bg)}
+
+/* Short-answer practice owns its complete layout and self-grading presentation. */
+.short-answer-card{margin:16px 0 4px;display:grid;gap:14px}
+.short-answer-card>label{display:grid;gap:8px}
+.short-answer-card>label>span{color:var(--color-text-muted);font-size:12px;font-weight:700}
+.short-answer-card textarea{width:100%;min-height:168px;box-sizing:border-box;border:1px solid var(--color-border);border-radius:14px;padding:14px 16px;resize:vertical;color:var(--color-text);background:var(--color-surface-raised);font:inherit;font-size:15px;line-height:1.75;outline:none}
+.short-answer-card textarea:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 12%,transparent)}
+.short-answer-card textarea:disabled{resize:none;color:var(--color-text);background:var(--color-surface-muted);opacity:1}
+.short-reference{padding:17px 19px;border:1px solid color-mix(in srgb,var(--color-primary) 22%,var(--color-border));border-radius:14px;color:var(--color-text);background:var(--color-primary-soft)}
+.short-reference strong{display:block;margin-bottom:7px;font-size:13px}
+.short-reference p{margin:0;white-space:pre-wrap;color:var(--color-text-muted);font-size:12px;line-height:1.75}
+.short-grade-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.short-grade-actions .secondary{min-height:42px;padding:9px 13px}
+.practice-actions:has(.short-grade-actions)>div{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:760px){.short-answer-card textarea{min-height:150px;font-size:16px}.short-grade-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.short-grade-actions .secondary{width:100%;padding-inline:8px}.practice-actions:has(.short-grade-actions)>div{width:100%}}

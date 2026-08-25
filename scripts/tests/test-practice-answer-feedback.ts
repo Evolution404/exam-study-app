@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const readStyles = () => readdirSync(new URL("../../src/app/styles/", import.meta.url))
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
   .filter((file) => file.endsWith(".css"))
   .sort()
-  .map((file) => read(`src/app/styles/${file}`))
+  .map((file) => readFileSync(new URL(file, appStylesRoot), "utf8"))
   .join("\n");
 const studyApp = read("src/app/shell/app-shell.tsx");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
@@ -65,7 +66,7 @@ assert.match(practiceSetup, /where\("questionId"\)\.anyOf/, "card counts must lo
 assert.match(studyApp, /wrongRemovalStreak=\{preferences\.wrongRemovalStreak\}/, "practice setup must receive the wrong-removal streak preference");
 assert.match(practiceHistory, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮必须带 danger 类");
 assert.match(styles, /\.result-actions \.danger\{border-color:var\(--color-danger\);color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "只练本次错题按钮应整组走 danger token");
-assert.match(styles, /html\[data-theme="dark"\] \.result-actions button:not\(\.danger\)\{border-color:#3a473f/, "夜间普通按钮覆盖必须放行 danger 按钮（不加夜间规则）");
+assert.match(styles, /html\[data-theme="dark"\] \.result-actions button:not\(\.danger\)\{border-color:var\(--p-3a473f\)/, "夜间普通按钮覆盖必须放行 danger 按钮并保持 token 化");
 assert.doesNotMatch(styles, /html\[data-theme="dark"\][^\n]*result-actions[^\n]*danger\{/, "danger 按钮不得依赖专属夜间规则（token 自适应）");
 assert.match(styles, /\.result-group-toggle\{[^}]*cursor:pointer\}/, "题型分组头必须可点击折叠");
 assert.match(styles, /\.result-question-groups>section\.collapsed \.result-group-toggle>svg\{transform:rotate\(-90deg\)\}/, "折叠态分组箭头应旋转指示");
