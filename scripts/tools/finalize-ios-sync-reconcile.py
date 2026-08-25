@@ -1,6 +1,50 @@
 from pathlib import Path
 import json
 
+reconcile = Path("src/lib/db/db-v7-reconcile.ts")
+text = reconcile.read_text()
+old = '''async function planTable<T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string): Promise<ReconcilePlan<T>> {
+  const current = await table.toArray();
+  const currentByKey = new Map(current.map((row) => [keyOf(row), row]));
+  const incomingKeys = new Set<string>();
+  const puts: T[] = [];
+
+  for (const row of incoming) {
+    const key = keyOf(row);
+    incomingKeys.add(key);
+    const old = currentByKey.get(key);
+    if (old === undefined || !equivalent(old, row)) puts.push(row);
+  }
+
+  const deletes = [...currentByKey.keys()].filter((key) => !incomingKeys.has(key));
+  return { puts, deletes };
+}'''
+new = '''async function planTable<T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string | undefined): Promise<ReconcilePlan<T>> {
+  const current = await table.toArray();
+  const currentByKey = new Map<string, T>();
+  for (const row of current) {
+    const key = keyOf(row);
+    if (key === undefined) throw new Error(`本机 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
+    currentByKey.set(key, row);
+  }
+  const incomingKeys = new Set<string>();
+  const puts: T[] = [];
+
+  for (const row of incoming) {
+    const key = keyOf(row);
+    if (key === undefined) throw new Error(`远端 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
+    incomingKeys.add(key);
+    const old = currentByKey.get(key);
+    if (old === undefined || !equivalent(old, row)) puts.push(row);
+  }
+
+  const deletes = [...currentByKey.keys()].filter((key) => !incomingKeys.has(key));
+  return { puts, deletes };
+}'''
+if old not in text:
+    raise SystemExit("reconcile planTable block not found")
+reconcile.write_text(text.replace(old, new, 1))
+
 orchestrator = Path("src/lib/sync/sync-v7-orchestrator.ts")
 text = orchestrator.read_text()
 old = '''      report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
