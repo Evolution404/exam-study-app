@@ -3,8 +3,6 @@ html[data-theme="dark"] body,
 html[data-theme="dark"] .app-shell,
 html[data-theme="dark"] .workspace{background:#101612;color:var(--color-text)}
 
-html[data-theme="dark"] .topbar{border-color:#303c35;background:#111914eb}
-
 html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>button,.preference-card,.settings-card,.guide-card,.home-bank-scope,.home-bank-grid>button,.scope-bank-list>button,.resume-card,.stat-card,.empty-import,.practice-setup-card,.mode-grid button,.filter-section,.question-card,.note-panel,.options button,.question-editor,.question-overview,.search-question-detail,.search-practice-dialog,.simple-dialog,.search-filter-panel,.search-result-list article,.bank-folder,.bank-management-grid article,.bank-detail,.bank-overview-panel,.question-manager,.managed-question-list article,.bank-profile-strip,.bank-dashboard-panel,.bank-kpi,.bank-dashboard-number,.bank-priority-grid button,.bank-tag-table>div,.bank-recent-runs button,.bank-profile-details>div,.tag-browser,.tag-detail,.tag-card-grid article,.group-editor,.group-list,.group-list article,.practice-history-card,.history-list article,.run-result,.result-score,.result-question-groups,.search-dialog-toggle){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
 html[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),textarea,select){border-color:#3a493f!important;color:var(--color-text)!important;background:#111813!important}
@@ -36,10 +34,6 @@ html[data-theme="dark"] :where(.restore-card,.dont-know-action,.options .wrong){
 
 html[data-theme="dark"] :where(.mobile-tabbar,.practice-content .practice-actions){border-color:#35423a;background:#161e19f2;box-shadow:0 -10px 28px #0007}
 
-html[data-theme="dark"] .mobile-tabbar button{color:#8e9b93}
-
-html[data-theme="dark"] .mobile-tabbar button.active{color:#bfe0cb;background:#294234}
-
 html[data-theme="dark"] :where(.sync-pill,.search-page-trigger){border-color:#3c5145;color:#b9d5c4;background:#23352b}
 
 html[data-theme="dark"] :where(.sync-pill.syncing,.search-page-trigger:hover,.search-page-trigger:focus-visible){color:#d7e9dd;background:#315c46}
@@ -55,8 +49,6 @@ html[data-theme="dark"] .theme-setting button.active{border-color:#5d8f72;backgr
 html[data-theme="dark"] .toggle{background:#4a554e}
 
 html[data-theme="dark"] .toggle:after{background:#dce6df}
-
-html[data-theme="dark"] .sidebar{background:#14261d}
 
 html[data-theme="dark"] .toast{border-color:#456251;color:#c5dfcf;background:#18271f}
 
