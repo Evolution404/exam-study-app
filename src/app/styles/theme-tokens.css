@@ -85,7 +85,7 @@
   --practice-refresh-ready-bg: #35694f;
   --practice-mobile-panel-bg: #faf9f5;
   --practice-mobile-actions-bg: #faf9f5ed;
-  --practice-mobile-actions-shadow: #182a201c;
+  --practice-mobile-actions-shadow: 0 -12px 30px #182a201c;
 
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
@@ -162,5 +162,5 @@ html[data-theme="dark"] {
   --practice-refresh-ready-bg: var(--practice-refresh-bg);
   --practice-mobile-panel-bg: #18201b;
   --practice-mobile-actions-bg: #18201b;
-  --practice-mobile-actions-shadow: #0007;
+  --practice-mobile-actions-shadow: 0 -10px 28px #0007;
 }
