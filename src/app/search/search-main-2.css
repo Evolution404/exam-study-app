@@ -39,7 +39,7 @@
 
 .search-page { --search-query-h:58px; }
 
-.search-home-query { position:sticky; top:0; z-index:19; min-height:var(--search-query-h); margin:0 -18px 14px; padding:8px 9px 8px 17px; border:1px solid var(--search-home-border); border-radius:15px; display:flex; align-items:center; gap:11px; color:var(--search-home-text); background:var(--color-surface-raised); box-shadow:0 8px 28px var(--search-home-shadow); transition:border-radius .18s ease; }
+.search-home-query { --dark-input-bg:transparent; position:sticky; top:0; z-index:19; min-height:var(--search-query-h); margin:0 -18px 14px; padding:8px 9px 8px 17px; border:1px solid var(--search-home-border); border-radius:15px; display:flex; align-items:center; gap:11px; color:var(--search-home-text); background:var(--color-surface-raised); box-shadow:0 8px 28px var(--search-home-shadow); transition:border-radius .18s ease; }
 
 /* 吸附（JS 给 .search-page 加状态类）：
    search-pinned：搜索框吸到视口顶部 → 上圆角压平、去上边框贴顶；下边缘保持圆角。

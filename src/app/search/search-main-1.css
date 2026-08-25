@@ -1,5 +1,5 @@
 /* Quick search and advanced search presentation. */
-.searchbox { position:relative; width:min(430px,45vw); height:41px; display:flex; align-items:center; gap:10px; padding:0 14px; border:1px solid var(--color-border); background:var(--search-shell-bg); border-radius:12px; color:var(--color-text-muted); }
+.searchbox { --dark-input-bg:transparent; position:relative; width:min(430px,45vw); height:41px; display:flex; align-items:center; gap:10px; padding:0 14px; border:1px solid var(--color-border); background:var(--search-shell-bg); border-radius:12px; color:var(--color-text-muted); }
 
 .searchbox input { width:100%; border:0; outline:0; background:transparent; color:var(--color-text); font-size:14px; }
 .searchbox:focus-within { border-color:color-mix(in srgb,var(--color-primary) 50%,transparent); }
