@@ -86,8 +86,6 @@ html[data-theme="dark"] .run-result>header{background:#295f46}
 
 html[data-theme="dark"] :where(.result-score,.result-actions,.result-question-groups>section){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
-html[data-theme="dark"] .result-score>div:first-child{border-color:#3a463f}
-
 html[data-theme="dark"] .result-score>div:first-child strong{color:#75b590}
 
 html[data-theme="dark"] .result-score-grid span{color:#a0aba4;background:#111713}
@@ -273,8 +271,6 @@ html[data-theme="dark"] .tag-detail-stats span{color:#aab5ae;background:#29332d}
 
 html[data-theme="dark"] .tag-question-preview > div{color:#b4beb8}
 
-
-html[data-theme="dark"] .pull-refresh{border-color:#3f5b4b;color:#bcd8c7;background:#1a2a21;box-shadow:0 8px 24px #0005}
 
 html[data-theme="dark"] .restore-card p{color:#c5aea4}
 
