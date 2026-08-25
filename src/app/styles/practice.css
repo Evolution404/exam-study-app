@@ -166,3 +166,13 @@
 .result-question-groups>section>div>button.detail-current {
   background: var(--color-primary-soft);
 }
+
+/* Practice owns option colors; shared.css keeps only the transitional structure. */
+.options button{border-color:var(--practice-option-border);color:var(--practice-option-text);background:var(--practice-option-bg)}
+.options button>span{border-color:var(--practice-option-key-border);color:var(--practice-option-key-text);background:var(--practice-option-key-bg)}
+.options .selected{border-color:var(--practice-option-selected-border);background:var(--practice-option-selected-bg)}
+.options .selected>span{color:var(--practice-option-selected-key-text);background:var(--practice-option-selected-key-bg)}
+.options .right{border-color:var(--practice-option-right-border);color:var(--practice-option-right-text);background:var(--practice-option-right-bg)}
+.options .right>span{color:var(--practice-option-right-key-text);background:var(--practice-option-right-key-bg)}
+.options .wrong{border-color:var(--practice-option-wrong-border);color:var(--practice-option-wrong-text);background:var(--practice-option-wrong-bg)}
+.options .wrong>span{color:var(--practice-option-wrong-key-text);background:var(--practice-option-wrong-key-bg)}
