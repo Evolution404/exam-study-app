@@ -52,26 +52,6 @@ html[data-theme="dark"] .toast{border-color:#456251;color:#c5dfcf;background:#18
 
 html[data-theme="dark"] .latex-formula{color:var(--color-text)}
 
-html[data-theme="dark"] .history-filters button{border-color:#3b493f;color:#aab5ae;background:#131a16}
-
-html[data-theme="dark"] .history-filters button span{color:#a5b0a9;background:#283129}
-
-html[data-theme="dark"] .history-filters button.active{border-color:#6b9c7f;color:#c8e1d1;background:#253a2e}
-
-html[data-theme="dark"] .history-swipe-content{background:#121a15}
-
-html[data-theme="dark"] .history-card-actions button{border-color:#3b5949;color:#8bc5a3;background:#20362a}
-
-html[data-theme="dark"] .history-card-actions .abandon{border-color:#654438;color:#e0a088;background:#38251f}
-
-html[data-theme="dark"] .run-status.in_progress{color:#b9d8c5;background:#274233}
-
-html[data-theme="dark"] .run-status.completed{color:#becce1;background:#293545}
-
-html[data-theme="dark"] .run-status.abandoned{color:#d7b9ac;background:#402e27}
-
-html[data-theme="dark"] .run-result>header{background:#295f46}
-
 html[data-theme="dark"] :where(.result-score,.result-actions,.result-question-groups>section){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
 html[data-theme="dark"] .result-actions button:not(.danger){border-color:#3a473f;color:var(--color-text);background:#121914}
