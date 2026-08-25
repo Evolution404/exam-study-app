@@ -37,33 +37,28 @@ const stripSearch = (line) => {
 };
 write("src/app/styles/dark-overrides.css", dark.split("\n").map(stripSearch).filter(Boolean).join("\n") + "\n");
 
-// 3) Split the legacy shared monolith by contiguous ownership boundaries while
-// preserving exact cascade order.
+// 3) Split the legacy shared monolith by contiguous ownership boundaries while preserving source order.
 let shared = read("src/app/styles/shared.css");
 const groupMark = "/* Multi-question groups */";
 const appearanceMark = "/* Appearance preferences */";
 const groupAt = shared.indexOf(groupMark);
 const appearanceAt = shared.indexOf(appearanceMark);
 if (groupAt < 0 || appearanceAt < groupAt) throw new Error("shared.css section markers changed");
-const sharedCore = shared.slice(0, groupAt).trimEnd() + "\n";
-const bankShared = shared.slice(groupAt, appearanceAt).trimEnd() + "\n";
-const appUtility = shared.slice(appearanceAt).trimStart();
-write("src/app/styles/shared.css", sharedCore);
-write("src/app/bank/bank-shared.css", bankShared);
-write("src/app/styles/app-utility.css", appUtility);
+write("src/app/styles/shared.css", shared.slice(0, groupAt).trimEnd() + "\n");
+write("src/app/bank/bank-shared.css", shared.slice(groupAt, appearanceAt).trimEnd() + "\n");
+write("src/app/styles/app-utility.css", shared.slice(appearanceAt).trimStart());
 
-// 4) Turn responsive.css into a manifest and keep the residual rules in one
-// explicitly named compatibility layer, preserving the current import-before-residual order.
+// 4) Turn responsive.css into a feature import manifest. The residual layer is imported explicitly by components.css immediately afterward.
 let responsive = read("src/app/styles/responsive.css");
 const imports = [...responsive.matchAll(/@import\s+"[^"]+";/g)].map((m) => m[0]);
 const residual = responsive.replace(/@import\s+"[^"]+";/g, "").trim();
-write("src/app/styles/responsive.css", `${imports.join("\n")}\n@import "./responsive-shared.css";\n`);
+write("src/app/styles/responsive.css", `${imports.join("\n")}\n`);
 write("src/app/styles/responsive-shared.css", `${residual}\n`);
 
-// 5) Normalize every remaining non-token hardcoded color into one exact-value palette.
+// 5) Normalize remaining non-token hardcoded colors into one exact-value palette.
 const tokenRel = new Set(["src/app/styles/theme-tokens.css", "src/app/styles/palette-tokens.css", "src/app/shell/shell-tokens.css", "src/app/search/search-tokens.css", "src/app/practice/practice-tokens.css", "src/app/bank/bank-tokens.css"]);
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes:true }).flatMap((e) => { const p = path.join(dir, e.name); return e.isDirectory() ? walk(p) : (e.isFile() && e.name.endsWith(".css") ? [p] : []); });
-let cssFiles = walk(appRoot);
+const cssFiles = walk(appRoot);
 const palette = new Map();
 for (const file of cssFiles) {
   const rel = path.relative(root, file).replaceAll(path.sep, "/");
@@ -73,12 +68,11 @@ for (const file of cssFiles) {
 for (const file of cssFiles) {
   const rel = path.relative(root, file).replaceAll(path.sep, "/");
   if (tokenRel.has(rel)) continue;
-  const source = fs.readFileSync(file, "utf8").replace(/#[0-9a-fA-F]{3,8}\b/g, (hex) => `var(${palette.get(hex.toLowerCase())})`);
-  fs.writeFileSync(file, source);
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/#[0-9a-fA-F]{3,8}\b/g, (hex) => `var(${palette.get(hex.toLowerCase())})`));
 }
 write("src/app/styles/palette-tokens.css", `/* Deduplicated exact-value palette for legacy surfaces. */\n:root {\n${[...palette.entries()].sort().map(([hex, name]) => `  ${name}: ${hex};`).join("\n")}\n}\n`);
 
-// Bank semantic ownership for common surfaces; aliases preserve exact current values.
+// Bank semantic ownership for common surfaces.
 write("src/app/bank/bank-tokens.css", `/* Bank-owned semantic aliases. */\n:root {\n  --bank-surface: var(--p-faf9f5);\n  --bank-surface-muted: var(--p-faf8f3);\n  --bank-field-bg: var(--p-fff);\n  --bank-accent: var(--p-3e7057);\n  --bank-accent-strong: var(--p-315f47);\n  --bank-selected-bg: var(--p-eaf2ed);\n  --bank-danger: var(--p-a65238);\n}\nhtml[data-theme="dark"] {\n  --bank-surface: var(--p-18201b);\n  --bank-surface-muted: var(--p-18201b);\n  --bank-field-bg: var(--p-111813);\n  --bank-accent: var(--p-397557);\n  --bank-accent-strong: var(--p-a9d0b8);\n  --bank-selected-bg: var(--p-20352a);\n  --bank-danger: var(--p-e4a089);\n}\n`);
 let bank = read("src/app/styles/bank.css");
 bank = bank.replaceAll("var(--p-faf9f5)", "var(--bank-surface)").replaceAll("var(--p-faf8f3)", "var(--bank-surface-muted)").replaceAll("var(--p-fff)", "var(--bank-field-bg)").replaceAll("var(--p-3e7057)", "var(--bank-accent)").replaceAll("var(--p-315f47)", "var(--bank-accent-strong)").replaceAll("var(--p-eaf2ed)", "var(--bank-selected-bg)");
@@ -90,7 +84,8 @@ components = components
   .replace('@import "./theme-tokens.css";\n', '@import "./theme-tokens.css";\n@import "./palette-tokens.css";\n@import "../bank/bank-tokens.css";\n')
   .replace('@import "./shared.css";', '@import "./shared.css";\n@import "../bank/bank-shared.css";\n@import "./app-utility.css";')
   .replace('@import "./search.css";', '@import "../search/search.css";')
-  .replace('@import "./bank.css";', '@import "./bank.css";\n@import "../bank/bank-knowledge.css";');
+  .replace('@import "./bank.css";', '@import "./bank.css";\n@import "../bank/bank-knowledge.css";')
+  .replace('@import "./responsive.css";', '@import "./responsive.css";\n@import "./responsive-shared.css";');
 write("src/app/styles/components.css", components);
 
 let checker = read("scripts/tools/check-css-architecture.mjs");
@@ -99,14 +94,13 @@ checker = checker
   .replace('  "./shared.css",\n', '  "./shared.css",\n  "../bank/bank-shared.css",\n  "./app-utility.css",\n')
   .replace('  "./search.css",\n', '  "../search/search.css",\n')
   .replace('  "./bank.css",\n', '  "./bank.css",\n  "../bank/bank-knowledge.css",\n')
+  .replace('  "./responsive.css",\n', '  "./responsive.css",\n  "./responsive-shared.css",\n')
   .replace('const tokenFileRelatives = new Set([\n  "src/app/styles/theme-tokens.css",', 'const tokenFileRelatives = new Set([\n  "src/app/styles/theme-tokens.css",\n  "src/app/styles/palette-tokens.css",\n  "src/app/bank/bank-tokens.css",');
 write("scripts/tools/check-css-architecture.mjs", checker);
 
 const baselinePath = "scripts/tools/css-architecture-baseline.json";
 const baseline = JSON.parse(read(baselinePath));
 if (baseline.files["src/app/styles/search.css"]) { baseline.files["src/app/search/search.css"] = baseline.files["src/app/styles/search.css"]; delete baseline.files["src/app/styles/search.css"]; }
-// Seed moved compatibility layers with their historical source budgets so the checker
-// ratchets them instead of treating a physical move as new debt.
 if (baseline.files["src/app/styles/shared.css"]) {
   const old = baseline.files["src/app/styles/shared.css"];
   for (const rel of ["src/app/styles/shared.css", "src/app/bank/bank-shared.css", "src/app/styles/app-utility.css"]) baseline.files[rel] ??= { ...old };
