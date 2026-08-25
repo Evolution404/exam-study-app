@@ -53,5 +53,4 @@ if "reconcile 的真实 completed/total" not in text:
     text = text.replace(marker, addition, 1)
 progress.write_text(text)
 
-Path(".github/workflows/repro-ios-sync-incremental-install.yml").unlink(missing_ok=True)
 Path("scripts/tools/finalize-ios-sync-reconcile.py").unlink(missing_ok=True)
