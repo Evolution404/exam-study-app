@@ -1,8 +1,8 @@
 {
-  "totalBytes": 281780,
-  "maxFileBytes": 43567,
-  "nonTokenHexColors": 678,
-  "totalDebtScore": 290410,
+  "totalBytes": 296953,
+  "maxFileBytes": 31867,
+  "nonTokenHexColors": 0,
+  "totalDebtScore": 272398,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -23,8 +23,8 @@
       "important": 0
     },
     "src/app/search/search-tokens.css": {
-      "bytes": 5724,
-      "hexColors": 144,
+      "bytes": 6119,
+      "hexColors": 154,
       "darkSelectors": 1,
       "important": 0
     },
@@ -41,8 +41,8 @@
       "important": 0
     },
     "src/app/styles/bank.css": {
-      "bytes": 30244,
-      "hexColors": 169,
+      "bytes": 31867,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
     },
@@ -53,7 +53,7 @@
       "important": 0
     },
     "src/app/styles/components.css": {
-      "bytes": 670,
+      "bytes": 882,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -71,14 +71,14 @@
       "important": 0
     },
     "src/app/styles/dark-overrides.css": {
-      "bytes": 13640,
-      "hexColors": 174,
-      "darkSelectors": 103,
+      "bytes": 13252,
+      "hexColors": 0,
+      "darkSelectors": 97,
       "important": 6
     },
     "src/app/styles/dashboard.css": {
-      "bytes": 7668,
-      "hexColors": 24,
+      "bytes": 7860,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 1
     },
@@ -95,20 +95,20 @@
       "important": 0
     },
     "src/app/styles/practice.css": {
-      "bytes": 20727,
-      "hexColors": 37,
+      "bytes": 21023,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 1
     },
     "src/app/styles/preferences.css": {
-      "bytes": 8920,
-      "hexColors": 19,
+      "bytes": 9072,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
     },
     "src/app/styles/primitives.css": {
-      "bytes": 7336,
-      "hexColors": 13,
+      "bytes": 7440,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
     },
@@ -119,10 +119,10 @@
       "important": 0
     },
     "src/app/styles/responsive.css": {
-      "bytes": 10796,
+      "bytes": 170,
       "hexColors": 0,
       "darkSelectors": 0,
-      "important": 3
+      "important": 0
     },
     "src/app/styles/review-scope.css": {
       "bytes": 13874,
@@ -130,15 +130,9 @@
       "darkSelectors": 0,
       "important": 1
     },
-    "src/app/styles/search.css": {
-      "bytes": 31923,
-      "hexColors": 13,
-      "darkSelectors": 0,
-      "important": 5
-    },
     "src/app/styles/shared.css": {
-      "bytes": 43567,
-      "hexColors": 229,
+      "bytes": 28782,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 2
     },
@@ -182,6 +176,48 @@
       "bytes": 1766,
       "hexColors": 46,
       "darkSelectors": 1,
+      "important": 0
+    },
+    "src/app/search/search.css": {
+      "bytes": 30554,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/bank/bank-shared.css": {
+      "bytes": 8429,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/app-utility.css": {
+      "bytes": 8184,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/responsive-shared.css": {
+      "bytes": 10631,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 3
+    },
+    "src/app/bank/bank-knowledge.css": {
+      "bytes": 1785,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/bank/bank-tokens.css": {
+      "bytes": 590,
+      "hexColors": 0,
+      "darkSelectors": 1,
+      "important": 0
+    },
+    "src/app/styles/palette-tokens.css": {
+      "bytes": 9748,
+      "hexColors": 416,
+      "darkSelectors": 0,
       "important": 0
     }
   }

@@ -1,0 +1,19 @@
+/* Bank-owned semantic aliases. */
+:root {
+  --bank-surface: var(--p-faf9f5);
+  --bank-surface-muted: var(--p-faf8f3);
+  --bank-field-bg: var(--p-fff);
+  --bank-accent: var(--p-3e7057);
+  --bank-accent-strong: var(--p-315f47);
+  --bank-selected-bg: var(--p-eaf2ed);
+  --bank-danger: var(--p-a65238);
+}
+html[data-theme="dark"] {
+  --bank-surface: var(--p-18201b);
+  --bank-surface-muted: var(--p-18201b);
+  --bank-field-bg: var(--p-111813);
+  --bank-accent: var(--p-397557);
+  --bank-accent-strong: var(--p-a9d0b8);
+  --bank-selected-bg: var(--p-20352a);
+  --bank-danger: var(--p-e4a089);
+}

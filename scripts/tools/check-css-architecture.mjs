@@ -9,6 +9,8 @@ const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}
 
 const globalStyleOrder = [
   "./theme-tokens.css",
+  "./palette-tokens.css",
+  "../bank/bank-tokens.css",
   "../shell/shell-tokens.css",
   "../search/search-tokens.css",
   "../practice/practice-tokens.css",
@@ -16,13 +18,17 @@ const globalStyleOrder = [
   "./base.css",
   "./primitives.css",
   "./shared.css",
+  "../bank/bank-shared.css",
+  "./app-utility.css",
   "./shell.css",
   "./dashboard.css",
-  "./search.css",
+  "../search/search.css",
   "./bank.css",
+  "../bank/bank-knowledge.css",
   "./practice.css",
   "./preferences.css",
   "./responsive.css",
+  "./responsive-shared.css",
   "./dark-overrides.css",
   "./practice-setup.css",
   "./content-blocks.css",
@@ -47,6 +53,8 @@ const migrationDebtFiles = new Set([
 ]);
 const tokenFileRelatives = new Set([
   "src/app/styles/theme-tokens.css",
+  "src/app/styles/palette-tokens.css",
+  "src/app/bank/bank-tokens.css",
   "src/app/shell/shell-tokens.css",
   "src/app/search/search-tokens.css",
   "src/app/practice/practice-tokens.css",
