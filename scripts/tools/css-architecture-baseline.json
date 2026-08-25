@@ -1,8 +1,8 @@
 {
-  "totalBytes": 283106,
+  "totalBytes": 281780,
   "maxFileBytes": 43567,
-  "nonTokenHexColors": 705,
-  "totalDebtScore": 293496,
+  "nonTokenHexColors": 678,
+  "totalDebtScore": 290410,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -71,9 +71,9 @@
       "important": 0
     },
     "src/app/styles/dark-overrides.css": {
-      "bytes": 14966,
-      "hexColors": 201,
-      "darkSelectors": 117,
+      "bytes": 13640,
+      "hexColors": 174,
+      "darkSelectors": 103,
       "important": 6
     },
     "src/app/styles/dashboard.css": {
