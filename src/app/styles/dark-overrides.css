@@ -3,7 +3,7 @@ html[data-theme="dark"] body,
 html[data-theme="dark"] .app-shell,
 html[data-theme="dark"] .workspace{background:#101612;color:var(--color-text)}
 
-html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>button,.preference-card,.settings-card,.guide-card,.home-bank-scope,.home-bank-grid>button,.scope-bank-list>button,.resume-card,.stat-card,.empty-import,.practice-setup-card,.mode-grid button,.filter-section,.question-card,.note-panel,.options button,.question-editor,.question-overview,.search-question-detail,.search-practice-dialog,.simple-dialog,.search-filter-panel,.search-result-list article,.bank-folder,.bank-management-grid article,.bank-detail,.bank-overview-panel,.question-manager,.managed-question-list article,.bank-profile-strip,.bank-dashboard-panel,.bank-kpi,.bank-dashboard-number,.bank-priority-grid button,.bank-tag-table>div,.bank-recent-runs button,.bank-profile-details>div,.tag-browser,.tag-detail,.tag-card-grid article,.group-editor,.group-list,.group-list article,.practice-history-card,.history-list article,.run-result,.result-score,.result-question-groups,.search-dialog-toggle){border-color:var(--color-border);color:var(--color-text);background:#18201b}
+html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>button,.preference-card,.settings-card,.guide-card,.home-bank-scope,.home-bank-grid>button,.scope-bank-list>button,.resume-card,.stat-card,.empty-import,.practice-setup-card,.mode-grid button,.filter-section,.question-card,.note-panel,.question-editor,.question-overview,.search-question-detail,.search-practice-dialog,.simple-dialog,.search-filter-panel,.search-result-list article,.bank-folder,.bank-management-grid article,.bank-detail,.bank-overview-panel,.question-manager,.managed-question-list article,.bank-profile-strip,.bank-dashboard-panel,.bank-kpi,.bank-dashboard-number,.bank-priority-grid button,.bank-tag-table>div,.bank-recent-runs button,.bank-profile-details>div,.tag-browser,.tag-detail,.tag-card-grid article,.group-editor,.group-list,.group-list article,.practice-history-card,.history-list article,.run-result,.result-score,.result-question-groups,.search-dialog-toggle){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
 html[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),textarea,select){border-color:#3a493f!important;color:var(--color-text)!important;background:#111813!important}
 
@@ -18,9 +18,9 @@ html[data-theme="dark"] :where(.search-results>div>button:hover,.search-results>
 /* 题库仪表盘优先练习按钮：hover 用 token（color-mix 主色边框 + surface-muted 背景），夜间自动适配。 */
 html[data-theme="dark"] :where(.question-meta em,.result-type,.search-type,.run-status,.bank-run-summary span,.bank-profile-strip>span:last-child,.tag-detail-stats span,.overview-trigger){color:#a9c8b5;background:#25362c}
 
-html[data-theme="dark"] :is(.options button>span,.editor-options button,.search-detail-body>ol>li>span,.search-clear,.number-setting,.goal-preference>span label,.select-preference select){border-color:var(--color-border);color:var(--color-text);background:#242d27}
+html[data-theme="dark"] :is(.editor-options button,.search-detail-body>ol>li>span,.search-clear,.number-setting,.goal-preference>span label,.select-preference select){border-color:var(--color-border);color:var(--color-text);background:#242d27}
 
-html[data-theme="dark"] :where(.options .selected,.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;background:#20352a}
+html[data-theme="dark"] :where(.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;background:#20352a}
 
 html[data-theme="dark"] :where(.note-panel textarea,.editor-body input,.editor-body textarea,.editor-body select,.settings-card input,.query-row input,.query-row select,.metric-grid input){background:#111813}
 
@@ -30,7 +30,7 @@ html[data-theme="dark"] :where(.search-detail-note,.memory-card){background:#242
 
 html[data-theme="dark"] :where(.editor-error,.search-session-warning){color:#efb49c;background:#41271f}
 
-html[data-theme="dark"] :where(.restore-card,.dont-know-action,.options .wrong){border-color:#744b3d;color:#efb39b;background:#2e201b}
+html[data-theme="dark"] :where(.restore-card,.dont-know-action){border-color:#744b3d;color:#efb39b;background:#2e201b}
 
 html[data-theme="dark"] :where(.sync-pill,.search-page-trigger){border-color:#3c5145;color:#b9d5c4;background:#23352b}
 
@@ -90,21 +90,7 @@ html[data-theme="dark"] .result-question-groups>section>div>button:disabled{opac
 /* Complete dark-theme coverage. These selectors intentionally outrank component light defaults. */
 html[data-theme="dark"] :is(.practice-content .practice-head,.practice-content .practice-actions,.question-overview>header,.question-overview .overview-score,.question-overview .overview-legend){border-color:#35423a;background:#18201b;color:var(--color-text)}
 
-html[data-theme="dark"] :is(.options button,.note-panel button,.note-panel .edit-question-button){border-color:#3a493f;color:var(--color-text);background:#111813}
-
-html[data-theme="dark"] .options button>span{border-color:#3d4942;color:#e4ece7;background:#29312c}
-
-html[data-theme="dark"] .options .selected{border-color:#66977b;background:#20352a}
-
-html[data-theme="dark"] .options .selected>span{color:#fff;background:#397557}
-
-html[data-theme="dark"] .options .right{border-color:#57926f;color:#cbe5d5;background:#1d3829}
-
-html[data-theme="dark"] .options .right>span{color:#fff;background:#3f855f}
-
-html[data-theme="dark"] .options .wrong{border-color:#86513e;color:#efb49c;background:#38231d}
-
-html[data-theme="dark"] .options .wrong>span{color:#fff;background:#a65338}
+html[data-theme="dark"] :is(.note-panel button,.note-panel .edit-question-button){border-color:#3a493f;color:var(--color-text);background:#111813}
 
 html[data-theme="dark"] :is(.favorite-question,.overview-trigger){border-color:#3b4a41;color:#b6c9bd;background:#25312a}
 
