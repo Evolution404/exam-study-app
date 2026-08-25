@@ -1,4 +1,4 @@
-import { dbV7, restoreV7Checkpoint, type V7ChangeSetQueueGuard } from "../db/db-v7";
+import { dbV7, reconcileV7Projection, type V7ChangeSetQueueGuard } from "../db/db-v7";
 import type { ChangeSetV7 } from "./change-set-v7";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
@@ -108,9 +108,11 @@ export async function installProjection(
     onProgress?: (progress: { completed: number; total: number; label: string }) => void;
   },
 ): Promise<boolean> {
-  // Restore directly from the projection state — building a full checkpoint
-  // envelope (with counts/cursors) just to unwrap it was pure overhead.
-  return restoreV7Checkpoint({
+  // Normal sync already has the exact target projection. Reconcile that target
+  // against the installed IndexedDB state instead of clearing every object store
+  // and rebuilding all indexes. Full checkpoint restore remains a separate API
+  // for explicit recovery/fresh-restore flows.
+  return reconcileV7Projection({
     ...projection,
     memberships: projection.memberships,
     imageAssets: projection.imageAssets.map((asset) => ({
