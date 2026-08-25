@@ -119,6 +119,7 @@ const history = await readFile(new URL("../../src/app/practice/practice-history.
 const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
 const practiceView = await readFile(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
 const searchView = await readFile(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
+const searchResponsiveStyles = await readFile(new URL("../../src/app/search/search-responsive.css", import.meta.url), "utf8");
 const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
 const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
 const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
@@ -190,7 +191,7 @@ assert.ok(!/\.search-page\.search-pinned \.search-home-query[^}]*border-bottom-l
 assert.match(styles, /\.search-page\.search-stuck \.search-batch-bar\s*\{[^}]*border-top-left-radius:0/, "批量栏吸附后去掉上圆角（与搜索框无缝相接，无圆角缺口）");
 assert.ok(!/\.search-page\.search-stuck \.search-home-query/.test(styles), "搜索框下边缘不受批量栏吸附影响（保持圆角）");
 assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
-assert.match(styles, /@media\(max-width:390px\)\{\.search-home-query\{margin-left:-14px;margin-right:-14px\}\}/, "窄屏搜索框负边距必须与内容区 14px 内边距一致");
+assert.match(searchResponsiveStyles, /@media\(max-width:390px\)\{\.search-home-query\{margin-left:-14px;margin-right:-14px\}\}/, "窄屏搜索框负边距必须与内容区 14px 内边距一致");
 assert.doesNotMatch(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-batch-bar\{position:relative/, "原生 iOS 不得取消批量栏的第二级吸顶");
 
 console.log("note markdown tests passed: 块级/嵌套列表/续行/块级公式/行内/安全性 + 三处展示面接线 + 防穿透/夜间/编辑态/搜索吸附防回退");
