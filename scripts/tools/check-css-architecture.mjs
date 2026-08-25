@@ -9,6 +9,7 @@ const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}
 
 const globalStyleOrder = [
   "./theme-tokens.css",
+  "../shell/shell-tokens.css",
   "../practice/practice-tokens.css",
   "./controls.css",
   "./base.css",
@@ -45,7 +46,12 @@ const migrationDebtFiles = new Set([
 ]);
 const tokenFileRelatives = new Set([
   "src/app/styles/theme-tokens.css",
+  "src/app/shell/shell-tokens.css",
   "src/app/practice/practice-tokens.css",
+]);
+const structuralStyleFiles = new Set([
+  "src/app/globals.css",
+  "src/app/styles/components.css",
 ]);
 const newCssMaxBytes = 16 * 1024;
 const tokenFileMaxBytes = 16 * 1024;
@@ -160,10 +166,11 @@ for (const { file, source } of sources) {
   const relative = toRelative(file);
   const value = metrics(source);
   const isTokenFile = tokenFileRelatives.has(relative);
+  const isDebtExempt = isTokenFile || structuralStyleFiles.has(relative);
   current[relative] = value;
   totalBytes += value.bytes;
   maxFileBytes = Math.max(maxFileBytes, value.bytes);
-  if (!isTokenFile) {
+  if (!isDebtExempt) {
     nonTokenBytes += value.bytes;
     nonTokenHexColors += value.hexColors;
     nonTokenDarkSelectors += value.darkSelectors;
@@ -197,7 +204,7 @@ const totalDebtScore = nonTokenBytes
   + nonTokenDarkSelectors * debtWeights.darkSelectors
   + nonTokenImportant * debtWeights.important;
 const baselineNonTokenMetrics = Object.entries(baseline.files)
-  .filter(([relative]) => !tokenFileRelatives.has(relative))
+  .filter(([relative]) => !tokenFileRelatives.has(relative) && !structuralStyleFiles.has(relative))
   .reduce((sum, [, value]) => ({
     bytes: sum.bytes + value.bytes,
     hexColors: sum.hexColors + value.hexColors,

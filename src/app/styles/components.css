@@ -1,4 +1,5 @@
 @import "./theme-tokens.css";
+@import "../shell/shell-tokens.css";
 @import "../practice/practice-tokens.css";
 @import "./controls.css";
 @import "./base.css";

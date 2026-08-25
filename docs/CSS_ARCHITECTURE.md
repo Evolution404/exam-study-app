@@ -16,7 +16,7 @@ This document defines the ownership rules for application CSS. The goal is to re
 Put a rule in the narrowest file that owns the rendered UI:
 
 - cross-feature theme values, geometry, motion, and shared semantic colors: `styles/theme-tokens.css`
-- feature-owned theme values: `<feature>/<feature>-tokens.css` (for example `practice/practice-tokens.css`)
+- feature-owned theme values: `<feature>/<feature>-tokens.css` (currently `shell/shell-tokens.css` and `practice/practice-tokens.css`)
 - reset/base document rules: `base.css`
 - reusable low-level surfaces/layout primitives: `primitives.css`
 - shared form/button controls: `controls.css`
@@ -33,7 +33,7 @@ New or refactored UI must use semantic tokens. Do not add page-level `html[data-
 Token ownership follows the same narrowest-owner rule as selectors:
 
 - `styles/theme-tokens.css` is the core layer for values shared across features.
-- A feature with a meaningful palette may own `<feature>-tokens.css`; it must be registered in the global cascade before any consumer stylesheet.
+- A feature with a meaningful palette may own `<feature>-tokens.css`; it must be registered in the global cascade before any consumer stylesheet. Shell and Practice are the first migrated owners.
 - Light and dark values for the same feature stay together in that feature token file.
 - Every registered token file has an independent 16 KiB ceiling. Splitting tokens is for ownership, not for rebuilding a new monolith.
 - Hard-coded color literals are allowed inside registered token files only on custom-property declarations. Token files must not use `!important`.
@@ -59,6 +59,7 @@ During migration, a feature-specific responsive file may be imported by `respons
 - no new legacy token aliases or CSS Module `:global()` escapes;
 - each registered token file stays within 16 KiB and keeps hard-coded colors inside custom-property declarations;
 - no increase in hard-coded colors, dark-theme patches, or `!important` in business CSS;
+- structural entrypoint bytes (`globals.css` and `components.css`) are excluded from the business-style debt score because their content is governed separately by exact entrypoint checks;
 - new non-token stylesheets must stay small and token-based;
 - `shared.css`, `responsive.css`, and `dark-overrides.css` may only shrink;
 - total CSS debt and maximum single-file size remain ratcheted by `css-architecture-baseline.json`.
