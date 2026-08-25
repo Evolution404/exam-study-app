@@ -3,13 +3,13 @@ import { dbV7 } from "./db-v7-core";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
 
-export interface ReconcileV7ProjectionProgress {
+interface ReconcileV7ProjectionProgress {
   completed: number;
   total: number;
   label: string;
 }
 
-export interface ReconcileV7ProjectionOptions {
+interface ReconcileV7ProjectionOptions {
   queueGuard?: readonly V7ChangeSetQueueGuard[];
   clearChangeSets?: boolean;
   onProgress?: (progress: ReconcileV7ProjectionProgress) => void;
@@ -117,12 +117,21 @@ export async function reconcileV7Projection(
   const existingDescriptors = state.imageAssets.filter((asset) => existingAssetIds.has(asset.id));
   const newDescriptors = state.imageAssets.filter((asset) => !existingAssetIds.has(asset.id));
 
-  const plans = [
-    bankPlan, folderPlan, questionPlan, membershipPlan, attemptPlan, attemptStatsPlan,
-    dailyStatsPlan, notePlan, practiceRunPlan, practiceStatsPlan, groupPlan, roundPlan,
-    roundProgressPlan, tombstonePlan,
-  ];
-  const rowOps = plans.reduce((sum, plan) => sum + plan.puts.length + plan.deletes.length, 0)
+  const rowOps =
+    bankPlan.puts.length + bankPlan.deletes.length
+    + folderPlan.puts.length + folderPlan.deletes.length
+    + questionPlan.puts.length + questionPlan.deletes.length
+    + membershipPlan.puts.length + membershipPlan.deletes.length
+    + attemptPlan.puts.length + attemptPlan.deletes.length
+    + attemptStatsPlan.puts.length + attemptStatsPlan.deletes.length
+    + dailyStatsPlan.puts.length + dailyStatsPlan.deletes.length
+    + notePlan.puts.length + notePlan.deletes.length
+    + practiceRunPlan.puts.length + practiceRunPlan.deletes.length
+    + practiceStatsPlan.puts.length + practiceStatsPlan.deletes.length
+    + groupPlan.puts.length + groupPlan.deletes.length
+    + roundPlan.puts.length + roundPlan.deletes.length
+    + roundProgressPlan.puts.length + roundProgressPlan.deletes.length
+    + tombstonePlan.puts.length + tombstonePlan.deletes.length
     + removedAssetIds.length + existingDescriptors.length + newDescriptors.length;
   const totalOps = Math.max(1, rowOps);
 
