@@ -52,8 +52,6 @@ html[data-theme="dark"] .toast{border-color:#456251;color:#c5dfcf;background:#18
 
 html[data-theme="dark"] .latex-formula{color:var(--color-text)}
 
-html[data-theme="dark"] .practice-hub-tabs button.active{border-bottom-color:#67a783;color:#8cc6a3}
-
 html[data-theme="dark"] .history-filters button{border-color:#3b493f;color:#aab5ae;background:#131a16}
 
 html[data-theme="dark"] .history-filters button span{color:#a5b0a9;background:#283129}
@@ -76,35 +74,17 @@ html[data-theme="dark"] .run-result>header{background:#295f46}
 
 html[data-theme="dark"] :where(.result-score,.result-actions,.result-question-groups>section){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
-html[data-theme="dark"] .result-score>div:first-child strong{color:#75b590}
-
-html[data-theme="dark"] .result-score-grid span{color:#a0aba4;background:#111713}
-
-html[data-theme="dark"] .result-score-grid .correct b{color:#74bd92}
-
-html[data-theme="dark"] .result-score-grid .wrong b{color:#e28d6e}
-
 html[data-theme="dark"] .result-actions button:not(.danger){border-color:#3a473f;color:var(--color-text);background:#121914}
 
 html[data-theme="dark"] .result-actions .primary{border-color:transparent;color:#fff;background:var(--color-primary)}
 
 html[data-theme="dark"] .result-actions button:disabled{color:#667169;background:#171d19}
 
-html[data-theme="dark"] .result-filters button{border-color:#3b493f;color:#aab5ae;background:#151c18}
-
-html[data-theme="dark"] .result-filters button.active{border-color:#6b9c7f;color:#c8e1d1;background:#253a2e}
-
 html[data-theme="dark"] .result-question-groups>section>header{border-color:var(--color-border);background:#1d2721}
 
 html[data-theme="dark"] .result-question-groups>section>div>button{border-color:#303c35;color:var(--color-text);background:#121914}
 
 html[data-theme="dark"] .result-question-groups>section>div>button:disabled{opacity:1;color:#b7c1ba}
-
-html[data-theme="dark"] .result-state.correct{color:#8bceaa;background:#244334}
-
-html[data-theme="dark"] .result-state.wrong{color:#eea085;background:#472a21}
-
-html[data-theme="dark"] .result-state.unanswered{color:#a5afa8;background:#2b332e}
 
 
 /* Complete dark-theme coverage. These selectors intentionally outrank component light defaults. */
@@ -267,10 +247,6 @@ html[data-theme="dark"] .restore-card p{color:#c5aea4}
 html[data-theme="dark"] .guide-card li>span{color:#b8d8c5}
 
 html[data-theme="dark"] :is(.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;color:var(--color-text);background:#20352a}
-
-html[data-theme="dark"] .result-box.success{color:#b8d9c5;background:#1e382a}
-
-html[data-theme="dark"] .result-box.error{color:#efb49c;background:#41271f}
 
 html[data-theme="dark"] .overview-score span{color:#a9b4ad;background:#111813}
 
