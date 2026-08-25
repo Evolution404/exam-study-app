@@ -32,7 +32,7 @@ New or refactored UI must use semantic `--color-*` tokens. Do not add page-level
 
 New responsive rules belong with their owning feature. `responsive.css` is migration debt and should only shrink as rules move back to feature files. Preserve selector specificity and cascade order during mechanical moves before changing layout behavior.
 
-During migration, a feature-specific responsive file may be imported by `responsive.css` to keep its effective cascade position stable. Once `responsive.css` no longer contains cross-feature rules, these files can move to their final feature loading boundary without mixing that structural change into the mechanical extraction step.
+During migration, a feature-specific responsive file may be imported by `responsive.css` to keep it in the responsive cascade stage. Once `responsive.css` no longer contains cross-feature rules, those files can move to their final feature loading boundary as a separate, testable change.
 
 ## Shared stylesheet rule
 
