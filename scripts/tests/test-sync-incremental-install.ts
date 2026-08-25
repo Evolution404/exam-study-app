@@ -22,7 +22,7 @@ function question(id: string, stem: string): QuestionV7 {
     options: ["甲", "乙"].map((text, index) => [{ id: `${id}-opt-${index}`, type: "text", text }]),
     answer: "A",
     tags: [],
-    contentFingerprint: `fp-${id}`,
+    contentFingerprint: `fp-${id}-${stem}`,
     updatedAt: "2026-08-25T00:00:00.000Z",
     deviceId: "device-a",
   };
@@ -69,10 +69,18 @@ try {
     0,
     "existing local projection must be reconciled in place; ordinary unseen delta must not clear and rebuild the questions store",
   );
+
+  const updatedFirst = question("q-1", "远端更新后的题目");
+  const reconciled = await installProjection(projection([updatedFirst]));
+  assert.equal(reconciled, true, "ordinary projection update/delete should complete");
+  assert.equal(await dbV7.questions.count(), 1, "incremental reconciliation should delete rows absent from the target projection");
+  assert.equal(await dbV7.questions.get("q-2"), undefined, "incremental reconciliation should delete the removed remote question");
+  assert.deepEqual((await dbV7.questions.get("q-1"))?.content, updatedFirst.content, "incremental reconciliation should update changed rows");
+  assert.equal(questionClearCalls, 0, "update/delete reconciliation must also avoid table.clear()");
 } finally {
   dbV7.questions.clear = originalQuestionClear;
   await resetV7Database();
   dbV7.close();
 }
 
-console.log("iOS incremental install regression test passed: ordinary delta updates projection without table.clear()");
+console.log("iOS incremental install regression tests passed: add/update/delete reconcile without table.clear()");
