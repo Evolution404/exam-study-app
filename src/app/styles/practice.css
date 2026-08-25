@@ -176,3 +176,22 @@
 .options .right>span{color:var(--practice-option-right-key-text);background:var(--practice-option-right-key-bg)}
 .options .wrong{border-color:var(--practice-option-wrong-border);color:var(--practice-option-wrong-text);background:var(--practice-option-wrong-bg)}
 .options .wrong>span{color:var(--practice-option-wrong-key-text);background:var(--practice-option-wrong-key-bg)}
+
+/* Practice owns question-overview colors; shared.css keeps transitional structure. */
+.question-overview{border-color:var(--overview-panel-border);color:var(--color-text);background:var(--overview-panel-bg)}
+.question-overview>header{background:var(--overview-section-bg)}
+.question-overview .overview-legend{border-color:var(--overview-legend-border);color:var(--overview-legend-text);background:var(--overview-legend-bg)}
+.question-overview .overview-score{border-color:var(--overview-score-border);color:var(--color-text);background:var(--overview-score-bg)}
+.overview-score span{color:var(--overview-score-metric-text);background:var(--overview-score-metric-bg)}
+.overview-score strong{color:var(--overview-score-value)}
+.overview-score span:nth-child(2) strong{color:var(--overview-score-wrong-value)}
+.overview-number-grid button{border-color:var(--overview-number-border);color:var(--overview-number-text);background:var(--overview-number-bg)}
+.overview-number-grid button.current{box-shadow:var(--overview-number-current-shadow)}
+.overview-number-grid button.correct{border-color:var(--overview-number-correct-border);color:var(--overview-number-correct-text);background:var(--overview-number-correct-bg)}
+.overview-number-grid button.wrong{border-color:var(--overview-number-wrong-border);color:var(--overview-number-wrong-text);background:var(--overview-number-wrong-bg)}
+.overview-number-grid button.pending{border-color:var(--overview-number-pending-border);color:var(--overview-number-pending-text);background:var(--overview-number-pending-bg)}
+.overview-legend i{border-color:var(--overview-legend-marker-border);background:var(--overview-legend-marker-bg)}
+.overview-legend i.correct{border-color:var(--overview-legend-correct-border);background:var(--overview-legend-correct-bg)}
+.overview-legend i.wrong{border-color:var(--overview-legend-wrong-border);background:var(--overview-legend-wrong-bg)}
+.overview-legend i.pending{border-color:var(--overview-legend-pending-border);background:var(--overview-legend-pending-bg)}
+.overview-empty{border-color:var(--overview-empty-border);color:var(--overview-empty-text);background:var(--overview-empty-bg)}
