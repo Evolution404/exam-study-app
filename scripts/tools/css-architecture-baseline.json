@@ -20,7 +20,7 @@
     "src/app/styles/preferences.css": {"bytes":8920,"hexColors":19,"darkSelectors":0,"important":0},
     "src/app/styles/primitives.css": {"bytes":7336,"hexColors":13,"darkSelectors":0,"important":0},
     "src/app/styles/question-actions.css": {"bytes":5127,"hexColors":0,"darkSelectors":0,"important":0},
-    "src/app/styles/responsive.css": {"bytes":10339,"hexColors":15,"darkSelectors":0,"important":3},
+    "src/app/styles/responsive.css": {"bytes":10463,"hexColors":15,"darkSelectors":0,"important":3},
     "src/app/styles/review-scope.css": {"bytes":13874,"hexColors":0,"darkSelectors":0,"important":1},
     "src/app/styles/search.css": {"bytes":30201,"hexColors":96,"darkSelectors":0,"important":5},
     "src/app/styles/shared.css": {"bytes":43567,"hexColors":229,"darkSelectors":0,"important":2},
@@ -28,6 +28,6 @@
     "src/app/styles/sync-events.css": {"bytes":18249,"hexColors":0,"darkSelectors":0,"important":0},
     "src/app/styles/theme-tokens.css": {"bytes":3953,"hexColors":88,"darkSelectors":1,"important":0},
     "src/app/practice/practice-responsive.css": {"bytes":2772,"hexColors":0,"darkSelectors":0,"important":0},
-    "src/app/shell/shell-responsive.css": {"bytes":4262,"hexColors":0,"darkSelectors":0,"important":0}
+    "src/app/shell/shell-responsive.css": {"bytes":4138,"hexColors":0,"darkSelectors":0,"important":0}
   }
 }
