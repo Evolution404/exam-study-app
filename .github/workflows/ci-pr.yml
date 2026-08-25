@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,16 +24,48 @@ jobs:
         run: npm run build
       - name: Fast checks
         run: npm run test:fast
-      - name: Install Playwright browsers
-        run: npm exec -- playwright-core install --with-deps chromium webkit
-      - name: Browser smoke (Playwright Chromium)
+
+  browser:
+    name: Browser smoke (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: chromium
+            groups: desktop
+            run_pwa: true
+          - engine: webkit
+            groups: practice-combo,topbar-mobile,search-pin
+            run_pwa: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.engine }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright system dependencies
+        run: npm exec -- playwright-core install-deps ${{ matrix.engine }}
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npm exec -- playwright-core install ${{ matrix.engine }}
+      - name: Browser smoke
         env:
-          BROWSER_GROUPS: desktop
+          BROWSER_ENGINE: ${{ matrix.engine }}
+          BROWSER_GROUPS: ${{ matrix.groups }}
         run: node scripts/tests/run-browser-local.mjs
-      - name: Browser smoke (Playwright WebKit)
-        env:
-          BROWSER_ENGINE: webkit
-          BROWSER_GROUPS: practice-combo,topbar-mobile,search-pin
-        run: node scripts/tests/run-browser-local.mjs
+      - name: Build PWA preview
+        if: matrix.run_pwa == true
+        run: npm run build
       - name: PWA preview smoke
+        if: matrix.run_pwa == true
+        env:
+          PWA_SKIP_BUILD: "1"
         run: npm run test:pwa-smoke
