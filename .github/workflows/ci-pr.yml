@@ -33,7 +33,7 @@ jobs:
       matrix:
         include:
           - engine: chromium
-            groups: desktop
+            groups: desktop,dark
             run_pwa: true
             run_search_pin: false
           - engine: webkit
