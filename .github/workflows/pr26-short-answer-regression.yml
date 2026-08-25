@@ -1,0 +1,95 @@
+name: PR26 Short Answer Regression
+
+on:
+  push:
+    branches: [refactor/search-residual-ownership]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[short-answer-fixed]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/search-residual-ownership
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+
+      - name: Fix short-answer UI and question type coverage
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 1) Question manager: expose every supported QuestionType.
+          manager = Path('src/app/bank/bank-library/question-manager.tsx')
+          text = manager.read_text()
+          old = 'options={["全部", "单选", "多选", "判断", "计算"].map((value) => ({ value, label: value }))}'
+          new = 'options={["全部", "单选", "多选", "判断", "填空", "简答", "计算"].map((value) => ({ value, label: value }))}'
+          if old not in text:
+              raise SystemExit('question-manager type option list not found')
+          manager.write_text(text.replace(old, new, 1))
+
+          # 2) Practice: do not repeat the entire short-answer reference inside the generic result box.
+          practice = Path('src/app/shell/views/practice.tsx')
+          text = practice.read_text()
+          old = '''{submitted && <><div className={`result-box ${correct ? "success" : "error"}`}><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</div><div className="attempt-summary">'''
+          new = '''{submitted && <><div className={`result-box ${correct ? "success" : "error"}`}>{question.type === "简答" ? <><strong>{shortOutcome === "correct" ? (autoAdvancing ? "已标记正确，即将进入下一题" : "已标记正确") : shortOutcome === "skipped" ? "已跳过，并计入错题" : "已标记错误"}</strong><p>本题按自评记录，参考答案见上方。</p></> : <><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</>}</div><div className="attempt-summary">'''
+          if old not in text:
+              raise SystemExit('practice generic result box block not found')
+          practice.write_text(text.replace(old, new, 1))
+
+          # 3) Practice-owned short-answer presentation. No browser-default textarea/layout.
+          css = Path('src/app/practice/practice-main-2.css')
+          text = css.read_text()
+          marker = '\n/* Short-answer practice owns its complete layout and self-grading presentation. */\n'
+          if marker not in text:
+              text += marker + '''.short-answer-card{margin:16px 0 4px;display:grid;gap:14px}\n.short-answer-card>label{display:grid;gap:8px}\n.short-answer-card>label>span{color:var(--color-text-muted);font-size:12px;font-weight:700}\n.short-answer-card textarea{width:100%;min-height:168px;box-sizing:border-box;border:1px solid var(--color-border);border-radius:14px;padding:14px 16px;resize:vertical;color:var(--color-text);background:var(--color-surface-raised);font:inherit;font-size:15px;line-height:1.75;outline:none}\n.short-answer-card textarea:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 12%,transparent)}\n.short-answer-card textarea:disabled{resize:none;color:var(--color-text);background:var(--color-surface-muted);opacity:1}\n.short-reference{padding:17px 19px;border:1px solid color-mix(in srgb,var(--color-primary) 22%,var(--color-border));border-radius:14px;color:var(--color-text);background:var(--color-primary-soft)}\n.short-reference strong{display:block;margin-bottom:7px;font-size:13px}\n.short-reference p{margin:0;white-space:pre-wrap;color:var(--color-text-muted);font-size:12px;line-height:1.75}\n.short-grade-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.short-grade-actions .secondary{min-height:42px;padding:9px 13px}\n.practice-actions:has(.short-grade-actions)>div{flex-wrap:wrap;justify-content:flex-end}\n@media(max-width:760px){.short-answer-card textarea{min-height:150px;font-size:16px}.short-grade-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.short-grade-actions .secondary{width:100%;padding-inline:8px}.practice-actions:has(.short-grade-actions)>div{width:100%}}\n'''
+          css.write_text(text)
+
+          # 4) Fold the final Search ownership test migration + these regressions into an existing Fast test.
+          test = Path('scripts/tests/test-search-filters.ts')
+          text = test.read_text()
+          old_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);\nconst componentStyles = fs.readdirSync(stylesRoot)\n  .filter((file) => file.endsWith(".css"))\n  .sort()\n  .map((file) => fs.readFileSync(new URL(file, stylesRoot), "utf8"))\n  .join("\\n");'''
+          new_scan = '''const appStylesRoot = new URL("../../src/app/", import.meta.url);\nconst componentStyles = fs.readdirSync(appStylesRoot, { recursive: true })\n  .filter((file) => file.endsWith(".css"))\n  .sort()\n  .map((file) => fs.readFileSync(new URL(file, appStylesRoot), "utf8"))\n  .join("\\n");'''
+          if old_scan in text:
+              text = text.replace(old_scan, new_scan, 1)
+          elif 'const appStylesRoot = new URL("../../src/app/", import.meta.url);' not in text:
+              raise SystemExit('search-filter stylesheet scan block not found')
+
+          anchor = 'const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");\n'
+          extra_source = 'const practiceViewSource = fs.readFileSync(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");\n'
+          if extra_source not in text:
+              if anchor not in text:
+                  raise SystemExit('questionManagerSource anchor not found')
+              text = text.replace(anchor, anchor + extra_source, 1)
+
+          assertion_anchor = 'assert.match(questionManagerSource, /<TagMultiSelect[^>]*selected=\\{selectedTags\\}/, "题库管理筛选必须支持可搜索标签多选");\n'
+          regressions = '''assert.match(questionManagerSource, /options=\\{\\["全部", "单选", "多选", "判断", "填空", "简答", "计算"\\]/, "题库管理题型筛选必须覆盖全部正式 QuestionType，包含填空和简答");\nassert.match(componentStyles, /\\.short-answer-card>label\\{display:grid;gap:8px\\}/, "简答题回答区必须使用自有布局，不得退回浏览器默认 label 流式布局");\nassert.match(componentStyles, /\\.short-answer-card textarea\\{[^}]*width:100%[^}]*min-height:168px/, "简答题文本框必须占满回答区并具有稳定可用高度");\nassert.match(componentStyles, /\\.short-reference\\{[^}]*background:var\\(--color-primary-soft\\)/, "简答参考答案必须使用独立的轻量参考卡片");\nassert.match(componentStyles, /\\.short-grade-actions\\{[^}]*display:flex[^}]*flex-wrap:wrap/, "简答自评按钮必须有稳定布局而不是浏览器默认堆叠");\nassert.match(practiceViewSource, /question\\.type === "简答" \\? <><strong>\\{shortOutcome === "correct"/, "简答提交结果必须走自评专用摘要");\nassert.match(practiceViewSource, /本题按自评记录，参考答案见上方。/, "简答结果框不得重复整段参考答案");\n'''
+          if regressions not in text:
+              if assertion_anchor not in text:
+                  raise SystemExit('test assertion anchor not found')
+              text = text.replace(assertion_anchor, assertion_anchor + regressions, 1)
+          test.write_text(text)
+
+      - name: Fast checks
+        run: npm run test:fast
+      - name: CSS architecture
+        run: node scripts/tools/check-css-architecture.mjs
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified fix and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr26-short-answer-regression.yml
+          git add src/app/bank/bank-library/question-manager.tsx src/app/shell/views/practice.tsx src/app/practice/practice-main-2.css scripts/tests/test-search-filters.ts scripts/tools/css-architecture-baseline.json
+          git commit -m "fix(practice): restore short-answer UX and type coverage [short-answer-fixed]"
+          git push origin HEAD:refactor/search-residual-ownership
