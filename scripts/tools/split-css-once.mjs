@@ -34,7 +34,7 @@ const specs = [
   { old:"src/app/search/search.css", import:"../search/search.css", dir:"src/app/search", stem:"search-main", rel:(n)=>`../search/search-main-${n}.css` },
   { old:"src/app/styles/shared.css", import:"./shared.css", dir:"src/app/styles", stem:"shared-core", rel:(n)=>`./shared-core-${n}.css` },
   { old:"src/app/styles/practice.css", import:"./practice.css", dir:"src/app/practice", stem:"practice-main", rel:(n)=>`../practice/practice-main-${n}.css` },
-  { old:"src/app/styles/sync-events.css", import:null, dir:"src/app/styles", stem:"sync-events", rel:(n)=>`./sync-events-${n}.css`, featureLocal:true, keepManifest:true },
+  { old:"src/app/styles/sync-events.css", import:null, dir:"src/app/styles", stem:"sync-events", rel:(n)=>`./sync-events-${n}.css`, featureLocal:true, updateConsumer:true },
 ];
 
 let components = read("src/app/styles/components.css");
@@ -63,20 +63,20 @@ for (const spec of specs) {
     components = components.replace(`@import "${spec.import}";`, imports.join("\n"));
     checker = checker.replace(`  "${spec.import}",`, orderEntries.join("\n"));
   }
-  if (spec.keepManifest) {
-    const localImports = chunks.map((_, i) => `@import "./${spec.stem}-${i + 1}.css";`).join("\n") + "\n";
-    write(spec.old, localImports);
-    baseline.files[spec.old] = { bytes: Buffer.byteLength(localImports), hexColors:0, darkSelectors:0, important:0 };
-  } else {
-    delete baseline.files[spec.old];
-    fs.unlinkSync(path.join(root, spec.old));
+  if (spec.updateConsumer) {
+    const consumerPath = "src/app/sync/sync-event-manager.tsx";
+    let consumer = read(consumerPath);
+    const directImports = chunks.map((_, i) => `import "@/app/styles/${spec.stem}-${i + 1}.css";`).join("\n");
+    consumer = consumer.replace('import "@/app/styles/sync-events.css";', directImports);
+    write(consumerPath, consumer);
   }
+  delete baseline.files[spec.old];
+  fs.unlinkSync(path.join(root, spec.old));
   console.log(`${spec.old} -> ${chunks.length} chunks: ${chunks.map((c)=>Buffer.byteLength(c)).join(", ")}`);
 }
 
 if (splitFeatureLocal.length) {
-  const featureLocal = ["src/app/styles/sync-events.css", ...splitFeatureLocal];
-  checker = checker.replace('const featureLocalStyles = new Set(["src/app/styles/sync-events.css"]);', `const featureLocalStyles = new Set(${JSON.stringify(featureLocal)});`);
+  checker = checker.replace('const featureLocalStyles = new Set(["src/app/styles/sync-events.css"]);', `const featureLocalStyles = new Set(${JSON.stringify(splitFeatureLocal)});`);
 }
 
 write("src/app/styles/components.css", components);
