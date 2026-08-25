@@ -63,7 +63,7 @@
 /* Practice history and run result */
 .practice-hub-tabs{margin:-18px 0 20px;display:flex;gap:5px;border-bottom:1px solid var(--color-border)}
 .practice-hub-tabs button{min-height:44px;border:0;border-bottom:3px solid transparent;padding:8px 14px;display:flex;align-items:center;gap:7px;color:var(--color-text-muted);background:transparent;cursor:pointer}
-.practice-hub-tabs button.active{border-bottom-color:#3e7057;color:#315f47;font-weight:700}
+.practice-hub-tabs button.active{border-bottom-color:var(--practice-tab-active-border);color:var(--practice-tab-active-text);font-weight:700}
 .practice-history-card{border:1px solid var(--color-border);border-radius:20px;padding:26px;background:#faf8f3}
 .practice-history-card>header{display:flex;align-items:flex-start;justify-content:space-between}
 .practice-history-card>header h2{margin:5px 0;font:600 28px Georgia,"Noto Serif SC",serif}
@@ -71,21 +71,21 @@
 .practice-history-card>header>svg{color:#4a755f}
 .result-score{padding:23px 26px;border:1px solid var(--color-border);border-top:0;display:grid;grid-template-columns:180px 1fr;gap:25px;background:#faf9f5}
 .result-score>div:first-child{display:flex;flex-direction:column;align-items:center;justify-content:center;border-right:1px solid #e1ded7}
-.result-score>div:first-child strong{font:600 55px Georgia,serif;color:#315f47}
+.result-score>div:first-child strong{font:600 55px Georgia,serif;color:var(--result-score-value)}
 .result-score>div:first-child small{font-size:19px}
 .result-score>div:first-child span{color:var(--color-text-muted);font-size:11px}
 .result-score-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.result-score-grid span{padding:12px;border-radius:11px;display:flex;flex-direction:column;color:#778079;background:#fff;font-size:10px}
+.result-score-grid span{padding:12px;border-radius:11px;display:flex;flex-direction:column;color:var(--result-score-metric-text);background:var(--result-score-metric-bg);font-size:10px}
 .result-score-grid b{font:600 23px Georgia,serif;color:var(--color-text)}
-.result-score-grid .correct b{color:#3f7958}
-.result-score-grid .wrong b{color:#aa5639}
+.result-score-grid .correct b{color:var(--result-score-correct)}
+.result-score-grid .wrong b{color:var(--result-score-wrong)}
 .result-actions{padding:14px 18px;border:1px solid var(--color-border);border-top:0;display:flex;gap:8px;background:#faf9f5}
 .result-actions button{min-height:41px;border:1px solid #d7d7d1;border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:6px;background:#fff;cursor:pointer}
 .result-actions .primary{border:0;background:var(--color-primary)}
 .result-actions .danger{border-color:var(--color-danger);color:var(--color-danger);background:var(--color-danger-soft)}
 .result-filters{margin:22px 0 12px;display:flex;gap:7px}
-.result-filters button{border:1px solid #d8d8d1;border-radius:99px;padding:7px 11px;background:#faf9f5;cursor:pointer}
-.result-filters button.active{border-color:#537c66;color:#315f47;background:#e4eee7}
+.result-filters button{border:1px solid var(--result-filter-border);border-radius:99px;padding:7px 11px;background:var(--result-filter-bg);cursor:pointer}
+.result-filters button.active{border-color:var(--result-filter-active-border);color:var(--result-filter-active-text);background:var(--result-filter-active-bg)}
 .result-question-groups{display:grid;gap:17px}
 .result-question-groups>section{border:1px solid var(--color-border);border-radius:15px;background:#faf9f5;overflow:hidden}
 .result-question-groups>section>header{border-bottom:1px solid var(--color-border)}
@@ -104,9 +104,9 @@
 .result-question-groups small{margin-top:4px;color:var(--color-text-muted);font-size:9px}
 .result-state{width:30px;height:30px;border-radius:9px;display:grid;place-items:center}
 .result-state svg{width:16px}
-.result-state.correct{color:#357050;background:#dceee3}
-.result-state.wrong{color:#a44e33;background:#f4dfd6}
-.result-state.unanswered{color:#777d79;background:#eae9e4}
+.result-state.correct{color:var(--result-state-correct-text);background:var(--result-state-correct-bg)}
+.result-state.wrong{color:var(--result-state-wrong-text);background:var(--result-state-wrong-bg)}
+.result-state.unanswered{color:var(--result-state-unanswered-text);background:var(--result-state-unanswered-bg)}
 
 .latest-practice-banner{position:relative;margin-bottom:18px;padding:26px 28px;border-radius:20px;display:flex;align-items:center;justify-content:space-between;gap:24px;overflow:hidden;color:white;background:var(--color-primary)}
 .latest-practice-banner:after{content:"";position:absolute;width:210px;height:210px;right:-68px;top:-105px;border:1px solid color-mix(in srgb,white 20%,transparent);border-radius:50%;box-shadow:0 0 0 34px color-mix(in srgb,white 7%,transparent),0 0 0 68px color-mix(in srgb,white 4%,transparent)}
