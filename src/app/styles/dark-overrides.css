@@ -112,33 +112,7 @@ html[data-theme="dark"] .group-list article>footer{border-color:#35423a}
 
 /* 题组编辑器头部操作按钮与条目移除按钮用 token（--line 边框 / surface-raised 背景，主色保存按钮 white 文字），夜间自动适配。 */
 
-html[data-theme="dark"] :is(.search-view-all,.search-load-more){border-color:#3b4b41;color:#a9d0b8;background:#1c2b22}
-
-html[data-theme="dark"] .search-toolbar{border-color:#35423a}
-
-html[data-theme="dark"] .search-type-tabs button{color:#9ba79f}
-
-html[data-theme="dark"] .search-type-tabs button span{color:#abb6af;background:#29332d}
-
-html[data-theme="dark"] .search-type-tabs button.active{border-bottom-color:#68a884;color:#a9d2b9}
-
-html[data-theme="dark"] .search-type-tabs button.active span{color:#fff;background:#397557}
-
-html[data-theme="dark"] .search-result-list article:hover{border-color:#52655a;background:#202d25}
-
-html[data-theme="dark"] .search-batch-bar{box-shadow:0 8px 24px #0005}
-
 html[data-theme="dark"] .batch-tag button{border-color:#35423a}
-
-html[data-theme="dark"] :is(.search-detail-body>ol>li,.search-detail-metrics span){border-color:#39473f;color:var(--color-text);background:#111813}
-
-html[data-theme="dark"] .search-detail-body>ol>li>span{color:#e2e9e4;background:#29312c}
-
-html[data-theme="dark"] .search-detail-body>ol>li.answer{border-color:#57926f;background:#1d3829}
-
-html[data-theme="dark"] .search-detail-body>ol>li.answer>span{color:#fff;background:#3f855f}
-
-html[data-theme="dark"] .search-detail-tags span{color:#b2c1b8;background:#29342d}
 
 html[data-theme="dark"] :is(.search-answer-card p,.search-detail-note p,.search-result-main p,.note-markdown p,.note-markdown ul,.note-markdown ol,.note-markdown blockquote,.note-markdown h6){color:#a4b0a8}
 
@@ -192,8 +166,6 @@ html[data-theme="dark"] .restore-card p{color:#c5aea4}
 html[data-theme="dark"] .guide-card li>span{color:#b8d8c5}
 
 html[data-theme="dark"] :is(.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;color:var(--color-text);background:#20352a}
-
-html[data-theme="dark"] .search-home-query{border-color:#3a493f;color:#aacbb7;box-shadow:0 8px 28px #0004}
 
 html[data-theme="dark"] :is(.folder-icon,.bank-color,.bank-profile-color){color:#b8d8c5;background:#26352c!important}
 
