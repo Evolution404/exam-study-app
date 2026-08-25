@@ -1,8 +1,8 @@
 {
-  "totalBytes": 266579,
+  "totalBytes": 268695,
   "maxFileBytes": 43567,
-  "nonTokenHexColors": 849,
-  "totalDebtScore": 296548,
+  "nonTokenHexColors": 832,
+  "totalDebtScore": 295986,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -65,9 +65,9 @@
       "important": 0
     },
     "src/app/styles/dark-overrides.css": {
-      "bytes": 17677,
-      "hexColors": 262,
-      "darkSelectors": 144,
+      "bytes": 16977,
+      "hexColors": 245,
+      "darkSelectors": 137,
       "important": 6
     },
     "src/app/styles/dashboard.css": {
@@ -89,7 +89,7 @@
       "important": 0
     },
     "src/app/styles/practice.css": {
-      "bytes": 15801,
+      "bytes": 16931,
       "hexColors": 37,
       "darkSelectors": 0,
       "important": 1
@@ -149,8 +149,8 @@
       "important": 0
     },
     "src/app/styles/theme-tokens.css": {
-      "bytes": 7119,
-      "hexColors": 161,
+      "bytes": 8805,
+      "hexColors": 195,
       "darkSelectors": 1,
       "important": 0
     },
