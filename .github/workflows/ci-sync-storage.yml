@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sync-storage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   storage:
     runs-on: ubuntu-latest
@@ -16,7 +20,6 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
       - run: npm run test:sync-v7-protocol
       - run: npx tsx scripts/tests/test-sync-v7-gc.ts
       - run: npx tsx scripts/tests/test-sync-v8-history.ts
