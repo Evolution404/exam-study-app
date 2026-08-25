@@ -8,6 +8,7 @@ This document defines the ownership rules for application CSS. The goal is to re
 - `src/app/globals.css` is an import-only entrypoint and may only import `./styles/components.css`.
 - `src/app/styles/components.css` is the global cascade manifest. It owns import order only and must not contain declarations.
 - Feature-local styles may be imported directly by the owning React feature when they are intentionally scoped to that feature's loading boundary. `sync-events.css` is the current example.
+- Responsive migration files may live beside their owning feature and remain imported from `responsive.css` while cascade-compatible extraction is in progress. `search/search-responsive.css` and `bank/bank-responsive.css` are the first examples.
 
 ## Ownership
 
@@ -30,6 +31,8 @@ New or refactored UI must use semantic `--color-*` tokens. Do not add page-level
 ## Responsive rules
 
 New responsive rules belong with their owning feature. `responsive.css` is migration debt and should only shrink as rules move back to feature files. Preserve selector specificity and cascade order during mechanical moves before changing layout behavior.
+
+During migration, a feature-specific responsive file may be imported by `responsive.css` to keep its effective cascade position stable. Once `responsive.css` no longer contains cross-feature rules, these files can move to their final feature loading boundary without mixing that structural change into the mechanical extraction step.
 
 ## Shared stylesheet rule
 
