@@ -1,0 +1,41 @@
+name: CSS Finalize Once
+
+on:
+  push:
+    branches:
+      - refactor/search-residual-ownership
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[css-finalized]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/search-residual-ownership
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Apply deterministic CSS finalization
+        run: node scripts/tools/finalize-css-once.mjs
+      - name: Tighten CSS architecture baseline
+        run: node scripts/tools/check-css-architecture.mjs
+      - name: Verify production build
+        run: npm run build
+      - name: Commit generated final CSS
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app scripts/tools/check-css-architecture.mjs scripts/tools/css-architecture-baseline.json
+          if git diff --cached --quiet; then
+            echo "No CSS finalization changes"
+            exit 0
+          fi
+          git commit -m "refactor(css): finalize ownership and palette [css-finalized]"
+          git push origin HEAD:refactor/search-residual-ownership
