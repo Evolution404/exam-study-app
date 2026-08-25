@@ -24,20 +24,20 @@
 .question-card { touch-action:pan-y; }
 .practice-head { height:68px; border-bottom:1px solid var(--color-border); display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:20px; padding:0 22px; }
 .practice-head>div { display:flex; align-items:center; gap:12px; color:var(--color-text-muted); font-size:11px; }
-.practice-head i { flex:1; height:4px; background:#e1ded7; border-radius:3px; overflow:hidden; }
-.practice-head b { display:block; height:100%; background:#46735d; }
+.practice-head i { flex:1; height:4px; background:var(--practice-head-track); border-radius:3px; overflow:hidden; }
+.practice-head b { display:block; height:100%; background:var(--practice-head-fill); }
 .question-body h1,.practice-stem { margin:17px 0 30px; font:500 clamp(21px,3vw,29px)/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .options button p,.practice-option-content{flex:1;margin:0;font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.6}
 .option-status { position:absolute; right:15px; top:50%; width:22px; height:22px; margin:0; display:grid; place-items:center; transform:translateY(-50%); pointer-events:none; }
 .option-status-right { color:#356049; }
 .option-status-wrong { color:#8b4b30; }
 .result-box { margin-top:18px; border-radius:12px; padding:14px 16px; }
-.result-box.success { background:#e4f1e8; color:#356049; }
-.result-box.error { background:#f8e6de; color:#8b4b30; }
+.result-box.success { background:var(--practice-result-success-bg); color:var(--practice-result-success-text); }
+.result-box.error { background:var(--practice-result-error-bg); color:var(--practice-result-error-text); }
 .result-box p { margin:5px 0 0; font-size:12px; }
 .practice-actions { min-height:74px; border-top:1px solid var(--color-border); padding:15px 22px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .practice-actions>div { margin-left:auto; display:flex; align-items:center;gap:9px}
-.answer-action-hint{color:#818984;font-size:12px}
+.answer-action-hint{color:var(--practice-action-hint);font-size:12px}
 
 /* Keep the next action in the existing light-green primary family. */
 .practice-actions .practice-next { border:1px solid var(--color-primary); border-radius:11px; padding:10px 13px; display:flex; align-items:center; justify-content:center; gap:5px; color:var(--color-primary); background:var(--color-primary-soft); box-shadow:none; cursor:pointer; }
@@ -63,7 +63,7 @@
 /* Practice history and run result */
 .practice-hub-tabs{margin:-18px 0 20px;display:flex;gap:5px;border-bottom:1px solid var(--color-border)}
 .practice-hub-tabs button{min-height:44px;border:0;border-bottom:3px solid transparent;padding:8px 14px;display:flex;align-items:center;gap:7px;color:var(--color-text-muted);background:transparent;cursor:pointer}
-.practice-hub-tabs button.active{border-bottom-color:#3e7057;color:#315f47;font-weight:700}
+.practice-hub-tabs button.active{border-bottom-color:var(--practice-tab-active-border);color:var(--practice-tab-active-text);font-weight:700}
 .practice-history-card{border:1px solid var(--color-border);border-radius:20px;padding:26px;background:#faf8f3}
 .practice-history-card>header{display:flex;align-items:flex-start;justify-content:space-between}
 .practice-history-card>header h2{margin:5px 0;font:600 28px Georgia,"Noto Serif SC",serif}
@@ -71,21 +71,21 @@
 .practice-history-card>header>svg{color:#4a755f}
 .result-score{padding:23px 26px;border:1px solid var(--color-border);border-top:0;display:grid;grid-template-columns:180px 1fr;gap:25px;background:#faf9f5}
 .result-score>div:first-child{display:flex;flex-direction:column;align-items:center;justify-content:center;border-right:1px solid #e1ded7}
-.result-score>div:first-child strong{font:600 55px Georgia,serif;color:#315f47}
+.result-score>div:first-child strong{font:600 55px Georgia,serif;color:var(--result-score-value)}
 .result-score>div:first-child small{font-size:19px}
 .result-score>div:first-child span{color:var(--color-text-muted);font-size:11px}
 .result-score-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.result-score-grid span{padding:12px;border-radius:11px;display:flex;flex-direction:column;color:#778079;background:#fff;font-size:10px}
+.result-score-grid span{padding:12px;border-radius:11px;display:flex;flex-direction:column;color:var(--result-score-metric-text);background:var(--result-score-metric-bg);font-size:10px}
 .result-score-grid b{font:600 23px Georgia,serif;color:var(--color-text)}
-.result-score-grid .correct b{color:#3f7958}
-.result-score-grid .wrong b{color:#aa5639}
+.result-score-grid .correct b{color:var(--result-score-correct)}
+.result-score-grid .wrong b{color:var(--result-score-wrong)}
 .result-actions{padding:14px 18px;border:1px solid var(--color-border);border-top:0;display:flex;gap:8px;background:#faf9f5}
 .result-actions button{min-height:41px;border:1px solid #d7d7d1;border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:6px;background:#fff;cursor:pointer}
 .result-actions .primary{border:0;background:var(--color-primary)}
 .result-actions .danger{border-color:var(--color-danger);color:var(--color-danger);background:var(--color-danger-soft)}
 .result-filters{margin:22px 0 12px;display:flex;gap:7px}
-.result-filters button{border:1px solid #d8d8d1;border-radius:99px;padding:7px 11px;background:#faf9f5;cursor:pointer}
-.result-filters button.active{border-color:#537c66;color:#315f47;background:#e4eee7}
+.result-filters button{border:1px solid var(--result-filter-border);border-radius:99px;padding:7px 11px;background:var(--result-filter-bg);cursor:pointer}
+.result-filters button.active{border-color:var(--result-filter-active-border);color:var(--result-filter-active-text);background:var(--result-filter-active-bg)}
 .result-question-groups{display:grid;gap:17px}
 .result-question-groups>section{border:1px solid var(--color-border);border-radius:15px;background:#faf9f5;overflow:hidden}
 .result-question-groups>section>header{border-bottom:1px solid var(--color-border)}
@@ -104,9 +104,9 @@
 .result-question-groups small{margin-top:4px;color:var(--color-text-muted);font-size:9px}
 .result-state{width:30px;height:30px;border-radius:9px;display:grid;place-items:center}
 .result-state svg{width:16px}
-.result-state.correct{color:#357050;background:#dceee3}
-.result-state.wrong{color:#a44e33;background:#f4dfd6}
-.result-state.unanswered{color:#777d79;background:#eae9e4}
+.result-state.correct{color:var(--result-state-correct-text);background:var(--result-state-correct-bg)}
+.result-state.wrong{color:var(--result-state-wrong-text);background:var(--result-state-wrong-bg)}
+.result-state.unanswered{color:var(--result-state-unanswered-text);background:var(--result-state-unanswered-bg)}
 
 .latest-practice-banner{position:relative;margin-bottom:18px;padding:26px 28px;border-radius:20px;display:flex;align-items:center;justify-content:space-between;gap:24px;overflow:hidden;color:white;background:var(--color-primary)}
 .latest-practice-banner:after{content:"";position:absolute;width:210px;height:210px;right:-68px;top:-105px;border:1px solid color-mix(in srgb,white 20%,transparent);border-radius:50%;box-shadow:0 0 0 34px color-mix(in srgb,white 7%,transparent),0 0 0 68px color-mix(in srgb,white 4%,transparent)}
@@ -166,3 +166,47 @@
 .result-question-groups>section>div>button.detail-current {
   background: var(--color-primary-soft);
 }
+
+/* Practice owns option colors; shared.css keeps only the transitional structure. */
+.options button{border-color:var(--practice-option-border);color:var(--practice-option-text);background:var(--practice-option-bg)}
+.options button>span{border-color:var(--practice-option-key-border);color:var(--practice-option-key-text);background:var(--practice-option-key-bg)}
+.options .selected{border-color:var(--practice-option-selected-border);background:var(--practice-option-selected-bg)}
+.options .selected>span{color:var(--practice-option-selected-key-text);background:var(--practice-option-selected-key-bg)}
+.options .right{border-color:var(--practice-option-right-border);color:var(--practice-option-right-text);background:var(--practice-option-right-bg)}
+.options .right>span{color:var(--practice-option-right-key-text);background:var(--practice-option-right-key-bg)}
+.options .wrong{border-color:var(--practice-option-wrong-border);color:var(--practice-option-wrong-text);background:var(--practice-option-wrong-bg)}
+.options .wrong>span{color:var(--practice-option-wrong-key-text);background:var(--practice-option-wrong-key-bg)}
+
+/* Practice owns question-overview colors; shared.css keeps transitional structure. */
+.question-overview{border-color:var(--overview-panel-border);color:var(--color-text);background:var(--overview-panel-bg)}
+.question-overview>header{background:var(--overview-section-bg)}
+.question-overview .overview-legend{border-color:var(--overview-legend-border);color:var(--overview-legend-text);background:var(--overview-legend-bg)}
+.question-overview .overview-score{border-color:var(--overview-score-border);color:var(--color-text);background:var(--overview-score-bg)}
+.overview-score span{color:var(--overview-score-metric-text);background:var(--overview-score-metric-bg)}
+.overview-score strong{color:var(--overview-score-value)}
+.overview-score span:nth-child(2) strong{color:var(--overview-score-wrong-value)}
+.overview-number-grid button{border-color:var(--overview-number-border);color:var(--overview-number-text);background:var(--overview-number-bg)}
+.overview-number-grid button.current{box-shadow:var(--overview-number-current-shadow)}
+.overview-number-grid button.correct{border-color:var(--overview-number-correct-border);color:var(--overview-number-correct-text);background:var(--overview-number-correct-bg)}
+.overview-number-grid button.wrong{border-color:var(--overview-number-wrong-border);color:var(--overview-number-wrong-text);background:var(--overview-number-wrong-bg)}
+.overview-number-grid button.pending{border-color:var(--overview-number-pending-border);color:var(--overview-number-pending-text);background:var(--overview-number-pending-bg)}
+.overview-legend i{border-color:var(--overview-legend-marker-border);background:var(--overview-legend-marker-bg)}
+.overview-legend i.correct{border-color:var(--overview-legend-correct-border);background:var(--overview-legend-correct-bg)}
+.overview-legend i.wrong{border-color:var(--overview-legend-wrong-border);background:var(--overview-legend-wrong-bg)}
+.overview-legend i.pending{border-color:var(--overview-legend-pending-border);background:var(--overview-legend-pending-bg)}
+.overview-empty{border-color:var(--overview-empty-border);color:var(--overview-empty-text);background:var(--overview-empty-bg)}
+
+/* Practice owns history control colors while legacy structure remains shared. */
+.history-filters button{border-color:var(--history-filter-border);color:var(--history-filter-text);background:var(--history-filter-bg)}
+.history-filters button span{color:var(--history-filter-count-text);background:var(--history-filter-count-bg)}
+.history-filters button.active{border-color:var(--history-filter-active-border);color:var(--history-filter-active-text);background:var(--history-filter-active-bg)}
+.history-swipe-content{background:var(--history-swipe-bg)}
+.history-card-actions button{border-color:var(--history-action-border);color:var(--history-action-text);background:var(--history-action-bg)}
+.history-card-actions .abandon{border-color:var(--history-abandon-border);color:var(--history-abandon-text);background:var(--history-abandon-bg)}
+.run-status.in_progress{color:var(--history-status-progress-text);background:var(--history-status-progress-bg)}
+.run-status.completed{color:var(--history-status-completed-text);background:var(--history-status-completed-bg)}
+.run-status.abandoned{color:var(--history-status-abandoned-text);background:var(--history-status-abandoned-bg)}
+.run-result>header .run-status.in_progress{color:var(--history-header-progress-text);background:var(--history-header-progress-bg)}
+.run-result>header .run-status.completed{color:var(--history-header-completed-text);background:var(--history-header-completed-bg)}
+.run-result>header .run-status.abandoned{color:var(--history-header-abandoned-text);background:var(--history-header-abandoned-bg)}
+.run-result>header{background:var(--run-result-header-bg)}

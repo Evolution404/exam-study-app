@@ -23,7 +23,7 @@ const assetImage = read("src/app/ui/asset-image.tsx");
 const renderer = read("src/app/bank/content-block-renderer.tsx");
 const editor = read("src/app/bank/content-block-editor.tsx");
 const styles = read("src/app/styles/content-blocks.css");
-const globals = read("src/app/globals.css");
+const assetStyles = read("src/app/styles/asset-image.css");
 
 // Browser lifecycle and security contracts are source-level assertions because
 // this project intentionally has no jsdom/DOM test dependency.
@@ -48,9 +48,9 @@ assert.match(assetImage, /if \(event\.target !== event\.currentTarget\) openZoom
 assert.match(assetImage, /addEventListener\("touchmove", onTouchMove, \{ passive: false \}\)/, "mobile lightbox pinch must intercept two-finger movement without passive touch handling");
 assert.match(assetImage, /pinch\.scale \* distance \/ pinch\.distance/, "pinch zoom must scale continuously from finger distance");
 assert.match(assetImage, /suppressImageTapUntilRef/, "finishing a pinch must not synthesize an extra tap-to-zoom step");
-assert.match(globals, /\.asset-image-zoom-trigger\{[^}]*width:fit-content[^}]*justify-self:center/, "thumbnail hit target must shrink to the image instead of the full option row");
-assert.match(globals, /\.asset-image-lightbox-close::before,.asset-image-lightbox-close::after/, "lightbox close icon must use geometrically centered strokes");
-assert.match(globals, /\.asset-image-lightbox-viewport\{[^}]*touch-action:pan-x pan-y/, "lightbox viewport must keep one-finger pan while app code owns pinch zoom");
+assert.match(assetStyles, /\.asset-image-zoom-trigger\{[^}]*width:fit-content[^}]*justify-self:center/, "thumbnail hit target must shrink to the image instead of the full option row");
+assert.match(assetStyles, /\.asset-image-lightbox-close::before,.asset-image-lightbox-close::after/, "lightbox close icon must use geometrically centered strokes");
+assert.match(assetStyles, /\.asset-image-lightbox-viewport\{[^}]*touch-action:pan-x pan-y/, "lightbox viewport must keep one-finger pan while app code owns pinch zoom");
 
 assert.deepEqual([...IMAGE_ZOOM_LEVELS], [1, 1.5, 2, 3, 4], "lightbox zoom levels must stay predictable");
 assert.equal(stepImageZoomIndex(0, 1), 1, "zoom-in advances one level");

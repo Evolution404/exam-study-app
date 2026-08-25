@@ -9,7 +9,7 @@ const hotWindowPanel = await readFile(new URL("../../src/app/sync/sync-hot-windo
 const styles = await readFile(new URL("../../src/app/styles/sync-events.css", import.meta.url), "utf8");
 const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts", import.meta.url), "utf8");
 const hintSource = await readFile(new URL("../../src/app/ui/hint.tsx", import.meta.url), "utf8");
-const globalsCss = await readFile(new URL("../../src/app/globals.css", import.meta.url), "utf8");
+const globalStyleManifest = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
 const syncApplication = await readFile(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
 
@@ -79,7 +79,7 @@ assert.match(hintSource, /Tooltip\.Trigger\s+asChild/, "hint keeps the trigger e
 assert.match(hintSource, /createPortal\(/, "hint renders the popover via createPortal (synchronous mount, no Presence delay)");
 assert.match(hintSource, /useLayoutEffect/, "hint measures the popover and clamps it inside the viewport after mount");
 assert.match(hintSource, /spaceAbove/, "hint flips to the opposite side when the preferred side has no room (no trigger-covering flicker)");
-assert.match(globalsCss, /@import "\.\/styles\/hint\.css"/, "hint styles are wired into the global stylesheet");
+assert.match(globalStyleManifest, /@import "\.\/hint\.css"/, "hint styles are wired into the global style manifest");
 // 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
 assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
 // 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。

@@ -44,32 +44,11 @@
   --z-popover: 45;
   --z-toast: 140;
 
-  /* Shell-specific semantic tokens preserve the existing visual contract while
-   * moving shell ownership out of the legacy component monolith. */
-  --shell-sidebar-bg: #203a2e;
-  --shell-sidebar-text: #eaf1ec;
-  --shell-sidebar-mark-border: #82a690;
-  --shell-sidebar-nav-text: #b8c9bf;
-  --shell-sidebar-nav-active-bg: #345546;
-  --shell-sidebar-nav-active-text: #fff;
-  --shell-sidebar-border: #3f594d;
-  --shell-sidebar-foot-text: #d1dfd7;
-  --shell-sidebar-muted: #8faa9b;
-  --shell-local-dot: #7bd19b;
-  --shell-local-dot-ring: #315442;
-  --shell-sidebar-open-shadow: #15261d33;
-  --shell-backdrop: #13231b80;
-  --shell-topbar-border: var(--color-border);
-  --shell-topbar-bg: rgba(243, 240, 233, .9);
-  --shell-sync-border: #ced8d1;
-  --shell-sync-bg: #edf3ee;
-  --shell-sync-text: #35634e;
-  --shell-tabbar-border: #d7d8d2;
-  --shell-tabbar-bg: #faf9f5ed;
-  --shell-tabbar-shadow: #1b30241a;
-  --shell-tabbar-text: #7c8580;
-  --shell-tabbar-active-text: #2e634a;
-  --shell-tabbar-active-bg: #e3ede7;
+  /* Cross-feature responsive semantic colors. Feature-owned values live beside
+   * the feature and are loaded immediately after this core token layer. */
+  --color-interactive-hover-border: #9ab0a3;
+  --resume-action-divider: #e0e7e2;
+  --bank-progress-divider: #ffffff26;
 
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
@@ -110,28 +89,5 @@ html[data-theme="dark"] {
   --color-overlay: #0009;
   --shadow-color: #0007;
 
-  --shell-sidebar-bg: #14261d;
-  --shell-sidebar-text: #eaf1ec;
-  --shell-sidebar-mark-border: #82a690;
-  --shell-sidebar-nav-text: #b8c9bf;
-  --shell-sidebar-nav-active-bg: #345546;
-  --shell-sidebar-nav-active-text: #fff;
-  --shell-sidebar-border: #3f594d;
-  --shell-sidebar-foot-text: #d1dfd7;
-  --shell-sidebar-muted: #8faa9b;
-  --shell-local-dot: #7bd19b;
-  --shell-local-dot-ring: #315442;
-  --shell-sidebar-open-shadow: #15261d33;
-  --shell-backdrop: #13231b80;
-  --shell-topbar-border: #303c35;
-  --shell-topbar-bg: #111914eb;
-  --shell-sync-border: #3c5145;
-  --shell-sync-bg: #23352b;
-  --shell-sync-text: #b9d5c4;
-  --shell-tabbar-border: #35423a;
-  --shell-tabbar-bg: #161e19f2;
-  --shell-tabbar-shadow: #0007;
-  --shell-tabbar-text: #8e9b93;
-  --shell-tabbar-active-text: #bfe0cb;
-  --shell-tabbar-active-bg: #294234;
+  --color-interactive-hover-border: #3a493f;
 }

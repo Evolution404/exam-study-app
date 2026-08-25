@@ -1,9 +1,35 @@
 {
-  "totalBytes": 264658,
+  "totalBytes": 275621,
   "maxFileBytes": 43567,
+  "nonTokenHexColors": 788,
+  "totalDebtScore": 294430,
   "files": {
     "src/app/globals.css": {
-      "bytes": 4420,
+      "bytes": 35,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/bank/bank-responsive.css": {
+      "bytes": 6543,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/search/search-responsive.css": {
+      "bytes": 3304,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/asset-image.css": {
+      "bytes": 2819,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/styles/bank-controls.css": {
+      "bytes": 1287,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -21,7 +47,7 @@
       "important": 0
     },
     "src/app/styles/components.css": {
-      "bytes": 379,
+      "bytes": 631,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -39,9 +65,9 @@
       "important": 0
     },
     "src/app/styles/dark-overrides.css": {
-      "bytes": 19555,
-      "hexColors": 302,
-      "darkSelectors": 166,
+      "bytes": 14966,
+      "hexColors": 201,
+      "darkSelectors": 117,
       "important": 6
     },
     "src/app/styles/dashboard.css": {
@@ -63,8 +89,8 @@
       "important": 0
     },
     "src/app/styles/practice.css": {
-      "bytes": 15229,
-      "hexColors": 62,
+      "bytes": 20727,
+      "hexColors": 37,
       "darkSelectors": 0,
       "important": 1
     },
@@ -87,8 +113,8 @@
       "important": 0
     },
     "src/app/styles/responsive.css": {
-      "bytes": 27452,
-      "hexColors": 15,
+      "bytes": 10796,
+      "hexColors": 0,
       "darkSelectors": 0,
       "important": 3
     },
@@ -123,8 +149,32 @@
       "important": 0
     },
     "src/app/styles/theme-tokens.css": {
-      "bytes": 3953,
-      "hexColors": 88,
+      "bytes": 2432,
+      "hexColors": 46,
+      "darkSelectors": 1,
+      "important": 0
+    },
+    "src/app/practice/practice-responsive.css": {
+      "bytes": 2772,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/practice/practice-tokens.css": {
+      "bytes": 9735,
+      "hexColors": 223,
+      "darkSelectors": 1,
+      "important": 0
+    },
+    "src/app/shell/shell-responsive.css": {
+      "bytes": 4138,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/shell/shell-tokens.css": {
+      "bytes": 1766,
+      "hexColors": 46,
       "darkSelectors": 1,
       "important": 0
     }

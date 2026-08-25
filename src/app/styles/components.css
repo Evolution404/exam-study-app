@@ -1,4 +1,7 @@
-/* Component style composition. Feature files own declarations; this file owns order only. */
+@import "./theme-tokens.css";
+@import "../shell/shell-tokens.css";
+@import "../practice/practice-tokens.css";
+@import "./controls.css";
 @import "./base.css";
 @import "./primitives.css";
 @import "./shared.css";
@@ -10,3 +13,10 @@
 @import "./preferences.css";
 @import "./responsive.css";
 @import "./dark-overrides.css";
+@import "./practice-setup.css";
+@import "./content-blocks.css";
+@import "./review-scope.css";
+@import "./hint.css";
+@import "./question-actions.css";
+@import "./bank-controls.css";
+@import "./asset-image.css";
