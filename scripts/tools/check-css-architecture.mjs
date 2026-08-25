@@ -6,7 +6,37 @@ const appRoot = path.join(root, "src/app");
 const stylesRoot = path.join(appRoot, "styles");
 const baselinePath = path.join(root, "scripts/tools/css-architecture-baseline.json");
 const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}`); };
-const requiredStyles = ["base.css", "primitives.css", "shared.css", "shell.css", "dashboard.css", "search.css", "bank.css", "practice.css", "preferences.css", "responsive.css", "dark-overrides.css"];
+
+const globalStyleOrder = [
+  "theme-tokens.css",
+  "controls.css",
+  "base.css",
+  "primitives.css",
+  "shared.css",
+  "shell.css",
+  "dashboard.css",
+  "search.css",
+  "bank.css",
+  "practice.css",
+  "preferences.css",
+  "responsive.css",
+  "dark-overrides.css",
+  "practice-setup.css",
+  "content-blocks.css",
+  "review-scope.css",
+  "hint.css",
+  "question-actions.css",
+  "bank-controls.css",
+  "asset-image.css",
+];
+const featureLocalStyles = new Set(["sync-events.css"]);
+const requiredCoreStyles = ["theme-tokens.css", "base.css", "primitives.css", "controls.css", "components.css"];
+const shrinkingDebtFiles = new Set([
+  "src/app/styles/shared.css",
+  "src/app/styles/responsive.css",
+  "src/app/styles/dark-overrides.css",
+]);
+const newCssMaxBytes = 16 * 1024;
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -23,13 +53,46 @@ function metrics(source) {
     important: source.match(/!important\b/g)?.length ?? 0,
   };
 }
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+function parseRelativeImports(source) {
+  return [...source.matchAll(/^\s*@import\s+"\.\/([^"]+\.css)";\s*$/gm)].map((match) => match[1]);
+}
 
 if (fs.existsSync(path.join(stylesRoot, "legacy-components.css"))) fail("legacy-components.css 必须保持删除，禁止恢复单体样式文件");
-for (const file of requiredStyles) if (!fs.existsSync(path.join(stylesRoot, file))) fail(`缺少已拆分样式文件 ${file}`);
+for (const file of requiredCoreStyles) if (!fs.existsSync(path.join(stylesRoot, file))) fail(`缺少核心样式文件 ${file}`);
+
+const globalsPath = path.join(appRoot, "globals.css");
+const globalsSource = fs.readFileSync(globalsPath, "utf8");
+const globalsBody = stripComments(globalsSource).trim();
+if (globalsBody !== '@import "./styles/components.css";') {
+  fail("globals.css 只能导入 ./styles/components.css，不得承载声明或额外级联入口");
+}
+
 const entryPath = path.join(stylesRoot, "components.css");
 const entrySource = fs.readFileSync(entryPath, "utf8");
-if (Buffer.byteLength(entrySource) > 2048 || /[{}]/.test(entrySource)) fail("components.css 只能维护 @import 顺序，不得承载声明");
-for (const file of requiredStyles) if (!entrySource.includes(`@import "./${file}";`)) fail(`components.css 必须导入 ${file}`);
+if (Buffer.byteLength(entrySource) > 2048 || /[{}]/.test(entrySource)) {
+  fail("components.css 只能维护 @import 顺序，不得承载声明");
+}
+const entryBody = stripComments(entrySource);
+const entryImports = parseRelativeImports(entryBody);
+const remainingEntryBody = entryBody.replace(/^\s*@import\s+"\.\/[^"]+\.css";\s*$/gm, "").trim();
+if (remainingEntryBody) fail("components.css 只能包含相对 CSS @import");
+if (new Set(entryImports).size !== entryImports.length) fail("components.css 存在重复 @import");
+if (entryImports.length !== globalStyleOrder.length || entryImports.some((file, index) => file !== globalStyleOrder[index])) {
+  fail(`components.css 全局级联顺序必须为：${globalStyleOrder.join(" -> ")}`);
+}
+
+const styleFiles = fs.readdirSync(stylesRoot, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".css") && entry.name !== "components.css")
+  .map((entry) => entry.name);
+for (const file of globalStyleOrder) if (!styleFiles.includes(file)) fail(`components.css 引用了不存在的样式文件 ${file}`);
+for (const file of styleFiles) {
+  if (!globalStyleOrder.includes(file) && !featureLocalStyles.has(file)) {
+    fail(`样式文件 ${file} 没有声明为全局级联或 feature-local 样式`);
+  }
+}
 
 const files = walk(appRoot).sort();
 const sources = files.map((file) => ({ file, source: fs.readFileSync(file, "utf8") }));
@@ -50,11 +113,15 @@ for (const { file, source } of sources) {
   maxFileBytes = Math.max(maxFileBytes, value.bytes);
   const allowed = baseline.files[relative];
   if (!allowed) {
+    if (value.bytes > newCssMaxBytes) fail(`新 CSS ${relative} 为 ${value.bytes} bytes，单文件上限为 ${newCssMaxBytes} bytes`);
     if (value.hexColors || value.darkSelectors || value.important) fail(`新 CSS ${relative} 不得新增硬编码颜色、页面级 dark patch 或 !important`);
     continue;
   }
   for (const key of ["hexColors", "darkSelectors", "important"]) {
     if (value[key] > allowed[key]) fail(`${relative} 的 ${key} 由 ${allowed[key]} 增至 ${value[key]}，历史样式债务只能减少`);
+  }
+  if (shrinkingDebtFiles.has(relative) && value.bytes > allowed.bytes) {
+    fail(`${relative} 是待拆聚合样式，体积只能缩小：${allowed.bytes} -> ${value.bytes} bytes`);
   }
 }
 if (totalBytes > baseline.totalBytes) fail(`CSS 总体积由 ${baseline.totalBytes} 增至 ${totalBytes} bytes；必须先抵消或明确调整基线`);
