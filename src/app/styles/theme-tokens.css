@@ -134,6 +134,44 @@
   --result-state-unanswered-text: #777d79;
   --result-state-unanswered-bg: #eae9e4;
 
+  /* Question overview keeps its existing light/dark computed colors. */
+  --overview-panel-border: currentColor;
+  --overview-panel-bg: #faf9f5;
+  --overview-section-bg: transparent;
+  --overview-legend-border: #e7e3db;
+  --overview-legend-text: #767e79;
+  --overview-legend-bg: transparent;
+  --overview-score-border: #e4e1da;
+  --overview-score-bg: #f1f5f2;
+  --overview-score-metric-text: #77817b;
+  --overview-score-metric-bg: #fff;
+  --overview-score-value: #315f47;
+  --overview-score-wrong-value: #a55539;
+  --overview-number-border: #ccd0cc;
+  --overview-number-text: #56605a;
+  --overview-number-bg: #fff;
+  --overview-number-current-shadow: none;
+  --overview-number-correct-border: #4f9770;
+  --overview-number-correct-text: #fff;
+  --overview-number-correct-bg: #4f9770;
+  --overview-number-wrong-border: #ce7053;
+  --overview-number-wrong-text: #fff;
+  --overview-number-wrong-bg: #ce7053;
+  --overview-number-pending-border: #d09a4a;
+  --overview-number-pending-text: #755627;
+  --overview-number-pending-bg: #f3ce88;
+  --overview-legend-marker-border: #c8ccc8;
+  --overview-legend-marker-bg: #fff;
+  --overview-legend-correct-border: #4f9770;
+  --overview-legend-correct-bg: #4f9770;
+  --overview-legend-wrong-border: #ce7053;
+  --overview-legend-wrong-bg: #ce7053;
+  --overview-legend-pending-border: #d09a4a;
+  --overview-legend-pending-bg: #f1c776;
+  --overview-empty-border: #d5d4cd;
+  --overview-empty-text: #969994;
+  --overview-empty-bg: transparent;
+
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
 }
@@ -256,4 +294,41 @@ html[data-theme="dark"] {
   --result-state-wrong-bg: #472a21;
   --result-state-unanswered-text: #a5afa8;
   --result-state-unanswered-bg: #2b332e;
+
+  --overview-panel-border: var(--color-border);
+  --overview-panel-bg: #18201b;
+  --overview-section-bg: #18201b;
+  --overview-legend-border: #35423a;
+  --overview-legend-text: var(--color-text);
+  --overview-legend-bg: #18201b;
+  --overview-score-border: #35423a;
+  --overview-score-bg: #18201b;
+  --overview-score-metric-text: #a9b4ad;
+  --overview-score-metric-bg: #111813;
+  --overview-score-value: #7fc29a;
+  --overview-score-wrong-value: #e19274;
+  --overview-number-border: #46524b;
+  --overview-number-text: #c1cbc5;
+  --overview-number-bg: #202822;
+  --overview-number-current-shadow: 0 0 0 3px #8bb89d55;
+  --overview-number-correct-border: #58a477;
+  --overview-number-correct-text: #fff;
+  --overview-number-correct-bg: #3d825b;
+  --overview-number-wrong-border: #c66d50;
+  --overview-number-wrong-text: #fff;
+  --overview-number-wrong-bg: #a95139;
+  --overview-number-pending-border: #bb8b45;
+  --overview-number-pending-text: #f4dcab;
+  --overview-number-pending-bg: #614b29;
+  --overview-legend-marker-border: #556159;
+  --overview-legend-marker-bg: #202822;
+  --overview-legend-correct-border: #556159;
+  --overview-legend-correct-bg: #202822;
+  --overview-legend-wrong-border: #556159;
+  --overview-legend-wrong-bg: #202822;
+  --overview-legend-pending-border: #556159;
+  --overview-legend-pending-bg: #202822;
+  --overview-empty-border: #465149;
+  --overview-empty-text: #939e97;
+  --overview-empty-bg: #151c18;
 }
