@@ -172,6 +172,36 @@
   --overview-empty-text: #969994;
   --overview-empty-bg: transparent;
 
+  /* Practice history and run result preserve the existing cascade. */
+  --history-filter-border: #d8d8d1;
+  --history-filter-text: #66716a;
+  --history-filter-bg: #fff;
+  --history-filter-count-text: #758079;
+  --history-filter-count-bg: #eceae4;
+  --history-filter-active-border: #527a64;
+  --history-filter-active-text: #315f47;
+  --history-filter-active-bg: #e5efe8;
+  --history-swipe-bg: #fff;
+  --history-action-border: #cbdad1;
+  --history-action-text: #35644d;
+  --history-action-bg: var(--color-surface-muted);
+  --history-abandon-border: #ead4cb;
+  --history-abandon-text: #a45238;
+  --history-abandon-bg: #fbf0eb;
+  --history-status-progress-text: #3e684f;
+  --history-status-progress-bg: #dfece4;
+  --history-status-completed-text: #456086;
+  --history-status-completed-bg: #e2e7f1;
+  --history-status-abandoned-text: #8a5a48;
+  --history-status-abandoned-bg: #f0e4dd;
+  --history-header-progress-text: #285d45;
+  --history-header-progress-bg: #f4efe5;
+  --history-header-completed-text: #285d45;
+  --history-header-completed-bg: #f4efe5;
+  --history-header-abandoned-text: #285d45;
+  --history-header-abandoned-bg: #f4efe5;
+  --run-result-header-bg: #285d45;
+
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
 }
@@ -331,4 +361,33 @@ html[data-theme="dark"] {
   --overview-empty-border: #465149;
   --overview-empty-text: #939e97;
   --overview-empty-bg: #151c18;
+
+  --history-filter-border: #3b493f;
+  --history-filter-text: #aab5ae;
+  --history-filter-bg: #131a16;
+  --history-filter-count-text: #a5b0a9;
+  --history-filter-count-bg: #283129;
+  --history-filter-active-border: #6b9c7f;
+  --history-filter-active-text: #c8e1d1;
+  --history-filter-active-bg: #253a2e;
+  --history-swipe-bg: #121a15;
+  --history-action-border: #3b5949;
+  --history-action-text: #8bc5a3;
+  --history-action-bg: #20362a;
+  --history-abandon-border: #654438;
+  --history-abandon-text: #e0a088;
+  --history-abandon-bg: #38251f;
+  --history-status-progress-text: #b9d8c5;
+  --history-status-progress-bg: #274233;
+  --history-status-completed-text: #becce1;
+  --history-status-completed-bg: #293545;
+  --history-status-abandoned-text: #d7b9ac;
+  --history-status-abandoned-bg: #402e27;
+  --history-header-progress-text: #b9d8c5;
+  --history-header-progress-bg: #274233;
+  --history-header-completed-text: #becce1;
+  --history-header-completed-bg: #293545;
+  --history-header-abandoned-text: #d7b9ac;
+  --history-header-abandoned-bg: #402e27;
+  --run-result-header-bg: #295f46;
 }
