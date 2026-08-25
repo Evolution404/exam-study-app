@@ -1,6 +1,6 @@
 import { collapseExtractedVisualLineBreaks } from "../question/imported-text-cleanup";
 import { normalizeCalculationAnswer, normalizeFillSolution, validateCalculationBlankLayout } from "../question/question-utils";
-import type { QuestionType } from "../../types/types";
+import { QUESTION_TYPE_ORDER, type QuestionType } from "../../types/types";
 import { IMPORT_LIMITS } from "./import-limits";
 
 export const XLSX_IMPORT_LIMITS = IMPORT_LIMITS.xlsx;
@@ -378,7 +378,7 @@ export function parseQuestionBankTable(rows: string[][], images: ReadonlyMap<str
     const answerCells = source.slice(4, 4 + declaredAnswerColumns).map((value) => value?.trim() ?? "");
     if (!stem) issues.push({ row, message: "题干不能为空。" });
     if (stem.startsWith("示例·") || stem.includes("（填好后删）")) issues.push({ row, message: "请删除模板自带的示例题。" });
-    const type = (["单选", "多选", "判断", "计算", "填空", "简答"] as const).find((item) => item === typeText);
+    const type = QUESTION_TYPE_ORDER.find((item) => item === typeText);
     if (!type) issues.push({ row, message: "题型必须填写单选、多选、判断、计算、填空或简答。" });
     if (!answerCells[0]) issues.push({ row, message: "答案1不能为空。" });
     const optionStart = 4 + declaredAnswerColumns;

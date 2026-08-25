@@ -6,7 +6,7 @@ import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { type QuestionViewModel } from "@/app/bank/question-editor";
 import type { BankQuickMode } from "@/app/bank/bank-library-view";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
-import type { ActivePractice } from "@/types/types";
+import { QUESTION_TYPE_ORDER, type ActivePractice } from "@/types/types";
 import type { AttemptOutcome, AttemptStatsV7, PracticeResponse, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import type { V7PracticeFilter } from "@/app/practice/practice-setup";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
@@ -194,7 +194,7 @@ export const modeLabels = {
   advanced: "高级筛选",
 };
 
-export const TYPE_ORDER: QuestionType[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
+export const TYPE_ORDER: QuestionType[] = [...QUESTION_TYPE_ORDER];
 
 export function randomOptionOrder(question: Question, avoid?: number[]) {
   const original = question.options.map((_, index) => index);

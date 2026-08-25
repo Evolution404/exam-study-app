@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { QUESTION_TYPE_ORDER } from "../../src/types/types";
 import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, questionSolution, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -10,6 +13,11 @@ const editor = read("src/app/bank/question-editor.tsx");
 const contentEditor = read("src/app/bank/content-block-editor.tsx");
 const xlsx = read("src/lib/io/xlsx-import.ts");
 const vite = read("vite.config.ts");
+const questionManager = read("src/app/bank/bank-library/question-manager.tsx");
+const practiceSetup = read("src/app/practice/practice-setup.tsx");
+const helpers = read("src/app/shell/helpers.ts");
+const searchMatching = read("src/lib/question/search-matching.ts");
+const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
 
 assert.equal(normalizeCalculationAnswer(" 12.50 "), "12.50");
 assert.equal(normalizeCalculationAnswer([" 11.0 ", "968.0"]), "11.0\n968.0");
@@ -33,9 +41,22 @@ const choiceQuestion = { type: "单选" as const, answer: "B", options: [[{ type
 const choiceOptionIds = stableQuestionOptionIds(choiceQuestion);
 assert.equal(questionSolution(choiceQuestion).kind, "choice");
 assert.deepEqual((questionSolution(choiceQuestion) as Extract<ReturnType<typeof questionSolution>, { kind: "choice" }>).correctOptionIds, [choiceOptionIds[1]]);
-assert.match(editor, /questionTypes[^\n]*"计算"/, "question editor must expose calculation questions");
-assert.match(editor, /"填空"/, "question editor must expose fill-in-the-blank questions");
-assert.match(editor, /"简答"/, "question editor must expose short-answer questions");
+assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
+assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
+assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup must use the canonical question type order");
+assert.match(helpers, /export const TYPE_ORDER: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice overview and balanced sampling must use the canonical order");
+assert.match(history, /const TYPE_ORDER: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice history grouping must use the canonical order");
+assert.match(searchMatching, /SEARCH_TYPE_ORDER: readonly SearchQuestionType\[\] = QUESTION_TYPE_ORDER/, "search tabs and result grouping must use the canonical order");
+assert.match(questionManager, /options=\{\["全部", \.\.\.QUESTION_TYPE_ORDER\]\.map/, "question manager filter must put 全部 before the canonical type order");
+assert.match(bankDetail, /QUESTION_TYPE_ORDER\.map\(\(type\) => <Distribution/, "bank type distribution must include every question type in canonical order");
+
+const srcRoot = fileURLToPath(new URL("../../src", import.meta.url));
+const literalTypeArray = /\[(?=[^\]]{0,320}"单选")(?=[^\]]{0,320}"多选")(?=[^\]]{0,320}"判断")(?=[^\]]{0,320}"计算")(?=[^\]]{0,320}"填空")(?=[^\]]{0,320}"简答")[^\]]{0,320}\]/gs;
+const duplicateOrderFiles = readdirSync(srcRoot, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name))
+  .map((entry) => path.join(entry.parentPath, entry.name))
+  .filter((file) => !file.endsWith(path.join("src", "types", "types.ts")) && literalTypeArray.test(readFileSync(file, "utf8")));
+assert.deepEqual(duplicateOrderFiles, [], "full question-type lists must not duplicate or diverge from QUESTION_TYPE_ORDER");
 assert.match(editor, /optimizeImageFile/, "question editor must optimize selected local images");
 assert.match(editor, /putImageAssetV7/, "question editor must store content-addressed image assets");
 assert.match(contentEditor, /accept="image\/\*"/, "rich content editor must select a local image file");
