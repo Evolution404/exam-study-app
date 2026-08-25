@@ -24,11 +24,11 @@ html[data-theme="dark"] :where(.options .selected,.home-bank-grid>button.selecte
 
 html[data-theme="dark"] :where(.note-panel textarea,.editor-body input,.editor-body textarea,.editor-body select,.settings-card input,.query-row input,.query-row select,.metric-grid input){background:#111813}
 
-html[data-theme="dark"] :where(.search-answer-card,.result-box.success){color:#b8d9c5;background:#1e382a}
+html[data-theme="dark"] .search-answer-card{color:#b8d9c5;background:#1e382a}
 
 html[data-theme="dark"] :where(.search-detail-note,.memory-card){background:#242822}
 
-html[data-theme="dark"] :where(.result-box.error,.editor-error,.search-session-warning){color:#efb49c;background:#41271f}
+html[data-theme="dark"] :where(.editor-error,.search-session-warning){color:#efb49c;background:#41271f}
 
 html[data-theme="dark"] :where(.restore-card,.dont-know-action,.options .wrong){border-color:#744b3d;color:#efb39b;background:#2e201b}
 
@@ -90,10 +90,6 @@ html[data-theme="dark"] .result-question-groups>section>div>button:disabled{opac
 /* Complete dark-theme coverage. These selectors intentionally outrank component light defaults. */
 html[data-theme="dark"] :is(.practice-content .practice-head,.practice-content .practice-actions,.question-overview>header,.question-overview .overview-score,.question-overview .overview-legend){border-color:#35423a;background:#18201b;color:var(--color-text)}
 
-html[data-theme="dark"] .practice-head i{background:#344039}
-
-html[data-theme="dark"] .practice-head b{background:#69a482}
-
 html[data-theme="dark"] :is(.options button,.note-panel button,.note-panel .edit-question-button){border-color:#3a493f;color:var(--color-text);background:#111813}
 
 html[data-theme="dark"] .options button>span{border-color:#3d4942;color:#e4ece7;background:#29312c}
@@ -125,8 +121,6 @@ html[data-theme="dark"] .attempt-summary>span{border-color:#39463e;color:#a8b3ac
 html[data-theme="dark"] .attempt-summary .correct strong{color:#7cc49a}
 
 html[data-theme="dark"] .attempt-summary .wrong strong{color:#e38f70}
-
-html[data-theme="dark"] .answer-action-hint{color:#929f97}
 
 html[data-theme="dark"] .overview-number-grid button{border-color:#46524b;color:#c1cbc5;background:#202822}
 
