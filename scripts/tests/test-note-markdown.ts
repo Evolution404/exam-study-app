@@ -122,11 +122,11 @@ const searchView = await readFile(new URL("../../src/app/search/search-view.tsx"
 const searchResponsiveStyles = await readFile(new URL("../../src/app/search/search-responsive.css", import.meta.url), "utf8");
 const editor = await readFile(new URL("../../src/app/bank/question-editor.tsx", import.meta.url), "utf8");
 const mathText = await readFile(new URL("../../src/app/ui/math-text.tsx", import.meta.url), "utf8");
-const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
-const styles = (await Promise.all((await readdir(stylesRoot))
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const cssFiles = (await readdir(appStylesRoot, { recursive: true }))
   .filter((file) => file.endsWith(".css"))
-  .sort()
-  .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\n");
+  .sort();
+const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\n");
 const renderer = await readFile(new URL("../../src/app/ui/note-markdown.tsx", import.meta.url), "utf8");
 
 assert.match(detail, /import \{ NoteMarkdown \} from "@\/app\/ui\/note-markdown"/, "题目详情接入 NoteMarkdown");
@@ -158,13 +158,11 @@ assert.ok(!/html\[data-theme="dark"\][^{}]*\.search-detail-body\s+li[{,>]/.test(
 assert.match(styles, /\.note-markdown ol\{[^}]*display:block/, "markdown 有序列表兜底 display:block");
 assert.match(styles, /\.note-markdown li\{[^}]*display:list-item/, "markdown 列表项兜底 display:list-item（::marker 序号可见）");
 
-// --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
-// 夜间 input 规则强制深色底；搜索类输入框必须显式补 transparent!important。
-assert.match(
-  styles,
-  /html\[data-theme="dark"\] :is\([^)]*\.searchbox input[^)]*\.search-home-query input[^)]*\)\{background:transparent!important\}/,
-  "夜间模式搜索类 input 保持透明底（容器/input 无色差）",
-);
+// --- 防回退：夜间通用 input 允许 feature 自己声明透明背景 --------------------
+assert.match(styles, /background:var\(--dark-input-bg,var\(--p-111813\)\)!important/, "夜间通用 input 背景支持 feature override");
+assert.match(styles, /\.searchbox \{[^}]*--dark-input-bg:transparent/, "快速搜索在 Search ownership 内声明透明夜间输入背景");
+assert.match(styles, /\.search-home-query \{[^}]*--dark-input-bg:transparent/, "搜索页主输入框在 Search ownership 内声明透明夜间输入背景");
+assert.doesNotMatch(styles, /html\[data-theme="dark"\][^{]*(?:\.searchbox input|\.search-home-query input)/, "Search 不得重新引入集中式 dark input patch");
 
 // --- 防回退：详情页底部按钮（bug：夜间 >footer>button 匹配不到按钮） ----------
 // 浅色规则是后代选择器 >footer button（命中 .search-detail-actions 内的按钮），
@@ -179,7 +177,7 @@ assert.match(practiceView, /onFocus=\{\(\) => setNoteEditing\(true\)\}/, "解析
 // --- 防回退：搜索页吸附设计（顶栏滚走 / 搜索框钉顶 / 批量栏紧贴） ------------
 assert.match(studyApp, /className=\{`workspace \$\{view === "search" \? "view-search" : ""\}`\}/, "搜索视图给 workspace 打 view-search 标记");
 assert.match(styles, /\.workspace\.view-search \.topbar\s*\{\s*position:\s*relative;\s*z-index:\s*30/, "搜索页内全局顶栏不固定（随内容滚走，但需要更高层叠让快速搜索预览不被遮挡）");
-assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19/, "搜索页搜索框钉在顶部");
+assert.match(styles, /\.search-home-query \{[^}]*position:sticky; top:0; z-index:19/, "搜索页搜索框钉在顶部");
 assert.match(styles, /--search-query-h:58px/, "搜索框高度以变量定义");
 assert.match(styles, /\.search-batch-bar \{ position:sticky; top:var\(--search-query-sticky-height,var\(--search-query-h\)\)/, "批量栏吸附位置必须跟随搜索框实际渲染高度");
 assert.match(searchView, /setProperty\("--search-query-sticky-height", `\$\{queryRect\.height\}px`\)/, "搜索框实际渲染高度必须同步给共享吸顶样式");
@@ -190,7 +188,7 @@ assert.match(styles, /\.search-page\.search-pinned \.search-home-query\s*\{[^}]*
 assert.ok(!/\.search-page\.search-pinned \.search-home-query[^}]*border-bottom-left-radius:0/.test(styles), "搜索框吸附后下边缘保持圆角（不直角化）");
 assert.match(styles, /\.search-page\.search-stuck \.search-batch-bar\s*\{[^}]*border-top-left-radius:0/, "批量栏吸附后去掉上圆角（与搜索框无缝相接，无圆角缺口）");
 assert.ok(!/\.search-page\.search-stuck \.search-home-query/.test(styles), "搜索框下边缘不受批量栏吸附影响（保持圆角）");
-assert.match(styles, /\.search-home-query \{ position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
+assert.match(styles, /\.search-home-query \{[^}]*position:sticky; top:0; z-index:19; min-height:var\(--search-query-h\);[^}]*border-radius:15px/, "搜索框自然位置保持完整圆角卡片");
 assert.match(searchResponsiveStyles, /@media\(max-width:390px\)\{\.search-home-query\{margin-left:-14px;margin-right:-14px\}\}/, "窄屏搜索框负边距必须与内容区 14px 内边距一致");
 assert.doesNotMatch(styles, /html\[data-platform="ios"\]\[data-native="true"\] \.search-batch-bar\{position:relative/, "原生 iOS 不得取消批量栏的第二级吸顶");
 

@@ -16,14 +16,14 @@ assert.equal(shouldCancelQuickSyncMove(0, 18), true, "an intentional vertical sc
 assert.equal(shouldCancelQuickSyncMove(23, 2), false, "horizontal motion below the escape threshold stays active");
 assert.equal(shouldCancelQuickSyncMove(24, 2), true, "a clear horizontal escape cancels the press");
 
-const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
-const styles = (await Promise.all((await readdir(stylesRoot))
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const cssFiles = (await readdir(appStylesRoot, { recursive: true }))
   .filter((file) => file.endsWith(".css"))
-  .sort()
-  .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\n");
+  .sort();
+const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\n");
 const controls = await readFile(new URL("../../src/app/styles/controls.css", import.meta.url), "utf8");
 const shell = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
-assert.match(styles, /\.quick-sync-split \.quick-sync\.holding\{color:var\(--p-fff\);background:var\(--color-danger\)\}/, "holding the quick-sync button uses the tokenized white-on-danger surface");
+assert.match(styles, /\.quick-sync\.holding\s*\{[^}]*color:var\(--color-danger\)[^}]*background:var\(--color-danger-soft\)/, "holding the quick-sync button uses the semantic danger state");
 // 进度环动画时长必须等于长按阈值（常量派生，改阈值不改 CSS 会在此失败）。
 assert.match(styles, new RegExp(`quick-sync-hold-progress \\.?${QUICK_RESTORE_HOLD_MS / 1000}s`), "hold-progress ring duration must equal QUICK_RESTORE_HOLD_MS");
 // 交互控件共用主题聚焦：非文本输入保留浅色圆角聚焦环，文本输入只靠边框变色（统一输入框样式，不套外部环）。
