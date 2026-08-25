@@ -6,7 +6,7 @@ const drawer = await readFile(new URL("../../src/app/sync/sync-event-drawer.tsx"
 const syncView = await readFile(new URL("../../src/app/sync/sync-view.tsx", import.meta.url), "utf8");
 const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
 const hotWindowPanel = await readFile(new URL("../../src/app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
-const styles = await readFile(new URL("../../src/app/styles/sync-events.css", import.meta.url), "utf8");
+const styles = (await Promise.all(["sync-events-1.css", "sync-events-2.css"].map((file) => readFile(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")))).join("\n");
 const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts", import.meta.url), "utf8");
 const hintSource = await readFile(new URL("../../src/app/ui/hint.tsx", import.meta.url), "utf8");
 const globalStyleManifest = await readFile(new URL("../../src/app/styles/components.css", import.meta.url), "utf8");
@@ -63,49 +63,34 @@ assert.doesNotMatch(syncView, /onCreateAction/, "sync page no longer hosts the m
 assert.match(hotWindowPanel, /<dt>检查点<\/dt>[\s\S]*<dt>当前头<\/dt>[\s\S]*<dt>分段<\/dt>[\s\S]*<dt>检查点体积<\/dt>[\s\S]*<dt>热窗口事件<\/dt>[\s\S]*<dt>上次同步<\/dt>[\s\S]*<dt>热窗口<\/dt>/, "hot window exposes checkpoint, head, segments, checkpoint size, hot-window events, last sync and hot bytes in order");
 assert.match(hotWindowPanel, /segmentEvents/, "hot window exposes the pending event count (sum of segment counts)");
 assert.match(hotWindowPanel, /<dt>热窗口事件<\/dt><dd>\{hotWindow\.segmentEvents\}<\/dd>/, "hot window events cell renders the segment-event sum");
-// 上次同步只显示本地上次成功同步时间（语义明确，不再显示设备/水位信息）。
 assert.match(hotWindowPanel, /<dt>上次同步<\/dt><dd>\{syncedAt \? formatSyncedAt\(syncedAt\) : "—"\}<\/dd>/, "last sync shows only the local sync time");
 assert.ok(!/latestSync|本设备|shortDeviceId|deviceCount/.test(hotWindowPanel), "panel carries no device-watermark display");
-// 检查点体积格内简洁（无「解压」文字），完整信息放统一悬浮提示（Hint，跟随鼠标）。
 assert.match(hotWindowPanel, /checkpointStoredSize \?\? hotWindow\.checkpointSize/, "checkpoint volume cell shows a single value (stored size preferred)");
 assert.doesNotMatch(hotWindowPanel, /<dd[^>]*title=/, "checkpoint volume cell no longer uses a native title attribute");
 assert.match(hotWindowPanel, /<Hint label=\{checkpointTitle\(hotWindow\)\}><dd>/, "checkpoint volume full detail moves to the unified Hint tooltip");
 assert.match(hotWindowPanel, /实际 \$\{formatBytes\(state\.checkpointStoredSize\)\} · 解压/, "hint label explains actual vs decompressed bytes");
 assert.match(hotWindowPanel, /检查点体积 \$\{formatBytes\(state\.checkpointSize\)\}/, "checkpoint hint also shows a value when stored equals logical size (hover always pops)");
 assert.match(hotWindowPanel, /尚未建立检查点，首次同步后自动生成/, "checkpoint hint explains when no checkpoint exists yet (hover always pops)");
-// 全项目统一提示机制：Radix Tooltip + Hint 封装、跟随指针、全局样式挂载。
 assert.ok(packageJson.dependencies["@radix-ui/react-tooltip"], "unified hint depends on @radix-ui/react-tooltip");
 assert.match(hintSource, /Tooltip\.Trigger\s+asChild/, "hint keeps the trigger element in place (Slot, no wrapper node)");
 assert.match(hintSource, /createPortal\(/, "hint renders the popover via createPortal (synchronous mount, no Presence delay)");
 assert.match(hintSource, /useLayoutEffect/, "hint measures the popover and clamps it inside the viewport after mount");
 assert.match(hintSource, /spaceAbove/, "hint flips to the opposite side when the preferred side has no room (no trigger-covering flicker)");
 assert.match(globalStyleManifest, /@import "\.\/hint\.css"/, "hint styles are wired into the global style manifest");
-// 进度条单行：dt | 弹性 bar | 数值，不再独占两行。
 assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i aria-hidden="true">/, "hot window fill row keeps label, value and bar on one line (text before the bar)");
-// 抽屉与同步页共用同一面板：管理器提供 statusPanel 槽，抽屉传入热窗口数据。
 assert.match(manager, /statusPanel\?: ReactNode;/, "manager offers a status panel slot below the toolbar");
 assert.match(drawer, /statusPanel=\{<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{syncedAt\} \/>/, "drawer feeds the shared panel through the status slot");
 assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\}/, "study-app passes hot window state to the drawer");
 assert.match(studyApp, /syncApplication\.getHotWindow\(settings\)/, "drawer hot window state is loaded through the sync application boundary");
-// 热窗口 3+1 布局在手机端同样成立：检查点/当前头/分段 一行三项 + 热窗口进度独占一行，
-// 任何地方都不得再出现单列覆盖（曾因 760px 媒体查询漏改回退过一次）。
 const splitStyleNames = (await readdir(new URL("../../src/app/styles/", import.meta.url))).filter((file) => file.endsWith(".css")).sort();
 const componentsCss = (await Promise.all(splitStyleNames.map((file) => readFile(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")))).join("\n");
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");
-// 热窗口底色必须与 settings-card 同底（--color-surface），不得用 muted 色形成色差。
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*background:var\(--color-surface\)/, "hot window background matches the settings card surface");
-// 进度条单行样式：fill 行横向排布、bar 弹性伸展。
 assert.match(componentsCss, /\.sync-hot-window \.sync-hot-window-fill\{grid-column:1\/-1;flex-direction:row;align-items:center/, "hot window fill row lays out horizontally");
 assert.match(componentsCss, /\.sync-hot-window-fill dd\{flex:1;display:flex;align-items:center/, "fill row dd flexes bar and value inline");
 assert.match(componentsCss, /\.sync-hot-window-fill dd>i\{flex:1;/, "the progress bar itself flexes to fill the row");
-// 上次同步保持 3 列格子布局（不在全宽行），靠短设备 id 单行放下。
 assert.ok(!/sync-last-sync/.test(componentsCss), "last sync stays in the 3-column grid (no full-width row)");
-// 「清除数据并保留配置」必须保留设备 id（设备身份属配置而非数据）：
-// 否则每次清库都会换一个新设备 id，水位表残留旧条目并虚增设备数。
 assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v7-device-id"/, "clear-data keep-config preserves the device id");
-// 同步页状态面板直接 live 订阅本地 head/checkpoint 缓存（syncMeta 表）：
-// 本页或外部快速同步把水位/新代数写入本地缓存后，live 查询自动重跑，无需
-// 轮询，也无需依赖 changeSets 队列（prune 保留近期 committed 记录，不是可靠信号）。
 assert.match(syncView, /const hotWindow = useLiveQuery\(\(\) => syncApplication\.getHotWindow\(settings\)/, "hot window panel is a live query through the application boundary");
 assert.match(syncView, /const lastCache = useLiveQuery\(\(\) => syncApplication\.getLastRemoteCache\(settings\)/, "last cache panel is a live query through the application boundary");
 assert.ok(!/setInterval/.test(syncView), "sync page refreshes reactively, not by polling");
