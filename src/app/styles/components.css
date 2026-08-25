@@ -1,5 +1,5 @@
-/* Global style composition. This file owns cascade order only. */
 @import "./theme-tokens.css";
+@import "../practice/practice-tokens.css";
 @import "./controls.css";
 @import "./base.css";
 @import "./primitives.css";

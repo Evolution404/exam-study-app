@@ -8,39 +8,52 @@ const baselinePath = path.join(root, "scripts/tools/css-architecture-baseline.js
 const fail = (message) => { throw new Error(`CSS 架构检查失败：${message}`); };
 
 const globalStyleOrder = [
-  "theme-tokens.css",
-  "controls.css",
-  "base.css",
-  "primitives.css",
-  "shared.css",
-  "shell.css",
-  "dashboard.css",
-  "search.css",
-  "bank.css",
-  "practice.css",
-  "preferences.css",
-  "responsive.css",
-  "dark-overrides.css",
-  "practice-setup.css",
-  "content-blocks.css",
-  "review-scope.css",
-  "hint.css",
-  "question-actions.css",
-  "bank-controls.css",
-  "asset-image.css",
+  "./theme-tokens.css",
+  "../practice/practice-tokens.css",
+  "./controls.css",
+  "./base.css",
+  "./primitives.css",
+  "./shared.css",
+  "./shell.css",
+  "./dashboard.css",
+  "./search.css",
+  "./bank.css",
+  "./practice.css",
+  "./preferences.css",
+  "./responsive.css",
+  "./dark-overrides.css",
+  "./practice-setup.css",
+  "./content-blocks.css",
+  "./review-scope.css",
+  "./hint.css",
+  "./question-actions.css",
+  "./bank-controls.css",
+  "./asset-image.css",
 ];
-const featureLocalStyles = new Set(["sync-events.css"]);
-const requiredCoreStyles = ["theme-tokens.css", "base.css", "primitives.css", "controls.css", "components.css"];
+const featureLocalStyles = new Set(["src/app/styles/sync-events.css"]);
+const requiredCoreStyles = [
+  "src/app/styles/theme-tokens.css",
+  "src/app/styles/base.css",
+  "src/app/styles/primitives.css",
+  "src/app/styles/controls.css",
+  "src/app/styles/components.css",
+];
 const migrationDebtFiles = new Set([
   "src/app/styles/shared.css",
   "src/app/styles/responsive.css",
   "src/app/styles/dark-overrides.css",
 ]);
-const tokenFileRelative = "src/app/styles/theme-tokens.css";
+const tokenFileRelatives = new Set([
+  "src/app/styles/theme-tokens.css",
+  "src/app/practice/practice-tokens.css",
+]);
 const newCssMaxBytes = 16 * 1024;
 const tokenFileMaxBytes = 16 * 1024;
 const debtWeights = { hexColors: 32, darkSelectors: 64, important: 32 };
 
+function toRelative(file) {
+  return path.relative(root, file).replaceAll(path.sep, "/");
+}
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -66,11 +79,20 @@ function stripComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 function parseRelativeImports(source) {
-  return [...source.matchAll(/^\s*@import\s+"\.\/([^"]+\.css)";\s*$/gm)].map((match) => match[1]);
+  return [...source.matchAll(/^\s*@import\s+"((?:\.\.?\/)[^"]+\.css)";\s*$/gm)].map((match) => match[1]);
+}
+function resolveGlobalImport(specifier) {
+  const resolved = path.resolve(stylesRoot, specifier);
+  const appPrefix = `${path.resolve(appRoot)}${path.sep}`;
+  if (!resolved.startsWith(appPrefix)) fail(`components.css @import 越出 src/app：${specifier}`);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) fail(`components.css 引用了不存在的样式文件 ${specifier}`);
+  return toRelative(resolved);
 }
 
 if (fs.existsSync(path.join(stylesRoot, "legacy-components.css"))) fail("legacy-components.css 必须保持删除，禁止恢复单体样式文件");
-for (const file of requiredCoreStyles) if (!fs.existsSync(path.join(stylesRoot, file))) fail(`缺少核心样式文件 ${file}`);
+for (const relative of requiredCoreStyles) {
+  if (!fs.existsSync(path.join(root, relative))) fail(`缺少核心样式文件 ${relative}`);
+}
 
 const globalsPath = path.join(appRoot, "globals.css");
 const globalsSource = fs.readFileSync(globalsPath, "utf8");
@@ -86,20 +108,23 @@ if (Buffer.byteLength(entrySource) > 2048 || /[{}]/.test(entrySource)) {
 }
 const entryBody = stripComments(entrySource);
 const entryImports = parseRelativeImports(entryBody);
-const remainingEntryBody = entryBody.replace(/^\s*@import\s+"\.\/[^"]+\.css";\s*$/gm, "").trim();
+const remainingEntryBody = entryBody.replace(/^\s*@import\s+"(?:\.\.?\/)[^"]+\.css";\s*$/gm, "").trim();
 if (remainingEntryBody) fail("components.css 只能包含相对 CSS @import");
 if (new Set(entryImports).size !== entryImports.length) fail("components.css 存在重复 @import");
 if (entryImports.length !== globalStyleOrder.length || entryImports.some((file, index) => file !== globalStyleOrder[index])) {
   fail(`components.css 全局级联顺序必须为：${globalStyleOrder.join(" -> ")}`);
 }
+const globalStyleRelatives = new Set(entryImports.map(resolveGlobalImport));
+for (const tokenFile of tokenFileRelatives) {
+  if (!globalStyleRelatives.has(tokenFile)) fail(`token 文件必须登记到 components.css 全局级联：${tokenFile}`);
+}
 
 const styleFiles = fs.readdirSync(stylesRoot, { withFileTypes: true })
   .filter((entry) => entry.isFile() && entry.name.endsWith(".css") && entry.name !== "components.css")
-  .map((entry) => entry.name);
-for (const file of globalStyleOrder) if (!styleFiles.includes(file)) fail(`components.css 引用了不存在的样式文件 ${file}`);
-for (const file of styleFiles) {
-  if (!globalStyleOrder.includes(file) && !featureLocalStyles.has(file)) {
-    fail(`样式文件 ${file} 没有声明为全局级联或 feature-local 样式`);
+  .map((entry) => toRelative(path.join(stylesRoot, entry.name)));
+for (const relative of styleFiles) {
+  if (!globalStyleRelatives.has(relative) && !featureLocalStyles.has(relative)) {
+    fail(`样式文件 ${relative} 没有声明为全局级联或 feature-local 样式`);
   }
 }
 
@@ -110,12 +135,16 @@ const legacyTokenUses = sources.reduce((sum, item) => sum + (item.source.match(/
 if (globalEscapes !== 0) fail(`CSS Module :global() 必须为 0，当前为 ${globalEscapes}`);
 if (legacyTokenUses !== 0) fail(`旧主题别名必须为 0，当前仍有 ${legacyTokenUses} 处`);
 
-const tokenItem = sources.find(({ file }) => path.relative(root, file).replaceAll(path.sep, "/") === tokenFileRelative);
-if (!tokenItem) fail("缺少 theme-tokens.css");
-if (Buffer.byteLength(tokenItem.source) > tokenFileMaxBytes) fail(`theme-tokens.css 超过 ${tokenFileMaxBytes} bytes 上限`);
-for (const line of stripComments(tokenItem.source).split("\n")) {
-  if (/#[0-9a-fA-F]{3,8}\b/.test(line) && !/^\s*--[\w-]+\s*:/.test(line)) {
-    fail("theme-tokens.css 中硬编码颜色只能出现在自定义属性定义内");
+for (const tokenFile of tokenFileRelatives) {
+  const tokenItem = sources.find(({ file }) => toRelative(file) === tokenFile);
+  if (!tokenItem) fail(`缺少 token 文件 ${tokenFile}`);
+  const tokenMetrics = metrics(tokenItem.source);
+  if (tokenMetrics.bytes > tokenFileMaxBytes) fail(`${tokenFile} 超过 ${tokenFileMaxBytes} bytes 上限`);
+  if (tokenMetrics.important) fail(`${tokenFile} 不得包含 !important`);
+  for (const line of stripComments(tokenItem.source).split("\n")) {
+    if (/#[0-9a-fA-F]{3,8}\b/.test(line) && !/^\s*--[\w-]+\s*:/.test(line)) {
+      fail(`${tokenFile} 中硬编码颜色只能出现在自定义属性定义内`);
+    }
   }
 }
 
@@ -128,12 +157,13 @@ let nonTokenHexColors = 0;
 let nonTokenDarkSelectors = 0;
 let nonTokenImportant = 0;
 for (const { file, source } of sources) {
-  const relative = path.relative(root, file).replaceAll(path.sep, "/");
+  const relative = toRelative(file);
   const value = metrics(source);
+  const isTokenFile = tokenFileRelatives.has(relative);
   current[relative] = value;
   totalBytes += value.bytes;
   maxFileBytes = Math.max(maxFileBytes, value.bytes);
-  if (relative !== tokenFileRelative) {
+  if (!isTokenFile) {
     nonTokenBytes += value.bytes;
     nonTokenHexColors += value.hexColors;
     nonTokenDarkSelectors += value.darkSelectors;
@@ -142,12 +172,16 @@ for (const { file, source } of sources) {
 
   const allowed = baseline.files[relative];
   if (!allowed) {
-    if (value.bytes > newCssMaxBytes) fail(`新 CSS ${relative} 为 ${value.bytes} bytes，单文件上限为 ${newCssMaxBytes} bytes`);
-    if (value.hexColors || value.darkSelectors || value.important) fail(`新 CSS ${relative} 不得新增硬编码颜色、页面级 dark patch 或 !important`);
+    if (value.bytes > (isTokenFile ? tokenFileMaxBytes : newCssMaxBytes)) {
+      fail(`新 CSS ${relative} 为 ${value.bytes} bytes，单文件上限为 ${isTokenFile ? tokenFileMaxBytes : newCssMaxBytes} bytes`);
+    }
+    if (!isTokenFile && (value.hexColors || value.darkSelectors || value.important)) {
+      fail(`新 CSS ${relative} 不得新增硬编码颜色、页面级 dark patch 或 !important`);
+    }
     continue;
   }
 
-  const ratchetKeys = relative === tokenFileRelative
+  const ratchetKeys = isTokenFile
     ? ["darkSelectors", "important"]
     : ["hexColors", "darkSelectors", "important"];
   for (const key of ratchetKeys) {
@@ -163,7 +197,7 @@ const totalDebtScore = nonTokenBytes
   + nonTokenDarkSelectors * debtWeights.darkSelectors
   + nonTokenImportant * debtWeights.important;
 const baselineNonTokenMetrics = Object.entries(baseline.files)
-  .filter(([relative]) => relative !== tokenFileRelative)
+  .filter(([relative]) => !tokenFileRelatives.has(relative))
   .reduce((sum, [, value]) => ({
     bytes: sum.bytes + value.bytes,
     hexColors: sum.hexColors + value.hexColors,
@@ -173,7 +207,7 @@ const baselineNonTokenMetrics = Object.entries(baseline.files)
 const allowedTotalDebtScore = baseline.totalDebtScore ?? debtScore(baselineNonTokenMetrics);
 const allowedNonTokenHexColors = baseline.nonTokenHexColors ?? baselineNonTokenMetrics.hexColors;
 if (nonTokenHexColors > allowedNonTokenHexColors) {
-  fail(`theme-tokens.css 之外的硬编码颜色由 ${allowedNonTokenHexColors} 增至 ${nonTokenHexColors}，业务 CSS 颜色债务只能减少`);
+  fail(`token 文件之外的硬编码颜色由 ${allowedNonTokenHexColors} 增至 ${nonTokenHexColors}，业务 CSS 颜色债务只能减少`);
 }
 if (totalDebtScore > allowedTotalDebtScore) {
   fail(`CSS 迁移债务分数由 ${allowedTotalDebtScore} 增至 ${totalDebtScore}；语义 token 带来的文本增长必须由历史样式债务下降抵消`);
@@ -185,15 +219,16 @@ for (const relative of Object.keys(baseline.files)) {
   if (!current[relative]) { delete baseline.files[relative]; tightened = true; continue; }
   const currentValue = current[relative];
   const baselineValue = baseline.files[relative];
+  const isTokenFile = tokenFileRelatives.has(relative);
 
-  if (relative === tokenFileRelative && currentValue.hexColors !== baselineValue.hexColors) {
+  if (isTokenFile && currentValue.hexColors !== baselineValue.hexColors) {
     baselineValue.hexColors = currentValue.hexColors;
     tightened = true;
   }
   for (const key of ["darkSelectors", "important"]) {
     if (currentValue[key] < baselineValue[key]) { baselineValue[key] = currentValue[key]; tightened = true; }
   }
-  if (relative !== tokenFileRelative && currentValue.hexColors < baselineValue.hexColors) {
+  if (!isTokenFile && currentValue.hexColors < baselineValue.hexColors) {
     baselineValue.hexColors = currentValue.hexColors;
     tightened = true;
   }
@@ -219,4 +254,4 @@ if (tightened) {
   fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   console.log("CSS 预算棘轮已自动收紧；请提交 css-architecture-baseline.json");
 }
-console.log(`CSS 架构检查通过：${files.length} files，${totalBytes} bytes，非 token hex=${nonTokenHexColors}，迁移债务=${totalDebtScore}，最大单文件 ${maxFileBytes} bytes，:global=0，legacy aliases=0。`);
+console.log(`CSS 架构检查通过：${files.length} files，${totalBytes} bytes，token files=${tokenFileRelatives.size}，非 token hex=${nonTokenHexColors}，迁移债务=${totalDebtScore}，最大单文件 ${maxFileBytes} bytes，:global=0，legacy aliases=0。`);
