@@ -87,6 +87,26 @@
   --practice-mobile-actions-bg: #faf9f5ed;
   --practice-mobile-actions-shadow: 0 -12px 30px #182a201c;
 
+  /* Practice result colors preserve the current history/result presentation. */
+  --practice-tab-active-border: #3e7057;
+  --practice-tab-active-text: #315f47;
+  --result-score-value: #315f47;
+  --result-score-metric-text: #778079;
+  --result-score-metric-bg: #fff;
+  --result-score-correct: #3f7958;
+  --result-score-wrong: #aa5639;
+  --result-filter-border: #d8d8d1;
+  --result-filter-bg: #faf9f5;
+  --result-filter-active-border: #537c66;
+  --result-filter-active-text: #315f47;
+  --result-filter-active-bg: #e4eee7;
+  --result-state-correct-text: #357050;
+  --result-state-correct-bg: #dceee3;
+  --result-state-wrong-text: #a44e33;
+  --result-state-wrong-bg: #f4dfd6;
+  --result-state-unanswered-text: #777d79;
+  --result-state-unanswered-bg: #eae9e4;
+
   --app-viewport-height: 100dvh;
   --app-safe-bottom: env(safe-area-inset-bottom);
 }
@@ -163,4 +183,23 @@ html[data-theme="dark"] {
   --practice-mobile-panel-bg: #18201b;
   --practice-mobile-actions-bg: #18201b;
   --practice-mobile-actions-shadow: 0 -10px 28px #0007;
+
+  --practice-tab-active-border: #67a783;
+  --practice-tab-active-text: #8cc6a3;
+  --result-score-value: #75b590;
+  --result-score-metric-text: #a0aba4;
+  --result-score-metric-bg: #111713;
+  --result-score-correct: #74bd92;
+  --result-score-wrong: #e28d6e;
+  --result-filter-border: #3b493f;
+  --result-filter-bg: #151c18;
+  --result-filter-active-border: #6b9c7f;
+  --result-filter-active-text: #c8e1d1;
+  --result-filter-active-bg: #253a2e;
+  --result-state-correct-text: #8bceaa;
+  --result-state-correct-bg: #244334;
+  --result-state-wrong-text: #eea085;
+  --result-state-wrong-bg: #472a21;
+  --result-state-unanswered-text: #a5afa8;
+  --result-state-unanswered-bg: #2b332e;
 }
