@@ -54,7 +54,6 @@ const requiredCoreStyles = [
   "src/app/styles/components.css",
 ];
 const migrationDebtFiles = new Set([
-  "src/app/styles/shared.css",
   "src/app/styles/responsive.css",
   "src/app/styles/dark-overrides.css",
 ]);
@@ -230,6 +229,12 @@ const baselineNonTokenMetrics = Object.entries(baseline.files)
   }), { bytes: 0, hexColors: 0, darkSelectors: 0, important: 0 });
 const allowedTotalDebtScore = baseline.totalDebtScore ?? debtScore(baselineNonTokenMetrics);
 const allowedNonTokenHexColors = baseline.nonTokenHexColors ?? baselineNonTokenMetrics.hexColors;
+if (nonTokenHexColors !== 0) {
+  fail(`最终业务 CSS 禁止硬编码颜色；token 文件之外当前仍有 ${nonTokenHexColors} 处`);
+}
+if (maxFileBytes > newCssMaxBytes) {
+  fail(`最终 CSS 单文件不得超过 ${newCssMaxBytes} bytes；当前最大 ${maxFileBytes} bytes`);
+}
 if (nonTokenHexColors > allowedNonTokenHexColors) {
   fail(`token 文件之外的硬编码颜色由 ${allowedNonTokenHexColors} 增至 ${nonTokenHexColors}，业务 CSS 颜色债务只能减少`);
 }
