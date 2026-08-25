@@ -23,7 +23,7 @@ const styles = (await Promise.all((await readdir(stylesRoot))
   .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\n");
 const controls = await readFile(new URL("../../src/app/styles/controls.css", import.meta.url), "utf8");
 const shell = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
-assert.match(styles, /\.quick-sync-split \.quick-sync\.holding\{color:#fff;background:var\(--color-danger\)\}/, "holding the quick-sync button uses an unmistakable red danger surface");
+assert.match(styles, /\.quick-sync-split \.quick-sync\.holding\{color:var\(--p-fff\);background:var\(--color-danger\)\}/, "holding the quick-sync button uses the tokenized white-on-danger surface");
 // 进度环动画时长必须等于长按阈值（常量派生，改阈值不改 CSS 会在此失败）。
 assert.match(styles, new RegExp(`quick-sync-hold-progress \\.?${QUICK_RESTORE_HOLD_MS / 1000}s`), "hold-progress ring duration must equal QUICK_RESTORE_HOLD_MS");
 // 交互控件共用主题聚焦：非文本输入保留浅色圆角聚焦环，文本输入只靠边框变色（统一输入框样式，不套外部环）。
