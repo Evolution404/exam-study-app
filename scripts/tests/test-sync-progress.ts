@@ -113,7 +113,8 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
     assert.ok(delta <= 25, `多分段拉取：相邻分段报告跳变应 ≤ 25%（实际 ${delta}%）`);
   }
   assert.ok(pull.reports.some((report) => report.phase === "merge" && /回放远端变更/.test(report.label)), "拉取应报告远端回放进度");
-  assert.ok(pull.reports.some((report) => report.phase === "merge" && /写入/.test(report.label)), "拉取应报告本机写入进度");
+  assert.ok(pull.reports.some((report) => report.phase === "merge" && /(比较本机数据|更新题目|更新作答记录|本机增量更新完成)/.test(report.label)), "拉取应报告本机增量更新进度");
+  assert.ok(pull.reports.some((report) => report.phase === "merge" && /(更新题目|更新作答记录|本机增量更新完成)/.test(report.label) && /（\d+\/\d+）/.test(report.label)), "拉取应透传本机 reconcile 的真实 completed/total 进度");
   console.log(`scenario 2 passed: 多分段拉取 ${pull.reports.length} 条报告，下载分段级报告 ${segmentReports.length} 条，并发峰值 ${server.stats.maxConcurrentBlobReads}`);
 }
 

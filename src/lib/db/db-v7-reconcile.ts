@@ -38,14 +38,20 @@ function equivalent(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-async function planTable<T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string): Promise<ReconcilePlan<T>> {
+async function planTable<T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string | undefined): Promise<ReconcilePlan<T>> {
   const current = await table.toArray();
-  const currentByKey = new Map(current.map((row) => [keyOf(row), row]));
+  const currentByKey = new Map<string, T>();
+  for (const row of current) {
+    const key = keyOf(row);
+    if (key === undefined) throw new Error(`本机 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
+    currentByKey.set(key, row);
+  }
   const incomingKeys = new Set<string>();
   const puts: T[] = [];
 
   for (const row of incoming) {
     const key = keyOf(row);
+    if (key === undefined) throw new Error(`远端 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
     incomingKeys.add(key);
     const old = currentByKey.get(key);
     if (old === undefined || !equivalent(old, row)) puts.push(row);

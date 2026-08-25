@@ -271,8 +271,14 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const firstProjectionInstall = !installedHead;
     const needsInstall = !downloaded.reusedCache || projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
     if (needsInstall) {
-      report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
-      const installed = await installProjection(rebasedProjection, { queueGuard: queueSnapshot });
+      report(progress, "merge", `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`, bandPercent(bands.install, 0.02), bands.install[1]);
+      const installed = await installProjection(rebasedProjection, {
+        queueGuard: queueSnapshot,
+        onProgress: ({ completed, total, label }) => {
+          const fraction = total ? completed / total : 1;
+          report(progress, "merge", `${label}（${completed.toLocaleString("zh-CN")}/${total.toLocaleString("zh-CN")}）`, bandPercent(bands.install, fraction), bands.install[1]);
+        },
+      });
       if (!installed) continue;
       report(progress, "merge", "本机数据已更新", bandPercent(bands.install, 1), bands.install[1]);
       installedHead = installFingerprint(read.cache);

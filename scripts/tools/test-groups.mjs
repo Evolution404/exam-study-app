@@ -58,6 +58,7 @@ export const testGroups = {
     "test:sync-download-concurrency",
     "test:sync-replay-perf",
     "test:sync-install-fingerprint",
+    "test:sync-incremental-install",
     "test:sync-history-range",
     "test:sync-tombstone-gc",
     "test:sync-multidevice-checkpoints",
