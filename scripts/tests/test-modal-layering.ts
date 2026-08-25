@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const readStyles = () => readdirSync(new URL("../../src/app/styles/", import.meta.url))
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
   .filter((file) => file.endsWith(".css"))
   .sort()
-  .map((file) => read(`src/app/styles/${file}`))
+  .map((file) => readFileSync(new URL(file, appStylesRoot), "utf8"))
   .join("\n");
 const portal = read("src/app/ui/modal-portal.tsx");
 const styles = readStyles();
