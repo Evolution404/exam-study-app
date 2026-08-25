@@ -101,4 +101,4 @@ try {
   dbV7.close();
 }
 
-console.log("iOS incremental install regression tests passed: add/update/delete reconcile without table.clear()");
+console.log("iOS incremental install regression tests passed: add/update/delete without clear, semantic no-op without rewrite");
