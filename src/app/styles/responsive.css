@@ -1,54 +1,26 @@
 @import "../search/search-responsive.css";
 @import "../bank/bank-responsive.css";
-
-@media(max-width:760px){.setup-footer{align-items:stretch;flex-direction:column}.setup-footer>.primary{width:100%}}
-
+@import "../practice/practice-responsive.css";
+@import "../shell/preferences-responsive.css";
+@import "../shell/shell-responsive.css";
 @media(hover:hover) and (pointer:fine){.options button:hover{border-color:#9ab0a3}}
-
 @media(max-width:1000px){.stat-grid{grid-template-columns:repeat(2,1fr)}.library-grid,.topic-grid{grid-template-columns:repeat(2,1fr)}.practice-layout{grid-template-columns:1fr}.note-panel{order:2}.settings-grid{grid-template-columns:1fr}.hero-grid{grid-template-columns:1fr}.quote-card{min-height:180px}.mode-grid{grid-template-columns:repeat(3,1fr)}}
-
 @media(max-width:760px){.searchbox{flex:1;width:auto}.page-heading,.page-heading.compact{align-items:flex-start;flex-direction:column}.bank-picker select{width:100%}.page-heading .primary{width:100%}.resume-card{margin-top:-18px;align-items:flex-start}.focus-card{padding:27px}.progress-orbit{width:88px;height:88px}.stat-grid,.library-grid,.topic-grid{grid-template-columns:1fr}.bank-row{grid-template-columns:auto 1fr auto}.bank-row>.bank-ready{display:none}.practice-setup-card{padding:19px}.mode-grid{grid-template-columns:repeat(2,1fr)}.question-body{padding:28px 20px}.practice-actions{padding:13px 16px;align-items:stretch}.practice-actions>div{flex-wrap:wrap;justify-content:flex-end}.answer-action-hint{font-size:11px}.preference-card{padding:21px}.preference-row{gap:15px}.field-row{grid-template-columns:1fr}.editor-backdrop{padding:10px}.question-editor{max-height:calc(100vh - 20px)}.toast{left:18px;right:18px;top:76px}}
-
 @media(max-width:460px){.topbar .searchbox{flex:1 1 0;width:0;min-width:0}.searchbox input{min-width:0}.search-results{position:fixed;left:14px;right:14px;top:calc(67px + env(safe-area-inset-top) + 7px);width:auto;max-height:calc(var(--app-viewport-height) - 81px - env(safe-area-inset-top))}.focus-card{min-height:260px}.progress-orbit{position:absolute;right:24px;bottom:25px;opacity:.65}.quote-card blockquote{font-size:19px}}
-
 @media(max-width:760px){.home-heading{margin-bottom:20px}.home-heading h1{font-size:34px}.home-bank-scope{padding:18px;border-radius:17px}.scope-heading{align-items:flex-start}.scope-heading h2{font-size:20px}.home-bank-grid{grid-template-columns:1fr}.scope-footer{align-items:stretch;flex-direction:column}.scope-footer .primary{width:100%}.resume-card{margin:16px 0;display:grid;grid-template-columns:auto 1fr}.resume-card>.resume-card-actions{grid-column:1/-1;width:100%;display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px}.home-feature-grid{grid-template-columns:1fr}.daily-practice{min-height:250px;padding:24px;align-items:flex-start;flex-direction:column}.daily-practice h2{font-size:28px}.daily-number{width:auto;height:auto;padding:9px 13px;position:absolute;right:22px;top:22px;border-radius:13px;flex-direction:row;gap:4px}.daily-number strong{font-size:25px}.daily-number small{margin:0}.memory-card{min-height:178px;padding:25px}.scope-bank-list{grid-template-columns:1fr}.practice-head{height:64px;padding:0 14px;gap:10px;grid-template-columns:auto minmax(0,1fr) auto}.practice-progress{gap:7px!important}.practice-progress>span{max-width:132px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.type-chip{display:none}.overview-trigger{display:grid}.overview-backdrop{padding:0;align-items:end}.question-overview{width:100%;height:min(86vh,760px);max-height:calc(100vh - 36px);border-radius:22px 22px 0 0}.question-overview>header{padding:18px 19px}.overview-legend{padding:11px 19px}.overview-groups{padding:18px 19px 30px}.overview-number-grid{grid-template-columns:repeat(auto-fill,48px);column-gap:10px;row-gap:10px;justify-content:space-between}.overview-number-grid button{width:48px;height:48px;aspect-ratio:auto;font-size:14px}.overview-number-grid button.current{outline-width:2px;outline-offset:2px}.restore-card{padding:20px;grid-template-columns:auto 1fr;align-items:start}.restore-actions{grid-column:1/-1;width:100%}.restore-actions button{width:100%}}
-
 @media(max-width:390px){.search-home-query{margin-left:-14px;margin-right:-14px}.home-heading h1{font-size:31px}.daily-practice{padding:21px}.question-overview h2{font-size:24px}}
-
 @media(max-width:760px){.query-row{grid-template-columns:1fr}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.attempt-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.favorite-question{margin-left:auto}.edit-question-link{margin-left:0}.streak-preference{align-items:flex-start}.swipe-hint{display:flex}.practice-actions{min-height:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.practice-actions>div{display:contents}.practice-actions button{width:100%;min-width:0;min-height:46px;white-space:normal}.practice-previous{grid-column:1;grid-row:2}.practice-next{grid-column:2;grid-row:2}.practice-actions .dont-know-action{grid-column:1;grid-row:1;justify-content:center}.practice-submit,.practice-actions .answer-action-hint{grid-column:2;grid-row:1;align-self:center;justify-self:stretch;text-align:center}.practice-actions.submitted .practice-previous,.practice-actions.submitted .practice-next{grid-row:1}.practice-actions.submitted .practice-auto-status{grid-column:2;grid-row:1}.pull-refresh{position:fixed;left:50%;top:7px;z-index:70;min-height:40px;padding:8px 13px;border:1px solid #bed0c4;border-radius:99px;display:flex;align-items:center;gap:7px;color:#355f4a;background:#f8fff9;box-shadow:0 8px 24px #17302322;transition:transform .15s,opacity .15s;font-size:11px;pointer-events:none}.pull-refresh.refreshing svg{animation:spin 1s linear infinite}}
-
 @media(max-width:390px){.metric-grid{grid-template-columns:1fr 1fr}}
-
 @media(max-width:520px){.simple-dialog-backdrop{padding:10px}.simple-dialog{max-height:calc(100vh - 20px);overflow:auto}}
-
 @media(max-width:760px){.resume-card .resume-discard{position:static;width:40px;height:40px}.resume-card .resume-continue{width:100%;min-height:40px;padding:8px;justify-content:center;border-top:1px solid #e0e7e2}}
-
 @media(max-width:760px){.resume-card{padding:17px;grid-template-columns:auto minmax(0,1fr);align-items:center}.resume-mark{width:46px;height:46px}.resume-progress{grid-column:1/-1}.resume-card>.resume-card-actions{grid-row:auto}.resume-card .resume-continue{border-top:0}}
-@media(max-width:760px){.overview-score{padding:10px 19px}.overview-score strong{font-size:19px}}
-@media(max-width:520px){.number-preference{align-items:flex-start}.number-setting{margin-top:2px}}
-
 @media(max-width:760px){.restore-card-actions{grid-column:1/-1;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.restore-card-actions button{width:100%}}
-
-@media(max-width:760px){.custom-random-count{grid-template-columns:1fr}.custom-random-count label{grid-template-columns:auto 1fr}.custom-random-count .filter-error{grid-column:auto}}
-
 @media(max-width:760px){.select-preference,.goal-preference{align-items:flex-start;flex-direction:column}.select-preference select{width:100%}.goal-preference>span{width:100%;display:grid;grid-template-columns:1fr 1fr}.goal-preference>span label{min-width:0}.practice-actions.submitted .retry-question{grid-column:1 / -1;grid-row:1}.practice-actions.submitted .retry-question~.practice-next{grid-row:2}.practice-actions.submitted.with-retry .practice-previous{grid-row:2}.search-home-query{padding-left:13px}.search-home-query .search-filter-toggle{font-size:0;padding:9px}.latex-formula.block{text-align:left}}
-
 @media(max-width:760px){.desktop-shortcut-settings,.sidebar nav .desktop-sync-nav{display:none!important}.top-sync-progress{left:0;top:calc(67px + env(safe-area-inset-top));padding:7px 16px 8px}.dialog-progress{margin-top:14px}}
-
 @media(max-width:760px){.restore-card>button{grid-column:1/-1;width:100%}.quick-restore-dialog>div{padding-bottom:24px}}
-
-@media(max-width:920px){.group-workspace{grid-template-columns:1fr}.group-editor{position:static}.result-score{grid-template-columns:150px 1fr}}
-
-@media(max-width:760px){.practice-hub-tabs{margin-top:-8px}.practice-history-card{padding:18px}.history-open{padding:13px}.history-open.has-actions{padding-right:86px}.run-result>header{margin:0 -15px;border-radius:0}.result-score{margin:0 -15px;padding:18px 15px;grid-template-columns:110px 1fr}.result-score>div:first-child strong{font-size:43px}.result-actions{margin:0 -15px;display:grid;grid-template-columns:1fr 1fr}.result-actions button{justify-content:center}.result-question-groups{margin:0 -5px}.group-editor,.group-list{margin:0 -5px;padding:16px}.group-fields{grid-template-columns:1fr}.group-description{grid-column:auto}.group-items article{grid-template-columns:auto auto minmax(0,1fr) auto}.group-remove{grid-column:4;justify-self:end}.group-list article>footer{flex-wrap:wrap}.group-list article>footer .danger-button{margin-left:0}}
-
-@media(max-width:760px){.latest-practice-banner{padding:22px;align-items:flex-start}.latest-practice-banner h2{padding-right:72px;font-size:24px}.latest-practice-score{position:absolute;right:18px;top:18px;min-width:66px;min-height:66px;border-radius:18px}.latest-practice-score strong{font-size:25px}.latest-practice-score span{display:none}.latest-practice-progress{padding-right:0;flex-wrap:wrap;gap:7px 11px}.latest-practice-progress i{width:100%;order:-1}.latest-practice-actions{flex-wrap:wrap}.latest-practice-actions button{flex:1;justify-content:center;white-space:nowrap}.latest-practice-actions .latest-practice-abandon{flex:0 0 39px}}
-
-@media(max-width:430px){.result-score{grid-template-columns:1fr}.result-score>div:first-child{padding-bottom:15px;border-right:0;border-bottom:1px solid #e1ded7}.result-actions{grid-template-columns:1fr}.group-list article>header{grid-template-columns:auto minmax(0,1fr)}.group-list header>strong{grid-column:2}}
-
+@media(max-width:430px){.result-score{grid-template-columns:1fr}.result-score>div:first-child{padding-bottom:15px;border-right:0;border-bottom:1px solid #e1ded7}}
 @media(max-width:760px){.question-meta .question-meta-copy,.question-meta .favorite-question{margin-left:0}}
-
 @media(max-width:760px){.bank-progress-side{grid-column:1/-1;padding:13px 0 0;border-left:0;border-top:1px solid #ffffff26}}
-
 @media(max-width:760px){
   html,body,#root{width:100%;height:var(--app-viewport-height);min-height:0;overflow:hidden;overscroll-behavior:none}
   body{position:static;touch-action:pan-y;background:var(--color-canvas)}
@@ -71,73 +43,14 @@
   .search-question-detail{width:100%;height:min(92dvh,900px);border-radius:22px 22px 0 0;overflow:hidden}
   .search-question-detail>footer{padding-bottom:calc(15px + var(--app-safe-bottom))}
 }
-
-@media(max-width:460px){.quick-sync-split .quick-sync{min-width:52px;padding-right:6px}.quick-sync-split .sync-pill.quick-sync .quick-sync-label{display:none}.sync-queue-trigger{min-width:45px;padding:0 7px}}
-
-@media(max-width:460px){
-  .searchbox .quick-search-scope.app-select-trigger{width:58px;gap:4px;padding-left:7px}
-  .searchbox input::placeholder{font-size:13px}
-  .topbar .quick-sync-split{width:99px;min-width:0;flex:0 0 99px;margin-left:0;opacity:1;transform:translateX(0) scale(1);transform-origin:right center;transition:width .3s cubic-bezier(.22,1,.36,1),flex-basis .3s cubic-bezier(.22,1,.36,1),margin-left .3s cubic-bezier(.22,1,.36,1),opacity .18s ease,transform .3s cubic-bezier(.22,1,.36,1),border-color .18s ease;will-change:width,transform,opacity}
-  .topbar:has(.searchbox input:focus) .quick-sync-split{width:0;flex-basis:0;margin-left:-8px;border-width:0;border-color:transparent;opacity:0;transform:translateX(12px) scale(.92);pointer-events:none}
-}
-
 @media(max-width:760px) and (prefers-reduced-motion:reduce){.mobile-tabbar button,.practice-actions button{transition:none}}
-
-@media(max-width:460px) and (prefers-reduced-motion:reduce){.topbar .quick-sync-split{transition:none}}
-
 @media(max-width:390px){.practice-content .practice-actions{left:14px;right:14px}}
-
-/* iOS Safari zooms focused form controls whose computed font size is below 16px. */
 @media(max-width:760px){
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),textarea,select{font-size:16px!important}
 }
-
-@media(max-width:520px){.theme-setting{grid-template-columns:1fr}.theme-setting button{min-height:70px}}
-@media(max-width:760px){.shortcut-option-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.shortcut-navigation-grid{grid-template-columns:1fr}.keyboard-hint{display:none}}
-
-@media(max-width:760px){.mobile-question-transition{display:contents}}
-
-@media(prefers-reduced-motion:reduce){.app-shell.transition-slide .practice-content .practice-layout{animation:none}}
-
-@media(max-width:760px){.calculation-answer{grid-template-columns:1fr}.calculation-answer input{grid-row:auto;grid-column:auto;width:100%;text-align:left}.version-card dl>div{align-items:flex-start;flex-direction:column;gap:5px}.version-card dd{text-align:left}}
-
-@media(max-width:760px){.calculation-inline-input{width:min(118px,38vw);min-height:40px}.calculation-answer.fallback-grid{grid-template-columns:1fr}.calculation-answer-editor>div:nth-child(2){grid-template-columns:1fr}}
-
-@media(max-width:760px){.shortcut-binding-row{grid-template-columns:1fr;gap:9px}.shortcut-binding-values{justify-content:flex-start}}
-
-@media(min-width:761px){.preferences-view>.desktop-shortcut-settings{display:contents}}
-
-@media(max-width:760px){
-  .preferences-view{gap:12px}
-  .preferences-view>.preference-card,.preferences-view>.desktop-shortcut-settings>.preference-card{padding:17px;border-radius:16px}
-  .preferences-view .settings-title{margin-bottom:14px;gap:10px}
-  .preferences-view .settings-title>span{width:38px;height:38px;border-radius:11px}
-  .preferences-view .settings-title h2{font-size:16px}
-  .preferences-view .settings-title p{font-size:10px;line-height:1.45}
-  .preferences-view .preference-row{gap:12px;padding:15px 0}
-  .preferences-view .preference-row strong{font-size:13px}
-  .preferences-view .preference-row p{font-size:11px;line-height:1.45}
-  .preferences-view .image-cache-actions{margin-top:14px;padding-top:12px}
-  .preferences-view .image-cache-buttons{width:100%}
-  .preferences-view .image-cache-buttons button{flex:1}
-}
-
-@media(max-width:430px){
-  .preferences-view .theme-setting{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
-  .preferences-view .theme-setting button{min-height:96px;padding:10px;grid-template-columns:1fr;grid-template-rows:auto auto auto;align-items:start;gap:4px}
-  .preferences-view .theme-setting button>span{grid-row:auto;width:30px;height:30px}
-  .preferences-view .theme-setting button strong{font-size:11px}
-  .preferences-view .theme-setting button small{font-size:8px;line-height:1.3}
-  .preferences-view .number-setting{min-width:100px;min-height:40px}
-  .preferences-view .number-setting input{width:67px;min-height:38px}
-  .preferences-view .goal-preference>span{width:100%;gap:6px}
-  .preferences-view .goal-preference>span label{min-width:0;flex:1;min-height:40px}
-}
-
+@media(max-width:760px){.version-card dl>div{align-items:flex-start;flex-direction:column;gap:5px}.version-card dd{text-align:left}}
 @media(max-width:760px){.sync-readiness{margin-top:-4px}.clear-data-card{margin-top:24px}}
-
 @media(max-width:760px){.history-sync-range-controls{grid-column:1/-1;width:100%;align-items:stretch;flex-direction:column}.history-sync-range-controls label{width:100%}.history-sync-range-controls button{width:100%}}
-
 @media(max-width:760px){
   .daily-practice>div{width:100%}
   .daily-practice>div>div{width:100%}
