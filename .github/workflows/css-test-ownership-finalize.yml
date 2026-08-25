@@ -1,0 +1,71 @@
+name: CSS Test Ownership Finalize
+
+on:
+  push:
+    branches: [refactor/search-residual-ownership]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[css-test-finalized]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/search-residual-ownership
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Update CSS source-shape ownership tests
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('scripts/tests/test-note-markdown.ts')
+          s = p.read_text()
+
+          old_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
+          const styles = (await Promise.all((await readdir(stylesRoot))
+            .filter((file) => file.endsWith(".css"))
+            .sort()
+            .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
+          new_scan = '''const appStylesRoot = new URL("../../src/app/", import.meta.url);
+          const cssFiles = (await readdir(appStylesRoot, { recursive: true }))
+            .filter((file) => file.endsWith(".css"))
+            .sort();
+          const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
+          if old_scan not in s:
+              raise SystemExit('legacy styles-only scan block not found')
+          s = s.replace(old_scan, new_scan, 1)
+
+          old_dark = '''// --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
+          // 夜间 input 规则强制深色底；搜索类输入框必须显式补 transparent!important。
+          assert.match(
+            styles,
+            /html\\[data-theme="dark"\\] :is\\([^)]*\\.searchbox input[^)]*\\.search-home-query input[^)]*\\)\\{background:transparent!important\\}/,
+            "夜间模式搜索类 input 保持透明底（容器/input 无色差）",
+          );'''.replace('          ', '')
+          new_dark = '''// --- 防回退：夜间通用 input 允许 feature 自己声明透明背景 --------------------
+          // 通用 dark form compatibility 保留 !important，但背景值通过继承 custom property
+          // 暴露给 feature；Search 在自己的容器上声明 transparent，不回到集中 dark patch。
+          assert.match(styles, /background:var\\(--dark-input-bg,var\\(--p-111813\\)\\)!important/, "夜间通用 input 背景支持 feature override");
+          assert.match(styles, /\\.searchbox \\{[^}]*--dark-input-bg:transparent/, "快速搜索在 Search ownership 内声明透明夜间输入背景");
+          assert.match(styles, /\\.search-home-query \\{[^}]*--dark-input-bg:transparent/, "搜索页主输入框在 Search ownership 内声明透明夜间输入背景");
+          assert.doesNotMatch(styles, /html\\[data-theme="dark"\\][^{]*(?:\\.searchbox input|\\.search-home-query input)/, "Search 不得重新引入集中式 dark input patch");'''.replace('          ', '')
+          if old_dark not in s:
+              raise SystemExit('legacy centralized Search dark-input assertion not found')
+          s = s.replace(old_dark, new_dark, 1)
+          p.write_text(s)
+      - run: npm run test:fast
+      - name: Commit final ownership-aware tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/tests/test-note-markdown.ts
+          git commit -m "test(css): follow final feature ownership [css-test-finalized]"
+          git push origin HEAD:refactor/search-residual-ownership
