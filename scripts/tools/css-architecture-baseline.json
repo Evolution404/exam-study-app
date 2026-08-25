@@ -1,5 +1,5 @@
 {
-  "totalBytes": 264432,
+  "totalBytes": 264406,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
@@ -111,7 +111,7 @@
       "important": 0
     },
     "src/app/styles/responsive.css": {
-      "bytes": 11425,
+      "bytes": 12464,
       "hexColors": 15,
       "darkSelectors": 0,
       "important": 3
@@ -160,12 +160,6 @@
     },
     "src/app/shell/preferences-responsive.css": {
       "bytes": 2157,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/shell/shell-responsive.css": {
-      "bytes": 1065,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0

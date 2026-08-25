@@ -2,7 +2,6 @@
 @import "../bank/bank-responsive.css";
 @import "../practice/practice-responsive.css";
 @import "../shell/preferences-responsive.css";
-@import "../shell/shell-responsive.css";
 @media(hover:hover) and (pointer:fine){.options button:hover{border-color:#9ab0a3}}
 @media(max-width:1000px){.stat-grid{grid-template-columns:repeat(2,1fr)}.library-grid,.topic-grid{grid-template-columns:repeat(2,1fr)}.practice-layout{grid-template-columns:1fr}.note-panel{order:2}.settings-grid{grid-template-columns:1fr}.hero-grid{grid-template-columns:1fr}.quote-card{min-height:180px}.mode-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:760px){.searchbox{flex:1;width:auto}.page-heading,.page-heading.compact{align-items:flex-start;flex-direction:column}.bank-picker select{width:100%}.page-heading .primary{width:100%}.resume-card{margin-top:-18px;align-items:flex-start}.focus-card{padding:27px}.progress-orbit{width:88px;height:88px}.stat-grid,.library-grid,.topic-grid{grid-template-columns:1fr}.bank-row{grid-template-columns:auto 1fr auto}.bank-row>.bank-ready{display:none}.practice-setup-card{padding:19px}.mode-grid{grid-template-columns:repeat(2,1fr)}.question-body{padding:28px 20px}.practice-actions{padding:13px 16px;align-items:stretch}.practice-actions>div{flex-wrap:wrap;justify-content:flex-end}.answer-action-hint{font-size:11px}.preference-card{padding:21px}.preference-row{gap:15px}.field-row{grid-template-columns:1fr}.editor-backdrop{padding:10px}.question-editor{max-height:calc(100vh - 20px)}.toast{left:18px;right:18px;top:76px}}
@@ -43,7 +42,15 @@
   .search-question-detail{width:100%;height:min(92dvh,900px);border-radius:22px 22px 0 0;overflow:hidden}
   .search-question-detail>footer{padding-bottom:calc(15px + var(--app-safe-bottom))}
 }
+@media(max-width:460px){.quick-sync-split .quick-sync{min-width:52px;padding-right:6px}.quick-sync-split .sync-pill.quick-sync .quick-sync-label{display:none}.sync-queue-trigger{min-width:45px;padding:0 7px}}
+@media(max-width:460px){
+  .searchbox .quick-search-scope.app-select-trigger{width:58px;gap:4px;padding-left:7px}
+  .searchbox input::placeholder{font-size:13px}
+  .topbar .quick-sync-split{width:99px;min-width:0;flex:0 0 99px;margin-left:0;opacity:1;transform:translateX(0) scale(1);transform-origin:right center;transition:width .3s cubic-bezier(.22,1,.36,1),flex-basis .3s cubic-bezier(.22,1,.36,1),margin-left .3s cubic-bezier(.22,1,.36,1),opacity .18s ease,transform .3s cubic-bezier(.22,1,.36,1),border-color .18s ease;will-change:width,transform,opacity}
+  .topbar:has(.searchbox input:focus) .quick-sync-split{width:0;flex-basis:0;margin-left:-8px;border-width:0;border-color:transparent;opacity:0;transform:translateX(12px) scale(.92);pointer-events:none}
+}
 @media(max-width:760px) and (prefers-reduced-motion:reduce){.mobile-tabbar button,.practice-actions button{transition:none}}
+@media(max-width:460px) and (prefers-reduced-motion:reduce){.topbar .quick-sync-split{transition:none}}
 @media(max-width:390px){.practice-content .practice-actions{left:14px;right:14px}}
 @media(max-width:760px){
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),textarea,select{font-size:16px!important}
