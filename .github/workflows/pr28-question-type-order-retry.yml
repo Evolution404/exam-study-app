@@ -1,0 +1,56 @@
+name: PR28 Question Type Order Retry
+
+on:
+  push:
+    branches:
+      - fix/unify-question-type-order
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/unify-question-type-order
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply staged refactor and update legacy order assertion
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/pr28-question-type-order.yml').read_text()
+          block = workflow.split("python3 <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+          code = "\n".join(line[10:] if line.startswith("          ") else line for line in block.splitlines())
+          exec(compile(code, 'pr28-staged-refactor.py', 'exec'), {})
+
+          path = Path('scripts/tests/test-search-filters.ts')
+          text = path.read_text()
+          old = 'assert.match(questionManagerSource, /options=\\{\\["全部", "单选", "多选", "判断", "填空", "简答", "计算"\\]/, "题库管理题型筛选必须覆盖全部正式 QuestionType，包含填空和简答");'
+          new = 'assert.match(questionManagerSource, /options=\\{\\["全部", \\.\\.\\.QUESTION_TYPE_ORDER\\]\\.map/, "题库管理题型筛选必须复用统一 QuestionType 顺序");'
+          if old not in text:
+              raise SystemExit('legacy question-manager order assertion not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Fast checks
+        run: npm run test:fast
+      - name: Production build
+        run: npm run build
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          rm .github/workflows/pr28-question-type-order.yml
+          rm .github/workflows/pr28-question-type-order-retry.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src scripts/tests .github/workflows/pr28-question-type-order.yml .github/workflows/pr28-question-type-order-retry.yml
+          git commit -m "fix: unify question type order"
+          git push origin HEAD:fix/unify-question-type-order
