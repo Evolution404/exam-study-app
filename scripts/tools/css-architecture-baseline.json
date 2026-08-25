@@ -1,8 +1,8 @@
 {
-  "totalBytes": 265709,
+  "totalBytes": 265429,
   "maxFileBytes": 43567,
-  "nonTokenHexColors": 909,
-  "totalDebtScore": 300868,
+  "nonTokenHexColors": 903,
+  "totalDebtScore": 300140,
   "files": {
     "src/app/globals.css": {"bytes":35,"hexColors":0,"darkSelectors":0,"important":0},
     "src/app/bank/bank-responsive.css": {"bytes":6543,"hexColors":0,"darkSelectors":0,"important":0},
@@ -14,7 +14,7 @@
     "src/app/styles/components.css": {"bytes":618,"hexColors":0,"darkSelectors":0,"important":0},
     "src/app/styles/content-blocks.css": {"bytes":7443,"hexColors":0,"darkSelectors":0,"important":0},
     "src/app/styles/controls.css": {"bytes":3794,"hexColors":0,"darkSelectors":0,"important":0},
-    "src/app/styles/dark-overrides.css": {"bytes":19356,"hexColors":297,"darkSelectors":164,"important":6},
+    "src/app/styles/dark-overrides.css": {"bytes":19076,"hexColors":291,"darkSelectors":160,"important":6},
     "src/app/styles/dashboard.css": {"bytes":7668,"hexColors":24,"darkSelectors":0,"important":1},
     "src/app/styles/hint.css": {"bytes":458,"hexColors":0,"darkSelectors":0,"important":0},
     "src/app/styles/practice-setup.css": {"bytes":8688,"hexColors":0,"darkSelectors":0,"important":0},
