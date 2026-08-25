@@ -26,22 +26,23 @@ jobs:
         run: |
           from pathlib import Path
 
+          recursive_scan = '''const appStylesRoot = new URL("../../src/app/", import.meta.url);
+          const cssFiles = (await readdir(appStylesRoot, { recursive: true }))
+            .filter((file) => file.endsWith(".css"))
+            .sort();
+          const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
+
+          # note-markdown: scan all feature-owned CSS and stop asserting centralized Search dark patches.
           p = Path('scripts/tests/test-note-markdown.ts')
           s = p.read_text()
-
           old_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
           const styles = (await Promise.all((await readdir(stylesRoot))
             .filter((file) => file.endsWith(".css"))
             .sort()
             .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
-          new_scan = '''const appStylesRoot = new URL("../../src/app/", import.meta.url);
-          const cssFiles = (await readdir(appStylesRoot, { recursive: true }))
-            .filter((file) => file.endsWith(".css"))
-            .sort();
-          const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
           if old_scan not in s:
-              raise SystemExit('legacy styles-only scan block not found')
-          s = s.replace(old_scan, new_scan, 1)
+              raise SystemExit('note-markdown legacy styles-only scan block not found')
+          s = s.replace(old_scan, recursive_scan, 1)
 
           old_dark = '''// --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
           // 夜间 input 规则强制深色底；搜索类输入框必须显式补 transparent!important。
@@ -60,12 +61,32 @@ jobs:
           if old_dark not in s:
               raise SystemExit('legacy centralized Search dark-input assertion not found')
           s = s.replace(old_dark, new_dark, 1)
+          s = s.replace('/\\.search-home-query \\{ position:sticky; top:0; z-index:19/', '/\\.search-home-query \\{[^}]*position:sticky; top:0; z-index:19/')
+          s = s.replace('/\\.search-home-query \\{ position:sticky; top:0; z-index:19; min-height:var\\(--search-query-h\\);[^}]*border-radius:15px/', '/\\.search-home-query \\{[^}]*position:sticky; top:0; z-index:19; min-height:var\\(--search-query-h\\);[^}]*border-radius:15px/')
+          p.write_text(s)
+
+          # press-intent: scan all feature-owned CSS and lock danger semantics, not a historic literal color shape.
+          p = Path('scripts/tests/test-press-intent.ts')
+          s = p.read_text()
+          old_press_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
+          const styles = (await Promise.all((await readdir(stylesRoot))
+            .filter((file) => file.endsWith(".css"))
+            .sort()
+            .map((file) => readFile(new URL(file, stylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
+          if old_press_scan not in s:
+              raise SystemExit('press-intent legacy styles-only scan block not found')
+          s = s.replace(old_press_scan, recursive_scan, 1)
+          old_assert = 'assert.match(styles, /\\.quick-sync-split \\.quick-sync\\.holding\\{color:var\\(--p-fff\\);background:var\\(--color-danger\\)\\}/, "holding the quick-sync button uses the tokenized white-on-danger surface");'
+          new_assert = 'assert.match(styles, /\\.quick-sync\\.holding\\s*\\{[^}]*color:var\\(--color-danger\\)[^}]*background:var\\(--color-danger-soft\\)/, "holding the quick-sync button uses the semantic danger state");'
+          if old_assert not in s:
+              raise SystemExit('press-intent old tokenized white-on-danger assertion not found')
+          s = s.replace(old_assert, new_assert, 1)
           p.write_text(s)
       - run: npm run test:fast
       - name: Commit final ownership-aware tests
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/tests/test-note-markdown.ts
+          git add scripts/tests/test-note-markdown.ts scripts/tests/test-press-intent.ts
           git commit -m "test(css): follow final feature ownership [css-test-finalized]"
           git push origin HEAD:refactor/search-residual-ownership
