@@ -195,3 +195,18 @@
 .overview-legend i.wrong{border-color:var(--overview-legend-wrong-border);background:var(--overview-legend-wrong-bg)}
 .overview-legend i.pending{border-color:var(--overview-legend-pending-border);background:var(--overview-legend-pending-bg)}
 .overview-empty{border-color:var(--overview-empty-border);color:var(--overview-empty-text);background:var(--overview-empty-bg)}
+
+/* Practice owns history control colors while legacy structure remains shared. */
+.history-filters button{border-color:var(--history-filter-border);color:var(--history-filter-text);background:var(--history-filter-bg)}
+.history-filters button span{color:var(--history-filter-count-text);background:var(--history-filter-count-bg)}
+.history-filters button.active{border-color:var(--history-filter-active-border);color:var(--history-filter-active-text);background:var(--history-filter-active-bg)}
+.history-swipe-content{background:var(--history-swipe-bg)}
+.history-card-actions button{border-color:var(--history-action-border);color:var(--history-action-text);background:var(--history-action-bg)}
+.history-card-actions .abandon{border-color:var(--history-abandon-border);color:var(--history-abandon-text);background:var(--history-abandon-bg)}
+.run-status.in_progress{color:var(--history-status-progress-text);background:var(--history-status-progress-bg)}
+.run-status.completed{color:var(--history-status-completed-text);background:var(--history-status-completed-bg)}
+.run-status.abandoned{color:var(--history-status-abandoned-text);background:var(--history-status-abandoned-bg)}
+.run-result>header .run-status.in_progress{color:var(--history-header-progress-text);background:var(--history-header-progress-bg)}
+.run-result>header .run-status.completed{color:var(--history-header-completed-text);background:var(--history-header-completed-bg)}
+.run-result>header .run-status.abandoned{color:var(--history-header-abandoned-text);background:var(--history-header-abandoned-bg)}
+.run-result>header{background:var(--run-result-header-bg)}
