@@ -13,8 +13,6 @@ const write = (p, s) => { const f = path.join(root, p); fs.mkdirSync(path.dirnam
 // remove local !important debt, and physically move the stylesheet next to Search.
 let search = read("src/app/styles/search.css");
 search = search
-  .replace("background:var(--search-results-bg); box-shadow:0 22px 55px var(--search-results-shadow);", "background:var(--search-results-bg); box-shadow:0 22px 55px var(--search-results-shadow);")
-  .replace(".search-results>header { padding:13px 15px; border-bottom:1px solid var(--search-results-divider); display:flex;", ".search-results>header { padding:13px 15px; border-bottom:1px solid var(--search-results-divider); display:flex;")
   .replace(".search-results>header span { color:var(--color-text-muted); font-size:10px; }", ".search-results>header span { color:var(--color-text-muted); font-size:10px; }\n.search-results>header { background:var(--search-results-header-bg); }")
   .replace(".search-results>div { max-height:450px; overflow:auto; }", ".search-results>div { max-height:450px; overflow:auto; background:var(--search-results-body-bg); }")
   .replace("border-bottom:1px solid var(--search-result-divider); display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:11px; text-align:left; color:var(--color-text); background:var(--search-results-bg); cursor:pointer;", "border-bottom:1px solid var(--search-result-item-border); display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:11px; text-align:left; color:var(--color-text); background:var(--search-result-item-bg); cursor:pointer;")
@@ -107,7 +105,7 @@ checker = checker
   .replace('  "./theme-tokens.css",\n', '  "./theme-tokens.css",\n  "./palette-tokens.css",\n')
   .replace('  "./search.css",\n', '  "../search/search.css",\n')
   .replace('  "./bank.css",\n', '  "./bank.css",\n  "../bank/bank-knowledge.css",\n')
-  .replace('  "src/app/styles/theme-tokens.css",\n', '  "src/app/styles/theme-tokens.css",\n  "src/app/styles/palette-tokens.css",\n');
+  .replace('const tokenFileRelatives = new Set([\n  "src/app/styles/theme-tokens.css",', 'const tokenFileRelatives = new Set([\n  "src/app/styles/theme-tokens.css",\n  "src/app/styles/palette-tokens.css",');
 write("scripts/tools/check-css-architecture.mjs", checker);
 
 // Preserve the historical budget across the physical Search move so the checker
