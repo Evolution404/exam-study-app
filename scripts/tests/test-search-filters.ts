@@ -38,6 +38,7 @@ const preferencesViewSource = [
 const tagMultiSelectSource = fs.readFileSync(new URL("../../src/app/ui/tag-multi-select.tsx", import.meta.url), "utf8");
 const practiceSetupSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
 const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");
+const questionDetailSource = fs.readFileSync(new URL("../../src/app/bank/question-detail.tsx", import.meta.url), "utf8");
 const practiceViewSource = fs.readFileSync(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
 const searchWorkerSource = fs.readFileSync(new URL("../../src/app/search/search-worker.ts", import.meta.url), "utf8");
 
@@ -105,6 +106,10 @@ assert.match(componentStyles, /\.short-reference\{[^}]*background:var\(--color-p
 assert.match(componentStyles, /\.short-grade-actions\{[^}]*display:flex[^}]*flex-wrap:wrap/, "简答自评按钮必须有稳定布局而不是浏览器默认堆叠");
 assert.match(practiceViewSource, /question\.type === "简答" \? <><strong>\{shortOutcome === "correct"/, "简答提交结果必须走自评专用摘要");
 assert.match(practiceViewSource, /本题按自评记录，参考答案见上方。/, "简答结果框不得重复整段参考答案");
+assert.doesNotMatch(questionDetailSource, /<strong>正确答案：\{answerText\(question\)\}<\/strong>/, "题目详情不得把正确答案正文同时塞进标题和正文");
+assert.match(questionDetailSource, /detailSolution\.kind !== "short" && <section className="search-answer-card"><strong>正确答案<\/strong><p><MathText text=\{answerText\(question\)\}/, "非简答题详情必须只用一个正确答案标题和一份正文");
+assert.match(questionDetailSource, /detailSolution\.kind === "short" && <section className="search-answer-card"><strong>参考答案<\/strong><p>\{detailSolution\.referenceText\}<\/p>/, "简答题详情必须只保留一个参考答案卡片");
+assert.equal((questionDetailSource.match(/answerText\(question\)/g) ?? []).length, 1, "题目详情标准答案正文只能渲染一次");
 assert.match(tagMultiSelectSource, /placeholder="搜索标签"/, "标签多选组件必须提供标签搜索输入框");
 assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
 assert.match(componentStyles, /\.searchbox \.quick-search-scope\.app-select-trigger\{width:58px;gap:4px;padding-left:7px\}/, "手机顶栏搜索范围下拉框必须按两字标签收紧");
