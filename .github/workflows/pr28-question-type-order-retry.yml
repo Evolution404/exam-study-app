@@ -21,7 +21,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Apply staged refactor and update legacy order assertion
+      - name: Apply staged refactor and update all legacy order assertions
         shell: bash
         run: |
           python3 <<'PY'
@@ -39,6 +39,16 @@ jobs:
           if old not in text:
               raise SystemExit('legacy question-manager order assertion not found')
           path.write_text(text.replace(old, new, 1))
+
+          path = Path('src/lib/io/xlsx-import.ts')
+          text = path.read_text()
+          old_import = 'import type { QuestionType } from "../../types/types";'
+          new_import = 'import { QUESTION_TYPE_ORDER, type QuestionType } from "../../types/types";'
+          old_types = 'const type = (["单选", "多选", "判断", "计算", "填空", "简答"] as const).find((item) => item === typeText);'
+          new_types = 'const type = QUESTION_TYPE_ORDER.find((item) => item === typeText);'
+          if old_import not in text or old_types not in text:
+              raise SystemExit('xlsx question type literals not found')
+          path.write_text(text.replace(old_import, new_import, 1).replace(old_types, new_types, 1))
           PY
       - name: Fast checks
         run: npm run test:fast
