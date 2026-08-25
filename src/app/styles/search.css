@@ -77,55 +77,55 @@
 .search-history>div { margin-top:10px; display:flex; flex-wrap:wrap; gap:7px; }
 .search-history>div button { border:1px solid var(--color-border); border-radius:99px; padding:6px 10px; color:var(--color-text); background:var(--color-surface-raised); cursor:pointer; font-size:12px; }
 
-.search-detail-backdrop { position:fixed; inset:0; z-index:85; display:flex; justify-content:flex-end; background:#13231b66; backdrop-filter:blur(3px); }
-.search-question-detail { width:min(620px,90vw); height:100%; display:flex; flex-direction:column; background:#faf9f5; box-shadow:-20px 0 70px #0e1f1738; }
+.search-detail-backdrop { position:fixed; inset:0; z-index:85; display:flex; justify-content:flex-end; background:var(--search-backdrop); backdrop-filter:blur(3px); }
+.search-question-detail { width:min(620px,90vw); height:100%; display:flex; flex-direction:column; background:var(--search-detail-bg); box-shadow:-20px 0 70px var(--search-detail-shadow); }
 .search-question-detail>header { padding:20px 23px; border-bottom:1px solid var(--color-border); display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .search-question-detail>header h2 { margin:5px 0 0; font-size:15px; }
 .search-detail-body { flex:1; overflow:auto; padding:25px 25px 35px; }
 .search-detail-body>.content-block-renderer { margin:0 0 21px; font:500 clamp(21px,3vw,29px)/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .search-detail-body>ol { list-style:none; padding:0; display:grid; gap:8px; }
-.search-detail-body>ol>li { min-height:48px; border:1px solid #dedbd3; border-radius:11px; padding:9px 12px; display:flex; align-items:center; gap:11px; background:#fff; font-size:15px; line-height:1.6; }
-.search-detail-body>ol>li>span { width:28px; height:28px; flex:none; border-radius:8px; display:grid; place-items:center; background:#efede7; font-weight:700; }
-.search-detail-body>ol>li.answer { border-color:#70a084; background:#edf7f0; }
-.search-detail-body>ol>li.answer>span { color:#fff; background:#3e7057; }
+.search-detail-body>ol>li { min-height:48px; border:1px solid var(--search-detail-option-border); border-radius:11px; padding:9px 12px; display:flex; align-items:center; gap:11px; background:var(--search-detail-option-bg); font-size:15px; line-height:1.6; }
+.search-detail-body>ol>li>span { width:28px; height:28px; flex:none; border-radius:8px; display:grid; place-items:center; background:var(--search-detail-key-bg); font-weight:700; }
+.search-detail-body>ol>li.answer { border-color:var(--search-detail-answer-border); background:var(--search-detail-answer-bg); }
+.search-detail-body>ol>li.answer>span { color:white; background:var(--search-detail-answer-key-bg); }
 .search-detail-body>ol>li svg { margin-left:auto; }
-.search-answer-card,.search-detail-note { margin-top:15px; padding:15px; border-radius:12px; background:#e8f2eb; }
-.search-answer-card p,.search-detail-note p { margin:6px 0 0; color:#5e6f65; font-size:11px; line-height:1.7; }
+.search-answer-card,.search-detail-note { margin-top:15px; padding:15px; border-radius:12px; background:var(--search-answer-bg); }
+.search-answer-card p,.search-detail-note p { margin:6px 0 0; color:var(--search-detail-copy); font-size:11px; line-height:1.7; }
 .search-detail-metrics { margin-top:12px; display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
-.search-detail-metrics span { padding:10px; border:1px solid #dfdcd5; border-radius:10px; display:grid; color:#7d857f; background:#fff; font-size:9px; }
+.search-detail-metrics span { padding:10px; border:1px solid var(--search-detail-metric-border); border-radius:10px; display:grid; color:var(--search-detail-metric-text); background:var(--search-detail-metric-bg); font-size:9px; }
 .search-detail-metrics strong { color:var(--color-text); font:600 20px Georgia,serif; }
-.search-detail-note { background:#f0ede6; }
+.search-detail-note { background:var(--search-detail-note-bg); }
 .search-detail-tags { margin-top:13px; display:flex; flex-wrap:wrap; gap:6px; }
-.search-detail-tags span { padding:5px 8px; border-radius:99px; color:#52655a; background:#e5e9e5; font-size:10px; }
+.search-detail-tags span { padding:5px 8px; border-radius:99px; color:var(--search-detail-tag-text); background:var(--search-detail-tag-bg); font-size:10px; }
 .search-question-detail>footer { padding:15px 20px; border-top:1px solid var(--color-border); display:grid; gap:8px; }
 .search-detail-actions,.search-detail-nav { display:flex; align-items:center; gap:8px; }
 .search-detail-position { display:flex; align-items:center; justify-content:center; }
-.search-detail-count { flex:none; padding:0 2px; color:#7d857f; font:600 13px Georgia,serif; white-space:nowrap; }
+.search-detail-count { flex:none; padding:0 2px; color:var(--search-detail-metric-text); font:600 13px Georgia,serif; white-space:nowrap; }
 .search-question-detail>footer button { min-height:42px; border:1px solid var(--color-border); border-radius:10px; padding:8px 14px; display:flex; align-items:center; justify-content:center; gap:6px; color:var(--color-text); background:var(--color-surface-raised); cursor:pointer; flex:1; }
 .search-question-detail>footer .primary { border:0; color:white; background:var(--color-primary); }
 
-.search-practice-backdrop { position:fixed; inset:0; z-index:100; padding:20px; display:grid; place-items:center; overscroll-behavior:contain; background:#13231b99; backdrop-filter:blur(5px); }
-.search-practice-dialog { width:min(560px,100%); max-height:calc(100dvh - 40px); border-radius:19px; overflow:hidden; display:flex; flex-direction:column; background:#faf9f5; box-shadow:0 28px 85px #0c1d154a; }
+.search-practice-backdrop { position:fixed; inset:0; z-index:100; padding:20px; display:grid; place-items:center; overscroll-behavior:contain; background:var(--search-practice-backdrop); backdrop-filter:blur(5px); }
+.search-practice-dialog { width:min(560px,100%); max-height:calc(100dvh - 40px); border-radius:19px; overflow:hidden; display:flex; flex-direction:column; background:var(--search-detail-bg); box-shadow:0 28px 85px var(--search-practice-shadow); }
 .search-practice-dialog>header { flex:none; padding:20px 22px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:flex-start; }
 .search-practice-dialog h2 { margin:5px 0 0; font:600 25px Georgia,"Noto Serif SC",serif; }
 .search-practice-dialog>div { flex:1; min-height:0; padding:21px 22px; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; display:grid; gap:15px; }
-.search-practice-dialog>div>p { margin:0; color:#68726c; font-size:11px; line-height:1.65; }
-.search-dialog-toggle { padding:13px; border:1px solid #dedbd4; border-radius:11px; display:flex!important; flex-direction:row!important; align-items:center; justify-content:space-between; background:#fff; }
+.search-practice-dialog>div>p { margin:0; color:var(--search-practice-copy); font-size:11px; line-height:1.65; }
+.search-dialog-toggle { padding:13px; border:1px solid var(--search-dialog-toggle-border); border-radius:11px; display:flex!important; flex-direction:row!important; align-items:center; justify-content:space-between; background:var(--search-dialog-toggle-bg); }
 .search-dialog-toggle strong,.search-dialog-toggle small { display:block; }
 .search-dialog-toggle small { margin-top:4px; color:var(--color-text-muted); }
-.search-dialog-toggle input { width:20px; min-height:20px; accent-color:#3e7057; }
-.search-session-warning { padding:11px; border-radius:10px; display:flex; align-items:center; gap:7px; color:#8b5139!important; background:#f8e8df; }
+.search-dialog-toggle input { width:20px; min-height:20px; accent-color:var(--search-dialog-accent); }
+.search-session-warning { padding:11px; border-radius:10px; display:flex; align-items:center; gap:7px; color:var(--search-warning-text)!important; background:var(--search-warning-bg); }
 .search-practice-dialog>footer { flex:none; padding:15px 22px; border-top:1px solid var(--color-border); display:flex; justify-content:flex-end; gap:9px; }
 .question-manager-search{height:42px;border:1px solid #d8d8d1;border-radius:10px;padding:0 11px;display:flex;align-items:center;gap:8px;background:#fff}
 .question-manager-search input{width:100%;border:0;outline:0;background:transparent}
 
 
-.search-page-trigger { width:29px; height:29px; flex:none; margin-left:-8px; border:0; border-radius:8px; display:grid; place-items:center; color:#54705f; background:#e8eee9; cursor:pointer; }
-.search-page-trigger:hover,.search-page-trigger:focus-visible { color:#fff; background:#3e7057; outline:0; }
+.search-page-trigger { width:29px; height:29px; flex:none; margin-left:-8px; border:0; border-radius:8px; display:grid; place-items:center; color:var(--search-page-trigger-text); background:var(--search-page-trigger-bg); cursor:pointer; }
+.search-page-trigger:hover,.search-page-trigger:focus-visible { color:var(--search-page-trigger-hover-text); background:var(--search-page-trigger-hover-bg); outline:0; }
 
 .search-page { --search-query-h:58px; }
 
-.search-home-query { position:sticky; top:0; z-index:19; min-height:var(--search-query-h); margin:0 -18px 14px; padding:8px 9px 8px 17px; border:1px solid #cfd5d0; border-radius:15px; display:flex; align-items:center; gap:11px; color:#4c705d; background:var(--color-surface-raised); box-shadow:0 8px 28px #20362a0b; transition:border-radius .18s ease; }
+.search-home-query { position:sticky; top:0; z-index:19; min-height:var(--search-query-h); margin:0 -18px 14px; padding:8px 9px 8px 17px; border:1px solid var(--search-home-border); border-radius:15px; display:flex; align-items:center; gap:11px; color:var(--search-home-text); background:var(--color-surface-raised); box-shadow:0 8px 28px var(--search-home-shadow); transition:border-radius .18s ease; }
 
 /* 吸附（JS 给 .search-page 加状态类）：
    search-pinned：搜索框吸到视口顶部 → 上圆角压平、去上边框贴顶；下边缘保持圆角。
@@ -138,7 +138,7 @@
 .search-home-query .search-filter-toggle { min-height:40px; margin:0; white-space:nowrap; }
 .search-home-query .search-content-scope.app-select-trigger { width:94px; min-height:40px; flex:none; border-radius:9px; padding:0 9px; font-size:12px; font-weight:650; }
 
-.clear-search-dates { margin:-6px 0 15px auto; border:1px solid #d4d7d1; border-radius:9px; padding:7px 10px; display:flex; align-items:center; gap:5px; color:#875944; background:#fff8f4; cursor:pointer; font-size:10px; }
+.clear-search-dates { margin:-6px 0 15px auto; border:1px solid var(--search-clear-dates-border); border-radius:9px; padding:7px 10px; display:flex; align-items:center; gap:5px; color:var(--search-clear-dates-text); background:var(--search-clear-dates-bg); cursor:pointer; font-size:10px; }
 
 .search-filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:-3px 0 14px}
 .search-filter-chips:empty{display:none}
