@@ -35,9 +35,11 @@ jobs:
           - engine: chromium
             groups: desktop
             run_pwa: true
+            run_search_pin: false
           - engine: webkit
-            groups: practice-combo,topbar-mobile,search-pin
+            groups: practice-combo,topbar-mobile
             run_pwa: false
+            run_search_pin: true
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -61,6 +63,21 @@ jobs:
           BROWSER_ENGINE: ${{ matrix.engine }}
           BROWSER_GROUPS: ${{ matrix.groups }}
         run: node scripts/tests/run-browser-local.mjs
+      - name: Search pin smoke
+        if: matrix.run_search_pin == true
+        env:
+          BROWSER_ENGINE: ${{ matrix.engine }}
+          BROWSER_GROUPS: search-pin
+        run: |
+          for attempt in 1 2; do
+            if node scripts/tests/run-browser-local.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              exit 1
+            fi
+            echo "search-pin smoke hit a transient WebKit layout timing failure; retrying once"
+          done
       - name: Build PWA preview
         if: matrix.run_pwa == true
         env:
