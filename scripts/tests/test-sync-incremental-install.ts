@@ -1,29 +1,78 @@
 import assert from "node:assert/strict";
-import { installFingerprint, projectionNeedsInstall } from "../../src/lib/sync/github-sync-v7";
+import "fake-indexeddb/auto";
+import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
+import { installProjection } from "../../src/lib/sync/sync-v7-checkpoint-bridge";
+import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
+import type { QuestionV7 } from "../../src/lib/db/v7-types";
 
-const checkpoint = {
-  path: "sync/v9/checkpoints/base.json",
-  blobSha: "b".repeat(40),
-  sha256: "a".repeat(64),
-  size: 1024,
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: () => "device-ios-regression",
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  },
+});
+
+function question(id: string, stem: string): QuestionV7 {
+  return {
+    id,
+    type: "单选",
+    content: [{ id: `${id}-stem`, type: "text", text: stem }],
+    options: ["甲", "乙"].map((text, index) => [{ id: `${id}-opt-${index}`, type: "text", text }]),
+    answer: "A",
+    tags: [],
+    contentFingerprint: `fp-${id}`,
+    updatedAt: "2026-08-25T00:00:00.000Z",
+    deviceId: "device-a",
+  };
+}
+
+function projection(questions: QuestionV7[]): ChangeSetProjectionV7 {
+  return {
+    banks: [],
+    bankFolders: [],
+    questions,
+    memberships: [],
+    imageAssets: [],
+    attempts: [],
+    attemptStats: [],
+    attemptDailyStats: [],
+    notes: [],
+    practiceRuns: [],
+    practiceRunStats: [],
+    questionGroups: [],
+    reviewRounds: [],
+    reviewRoundProgress: [],
+    tombstones: [],
+  };
+}
+
+await resetV7Database();
+const first = question("q-1", "已有本地题目");
+const second = question("q-2", "远端仅新增的一道题");
+await dbV7.questions.put(first);
+
+let questionClearCalls = 0;
+const originalQuestionClear = dbV7.questions.clear.bind(dbV7.questions);
+dbV7.questions.clear = () => {
+  questionClearCalls += 1;
+  return originalQuestionClear();
 };
-const head = {
-  formatVersion: 9 as const,
-  vaultId: "qa/ios-sync@main",
-  generatedAt: "2026-08-25T00:00:00.000Z",
-  generation: 7,
-  metadata: { vaultId: "qa/ios-sync@main", producer: "test" },
-  checkpoint,
-  segments: [],
-  cursors: { "device-a": 100 },
-};
-const cache = { head };
-const installed = installFingerprint(cache);
 
-assert.equal(
-  projectionNeedsInstall(installed, cache, 1, 0),
-  false,
-  "ordinary unseen remote changes on the same checkpoint must use incremental local reconciliation instead of full projection restore",
-);
+try {
+  const installed = await installProjection(projection([first, second]));
+  assert.equal(installed, true, "ordinary projection update should complete");
+  assert.equal(await dbV7.questions.count(), 2, "incremental install should persist the unseen question");
+  assert.equal(
+    questionClearCalls,
+    0,
+    "existing local projection must be reconciled in place; ordinary unseen delta must not clear and rebuild the questions store",
+  );
+} finally {
+  dbV7.questions.clear = originalQuestionClear;
+  await resetV7Database();
+  dbV7.close();
+}
 
-console.log("incremental install regression reproduced: ordinary unseen delta must not trigger full projection restore");
+console.log("iOS incremental install regression test passed: ordinary delta updates projection without table.clear()");
