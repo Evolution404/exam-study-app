@@ -101,7 +101,3 @@ export type {
 export {
   reconcileV7Projection,
 } from "./db-v7-reconcile";
-export type {
-  ReconcileV7ProjectionOptions,
-  ReconcileV7ProjectionProgress,
-} from "./db-v7-reconcile";
