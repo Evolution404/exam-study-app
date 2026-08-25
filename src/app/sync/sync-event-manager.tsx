@@ -22,7 +22,8 @@ import type {
   SyncPendingChangeEdit,
   SyncQueueItem,
 } from "@/lib/sync/sync-application";
-import "@/app/styles/sync-events.css";
+import "@/app/styles/sync-events-1.css";
+import "@/app/styles/sync-events-2.css";
 
 export type SyncChangeSetStateV7 = SyncQueueItem["state"];
 export type SyncChangeSetItemV7 = SyncQueueItem;

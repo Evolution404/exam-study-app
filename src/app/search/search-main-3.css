@@ -1,0 +1,59 @@
+.search-filter-range input,.search-filter-date-range input{width:100%;min-width:0;height:38px;border:1px solid var(--color-border);border-radius:9px;padding:0 9px;color:var(--color-text);background:var(--color-surface);outline:0}
+
+.search-bank-picker-search{height:42px;border:1px solid var(--color-border);border-radius:11px;padding:0 11px;display:flex;align-items:center;gap:8px;color:var(--color-text-muted);background:var(--color-surface-muted)}
+.search-bank-picker-search input{min-width:0;flex:1;border:0;outline:0;color:var(--color-text);background:transparent}
+.search-bank-picker-list{margin-top:10px}
+.search-bank-picker-list>button{width:100%;min-height:51px;border:0;border-bottom:1px solid var(--color-border);padding:9px 4px;display:grid;grid-template-columns:minmax(0,1fr) 22px;align-items:center;gap:10px;text-align:left;color:var(--color-text);background:transparent;cursor:pointer;line-height:1.45;word-break:normal;overflow-wrap:break-word}
+.search-bank-picker-list>button i,.search-progress-option i{width:20px;height:20px;border:1px solid var(--color-border);border-radius:6px;display:grid;place-items:center;color:transparent;font-style:normal}
+.search-bank-picker-list>button.selected i,.search-progress-option.selected i{border-color:var(--color-primary);color:var(--color-surface-raised);background:var(--color-primary)}
+.search-bank-picker-list>p{padding:28px;color:var(--color-text-muted);text-align:center;font-size:11px}
+
+.search-progress-hint{margin:0 0 9px;padding:10px 11px;border-radius:10px;color:var(--color-primary);background:var(--color-primary-soft);font-size:10px;line-height:1.6}
+.search-progress-option{width:100%;min-height:55px;border:0;border-bottom:1px solid var(--color-border);padding:9px 4px;display:grid;grid-template-columns:minmax(0,1fr) 22px;align-items:center;gap:10px;text-align:left;color:var(--color-text);background:transparent;cursor:pointer}
+.search-progress-option>span{display:grid;gap:3px}
+.search-progress-option strong,.search-progress-custom strong{font-size:11px}
+.search-progress-option small,.search-progress-custom small{color:var(--color-text-muted);font-size:9px}
+.search-progress-custom{padding:12px 4px;display:grid;gap:9px}
+.search-progress-custom>span{display:grid;gap:3px}
+.search-progress-custom>div{display:grid;grid-template-columns:1fr 70px;gap:7px}
+.search-progress-custom input{min-width:0;height:39px;border:1px solid var(--color-border);border-radius:9px;padding:0 9px;color:var(--color-text);background:var(--color-surface)}
+.search-progress-custom button{border:0;border-radius:9px;color:var(--color-surface-raised);background:var(--color-primary);cursor:pointer}
+
+
+/* Search controls share one geometry; drawer choices mirror the configuration cards. */
+.search-query-actions{padding-left:10px;border-left:1px solid var(--color-border);display:flex;align-items:center;gap:7px}
+.search-home-query :is(.search-trigger-button,.search-filter-toggle){position:relative;width:92px;height:40px;min-height:40px;margin:0;border-radius:9px;padding:0 12px;display:flex;align-items:center;justify-content:center;gap:7px;line-height:1;white-space:nowrap;font-size:13px;font-weight:700;transition:border-color .16s,background .16s,box-shadow .16s,transform .16s}
+.search-home-query :is(.search-trigger-button,.search-filter-toggle) svg{width:17px;height:17px;flex:none}
+.search-home-query .search-trigger-button{border:1px solid var(--color-primary);background:var(--color-primary);box-shadow:0 3px 8px color-mix(in srgb,var(--color-primary) 18%,transparent)}
+.search-home-query .search-trigger-button:hover{box-shadow:0 5px 12px color-mix(in srgb,var(--color-primary) 24%,transparent);transform:translateY(-1px)}
+.search-filter-toggle{border:1px solid var(--color-border);color:var(--color-text);background:var(--color-surface-raised)}
+.search-filter-toggle:hover,.search-filter-toggle.active{border-color:var(--color-primary);color:var(--color-primary);background:var(--color-surface-raised);box-shadow:0 0 0 2px color-mix(in srgb,var(--color-primary) 8%,transparent)}
+.search-filter-count{min-width:18px;height:18px;border-radius:99px;padding:0 5px;display:grid;place-items:center;color:var(--color-surface-raised);background:var(--color-primary);font-size:10px;line-height:1}
+.search-filter-drawer{grid-template-rows:auto minmax(0,1fr);background:var(--color-surface-raised)}
+.search-filter-drawer-header,.search-filter-drawer-body{background:var(--color-surface-raised)}
+.search-scope-modes,.search-filter-segments{padding:0;border:0;gap:8px;background:transparent}
+.search-scope-modes button,.search-filter-segments button{min-height:46px;border:1px solid var(--color-border);border-radius:11px;color:var(--color-text);background:var(--color-surface-raised);font-size:13px;font-weight:600}
+.search-scope-modes button.active,.search-filter-segments button.active{border-color:var(--color-primary);color:var(--color-primary);background:var(--color-primary-soft);box-shadow:0 0 0 2px color-mix(in srgb,var(--color-primary) 10%,transparent);font-weight:700}
+.search-scope-modes button:disabled{opacity:.75;color:var(--color-text-muted);background:var(--color-surface-raised)}
+.search-filter-setting-row,.search-filter-select-row .app-select-trigger,.search-bank-picker-search,.search-filter-range input,.search-filter-date-range input{background:var(--color-surface-raised)}
+.search-bank-picker-search:focus-within{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 12%,transparent)}
+.options .katex,.search-detail-body .katex { font-size:1.05em; }
+
+.search-detail-body>ol>li>.math-text,.search-detail-body>ol>li.answer>.math-text { width:auto; height:auto; min-width:0; flex:1; display:block; place-items:initial; border-radius:0; color:inherit; background:transparent; font-weight:400; }
+
+/* 做错选项标记（练习结果详情）：与做题界面 .options .wrong 同语义——选项文字
+   保持正文墨色，只有边框/底色/字母块/状态图标变色；全 token 昼夜自适应。 */
+.search-detail-body>ol>li.wrong{border-color:var(--color-danger);background:var(--color-danger-soft)}
+
+.search-detail-body>ol>li.wrong>span{color:white;background:var(--color-danger)}
+
+.search-detail-body>ol>li.answer>svg{color:var(--color-success)}
+
+.search-detail-body>ol>li.wrong>svg{color:var(--color-danger)}
+
+
+/* Currently-open question detail in a navigable list */
+.search-result-list article.detail-current {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
