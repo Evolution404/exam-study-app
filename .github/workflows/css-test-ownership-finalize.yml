@@ -32,7 +32,6 @@ jobs:
             .sort();
           const styles = (await Promise.all(cssFiles.map((file) => readFile(new URL(file, appStylesRoot), "utf8")))).join("\\n");'''.replace('          ', '')
 
-          # note-markdown: scan all feature-owned CSS and stop asserting centralized Search dark patches.
           p = Path('scripts/tests/test-note-markdown.ts')
           s = p.read_text()
           old_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
@@ -43,7 +42,6 @@ jobs:
           if old_scan not in s:
               raise SystemExit('note-markdown legacy styles-only scan block not found')
           s = s.replace(old_scan, recursive_scan, 1)
-
           old_dark = '''// --- 防回退：夜间全站 input !important 不得污染透明输入框 --------------------
           // 夜间 input 规则强制深色底；搜索类输入框必须显式补 transparent!important。
           assert.match(
@@ -52,8 +50,6 @@ jobs:
             "夜间模式搜索类 input 保持透明底（容器/input 无色差）",
           );'''.replace('          ', '')
           new_dark = '''// --- 防回退：夜间通用 input 允许 feature 自己声明透明背景 --------------------
-          // 通用 dark form compatibility 保留 !important，但背景值通过继承 custom property
-          // 暴露给 feature；Search 在自己的容器上声明 transparent，不回到集中 dark patch。
           assert.match(styles, /background:var\\(--dark-input-bg,var\\(--p-111813\\)\\)!important/, "夜间通用 input 背景支持 feature override");
           assert.match(styles, /\\.searchbox \\{[^}]*--dark-input-bg:transparent/, "快速搜索在 Search ownership 内声明透明夜间输入背景");
           assert.match(styles, /\\.search-home-query \\{[^}]*--dark-input-bg:transparent/, "搜索页主输入框在 Search ownership 内声明透明夜间输入背景");
@@ -65,7 +61,6 @@ jobs:
           s = s.replace('/\\.search-home-query \\{ position:sticky; top:0; z-index:19; min-height:var\\(--search-query-h\\);[^}]*border-radius:15px/', '/\\.search-home-query \\{[^}]*position:sticky; top:0; z-index:19; min-height:var\\(--search-query-h\\);[^}]*border-radius:15px/')
           p.write_text(s)
 
-          # press-intent: scan all feature-owned CSS and lock danger semantics, not a historic literal color shape.
           p = Path('scripts/tests/test-press-intent.ts')
           s = p.read_text()
           old_press_scan = '''const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
@@ -80,13 +75,14 @@ jobs:
           new_assert = 'assert.match(styles, /\\.quick-sync\\.holding\\s*\\{[^}]*color:var\\(--color-danger\\)[^}]*background:var\\(--color-danger-soft\\)/, "holding the quick-sync button uses the semantic danger state");'
           if old_assert not in s:
               raise SystemExit('press-intent old tokenized white-on-danger assertion not found')
-          s = s.replace(old_assert, new_assert, 1)
-          p.write_text(s)
-      - run: npm run test:fast
-      - name: Commit final ownership-aware tests
+          p.write_text(s.replace(old_assert, new_assert, 1))
+      - name: Verify migrated source-shape tests
+        run: npm run test:note-markdown && npm run test:press-intent
+      - name: Commit tests and remove one-shot workflow
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/css-test-ownership-finalize.yml
           git add scripts/tests/test-note-markdown.ts scripts/tests/test-press-intent.ts
           git commit -m "test(css): follow final feature ownership [css-test-finalized]"
           git push origin HEAD:refactor/search-residual-ownership
