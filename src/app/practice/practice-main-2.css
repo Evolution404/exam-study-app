@@ -87,3 +87,18 @@
 .run-result>header .run-status.completed{color:var(--history-header-completed-text);background:var(--history-header-completed-bg)}
 .run-result>header .run-status.abandoned{color:var(--history-header-abandoned-text);background:var(--history-header-abandoned-bg)}
 .run-result>header{background:var(--run-result-header-bg)}
+
+/* Short-answer practice owns its complete layout and self-grading presentation. */
+.short-answer-card{margin:16px 0 4px;display:grid;gap:14px}
+.short-answer-card>label{display:grid;gap:8px}
+.short-answer-card>label>span{color:var(--color-text-muted);font-size:12px;font-weight:700}
+.short-answer-card textarea{width:100%;min-height:168px;box-sizing:border-box;border:1px solid var(--color-border);border-radius:14px;padding:14px 16px;resize:vertical;color:var(--color-text);background:var(--color-surface-raised);font:inherit;font-size:15px;line-height:1.75;outline:none}
+.short-answer-card textarea:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 12%,transparent)}
+.short-answer-card textarea:disabled{resize:none;color:var(--color-text);background:var(--color-surface-muted);opacity:1}
+.short-reference{padding:17px 19px;border:1px solid color-mix(in srgb,var(--color-primary) 22%,var(--color-border));border-radius:14px;color:var(--color-text);background:var(--color-primary-soft)}
+.short-reference strong{display:block;margin-bottom:7px;font-size:13px}
+.short-reference p{margin:0;white-space:pre-wrap;color:var(--color-text-muted);font-size:12px;line-height:1.75}
+.short-grade-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.short-grade-actions .secondary{min-height:42px;padding:9px 13px}
+.practice-actions:has(.short-grade-actions)>div{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:760px){.short-answer-card textarea{min-height:150px;font-size:16px}.short-grade-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.short-grade-actions .secondary{width:100%;padding-inline:8px}.practice-actions:has(.short-grade-actions)>div{width:100%}}

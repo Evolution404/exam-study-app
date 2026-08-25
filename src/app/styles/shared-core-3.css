@@ -13,12 +13,11 @@
 .top-sync-progress em{color:var(--color-primary);font-style:normal}
 .top-sync-progress>i{height:4px;margin-top:5px}
 .history-filters{margin:22px 0 14px;display:flex;gap:7px;overflow:auto}
-.history-filters button{border:1px solid var(--p-d8d8d1);border-radius:99px;padding:7px 10px;display:flex;gap:6px;color:var(--p-66716a);background:var(--p-fff);cursor:pointer;white-space:nowrap}
-.history-filters button span{min-width:18px;border-radius:99px;color:var(--p-758079);background:var(--p-eceae4);font-size:9px}
-.history-filters button.active{border-color:var(--p-527a64);color:var(--p-315f47);background:var(--p-e5efe8)}
+.history-filters button{border:1px solid;border-radius:99px;padding:7px 10px;display:flex;gap:6px;cursor:pointer;white-space:nowrap}
+.history-filters button span{min-width:18px;border-radius:99px;font-size:9px}
 .history-list{display:grid;gap:10px}
 .history-list article{position:relative;border:1px solid var(--p-dcdbd4);border-radius:14px;background:var(--p-b64d37);overflow:hidden}
-.history-swipe-content{position:relative;background:var(--p-fff);touch-action:pan-y;transition:transform .18s ease;will-change:transform}
+.history-swipe-content{position:relative;touch-action:pan-y;transition:transform .18s ease;will-change:transform}
 .history-swipe-content:active{transition:none}
 .history-open{width:100%;padding:15px 17px;border:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;text-align:left;color:var(--color-text);background:transparent;cursor:pointer}
 .history-open.has-actions{padding-right:91px}
@@ -30,13 +29,9 @@
 .history-metrics b{color:var(--color-text)}
 .history-open>svg{grid-column:2;grid-row:2/4;align-self:center}
 .history-card-actions{position:absolute;right:13px;top:50%;display:flex;gap:6px;transform:translateY(-50%)}
-.history-card-actions button{width:31px;height:31px;border:1px solid var(--p-cbdad1);border-radius:9px;display:grid;place-items:center;color:var(--p-35644d);background:var(--color-surface-muted);cursor:pointer}
-.history-card-actions .abandon{border-color:var(--p-ead4cb);color:var(--p-a45238);background:var(--p-fbf0eb)}
+.history-card-actions button{width:31px;height:31px;border:1px solid;border-radius:9px;display:grid;place-items:center;cursor:pointer}
 .history-delete-action{position:absolute;right:0;top:0;width:68px;height:100%;border:0;display:grid;place-items:center;color:var(--p-fff);background:var(--p-b64d37);cursor:pointer}
 .run-status{display:inline-flex;border-radius:99px;padding:4px 8px;font-size:9px;font-style:normal}
-.run-status.in_progress{color:var(--p-3e684f);background:var(--p-dfece4)}
-.run-status.completed{color:var(--p-456086);background:var(--p-e2e7f1)}
-.run-status.abandoned{color:var(--p-8a5a48);background:var(--p-f0e4dd)}
 .history-empty{min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--p-879089);text-align:center}
 .history-empty h3{margin:13px 0 5px;color:var(--color-text)}
 .history-empty p{margin:0;font-size:11px}

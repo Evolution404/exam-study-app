@@ -1,23 +1,17 @@
 .question-overview>header { padding:20px 24px; border-bottom:1px solid var(--color-border); display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
 .question-overview h2 { margin:4px 0 3px; font:600 27px Georgia,"Noto Serif SC",serif; }
 .question-overview header p { margin:0; color:var(--color-text-muted); font-size:11px; }
-.overview-legend { padding:12px 24px; border-bottom:1px solid var(--p-e7e3db); display:flex; flex-wrap:wrap; gap:17px; color:var(--p-767e79); font-size:10px; }
+.overview-legend { padding:12px 24px; border-bottom:1px solid; display:flex; flex-wrap:wrap; gap:17px; font-size:10px; }
 .overview-legend span { display:flex; align-items:center; gap:6px; }
-.overview-legend i { width:11px; height:11px; border:1px solid var(--p-c8ccc8); border-radius:50%; background:var(--p-fff); }
-.overview-legend i.correct { border-color:var(--p-4f9770); background:var(--p-4f9770); }
-.overview-legend i.wrong { border-color:var(--p-ce7053); background:var(--p-ce7053); }
-.overview-legend i.pending { border-color:var(--p-d09a4a); background:var(--p-f1c776); }
+.overview-legend i { width:11px; height:11px; border:1px solid; border-radius:50%; }
 .overview-groups { padding:20px 24px 28px; overflow:auto; display:grid; gap:25px; }
 .overview-group>div:first-child { margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; }
 .overview-group h3 { margin:0; font-size:14px; }
 .overview-group>div:first-child>span { color:var(--color-text-muted); font-size:10px; }
 .overview-number-grid { display:grid!important; grid-template-columns:repeat(auto-fill,minmax(43px,1fr)); gap:10px; }
-.overview-number-grid button { aspect-ratio:1; min-width:0; border:1px solid var(--p-ccd0cc); border-radius:50%; color:var(--p-56605a); background:var(--p-fff); cursor:pointer; font-weight:700; }
-.overview-number-grid button.correct { border-color:var(--p-4f9770); color:var(--p-fff); background:var(--p-4f9770); }
-.overview-number-grid button.wrong { border-color:var(--p-ce7053); color:var(--p-fff); background:var(--p-ce7053); }
-.overview-number-grid button.pending { border-color:var(--p-d09a4a); color:var(--p-755627); background:var(--p-f3ce88); }
+.overview-number-grid button { aspect-ratio:1; min-width:0; border:1px solid; border-radius:50%; cursor:pointer; font-weight:700; }
 .overview-number-grid button.current { outline:3px solid var(--p-1f3b2d); outline-offset:3px; }
-.overview-empty { margin:0; padding:13px; border:1px dashed var(--p-d5d4cd); border-radius:10px; color:var(--p-969994); font-size:11px; text-align:center; }
+.overview-empty { margin:0; padding:13px; border:1px dashed; border-radius:10px; font-size:11px; text-align:center; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin{to{transform:rotate(360deg)}}
 

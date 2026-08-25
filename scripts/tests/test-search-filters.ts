@@ -24,11 +24,11 @@ const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-vi
 const quickSearchSource = fs.readFileSync(new URL("../../src/app/search/quick-search.tsx", import.meta.url), "utf8");
 const searchDrawerSource = fs.readFileSync(new URL("../../src/app/search/search-filter-drawer.tsx", import.meta.url), "utf8");
 const appSelectSource = fs.readFileSync(new URL("../../src/app/ui/app-select.tsx", import.meta.url), "utf8");
-const stylesRoot = new URL("../../src/app/styles/", import.meta.url);
-const componentStyles = fs.readdirSync(stylesRoot)
+const appStylesRoot = new URL("../../src/app/", import.meta.url);
+const componentStyles = fs.readdirSync(appStylesRoot, { recursive: true })
   .filter((file) => file.endsWith(".css"))
   .sort()
-  .map((file) => fs.readFileSync(new URL(file, stylesRoot), "utf8"))
+  .map((file) => fs.readFileSync(new URL(file, appStylesRoot), "utf8"))
   .join("\n");
 const knowledgeViewSource = fs.readFileSync(new URL("../../src/app/bank/knowledge-view.tsx", import.meta.url), "utf8");
 const preferencesViewSource = [
@@ -38,6 +38,7 @@ const preferencesViewSource = [
 const tagMultiSelectSource = fs.readFileSync(new URL("../../src/app/ui/tag-multi-select.tsx", import.meta.url), "utf8");
 const practiceSetupSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
 const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");
+const practiceViewSource = fs.readFileSync(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
 const searchWorkerSource = fs.readFileSync(new URL("../../src/app/search/search-worker.ts", import.meta.url), "utf8");
 
 const banks = [
@@ -97,6 +98,13 @@ assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*�
 assert.match(searchDrawerSource, /<TagMultiSelect[^>]*selected=\{filters\.tags\}/, "搜索筛选必须支持可搜索标签多选");
 assert.match(practiceSetupSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "练习筛选必须支持可搜索标签多选");
 assert.match(questionManagerSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "题库管理筛选必须支持可搜索标签多选");
+assert.match(questionManagerSource, /options=\{\["全部", "单选", "多选", "判断", "填空", "简答", "计算"\]/, "题库管理题型筛选必须覆盖全部正式 QuestionType，包含填空和简答");
+assert.match(componentStyles, /\.short-answer-card>label\{display:grid;gap:8px\}/, "简答题回答区必须使用自有布局，不得退回浏览器默认 label 流式布局");
+assert.match(componentStyles, /\.short-answer-card textarea\{[^}]*width:100%[^}]*min-height:168px/, "简答题文本框必须占满回答区并具有稳定可用高度");
+assert.match(componentStyles, /\.short-reference\{[^}]*background:var\(--color-primary-soft\)/, "简答参考答案必须使用独立的轻量参考卡片");
+assert.match(componentStyles, /\.short-grade-actions\{[^}]*display:flex[^}]*flex-wrap:wrap/, "简答自评按钮必须有稳定布局而不是浏览器默认堆叠");
+assert.match(practiceViewSource, /question\.type === "简答" \? <><strong>\{shortOutcome === "correct"/, "简答提交结果必须走自评专用摘要");
+assert.match(practiceViewSource, /本题按自评记录，参考答案见上方。/, "简答结果框不得重复整段参考答案");
 assert.match(tagMultiSelectSource, /placeholder="搜索标签"/, "标签多选组件必须提供标签搜索输入框");
 assert.match(componentStyles, /\.search-mode-group\{[^}]*background:color-mix/, "匹配方式分组必须具有区别于搜索字段的视觉表面");
 assert.match(componentStyles, /\.searchbox \.quick-search-scope\.app-select-trigger\{width:58px;gap:4px;padding-left:7px\}/, "手机顶栏搜索范围下拉框必须按两字标签收紧");
