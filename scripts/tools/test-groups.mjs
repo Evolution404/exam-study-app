@@ -72,6 +72,7 @@ export const testGroups = {
     "test:sync-restore-cache-guard",
     "test:sync-questiongroup-tombstone",
     "test:sync-restore-full-claimed-guard",
+    "test:sync-restore-question-types",
     "test:sync-bank-delete-run-tombstone",
     "test:sync-data-races",
     "test:sync-claim-order",

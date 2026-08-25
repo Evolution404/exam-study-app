@@ -77,6 +77,24 @@ try {
   assert.equal(await dbV7.questions.get("q-2"), undefined, "incremental reconciliation should delete the removed remote question");
   assert.deepEqual((await dbV7.questions.get("q-1"))?.content, updatedFirst.content, "incremental reconciliation should update changed rows");
   assert.equal(questionClearCalls, 0, "update/delete reconciliation must also avoid table.clear()");
+
+  const reorderedFirst = {
+    deviceId: updatedFirst.deviceId,
+    updatedAt: updatedFirst.updatedAt,
+    contentFingerprint: updatedFirst.contentFingerprint,
+    tags: [...updatedFirst.tags],
+    answer: updatedFirst.answer,
+    options: updatedFirst.options.map((option) => option.map((block) => ({ ...block }))),
+    content: updatedFirst.content.map((block) => ({ ...block })),
+    type: updatedFirst.type,
+    id: updatedFirst.id,
+  } as QuestionV7;
+  let finalProgressLabel = "";
+  const noOp = await installProjection(projection([reorderedFirst]), {
+    onProgress: (progress) => { finalProgressLabel = progress.label; },
+  });
+  assert.equal(noOp, true, "semantically identical projection should complete");
+  assert.equal(finalProgressLabel, "本机数据无需改写", "property-order-only differences must not create needless IndexedDB writes");
 } finally {
   dbV7.questions.clear = originalQuestionClear;
   await resetV7Database();

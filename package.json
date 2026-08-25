@@ -116,6 +116,7 @@
     "test:sync-question-split-membership-tombstone": "tsx scripts/tests/test-sync-question-split-membership-tombstone.ts",
     "test:sync-questiongroup-tombstone": "tsx scripts/tests/test-sync-questiongroup-tombstone.ts",
     "test:sync-restore-full-claimed-guard": "tsx scripts/tests/test-sync-restore-full-claimed-guard.ts",
+    "test:sync-restore-question-types": "tsx scripts/tests/test-sync-restore-question-types.ts",
     "test:sync-bank-delete-run-tombstone": "tsx scripts/tests/test-sync-bank-delete-run-tombstone.ts",
     "test:sync-data-races": "tsx scripts/tests/test-sync-data-races.ts",
     "test:sync-bank-reorder-folder": "tsx scripts/tests/test-sync-bank-reorder-folder.ts",

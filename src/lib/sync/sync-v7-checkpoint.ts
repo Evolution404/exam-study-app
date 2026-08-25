@@ -11,6 +11,7 @@
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7, type V7RestoreState } from "../db/db-v7";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head";
+import { QUESTION_TYPE_ORDER } from "../../types/types";
 import type {
   AttemptDailyStatsV7,
   AttemptV7,
@@ -25,6 +26,7 @@ export const SYNC_V7_CHECKPOINT_FORMAT = 7 as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
+const QUESTION_TYPES = new Set<string>(QUESTION_TYPE_ORDER);
 
 export interface SyncCheckpointV7State extends V7RestoreState {
   /** The explicit name used on the wire for bank/question joins. */
@@ -161,7 +163,7 @@ function validateContentBlocks(value: unknown, assets: Map<string, Omit<ImageAss
 function validateQuestion(value: unknown, assets: Map<string, Omit<ImageAsset, "blob">>, index: number): asserts value is QuestionV7 {
   if (!isRecord(value)) fail(`state.questions[${index}] must be an object`);
   assertEntityId(value.id, `state.questions[${index}].id`);
-  if (!["判断", "单选", "多选", "计算"].includes(String(value.type))) fail(`state.questions[${index}].type is invalid`);
+  if (!QUESTION_TYPES.has(String(value.type))) fail(`state.questions[${index}].type is invalid`);
   validateContentBlocks(value.content, assets, `state.questions[${index}].content`);
   assertArray(value.options, `state.questions[${index}].options`);
   for (let optionIndex = 0; optionIndex < value.options.length; optionIndex += 1) {
