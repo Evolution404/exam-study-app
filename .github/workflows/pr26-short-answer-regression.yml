@@ -1,3 +1,4 @@
+# Re-run after the final CSS source-shape ownership tests landed.
 name: PR26 Short Answer Regression
 
 on:
