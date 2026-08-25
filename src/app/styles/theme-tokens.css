@@ -87,7 +87,14 @@
   --practice-mobile-actions-bg: #faf9f5ed;
   --practice-mobile-actions-shadow: 0 -12px 30px #182a201c;
 
-  /* Practice result colors preserve the current history/result presentation. */
+  /* Practice question/result colors preserve the current presentation. */
+  --practice-head-track: #e1ded7;
+  --practice-head-fill: #46735d;
+  --practice-action-hint: #818984;
+  --practice-result-success-text: #356049;
+  --practice-result-success-bg: #e4f1e8;
+  --practice-result-error-text: #8b4b30;
+  --practice-result-error-bg: #f8e6de;
   --practice-tab-active-border: #3e7057;
   --practice-tab-active-text: #315f47;
   --result-score-value: #315f47;
@@ -184,6 +191,13 @@ html[data-theme="dark"] {
   --practice-mobile-actions-bg: #18201b;
   --practice-mobile-actions-shadow: 0 -10px 28px #0007;
 
+  --practice-head-track: #344039;
+  --practice-head-fill: #69a482;
+  --practice-action-hint: #929f97;
+  --practice-result-success-text: #b8d9c5;
+  --practice-result-success-bg: #1e382a;
+  --practice-result-error-text: #efb49c;
+  --practice-result-error-bg: #41271f;
   --practice-tab-active-border: #67a783;
   --practice-tab-active-text: #8cc6a3;
   --result-score-value: #75b590;
