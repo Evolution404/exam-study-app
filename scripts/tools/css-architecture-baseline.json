@@ -1,5 +1,5 @@
 {
-  "totalBytes": 275621,
+  "totalBytes": 280040,
   "maxFileBytes": 43567,
   "nonTokenHexColors": 788,
   "totalDebtScore": 294430,
@@ -20,6 +20,12 @@
       "bytes": 3304,
       "hexColors": 0,
       "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/search/search-tokens.css": {
+      "bytes": 4380,
+      "hexColors": 109,
+      "darkSelectors": 1,
       "important": 0
     },
     "src/app/styles/asset-image.css": {
@@ -47,7 +53,7 @@
       "important": 0
     },
     "src/app/styles/components.css": {
-      "bytes": 631,
+      "bytes": 670,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
