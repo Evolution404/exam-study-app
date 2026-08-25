@@ -45,12 +45,12 @@ groups.write_text(text)
 
 progress = Path("scripts/tests/test-sync-progress.ts")
 text = progress.read_text()
-marker = '  assert.ok(pull.reports.some((report) => report.phase === "merge" && /写入/.test(report.label)), "拉取应报告本机写入进度");\n'
-addition = marker + '  assert.ok(pull.reports.some((report) => report.phase === "merge" && /(更新题目|更新作答记录|本机增量更新完成)/.test(report.label) && /（\\d+\\/\\d+）/.test(report.label)), "拉取应透传本机 reconcile 的真实 completed/total 进度");\n'
+old_assert = '  assert.ok(pull.reports.some((report) => report.phase === "merge" && /写入/.test(report.label)), "拉取应报告本机写入进度");\n'
+new_asserts = '  assert.ok(pull.reports.some((report) => report.phase === "merge" && /(比较本机数据|更新题目|更新作答记录|本机增量更新完成)/.test(report.label)), "拉取应报告本机增量更新进度");\n  assert.ok(pull.reports.some((report) => report.phase === "merge" && /(更新题目|更新作答记录|本机增量更新完成)/.test(report.label) && /（\\d+\\/\\d+）/.test(report.label)), "拉取应透传本机 reconcile 的真实 completed/total 进度");\n'
 if "reconcile 的真实 completed/total" not in text:
-    if marker not in text:
+    if old_assert not in text:
         raise SystemExit("sync progress assertion marker not found")
-    text = text.replace(marker, addition, 1)
+    text = text.replace(old_assert, new_asserts, 1)
 progress.write_text(text)
 
 Path("scripts/tools/finalize-ios-sync-reconcile.py").unlink(missing_ok=True)
