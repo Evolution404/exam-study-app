@@ -11,6 +11,16 @@ import { bankTitle, formatDateTime, formatDuration, fullDate, percent, runAccura
 import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
 import { DashboardMetric, DashboardNumber, Distribution, PanelTitle, PriorityButton } from "./bank-dashboard-widgets";
+import { QUESTION_TYPE_ORDER } from "@/types/types";
+
+const QUESTION_TYPE_COLORS: Record<QuestionType, string> = {
+  单选: "#527f67",
+  多选: "#be8059",
+  判断: "#758b9d",
+  计算: "#8b6f9d",
+  填空: "#6f8a8f",
+  简答: "#a17865",
+};
 
 export function BankDetail({ bank, folders, progressScope, progressScopeLabel, tab, wrongRemovalStreak, onTab, onImportQuestions, onBack, onEdit, onDelete, onOpenRun, onNotice }: { bank: Bank; folders: BankFolder[]; progressScope: ProgressScope; progressScopeLabel: string; tab: "overview" | "questions"; wrongRemovalStreak: number; onTab: (tab: "overview" | "questions") => void; onImportQuestions: () => void; onBack: () => void; onEdit: () => void; onDelete: () => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
   const [questionPreset, setQuestionPreset] = useState<QuestionPreset>("all");
@@ -53,7 +63,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
     const doneByQuestion = new Map(questions.map((question) => [question.id, isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)]));
     const wrong = questions.filter((question) => statsNeedWrongReview(statsByQuestion.get(question.id), wrongRemovalStreak));
     const mastered = questions.filter((question) => (statsByQuestion.get(question.id)?.currentCorrectStreak ?? 0) >= wrongRemovalStreak);
-    const types = Object.fromEntries((["单选", "多选", "判断", "计算"] as QuestionType[]).map((type) => [type, questions.filter((question) => question.type === type).length])) as Record<QuestionType, number>;
+    const types = Object.fromEntries(QUESTION_TYPE_ORDER.map((type) => [type, questions.filter((question) => question.type === type).length])) as Record<QuestionType, number>;
     const difficulty = { easy: 0, medium: 0, hard: 0 };
     attempted.forEach((question) => {
       const score = summaries.get(question.id)?.difficulty ?? 0;
@@ -171,7 +181,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
       </div>
 
       <div className="bank-dashboard-grid">
-        <section className="bank-dashboard-panel"><PanelTitle icon={<BarChart3 />} eyebrow="题目构成" title="题型与个人动态难度" /><Distribution label="单选" count={dashboard.types.单选} total={dashboard.total} color="#527f67" /><Distribution label="多选" count={dashboard.types.多选} total={dashboard.total} color="#be8059" /><Distribution label="判断" count={dashboard.types.判断} total={dashboard.total} color="#758b9d" /><Distribution label="计算" count={dashboard.types.计算} total={dashboard.total} color="#8b6f9d" /><div className="bank-distribution-separator" /><Distribution label="容易" count={dashboard.difficulty.easy} total={dashboard.attempted} color="#6b9b7d" /><Distribution label="中等" count={dashboard.difficulty.medium} total={dashboard.attempted} color="#d5a151" /><Distribution label="困难" count={dashboard.difficulty.hard} total={dashboard.attempted} color="#be6651" /></section>
+        <section className="bank-dashboard-panel"><PanelTitle icon={<BarChart3 />} eyebrow="题目构成" title="题型与个人动态难度" />{QUESTION_TYPE_ORDER.map((type) => <Distribution key={type} label={type} count={dashboard.types[type]} total={dashboard.total} color={QUESTION_TYPE_COLORS[type]} />)}<div className="bank-distribution-separator" /><Distribution label="容易" count={dashboard.difficulty.easy} total={dashboard.attempted} color="#6b9b7d" /><Distribution label="中等" count={dashboard.difficulty.medium} total={dashboard.attempted} color="#d5a151" /><Distribution label="困难" count={dashboard.difficulty.hard} total={dashboard.attempted} color="#be6651" /></section>
         <section className="bank-dashboard-panel"><PanelTitle icon={<AlertTriangle />} eyebrow="复习优先级" title="下一步该看什么" /><div className="bank-priority-grid">
           <PriorityButton label="当前错题" count={dashboard.priorities.wrong} onClick={() => openQuestions("wrong")} />
           <PriorityButton label="错两次及以上" count={dashboard.priorities.repeatWrong} onClick={() => openQuestions("repeatWrong")} />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { ContentBlock, QuestionSolution, QuestionV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { QUESTION_TYPE_ORDER } from "@/types/types";
 import type { QuestionDraftV7 } from "@/lib/db/db-v7";
 import { dbV7 } from "@/lib/db/db-v7";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";
@@ -59,7 +60,7 @@ export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName 
   };
 }
 
-const questionTypes: QuestionTypeV7[] = ["判断", "单选", "多选", "计算", "填空", "简答"];
+const questionTypes: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
 function textBlocks(text: string, prefix: string): ContentBlock[] {
   return plainTextToContentBlocks(text, `${prefix}-0`);

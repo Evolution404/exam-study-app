@@ -1,4 +1,5 @@
-export type QuestionType = "判断" | "单选" | "多选" | "计算" | "填空" | "简答";
+export const QUESTION_TYPE_ORDER = ["单选", "多选", "判断", "计算", "填空", "简答"] as const;
+export type QuestionType = (typeof QUESTION_TYPE_ORDER)[number];
 
 /**
  * Structured answer data.  The legacy `answer` string remains on the public

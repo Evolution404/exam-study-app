@@ -1,3 +1,5 @@
+import { QUESTION_TYPE_ORDER, type QuestionType } from "../../types/types";
+
 /**
  * Pure search/index primitives shared by the search page, quick search and
  * the module worker.  Keep this module free of React, Dexie and Blob values:
@@ -9,10 +11,10 @@ export type SearchKeywordMode = "plain" | "regex";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
 export type SearchNoteFilter = "all" | "with" | "without";
 export type SearchTagMatch = "any" | "all";
-export type SearchQuestionType = "单选" | "多选" | "判断" | "计算" | "填空" | "简答";
+export type SearchQuestionType = QuestionType;
 export type SearchTypeTab = "全部" | SearchQuestionType;
 
-export const SEARCH_TYPE_ORDER: readonly SearchQuestionType[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
+export const SEARCH_TYPE_ORDER: readonly SearchQuestionType[] = QUESTION_TYPE_ORDER;
 
 /** Zeroed per-type counters, derived so new question types cannot be missed. */
 export function emptyTypeCounts(): Record<SearchQuestionType, number> {

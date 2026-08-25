@@ -10,6 +10,7 @@ import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
 import type { BankV7, QuestionTypeV7, ReviewRound } from "@/lib/db/v7-types";
+import { QUESTION_TYPE_ORDER } from "@/types/types";
 
 export type V7PracticeMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 
@@ -76,7 +77,7 @@ const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
   { id: "difficulty", label: "复习优先" },
 ];
 
-const questionTypes: QuestionTypeV7[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
+const questionTypes: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
 function metricValue(value: string) {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));

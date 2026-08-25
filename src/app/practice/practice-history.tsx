@@ -12,8 +12,9 @@ import { runActivityAt, summarizeAttemptStats } from "@/lib/practice/practice-me
 import { buildScopedQuestionStats, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { QUESTION_TYPE_ORDER } from "@/types/types";
 
-const TYPE_ORDER: QuestionTypeV7[] = ["单选", "多选", "判断", "计算", "填空", "简答"];
+const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
 function runStats(run: PracticeRunV7) {
   const submitted = Object.values(run.answers).filter((answer) => answer.submitted);

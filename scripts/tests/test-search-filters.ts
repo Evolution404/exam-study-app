@@ -99,7 +99,7 @@ assert.match(searchDrawerSource, /search-match-group search-field-group[\s\S]*�
 assert.match(searchDrawerSource, /<TagMultiSelect[^>]*selected=\{filters\.tags\}/, "搜索筛选必须支持可搜索标签多选");
 assert.match(practiceSetupSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "练习筛选必须支持可搜索标签多选");
 assert.match(questionManagerSource, /<TagMultiSelect[^>]*selected=\{selectedTags\}/, "题库管理筛选必须支持可搜索标签多选");
-assert.match(questionManagerSource, /options=\{\["全部", "单选", "多选", "判断", "填空", "简答", "计算"\]/, "题库管理题型筛选必须覆盖全部正式 QuestionType，包含填空和简答");
+assert.match(questionManagerSource, /options=\{\["全部", \.\.\.QUESTION_TYPE_ORDER\]\.map/, "题库管理题型筛选必须复用统一 QuestionType 顺序");
 assert.match(componentStyles, /\.short-answer-card>label\{display:grid;gap:8px\}/, "简答题回答区必须使用自有布局，不得退回浏览器默认 label 流式布局");
 assert.match(componentStyles, /\.short-answer-card textarea\{[^}]*width:100%[^}]*min-height:168px/, "简答题文本框必须占满回答区并具有稳定可用高度");
 assert.match(componentStyles, /\.short-reference\{[^}]*background:var\(--color-primary-soft\)/, "简答参考答案必须使用独立的轻量参考卡片");
