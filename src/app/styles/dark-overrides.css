@@ -3,13 +3,13 @@ html[data-theme="dark"] body,
 html[data-theme="dark"] .app-shell,
 html[data-theme="dark"] .workspace{background:#101612;color:var(--color-text)}
 
-html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>button,.preference-card,.settings-card,.guide-card,.home-bank-scope,.home-bank-grid>button,.scope-bank-list>button,.resume-card,.stat-card,.empty-import,.practice-setup-card,.mode-grid button,.filter-section,.question-card,.note-panel,.question-editor,.question-overview,.search-question-detail,.search-practice-dialog,.simple-dialog,.search-filter-panel,.search-result-list article,.bank-folder,.bank-management-grid article,.bank-detail,.bank-overview-panel,.question-manager,.managed-question-list article,.bank-profile-strip,.bank-dashboard-panel,.bank-kpi,.bank-dashboard-number,.bank-priority-grid button,.bank-tag-table>div,.bank-recent-runs button,.bank-profile-details>div,.tag-browser,.tag-detail,.tag-card-grid article,.group-editor,.group-list,.group-list article,.practice-history-card,.history-list article,.run-result,.result-score,.result-question-groups,.search-dialog-toggle){border-color:var(--color-border);color:var(--color-text);background:#18201b}
+html[data-theme="dark"] :where(.searchbox,.search-results,.search-results>div>button,.preference-card,.settings-card,.guide-card,.home-bank-scope,.home-bank-grid>button,.scope-bank-list>button,.resume-card,.stat-card,.empty-import,.practice-setup-card,.mode-grid button,.filter-section,.question-card,.note-panel,.question-editor,.search-question-detail,.search-practice-dialog,.simple-dialog,.search-filter-panel,.search-result-list article,.bank-folder,.bank-management-grid article,.bank-detail,.bank-overview-panel,.question-manager,.managed-question-list article,.bank-profile-strip,.bank-dashboard-panel,.bank-kpi,.bank-dashboard-number,.bank-priority-grid button,.bank-tag-table>div,.bank-recent-runs button,.bank-profile-details>div,.tag-browser,.tag-detail,.tag-card-grid article,.group-editor,.group-list,.group-list article,.practice-history-card,.history-list article,.run-result,.result-score,.result-question-groups,.search-dialog-toggle){border-color:var(--color-border);color:var(--color-text);background:#18201b}
 
 html[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),textarea,select){border-color:#3a493f!important;color:var(--color-text)!important;background:#111813!important}
 
 html[data-theme="dark"] :is(.number-setting input,.goal-preference input,.searchbox input,.search-home-query input,.question-manager-search input,.quick-search-scope){background:transparent!important}
 
-html[data-theme="dark"] :where(.preference-row,.practice-actions,.practice-head,.question-editor>header,.question-editor>footer,.question-overview>header,.overview-legend,.search-question-detail>header,.search-question-detail>footer,.simple-dialog>header,.simple-dialog>footer,.search-practice-dialog>header,.search-practice-dialog>footer){border-color:var(--color-border)}
+html[data-theme="dark"] :where(.preference-row,.practice-actions,.practice-head,.question-editor>header,.question-editor>footer,.search-question-detail>header,.search-question-detail>footer,.simple-dialog>header,.simple-dialog>footer,.search-practice-dialog>header,.search-practice-dialog>footer){border-color:var(--color-border)}
 
 html[data-theme="dark"] :where(.review-scope-choice-grid button.selected,.review-scope-round-list button.selected){background:#20352a;color:#b7d6c3}
 
@@ -88,7 +88,7 @@ html[data-theme="dark"] .result-question-groups>section>div>button:disabled{opac
 
 
 /* Complete dark-theme coverage. These selectors intentionally outrank component light defaults. */
-html[data-theme="dark"] :is(.practice-content .practice-head,.practice-content .practice-actions,.question-overview>header,.question-overview .overview-score,.question-overview .overview-legend){border-color:#35423a;background:#18201b;color:var(--color-text)}
+html[data-theme="dark"] :is(.practice-content .practice-head,.practice-content .practice-actions){border-color:#35423a;background:#18201b;color:var(--color-text)}
 
 html[data-theme="dark"] :is(.note-panel button,.note-panel .edit-question-button){border-color:#3a493f;color:var(--color-text);background:#111813}
 
@@ -107,21 +107,6 @@ html[data-theme="dark"] .attempt-summary>span{border-color:#39463e;color:#a8b3ac
 html[data-theme="dark"] .attempt-summary .correct strong{color:#7cc49a}
 
 html[data-theme="dark"] .attempt-summary .wrong strong{color:#e38f70}
-
-html[data-theme="dark"] .overview-number-grid button{border-color:#46524b;color:#c1cbc5;background:#202822}
-
-html[data-theme="dark"] .overview-number-grid button.current{box-shadow:0 0 0 3px #8bb89d55}
-
-html[data-theme="dark"] .overview-number-grid button.correct{border-color:#58a477;color:#fff;background:#3d825b}
-
-html[data-theme="dark"] .overview-number-grid button.wrong{border-color:#c66d50;color:#fff;background:#a95139}
-
-html[data-theme="dark"] .overview-number-grid button.pending{border-color:#bb8b45;color:#f4dcab;background:#614b29}
-
-html[data-theme="dark"] .overview-legend i{border-color:#556159;background:#202822}
-
-html[data-theme="dark"] .overview-empty{border-color:#465149;color:#939e97;background:#151c18}
-
 
 html[data-theme="dark"] :is(.scope-check,.scope-bank-list>button>i,.stat-icon,.empty-import>span,.center-icon,.guide-card li>span,.settings-title>span,.bank-icon,.bank-kpi>span,.bank-panel-title>span,.tag-question-preview > div > span){border-color:#3b4a41;color:#b8d8c5;background:#26352c}
 
@@ -227,12 +212,6 @@ html[data-theme="dark"] .restore-card p{color:#c5aea4}
 html[data-theme="dark"] .guide-card li>span{color:#b8d8c5}
 
 html[data-theme="dark"] :is(.home-bank-grid>button.selected,.scope-bank-list>button.selected,.search-result-list article.selected,.theme-setting button.active){border-color:#5d8f72;color:var(--color-text);background:#20352a}
-
-html[data-theme="dark"] .overview-score span{color:#a9b4ad;background:#111813}
-
-html[data-theme="dark"] .overview-score strong{color:#7fc29a}
-
-html[data-theme="dark"] .overview-score span:nth-child(2) strong{color:#e19274}
 
 html[data-theme="dark"] .search-home-query{border-color:#3a493f;color:#aacbb7;box-shadow:0 8px 28px #0004}
 
