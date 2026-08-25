@@ -1,9 +1,21 @@
 {
-  "totalBytes": 264618,
+  "totalBytes": 264468,
   "maxFileBytes": 43567,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/bank/bank-responsive.css": {
+      "bytes": 6543,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/search/search-responsive.css": {
+      "bytes": 3304,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -99,7 +111,7 @@
       "important": 0
     },
     "src/app/styles/responsive.css": {
-      "bytes": 27452,
+      "bytes": 17455,
       "hexColors": 15,
       "darkSelectors": 0,
       "important": 3
