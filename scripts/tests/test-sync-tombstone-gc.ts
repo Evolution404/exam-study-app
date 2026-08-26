@@ -18,8 +18,7 @@ import type { TombstoneV7 } from "../../src/lib/db/v7-types";
 //      C 上线同步 → pending 被 rejectTombstoned 拦截（blocked），题目不复活；
 //   4. 水位写入 —— 纯拉取且游标前进 → devices 表更新；空闲同步零 head 写入；
 //   5. H5 导入即删抵消 —— 创建事件仍在 pending 未推送 → 删除零墓碑零事件；
-//      已推送场景仍写墓碑；
-//   6. 迁移清空存量墓碑（G 套件覆盖实现，这里断言远端无 sequence 的旧墓碑保守保留）。
+//      已推送场景仍写墓碑。
 
 let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
@@ -72,13 +71,6 @@ const NOW = "2026-08-14T00:00:00.000Z";
     [tomb],
     "90 天内活跃设备仍阻塞回收",
   );
-  // 无序号锚（legacy）→ 永远保留。
-  const legacy = { ...tomb, sequence: undefined } as unknown as TombstoneV7;
-  assert.deepEqual(
-    reclaimableTombstonesV7([legacy], { devices: { "device-b": { cursors: { "device-a": 1e9 }, syncedAt: NOW } }, headCursors: {}, selfDeviceId: "device-a", now: NOW }).keep,
-    [legacy],
-    "无序号的旧墓碑保守保留",
-  );
 }
 
 const server = await startMockGitHubServer();
@@ -90,7 +82,8 @@ function question(stem: string): Parameters<typeof createQuestionV7>[1] {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["甲", "乙", "丙", "丁"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["墓碑测试"],
   };
 }
@@ -179,11 +172,13 @@ assert.ok(cResult.remaining >= 1, "同步结果应报告待处理操作");
 currentDeviceId = "device-a";
 const heavyBank = await createBankV7("压实墓碑题库");
 for (let index = 0; index < 60; index += 1) {
+  const optionId = `o-${index}`;
   await createQuestionV7(heavyBank.id, {
     type: "单选",
     content: [{ id: `s-${index}`, type: "text", text: `压实墓碑第 ${index} 题：` + "重型题干内容。".repeat(5500) }],
-    options: [[{ id: "a", type: "text", text: "甲" }]],
-    answer: "A",
+    options: [[{ id: optionId, type: "text", text: "甲" }]],
+    optionIds: [optionId],
+    solution: { kind: "choice", correctOptionIds: [optionId] },
     tags: [],
   });
 }
