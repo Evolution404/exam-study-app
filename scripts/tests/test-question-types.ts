@@ -8,6 +8,7 @@ import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCo
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
+const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
 const history = read("src/app/practice/practice-history.tsx");
 const editor = read("src/app/bank/question-editor.tsx");
 const contentEditor = read("src/app/bank/content-block-editor.tsx");
@@ -67,7 +68,7 @@ assert.match(xlsx, /ANSWER_HEADER_PATTERN/, "Excel parser must recognise positio
 assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public image URLs");
 assert.match(practiceView, /CalculationContentRenderer/, "practice must render positional calculation blank inputs");
 assert.match(practiceView, /FillContentRenderer/, "practice must render positional fill blank inputs");
-assert.match(practiceView, /short-grade-actions/, "practice must expose self-grading actions for short answers");
+assert.match(practicePresentation, /short-grade-actions/, "practice presentation must expose self-grading actions for short answers");
 assert.match(practiceView, /areCalculationAnswersCorrect/, "practice must grade every calculation blank");
 assert.match(practiceView, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
 assert.doesNotMatch(practiceView, /依次填写题干中的/, "inline calculation blanks must not repeat guidance in a separate card");

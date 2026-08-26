@@ -50,7 +50,7 @@ assert.match(bank, /listUnfiledQuestionsV7/);
 const questionManagerSource = source("bank/bank-library/question-manager.tsx");
 assert.match(questionManagerSource, /导入题目/, "试题管理头部应提供往当前题库导入题目的入口");
 assert.match(questionManagerSource, /onImportQuestions/, "试题管理应把导入入口上抛给题库详情");
-const dbQuestion = readFileSync(new URL("../../src/lib/db/db-v7-question.ts", import.meta.url), "utf8");
+const dbQuestion = readFileSync(new URL("../../src/lib/db/db-v7-question-import.ts", import.meta.url), "utf8");
 assert.match(dbQuestion, /targetBankId/, "导入数据层必须支持指定目标题库");
 assert.match(bank, /progressScopeLabel/);
 assert.match(bank, /范围表现（\$\{progressScopeLabel\}）/);
