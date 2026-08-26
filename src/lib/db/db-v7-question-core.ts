@@ -62,7 +62,6 @@ export async function updateQuestionV7(questionId: string, changes: Partial<Stru
     type: changes.type ?? current.type,
     content: changes.content ?? current.content,
     options: changes.options ?? current.options,
-    answer: changes.answer ?? current.answer,
     optionIds: changes.optionIds ?? current.optionIds,
     solution: changes.solution ?? current.solution,
     tags: changes.tags ?? current.tags,
@@ -194,8 +193,6 @@ export async function removeMembershipsV7(bankId: string, questionIds: readonly 
   });
   return memberships.length;
 }
-
-
 
 export async function toggleQuestionFavoriteV7(questionId: string): Promise<QuestionV7> {
   const current = await dbV7.questions.get(questionId);

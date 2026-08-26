@@ -25,15 +25,21 @@ try {
   await resetV7Database();
   await syncWithGitHub(baseSettings, "token");
   const bank = await createBankV7("历史窗口题库");
-  const question = await createQuestionV7(bank.id, { type: "单选", stem: "同步范围是否只影响历史？", options: ["是", "否"], answer: "A" });
+  const question = await createQuestionV7(bank.id, {
+    type: "单选",
+    stem: "同步范围是否只影响历史？",
+    options: ["是", "否"],
+    optionIds: ["opt-0", "opt-1"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
+  });
   await syncWithGitHub(baseSettings, "token");
   const oldRun = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id], startedAt: oldAt });
   await setPracticeRunStatusV7(oldRun.id, "completed");
   const recentRun = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id], startedAt: recentAt });
   await setPracticeRunStatusV7(recentRun.id, "completed");
   await syncWithGitHub(baseSettings, "token");
-  await recordPracticeAnswerV7({ runId: oldRun.id, questionId: question.id, selected: "A", correct: true, createdAt: oldAt });
-  await recordPracticeAnswerV7({ runId: recentRun.id, questionId: question.id, selected: "B", correct: false, createdAt: recentAt });
+  await recordPracticeAnswerV7({ runId: oldRun.id, questionId: question.id, selected: "A", correct: true, createdAt: oldAt, elapsedMs: 10 });
+  await recordPracticeAnswerV7({ runId: recentRun.id, questionId: question.id, selected: "B", correct: false, createdAt: recentAt, elapsedMs: 10 });
   await syncWithGitHub(baseSettings, "token");
   const remotePaths = new Set(server.contentPaths());
 

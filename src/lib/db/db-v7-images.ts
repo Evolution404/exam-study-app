@@ -2,8 +2,7 @@
  * v7 image asset cache: descriptor/blob persistence with digest validation.
  */
 import { sha256Blob } from "../io/image-assets";
-import { dbV7, nowIso } from "./db-v7-core";
-import { enqueueChangeSetV7 } from "./db-v7-change-sets";
+import { dbV7 } from "./db-v7-core";
 import type { ImageAsset } from "./v7-types";
 
 const imageMimeTypes = new Set(["image/webp", "image/jpeg", "image/png"]);
@@ -17,13 +16,6 @@ function assertImageAssetShape(asset: ImageAsset): void {
   if (!imageMimeTypes.has(asset.mimeType)) throw new TypeError("图片 MIME 类型不受支持");
   if (!Number.isSafeInteger(asset.size) || asset.size < 0) throw new TypeError("图片 size 必须是非负整数");
   if (!Number.isSafeInteger(asset.width) || asset.width <= 0 || !Number.isSafeInteger(asset.height) || asset.height <= 0) throw new TypeError("图片尺寸必须是正整数");
-  if (asset.remote) {
-    assertDigest(asset.remote.sha256, "远端图片 sha256");
-    if (asset.remote.sha256 !== asset.id) throw new TypeError("远端图片 sha256 必须与 id 一致");
-    if (typeof asset.remote.path !== "string" || !asset.remote.path.trim()) throw new TypeError("远端图片路径不能为空");
-    if (typeof asset.remote.blobSha !== "string" || !/^[a-f0-9]{40}$/.test(asset.remote.blobSha)) throw new TypeError("远端图片 blobSha 无效");
-    if (!Number.isSafeInteger(asset.remote.size) || asset.remote.size !== asset.size) throw new TypeError("远端图片 size 必须与 descriptor 一致");
-  }
   if (asset.blob !== undefined && asset.blob.size !== asset.size) throw new TypeError("图片 blob size 与 descriptor 不一致");
 }
 
@@ -35,30 +27,12 @@ export async function putImageAssetV7(asset: ImageAsset): Promise<ImageAsset> {
     if (digest !== asset.id) throw new TypeError("图片 blob 内容与 id 不一致");
   }
   const previous = await dbV7.imageAssets.get(asset.id);
-  // Re-importing identical local bytes must not discard a descriptor that was
-  // already uploaded. Besides causing needless network work, losing `remote`
-  // made the pending-event count grow again on the next sync.
-  const remoteReusable = Boolean(
-    !asset.remote
-      && previous?.remote
-      && previous.mimeType === asset.mimeType
-      && previous.size === asset.size
-      && previous.width === asset.width
-      && previous.height === asset.height,
-  );
-  const effective = remoteReusable ? { ...asset, remote: previous!.remote } : asset;
-  const descriptorChanged = JSON.stringify({ ...previous, blob: undefined }) !== JSON.stringify({ ...effective, blob: undefined });
-  // 保留已缓存的 blob：调用方只写 descriptor 时不应清掉本地图片缓存。
-  const stored = effective.blob ?? (previous?.blob?.size === effective.size ? previous.blob : undefined);
-  await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.changeSets, dbV7.syncMeta], async () => {
-    await dbV7.imageAssets.put(stored ? { ...effective, blob: stored } : effective);
-    if (effective.remote && descriptorChanged) {
-      const createdAt = nowIso();
-      const descriptor = { ...effective, blob: undefined };
-      await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
-    }
-  });
-  return stored ? { ...effective, blob: stored } : effective;
+  // Descriptor-only writes preserve an already cached local Blob. Publication
+  // state is not persisted per image; Sync v9 resolves it through Asset Pack index.
+  const storedBlob = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
+  const stored = storedBlob ? { ...asset, blob: storedBlob } : asset;
+  await dbV7.imageAssets.put(stored);
+  return stored;
 }
 
 export async function putImageAssetDescriptorV7(asset: Omit<ImageAsset, "blob">): Promise<ImageAsset> {

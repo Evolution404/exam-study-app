@@ -56,13 +56,6 @@ export function createSideStoreSource({ version, date, size, notes }) {
             usageDescription: "用于访问用户配置的同步服务和下载更新。",
           },
         ],
-        // Retain the legacy fields for older SideStore builds while also
-        // publishing the current AltSource v2 versions array.
-        version,
-        versionDate: date,
-        versionDescription: description,
-        downloadURL: SIDESTORE_IPA_URL,
-        size,
         versions: [latest],
       },
     ],

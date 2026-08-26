@@ -4,7 +4,13 @@ import { answerText, buildQuestionCopyText, displayedAnswer } from "../../src/li
 
 // ===== 纯函数：buildQuestionCopyText =====
 
-const single = { type: "单选", stem: "导线的主要作用是什么？", options: ["传输电能", "装饰线路", "储存电能"], answer: "A" };
+const single = {
+  type: "单选" as const,
+  stem: "导线的主要作用是什么？",
+  options: ["传输电能", "装饰线路", "储存电能"],
+  optionIds: ["single-0", "single-1", "single-2"],
+  solution: { kind: "choice" as const, correctOptionIds: ["single-0"] },
+};
 
 // 1) 无参：恰为 题型/题目/选项 三段，绝不泄漏答案（复制题目核心契约）。
 const plain = buildQuestionCopyText(single);
@@ -30,7 +36,13 @@ assert.doesNotMatch(withAnswer, /正确答案：B\./, "正确答案不得附带�
 assert.doesNotMatch(withAnswer, /答案内容/, "不得再输出独立的答案内容行");
 
 // 4) 多选做错：我的选择只带显示字母（用户口径：不要选项内容），按显示位置排序拼接。
-const multi = { type: "多选", stem: "哪些做法有助于安全巡视？", options: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], answer: "AB" };
+const multi = {
+  type: "多选" as const,
+  stem: "哪些做法有助于安全巡视？",
+  options: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"],
+  optionIds: ["multi-0", "multi-1", "multi-2", "multi-3"],
+  solution: { kind: "choice" as const, correctOptionIds: ["multi-0", "multi-1"] },
+};
 const wrongMulti = buildQuestionCopyText(multi, { displayOrder: [2, 0, 1, 3], wrongSelection: ["A", "C"] });
 assert.match(wrongMulti, /我的选择：AB/, "我的选择应只输出映射后的显示字母");
 assert.doesNotMatch(wrongMulti, /我的选择：[A-Z]\./, "我的选择不得附带选项文本");
@@ -41,25 +53,41 @@ const gaveUp = buildQuestionCopyText(single, { wrongSelection: [] });
 assert.match(gaveUp, /我的选择：不会/, "空选择应输出不会");
 
 // 6) 计算题：无「选项：」行；includeAnswer 为数值；我的选择为输入值。
-const calculation = { type: "计算", stem: "允许 1% 误差时结果是多少？", options: [] as string[], answer: "10" };
+const calculation = {
+  type: "计算" as const,
+  stem: "允许 1% 误差时结果是多少？",
+  options: [] as string[],
+  solution: { kind: "calculation" as const, blanks: [{ id: "blank-1", expected: 10 }] },
+};
 const calcPlain = buildQuestionCopyText(calculation);
 assert.doesNotMatch(calcPlain, /选项：/, "计算题应省略空选项段");
 const calcFull = buildQuestionCopyText(calculation, { includeAnswer: true, wrongSelection: ["9.8"] });
 assert.match(calcFull, /正确答案：10/, "计算题正确答案为数值");
 assert.match(calcFull, /我的选择：9\.8/, "计算题我的选择为输入值");
 assert.doesNotMatch(calcFull, /答案内容/, "计算题同样不输出答案内容行");
-const multiBlankCalculation = { type: "计算", stem: "电流【空1】A，功率【空2】W", options: [] as string[], answer: "11\n968" };
+const multiBlankCalculation = {
+  type: "计算" as const,
+  stem: "电流【空1】A，功率【空2】W",
+  options: [] as string[],
+  solution: { kind: "calculation" as const, blanks: [{ id: "blank-1", expected: 11 }, { id: "blank-2", expected: 968 }] },
+};
 const multiBlankCopy = buildQuestionCopyText(multiBlankCalculation, { includeAnswer: true, wrongSelection: ["10.8", "950"] });
 assert.match(multiBlankCopy, /正确答案：第1空：11；第2空：968/, "多空计算题应按位置显示全部标准答案");
 assert.match(multiBlankCopy, /我的选择：第1空：10\.8；第2空：950/, "多空计算题应按位置显示全部输入");
 
 // 7) 判断题走选择题路径（两个选项）。
-const judge = { type: "判断", stem: "巡视前应确认天气和现场风险。", options: ["正确", "错误"], answer: "A" };
+const judge = {
+  type: "判断" as const,
+  stem: "巡视前应确认天气和现场风险。",
+  options: ["正确", "错误"],
+  optionIds: ["judge-0", "judge-1"],
+  solution: { kind: "choice" as const, correctOptionIds: ["judge-0"] },
+};
 assert.match(buildQuestionCopyText(judge), /^A\. 正确$/m, "判断题选项正常输出");
 
-// 8) displayOrder 长度不符 → 回退原始顺序。
-const fallback = buildQuestionCopyText(single, { displayOrder: [1, 0] });
-assert.match(fallback, /^A\. 传输电能$/m, "displayOrder 长度不符应回退原始顺序");
+// 8) displayOrder 长度不符 → 使用原始顺序。
+const invalidOrder = buildQuestionCopyText(single, { displayOrder: [1, 0] });
+assert.match(invalidOrder, /^A\. 传输电能$/m, "displayOrder 长度不符应使用原始顺序");
 
 // 9) includeAnswer:false 与 wrongSelection 共存：含我的选择、不含答案内容。
 const mixed = buildQuestionCopyText(multi, { includeAnswer: false, wrongSelection: ["D"] });

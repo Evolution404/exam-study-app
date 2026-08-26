@@ -24,10 +24,10 @@
 .calculation-practice-stem{font-size:1.02em}
 .calculation-answer>div:first-child{display:grid;gap:5px}
 .calculation-answer>div:first-child small{line-height:1.5}
-.calculation-answer.fallback-grid{grid-template-columns:minmax(0,.7fr) minmax(260px,1.3fr)}
-.calculation-fallback-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
-.calculation-fallback-inputs label{display:grid;gap:4px;color:var(--color-text-muted);font-size:10px}
-.calculation-fallback-inputs input{position:static;grid-row:auto;grid-column:auto;width:100%;text-align:left}
+.calculation-answer.manual-grid{grid-template-columns:minmax(0,.7fr) minmax(260px,1.3fr)}
+.calculation-manual-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
+.calculation-manual-inputs label{display:grid;gap:4px;color:var(--color-text-muted);font-size:10px}
+.calculation-manual-inputs input{position:static;grid-row:auto;grid-column:auto;width:100%;text-align:left}
 .calculation-answer-editor{display:grid;gap:10px}
 .calculation-answer-editor>div:nth-child(2){display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px}
 .calculation-answer-editor>div:nth-child(2)>label{position:relative;display:grid;gap:5px}
@@ -73,7 +73,7 @@
 .overview-legend i.pending{border-color:var(--overview-legend-pending-border);background:var(--overview-legend-pending-bg)}
 .overview-empty{border-color:var(--overview-empty-border);color:var(--overview-empty-text);background:var(--overview-empty-bg)}
 
-/* Practice owns history control colors while legacy structure remains shared. */
+/* Practice owns history control colors while shared structure remains centralized. */
 .history-filters button{border-color:var(--history-filter-border);color:var(--history-filter-text);background:var(--history-filter-bg)}
 .history-filters button span{color:var(--history-filter-count-text);background:var(--history-filter-count-bg)}
 .history-filters button.active{border-color:var(--history-filter-active-border);color:var(--history-filter-active-text);background:var(--history-filter-active-bg)}

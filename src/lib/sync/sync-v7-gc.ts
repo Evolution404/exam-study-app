@@ -1,9 +1,5 @@
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
-import {
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  type SyncHeadV7,
-} from "./sync-v7-head";
+import { SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_SEGMENT_PREFIX, type SyncHeadV7 } from "./sync-v7-head-types";
 
 export interface SyncV7GcResult {
   checkpointsDeleted: number;
@@ -19,7 +15,7 @@ function addHeadPaths(head: SyncHeadV7 | null | undefined, checkpoints: Set<stri
 
 async function deleteUnreachable(
   client: GitHubV7Remote,
-  prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX,
+  prefix: typeof SYNC_V9_CHECKPOINT_PREFIX | typeof SYNC_V9_SEGMENT_PREFIX,
   keep: ReadonlySet<string>,
 ): Promise<{ deleted: number; skipped: number }> {
   const entries = await client.listImmutableDirectory(prefix);
@@ -87,7 +83,7 @@ export async function gcSyncV7Remote(
 
   if (options.checkpointChanged) {
     try {
-      const result = await deleteUnreachable(client, SYNC_V7_CHECKPOINT_PREFIX, keepCheckpoints);
+      const result = await deleteUnreachable(client, SYNC_V9_CHECKPOINT_PREFIX, keepCheckpoints);
       checkpointsDeleted += result.deleted;
       skipped += result.skipped;
     } catch {
@@ -96,7 +92,7 @@ export async function gcSyncV7Remote(
   }
 
   try {
-    const result = await deleteUnreachable(client, SYNC_V7_SEGMENT_PREFIX, keepSegments);
+    const result = await deleteUnreachable(client, SYNC_V9_SEGMENT_PREFIX, keepSegments);
     segmentsDeleted += result.deleted;
     skipped += result.skipped;
   } catch {

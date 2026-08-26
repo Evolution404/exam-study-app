@@ -29,14 +29,14 @@ try {
     type: "填空",
     content: [{ id: "fill-stem", type: "text", text: "远程恢复填空题" }],
     options: [],
-    answer: "填空答案",
+    solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["填空答案"] }] },
     tags: ["恢复"],
   });
   await createQuestionV7(bank.id, {
     type: "简答",
     content: [{ id: "short-stem", type: "text", text: "远程恢复简答题" }],
     options: [],
-    answer: "简答参考答案",
+    solution: { kind: "short", referenceText: "简答参考答案" },
     tags: ["恢复"],
   });
   const oldRun = await createPracticeRunV7({
@@ -74,7 +74,8 @@ try {
     type: "单选",
     content: [{ id: "crash-stem", type: "text", text: "恢复中断后新增题" }],
     options: [[{ id: "crash-a", type: "text", text: "A" }], [{ id: "crash-b", type: "text", text: "B" }]],
-    answer: "A",
+    optionIds: ["crash-a", "crash-b"],
+    solution: { kind: "choice", correctOptionIds: ["crash-a"] },
     tags: ["恢复"],
   });
   let questionClearCalls = 0;

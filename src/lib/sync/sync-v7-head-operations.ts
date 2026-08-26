@@ -11,7 +11,7 @@ import {
 } from "./sync-v7-head-validation";
 
 function cloneDescriptor(value: SyncV7Descriptor): SyncV7Descriptor {
-  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size, ...(value.storedSize !== undefined ? { storedSize: value.storedSize } : {}), ...(value.generation !== undefined ? { generation: value.generation } : {}) };
+  return { path: value.path, blobSha: value.blobSha, sha256: value.sha256, size: value.size, storedSize: value.storedSize, ...(value.generation !== undefined ? { generation: value.generation } : {}) };
 }
 
 function cloneMetadata(value: SyncV7SegmentMetadata): SyncV7SegmentMetadata {

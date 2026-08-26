@@ -1,8 +1,8 @@
 import { dbV7, reconcileV7Projection, type V7ChangeSetQueueGuard } from "../db/db-v7";
-import type { ChangeSetV7 } from "./change-set-v7";
+import type { ChangeSetV7 } from "./change-set-v7-types";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
-import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
-import type { SyncV7DeviceWatermark } from "./sync-v7-head";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
+import type { SyncV7DeviceWatermark } from "./sync-v7-head-types";
 import { reclaimableTombstonesV7 } from "./sync-v7-watermark";
 
 export async function saveQueueBase(projection: ChangeSetProjectionV7): Promise<void> {
@@ -26,12 +26,9 @@ export function checkpointFromProjection(
     const gc = reclaimableTombstonesV7(tombstones, options.tombstoneGc);
     tombstones = gc.keep;
   }
-  // Serialize the explicit wire schema instead of spreading the internal
-  // projection object. ChangeSetProjectionV7 intentionally carries aliases
-  // such as bankQuestionMemberships (and reducer-only metadata such as
-  // attemptRoundIds); leaking those into checkpoint JSON duplicates data and
-  // makes a hydrate/rebuild produce a structurally different checkpoint even
-  // when every persisted entity is identical.
+  // Serialize the explicit wire schema instead of spreading the reducer
+  // projection. Reducer-only metadata such as attemptRoundIds is intentionally
+  // not part of checkpoint JSON.
   const checkpoint: SyncCheckpointV7 = {
     formatVersion: 7,
     generatedAt: new Date().toISOString(),
@@ -47,7 +44,6 @@ export function checkpointFromProjection(
         size: asset.size,
         width: asset.width,
         height: asset.height,
-        remote: asset.remote,
       })),
       attempts: projection.attempts,
       attemptStats: projection.attemptStats,
@@ -121,7 +117,6 @@ export async function installProjection(
       size: asset.size,
       width: asset.width,
       height: asset.height,
-      remote: asset.remote,
     })),
   }, options);
 }

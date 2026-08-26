@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import type { AttemptV7, BankV7, PracticeRunV7, QuestionV7 } from "../../src/lib/db/v7-types";
-import { createChangeSetV7, type ChangeSetV7 } from "../../src/lib/sync/change-set-v7";
+import { type ChangeSetV7 } from "../../src/lib/sync/change-set-v7-types";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import {
   applyChangeSetToOwnedProjectionV7,
   finalizeRebasedProjectionV7,
@@ -53,11 +54,14 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   for (let index = 0; index < seedQuestions; index += 1) {
     const id = `q-${index}`;
     questionIds.push(id);
+    const optionIds = [0, 1, 2, 3].map((optionIndex) => `${id}-${optionIndex}`);
     const question = {
       id, type: "单选" as const,
       content: [{ id: `${id}-stem`, type: "text" as const, text: `性能题 ${index}：`.padEnd(64, "细节") }],
       options: ["甲", "乙", "丙", "丁"].map((text, optionIndex) => [{ id: `${id}-${optionIndex}`, type: "text" as const, text }]),
-      answer: "A", tags: ["性能"], favorite: false, contentFingerprint: `fp-${index}`, updatedAt: at, deviceId,
+      optionIds,
+      solution: { kind: "choice" as const, correctOptionIds: [optionIds[0]!] },
+      tags: ["性能"], favorite: false, contentFingerprint: `fp-${index}`, updatedAt: at, deviceId,
     } satisfies QuestionV7;
     projection.questions.push(question);
     projection.memberships.push({ key: `bank-1:${id}`, bankId: "bank-1", questionId: id, sortOrder: 0, addedAt: at, updatedAt: at, deviceId });
@@ -107,14 +111,12 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   const batchElapsed = performance.now() - batchStarted;
 
   assert.deepEqual(batch.skipped, [], "等价性场景中不应有跳过记录");
-  // 逐条路径最终投影 = 批量路径（派生表、墓碑、run revision 全一致）。
   assert.deepEqual(batch.projection, sequential);
   assert.equal((batch.projection.practiceRuns[0] as { revision: number }).revision, (sequential.practiceRuns[0] as { revision: number }).revision, "copy-on-write 答案写入的 revision 语义一致");
   assert.equal(batch.projection.tombstones.length, sequential.tombstones.length, "bulk.delete 的墓碑数量一致");
   assert.equal(batch.projection.questions.length, 500 - 50, "bulk.delete 共删除 50 题");
   assert.equal((batch.projection.banks[0] as { questionCount: number }).questionCount, 450, "派生 questionCount 重算正确");
 
-  // 性能：批量路径应显著快于逐条路径（宽松阈值防 CI 抖动，只防算法级回退）。
   assert.ok(
     batchElapsed < sequentialElapsed * 0.75,
     `批量重放应明显快于逐条路径（batch ${batchElapsed.toFixed(0)}ms vs sequential ${sequentialElapsed.toFixed(0)}ms）`,
@@ -126,7 +128,6 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 {
   const base = bigProjection(50);
   const good = await cs([{ kind: "note.upserted" as const, note: { questionId: "q-1", content: "先写入", revision: 1, updatedAt: at, deviceId } }]);
-  // 毒记录：先成功写一条解析，再删除一个不存在的题目 —— applyMutation 中途 fail。
   const poison = await cs([
     { kind: "note.upserted" as const, note: { questionId: "q-2", content: "毒记录部分写入", revision: 1, updatedAt: at, deviceId } },
     { kind: "question.delete" as const, questionId: "does-not-exist", cascade: true, deletedAt: at },
@@ -138,7 +139,6 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   assert.ok(batch.projection.notes.some((note) => note.questionId === "q-1" && note.content === "先写入"), "毒前的写入保留");
   assert.ok(!batch.projection.notes.some((note) => note.content === "毒记录部分写入"), "毒记录的部分写入必须整体回滚（信封丢弃）");
   assert.ok(batch.projection.notes.some((note) => note.questionId === "q-3"), "毒后的写入继续应用");
-  // 基座投影未被污染（共享实体只读）。
   assert.ok(!base.notes.some((note) => note.content === "毒后写入"), "基座投影不可被批量重放突变");
 }
 
@@ -151,7 +151,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 
 // --- 4. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
 // 编排器重写后的本地待上传归并路径：单次 caller-owned 投影上逐条浅信封应用，
-// 循环后统一派生+校验一次。必须与旧的逐条 reduce（每条全量克隆+派生）等价，
+// 循环后统一派生+校验一次。必须与基准逐条 reduce（每条全量克隆+派生）等价，
 // 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
 {
   const base = bigProjection(50);
@@ -187,7 +187,6 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 }
 
 // --- 5. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
-// 队列基线需要先完成一次同步建立（queueBase 要求 v7:queue-base 存在）。
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
 const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-v7");
 const server = await startMockGitHubServer();
@@ -197,7 +196,14 @@ currentDeviceId = "device-a";
 await syncWithGitHub(settings, "qa-token");
 const queueBank = await createBankV7("队列删除题库");
 for (let index = 0; index < 60; index += 1) {
-  await createQuestionV7(queueBank.id, { type: "单选", content: [{ id: `s-${index}`, type: "text", text: `队列题 ${index}` }], options: [[{ id: "o1", type: "text", text: "甲" }], [{ id: "o2", type: "text", text: "乙" }]], answer: "A", tags: [] });
+  await createQuestionV7(queueBank.id, {
+    type: "单选",
+    content: [{ id: `s-${index}`, type: "text", text: `队列题 ${index}` }],
+    options: [[{ id: "o1", type: "text", text: "甲" }], [{ id: "o2", type: "text", text: "乙" }]],
+    optionIds: ["o1", "o2"],
+    solution: { kind: "choice", correctOptionIds: ["o1"] },
+    tags: [],
+  });
 }
 await ensureChangeSetQueueBaseV7();
 const beforeCount = await dbV7.changeSets.count();

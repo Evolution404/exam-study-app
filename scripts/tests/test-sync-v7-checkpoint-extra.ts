@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBankV7, createQuestionV7, dbV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
-import {
-  createSyncCheckpointV7,
-  encodeSyncCheckpointV7,
-  isSyncCheckpointV7,
-  parseSyncCheckpointV7,
-  validateSyncCheckpointV7,
-} from "../../src/lib/sync/sync-v7-checkpoint";
-import type { SyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
+import { isSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
+import type { SyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-types";
 
 await resetV7Database();
 await putImageAssetV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });
@@ -20,14 +15,14 @@ await createQuestionV7(typeBank.id, {
   type: "填空",
   content: [{ id: "fill-stem", type: "text", text: "填空恢复题" }],
   options: [],
-  answer: "填空答案",
+  solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["填空答案"] }] },
   tags: ["恢复"],
 });
 await createQuestionV7(typeBank.id, {
   type: "简答",
   content: [{ id: "short-stem", type: "text", text: "简答恢复题" }],
   options: [],
-  answer: "简答参考答案",
+  solution: { kind: "short", referenceText: "简答参考答案" },
   tags: ["恢复"],
 });
 
@@ -47,23 +42,19 @@ await createQuestionV7(typeBank.id, {
 // 2) 退役的 v6 检查点格式必须被拒绝，公开恢复只接受当前格式
 {
   const current = await createSyncCheckpointV7();
-  const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
-  legacy.formatVersion = 6;
-  assert.throws(() => validateSyncCheckpointV7(legacy), /formatVersion/, "v6 checkpoint must be rejected after compatibility retirement");
-  const bytes = new TextEncoder().encode(JSON.stringify(legacy));
+  const unsupported = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
+  unsupported.formatVersion = 6;
+  assert.throws(() => validateSyncCheckpointV7(unsupported), /formatVersion/, "v6 checkpoint must be rejected by the current-only validator");
+  const bytes = new TextEncoder().encode(JSON.stringify(unsupported));
   assert.throws(() => parseSyncCheckpointV7(bytes), /formatVersion/, "parser must reject retired v6 checkpoint bytes");
 }
 
-// 3) 退役的 v6/v7/v8 资产命名空间必须被拒绝，只允许当前 v9 资产路径
+// 3) 旧单图 remote 元数据已完全退役；当前 checkpoint 出现该字段直接拒绝
 {
-  for (const version of [6, 7, 8]) {
-    const current = await createSyncCheckpointV7();
-    current.state.imageAssets[0] = {
-      ...current.state.imageAssets[0],
-      remote: { path: "sync/v" + version + "/assets/" + "a".repeat(64) + ".webp", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
-    };
-    assert.throws(() => validateSyncCheckpointV7(current), /remote\.path/, "sync/v" + version + " asset path must be rejected");
-  }
+  const current = await createSyncCheckpointV7();
+  const asset = current.state.imageAssets[0] as typeof current.state.imageAssets[number] & { remote?: unknown };
+  asset.remote = { path: `sync/v9/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 };
+  assert.throws(() => validateSyncCheckpointV7(current), /retired remote metadata/, "current checkpoint must reject retired per-image remote metadata");
 }
 
 // 4) 非法格式与坏 imageAsset 被拒绝
@@ -73,19 +64,24 @@ await createQuestionV7(typeBank.id, {
   badFormat.formatVersion = 5;
   assert.throws(() => validateSyncCheckpointV7(badFormat), /formatVersion/);
 
-  const badAsset = structuredClone(current);
-  badAsset.state.imageAssets[0] = {
-    ...badAsset.state.imageAssets[0],
-    remote: { path: `sync/v9/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "c".repeat(64), size: 123 },
-  };
-  assert.throws(() => validateSyncCheckpointV7(badAsset), /remote\.sha256 must equal id/);
-
   const badCounts = structuredClone(current);
   badCounts.counts.banks += 1;
   assert.throws(() => validateSyncCheckpointV7(badCounts), /counts/);
 }
 
-// 5) 检查点不接受 blob 字段
+// 5) choice solution 必须引用当前题目的真实 option id
+{
+  const current = await createSyncCheckpointV7();
+  const invalid = structuredClone(current);
+  const question = invalid.state.questions[0]!;
+  question.type = "单选";
+  question.options = [[{ id: "choice-a", type: "text", text: "甲" }], [{ id: "choice-b", type: "text", text: "乙" }]];
+  question.optionIds = ["opt-a", "opt-b"];
+  question.solution = { kind: "choice", correctOptionIds: ["missing"] };
+  assert.throws(() => validateSyncCheckpointV7(invalid), /missing option id/, "checkpoint must reject missing choice option ids");
+}
+
+// 6) 检查点不接受 blob 字段
 {
   const current = await createSyncCheckpointV7();
   const withBlob = structuredClone(current) as SyncCheckpointV7 & { state: { imageAssets: Array<Record<string, unknown>> } };
@@ -93,6 +89,5 @@ await createQuestionV7(typeBank.id, {
   assert.throws(() => validateSyncCheckpointV7(withBlob), /must not contain a Blob/);
 }
 
-await dbV7.close();
-console.log("sync-v7 checkpoint extra tests passed");
-process.exit(0);
+dbV7.close();
+console.log("sync v7 checkpoint extra tests passed");

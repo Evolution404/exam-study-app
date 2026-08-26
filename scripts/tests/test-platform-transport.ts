@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createGitHubTransport, GITHUB_RELAY_URL, GITHUB_WEB_RELAY_PATH, resolveGitHubApiBaseUrl } from "../../src/platform/github-transport";
 import { getGitHubLogin } from "../../src/lib/sync/sync-v7-tools";
 import { remote } from "../../src/lib/sync/sync-v7-context";
-import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 
 const native = { platform: "ios" as const, native: true, ios: true };
 const web = { platform: "web" as const, native: false, ios: false };
@@ -18,6 +18,7 @@ const head: SyncHeadV7 = {
     blobSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     size: 0,
+    storedSize: 0,
   },
   segments: [],
   cursors: {},
@@ -41,7 +42,8 @@ const cloudflareTransport = createGitHubTransport({ environment: web, hostname: 
 assert.equal(nativeTransport.defaultApiBaseUrl, GITHUB_RELAY_URL);
 assert.equal(webTransport.defaultApiBaseUrl, GITHUB_RELAY_URL);
 assert.equal(cloudflareTransport.defaultApiBaseUrl, GITHUB_WEB_RELAY_PATH);
-assert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_RELAY_URL);
+assert.equal(resolveGitHubApiBaseUrl(undefined, nativeTransport), GITHUB_RELAY_URL);
+assert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_WEB_RELAY_PATH);
 assert.equal(resolveGitHubApiBaseUrl("https://custom.example", nativeTransport), "https://custom.example");
 
 assert.equal(await getGitHubLogin("test-token", undefined, { transport: nativeTransport }), "owner");

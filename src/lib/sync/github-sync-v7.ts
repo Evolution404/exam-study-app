@@ -3,7 +3,7 @@
  *
  * Keep this boundary intentionally narrow. Lower-level sync modules and tests
  * should import implementation helpers directly instead of expanding this
- * facade with compatibility aliases.
+ * facade with convenience exports.
  */
 
 export type { SyncProgress, SyncProgressCallback } from "./sync-v7-context";

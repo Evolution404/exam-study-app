@@ -20,7 +20,8 @@ const question = await createQuestionV7(first.id, {
   type: "单选",
   content: [{ id: "stem", type: "text", text: "电流是多少？" }],
   options: [[{ id: "a", type: "text", text: "1 A" }], [{ id: "b", type: "text", text: "2 A" }]],
-  answer: "B",
+  optionIds: ["a", "b"],
+  solution: { kind: "choice", correctOptionIds: ["b"] },
   tags: ["电工"],
 });
 await dbV7.bankQuestionMemberships.put({

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTION_TYPE_ORDER } from "../../src/types/types";
-import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, questionSolution, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
+import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
@@ -38,10 +38,15 @@ const fillSolution = normalizeFillSolution([["电流", "电流强度"], ["功率
 assert.deepEqual(fillSolution.blanks.map((blank) => blank.acceptedAnswers), [["电流", "电流强度"], ["功率"]]);
 assert.equal(fillAnswersAreCorrect([" 电流 ", "功率"], fillSolution), true);
 assert.equal(fillAnswersAreCorrect(["电压", "功率"], fillSolution), false);
-const choiceQuestion = { type: "单选" as const, answer: "B", options: [[{ type: "text" as const, text: "甲" }], [{ type: "text" as const, text: "乙" }]] };
+const choiceQuestion = {
+  type: "单选" as const,
+  options: [[{ type: "text" as const, text: "甲" }], [{ type: "text" as const, text: "乙" }]],
+  optionIds: ["opt-0", "opt-1"],
+  solution: { kind: "choice" as const, correctOptionIds: ["opt-1"] },
+};
 const choiceOptionIds = stableQuestionOptionIds(choiceQuestion);
-assert.equal(questionSolution(choiceQuestion).kind, "choice");
-assert.deepEqual((questionSolution(choiceQuestion) as Extract<ReturnType<typeof questionSolution>, { kind: "choice" }>).correctOptionIds, [choiceOptionIds[1]]);
+assert.equal(choiceQuestion.solution.kind, "choice");
+assert.deepEqual(choiceQuestion.solution.correctOptionIds, [choiceOptionIds[1]]);
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
 assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup must use the canonical question type order");
@@ -72,7 +77,7 @@ assert.match(practicePresentation, /short-grade-actions/, "practice presentation
 assert.match(practiceView, /areCalculationAnswersCorrect/, "practice must grade every calculation blank");
 assert.match(practiceView, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
 assert.doesNotMatch(practiceView, /依次填写题干中的/, "inline calculation blanks must not repeat guidance in a separate card");
-assert.match(practiceView, /question\.type === "计算" \? \(!hasInlineCalculationBlanks && <div className=\{`calculation-answer fallback-grid/, "only legacy calculations without inline blanks should render the fallback answer card");
+assert.match(practiceView, /question\.type === "计算" \? \(!hasInlineCalculationBlanks && <div className=\{`calculation-answer manual-grid/, "calculations without inline blanks must render their dedicated answer card");
 assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
 assert.match(practiceView, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
 assert.match(practiceController, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");

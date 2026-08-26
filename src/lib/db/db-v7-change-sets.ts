@@ -2,9 +2,10 @@
  * v7 change-set queue: publication records, claim lifecycle and queue helpers.
  */
 import Dexie from "dexie";
-import { createChangeSetV7, type ChangeSetMutationV7, type ChangeSetV7 } from "../sync/change-set-v7";
+import { type ChangeSetMutationV7, type ChangeSetV7 } from "../sync/change-set-v7-types";
+import { createChangeSetV7 } from "../sync/change-set-v7-codec";
 
-export type { ChangeSetMutationV7 } from "../sync/change-set-v7";
+export type { ChangeSetMutationV7 } from "../sync/change-set-v7-types";
 import { dbV7, getV7DeviceId, makeV7Id, nextV7Sequence, nowIso } from "./db-v7-core";
 
 export type ChangeSetQueueStateV7 = "pending" | "claimed" | "blocked" | "committed";

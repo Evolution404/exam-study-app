@@ -7,13 +7,8 @@ import {
   SyncV7BlobIntegrityError,
   SyncV7ImmutableConflictError,
 } from "../../src/lib/sync/github-v7-remote";
-import {
-  SYNC_V7_ASSET_PREFIX,
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_OBJECT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-} from "../../src/lib/sync/sync-v7-head";
-import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V9_ASSET_PREFIX, SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_OBJECT_PREFIX, SYNC_V9_SEGMENT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 const encode = (value: Uint8Array) => Buffer.from(value).toString("base64");
@@ -33,14 +28,14 @@ const branch = "main";
 const token = "token-must-not-leak";
 const generatedAt = "2026-08-13T00:00:00.000Z";
 const checkpointBytes = bytes("checkpoint bytes");
-const checkpointPath = `${SYNC_V7_CHECKPOINT_PREFIX}${digest(checkpointBytes)}.json`;
+const checkpointPath = `${SYNC_V9_CHECKPOINT_PREFIX}${digest(checkpointBytes)}.json`;
 const head: SyncHeadV7 = {
   formatVersion: 9,
   vaultId,
   generatedAt,
   generation: 0,
   metadata: { vaultId, deviceId: "device-a" },
-  checkpoint: { path: checkpointPath, blobSha: sha1("a"), sha256: digest(checkpointBytes), size: checkpointBytes.byteLength },
+  checkpoint: { path: checkpointPath, blobSha: sha1("a"), sha256: digest(checkpointBytes), size: checkpointBytes.byteLength, storedSize: checkpointBytes.byteLength },
   segments: [],
   cursors: {},
 };
@@ -123,7 +118,7 @@ assert.equal(conflict.ok, false);
 if (!conflict.ok) assert.deepEqual([conflict.status, conflict.classification], [409, "head-advanced"]);
 
 const segmentBytes = bytes("v7 segment payload");
-const segmentPath = `${SYNC_V7_SEGMENT_PREFIX}${digest(segmentBytes)}.json`;
+const segmentPath = `${SYNC_V9_SEGMENT_PREFIX}${digest(segmentBytes)}.json`;
 const uploaded = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes, kind: "segment", sha256: digest(segmentBytes), size: segmentBytes.byteLength });
 assert.equal(uploaded.created, true);
 assert.equal(typeof uploaded.storedSize, "number", "put 结果应携带实际存储字节 storedSize");
@@ -132,14 +127,14 @@ const retry = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes
 assert.equal(retry.idempotent, true);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("different"), kind: "segment" }), SyncV7BlobIntegrityError);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("v7 segment payload"), kind: "segment", sha256: digest("different") }), SyncV7BlobIntegrityError);
-const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, sha256: digest(segmentBytes), path: segmentPath });
+const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath });
 assert.deepEqual([...loaded], [...segmentBytes]);
-await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
+await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
 
 // Streamed blob reads must expose intermediate wire-byte progress instead of
 // jumping only after response.arrayBuffer() has consumed the entire payload.
 const progressPayload = bytes("checkpoint-progress-is-streamed");
-const progressPath = `${SYNC_V7_ASSET_PREFIX}${digest(progressPayload)}.bin`;
+const progressPath = `${SYNC_V9_ASSET_PREFIX}${digest(progressPayload)}.bin`;
 const progressReports: Array<[number, number]> = [];
 const progressRemote = new GitHubV7Remote({
   owner, repo, branch, token, vaultId, apiBaseUrl: "https://progress.github.test", retryDelayMs: 0,
@@ -158,7 +153,7 @@ assert.deepEqual(progressReports.map(([loadedBytes]) => loadedBytes), [5, 17, pr
 assert.ok(progressReports.every(([, totalBytes]) => totalBytes === progressPayload.byteLength), "流式进度应携带稳定总字节数");
 
 const largeAsset = new Uint8Array(1_100_000); largeAsset.fill(0x5a);
-const assetPath = `${SYNC_V7_ASSET_PREFIX}${digest(largeAsset)}.webp`;
+const assetPath = `${SYNC_V9_ASSET_PREFIX}${digest(largeAsset)}.webp`;
 const asset = await remote.putImmutable({ path: assetPath, bytes: largeAsset, kind: "asset", sha256: digest(largeAsset), size: largeAsset.byteLength });
 assert.equal((await remote.putImmutable({ path: assetPath, bytes: largeAsset, kind: "asset" })).idempotent, true);
 assert.deepEqual([...await remote.readAsset({ path: assetPath, blobSha: asset.blobSha, sha256: digest(largeAsset), size: largeAsset.byteLength })], [...largeAsset]);
@@ -171,7 +166,7 @@ assert.ok(calls.every((call) => call.headers.get("Authorization") === `Bearer ${
 
 // A conflicting immutable object is detected from authenticated blob bytes,
 // never accepted merely because Contents returned 422.
-const conflictingObjectPath = `${SYNC_V7_OBJECT_PREFIX}${digest("object")}.json`;
+const conflictingObjectPath = `${SYNC_V9_OBJECT_PREFIX}${digest("object")}.json`;
 files.set(conflictingObjectPath, { bytes: bytes("bad"), sha: sha1("d") });
 blobs.set(sha1("d"), bytes("bad"));
 await assert.rejects(remote.putImmutable({ path: conflictingObjectPath, bytes: bytes("object"), kind: "object" }), (error: unknown) => error instanceof SyncV7ImmutableConflictError || error instanceof SyncV7BlobIntegrityError);

@@ -1,8 +1,8 @@
 {
-  "totalBytes": 297039,
+  "totalBytes": 297025,
   "maxFileBytes": 13874,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 272091,
+  "totalDebtScore": 272078,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -23,7 +23,7 @@
       "important": 0
     },
     "src/app/search/search-tokens.css": {
-      "bytes": 6119,
+      "bytes": 6116,
       "hexColors": 154,
       "darkSelectors": 1,
       "important": 0
@@ -35,7 +35,7 @@
       "important": 0
     },
     "src/app/styles/bank-controls.css": {
-      "bytes": 1287,
+      "bytes": 1284,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -65,7 +65,7 @@
       "important": 0
     },
     "src/app/styles/dark-overrides.css": {
-      "bytes": 13160,
+      "bytes": 13153,
       "hexColors": 0,
       "darkSelectors": 96,
       "important": 5
@@ -185,7 +185,7 @@
       "important": 0
     },
     "src/app/styles/palette-tokens.css": {
-      "bytes": 9748,
+      "bytes": 9750,
       "hexColors": 416,
       "darkSelectors": 0,
       "important": 0
@@ -251,7 +251,7 @@
       "important": 1
     },
     "src/app/practice/practice-main-2.css": {
-      "bytes": 10689,
+      "bytes": 10686,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0

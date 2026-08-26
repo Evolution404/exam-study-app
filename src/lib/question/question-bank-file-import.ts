@@ -67,7 +67,8 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
       for (const row of rows) {
         if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
       }
-      const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });
+      const canonicalRows = rows.map((row) => ({ stem: row.q, type: row.type, options: row.a, answer: row.ans, tags: row.tags, ...(row.note ? { note: row.note } : {}), ...(row.images?.length ? { images: row.images } : {}) }));
+      const bank = await importQuestionBankV7(importFileName(file.name), canonicalRows, { ...options, imageAssets: assets });
       return { bank, importedCount: bank.importedCount, type };
     }
     if (parsed.kind !== "zip") throw new Error("导入解析结果类型不匹配，请重试。");
@@ -84,17 +85,10 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
   if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 128 MB 上限。");
   const parsedJson = await questionBankIoWorker.parse(file, { kind: "json" });
   if (parsedJson.kind !== "json") throw new Error("导入解析结果类型不匹配，请重试。");
-  const raw: unknown = parsedJson.raw;
-  const questionRows = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).questions)
-      ? (raw as { questions: unknown[] }).questions
-      : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).items)
-        ? (raw as { items: unknown[] }).items
-        : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).data)
-          ? (raw as { data: unknown[] }).data
-          : undefined;
-  if (questionRows && questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);
+  const raw = parsedJson.raw;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray((raw as Record<string, unknown>).questions)) throw new Error("JSON 题库必须使用当前 { name?, questions: [] } 格式。");
+  const questionRows = (raw as { questions: unknown[] }).questions;
+  if (questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);
   const bank = await importQuestionBankV7(file.name, raw, options);
   return { bank, importedCount: bank.importedCount, type };
 }

@@ -1,7 +1,6 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { ClipboardCheck, LoaderCircle, Play, Sparkles, X } from "lucide-react";
-import { rebuildAttemptStatsFromAttemptsV7 } from "@/lib/db/db-v7";
 import { syncApplication } from "@/lib/sync/sync-application";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -49,14 +48,7 @@ export function AppShell() {
   useAppTheme(preferences.themeMode);
 
   useEffect(() => {
-    void syncApplication.ensureQueueBase();
-    // 一次性迁移：为 attemptStats.recentOutcomes 补作答时间（难度 v2 需要）。
-    // attemptStats 是纯派生数据，重建幂等；同步拉取后 deriveAttemptStats 也会自然带出。
-    if (!localStorage.getItem("study-v7-stats-outcomes-v2")) {
-      localStorage.setItem("study-v7-stats-outcomes-v2", "1");
-      void rebuildAttemptStatsFromAttemptsV7();
-    }
-  }, []);
+    void syncApplication.ensureQueueBase();  }, []);
 
   useEffect(() => {
     if (!notice) return;

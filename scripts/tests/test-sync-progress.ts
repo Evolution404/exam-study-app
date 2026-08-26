@@ -37,7 +37,8 @@ function choice(stem: string): Parameters<typeof createQuestionV7>[1] {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["甲", "乙", "丙", "丁"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["进度测试"],
   };
 }

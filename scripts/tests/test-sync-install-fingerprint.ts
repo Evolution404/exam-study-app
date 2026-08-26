@@ -26,7 +26,7 @@ Object.defineProperty(globalThis, "localStorage", {
 
 // --- 1. 纯函数 --------------------------------------------------------------
 {
-  const checkpoint = { path: "sync/v9/checkpoints/ab.json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10 };
+  const checkpoint = { path: "sync/v9/checkpoints/ab.json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10, storedSize: 10 };
   const base = { formatVersion: 9 as const, vaultId: "qa/vault@main", generatedAt: "2026-08-14T00:00:00.000Z", generation: 3, metadata: { vaultId: "qa/vault@main", producer: "t" }, checkpoint, segments: [], cursors: { "device-a": 5 } };
   const fingerprint = installFingerprint({ head: base });
   // generatedAt 变化 / 分段重排（coalesce）不改指纹。
@@ -52,7 +52,8 @@ function question(stem: string): Parameters<typeof createQuestionV7>[1] {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["甲", "乙", "丙", "丁"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["指纹测试"],
   };
 }
@@ -131,11 +132,13 @@ assert.equal(changedHistoryRange.reusedCache, false, "同步时间起点改变�
 // 保持 inline），60 题 ≈ 7 MB > 4 MiB 触发压实。
 const heavyBank = await createBankV7("压实题库");
 for (let index = 0; index < 60; index += 1) {
+  const optionIds = Array.from({ length: 4 }, (_, optionIndex) => `o-${index}-${optionIndex}`);
   await createQuestionV7(heavyBank.id, {
     type: "单选",
     content: [{ id: `s-${index}`, type: "text", text: `压实第 ${index} 题：` + "重型题干内容。".repeat(5500) }],
-    options: ["甲", "乙", "丙", "丁"].map((_, optionIndex) => [{ id: `o-${index}-${optionIndex}`, type: "text", text: `选项${optionIndex}` }]),
-    answer: "A",
+    options: ["甲", "乙", "丙", "丁"].map((_, optionIndex) => [{ id: optionIds[optionIndex]!, type: "text", text: `选项${optionIndex}` }]),
+    optionIds,
+    solution: { kind: "choice", correctOptionIds: [optionIds[0]!] },
     tags: ["压实"],
   });
 }

@@ -102,17 +102,17 @@ const image = (assetId: string): ContentBlock => ({ id: `i-${assetId.slice(0, 6)
 
 const imageQuestions: ExportQuestionInput[] = [
   {
-    id: "iq1", type: "单选", stem: "图中①处部件是", options: ["绝缘子", "横担", "避雷针", "拉线"], answer: "B", tags: ["图片"],
+    id: "iq1", type: "单选", stem: "图中①处部件是", options: ["绝缘子", "横担", "避雷针", "拉线"], optionIds: ["iq1-a", "iq1-b", "iq1-c", "iq1-d"], solution: { kind: "choice", correctOptionIds: ["iq1-b"] }, tags: ["图片"],
     content: [text("图中①处部件是"), image(idA), text("？")],
     optionBlocks: ["绝缘子", "横担", "避雷针", "拉线"].map((value) => [text(value)]),
   },
   {
-    id: "iq2", type: "判断", stem: "该杆塔安装正确", options: ["正确", "错误"], answer: "A", tags: [],
+    id: "iq2", type: "判断", stem: "该杆塔安装正确", options: ["正确", "错误"], optionIds: ["iq2-a", "iq2-b"], solution: { kind: "choice", correctOptionIds: ["iq2-a"] }, tags: [],
     content: [image(idA), text(" 该杆塔安装正确")],
     optionBlocks: [[text("正确")], [text("错误")]],
   },
   {
-    id: "iq3", type: "多选", stem: "结合下图回答", options: ["选项甲", "见图", "选项丙", "选项丁"], answer: "ABC", tags: ["多图"],
+    id: "iq3", type: "多选", stem: "结合下图回答", options: ["选项甲", "见图", "选项丙", "选项丁"], optionIds: ["iq3-a", "iq3-b", "iq3-c", "iq3-d"], solution: { kind: "choice", correctOptionIds: ["iq3-a", "iq3-b", "iq3-c"] }, tags: ["多图"],
     content: [text("结合下图回答")],
     optionBlocks: [[text("选项甲")], [text("见图"), image(idC)], [text("选项丙")], [text("选项丁")]],
   },
@@ -195,7 +195,7 @@ await resetV7Database();
   assert.equal(viewModelNames.filter((name) => name.startsWith("xl/media/")).length, 3, "UI 导出必须写入所有引用媒体");
 
   // 无图题库回归：不生成 cellimages 部件。
-  const plainBytes = buildQuestionBankXlsx([{ id: "p1", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] }], new Map());
+  const plainBytes = buildQuestionBankXlsx([{ id: "p1", type: "单选", stem: "纯文字", options: ["甲", "乙"], optionIds: ["p1-a", "p1-b"], solution: { kind: "choice", correctOptionIds: ["p1-a"] }, tags: [] }], new Map());
   const plainNames = zipEntryNames(plainBytes);
   assert.ok(!plainNames.includes("xl/cellimages.xml"), "无图题库不生成 cellimages");
   assert.ok(!plainNames.some((name) => name.startsWith("xl/media/")), "无图题库不携带 media");
@@ -274,7 +274,7 @@ await resetV7Database();
 // 3. zip 压缩包导出 + 导入闭环
 // ---------------------------------------------------------------------------
 {
-  const plainQuestion: ExportQuestionInput = { id: "plain", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] };
+  const plainQuestion: ExportQuestionInput = { id: "plain", type: "单选", stem: "纯文字", options: ["甲", "乙"], optionIds: ["plain-a", "plain-b"], solution: { kind: "choice", correctOptionIds: ["plain-a"] }, tags: [] };
   assert.equal(questionPortableExportFormat([plainQuestion]), "json", "无图片题库必须选择 JSON");
   assert.equal(questionPortableExportFormat(imageQuestions), "zip", "含图片题库必须选择 ZIP");
 
@@ -321,14 +321,14 @@ await resetV7Database();
   const json = JSON.stringify({
     name: "坏包",
     images: { [`images/${idA}.png`]: { mimeType: "image/png" } },
-    questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${idA}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], answer: "A" }],
+    questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${idA}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } }],
   });
   // 文件名与内容不匹配（sha 不符）：清单与引用都指向伪 id，但字节是 pngA。
   const forgedId = "0".repeat(64);
   const forged = JSON.stringify({
     name: "坏包",
     images: { [`images/${forgedId}.png`]: { mimeType: "image/png" } },
-    questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${forgedId}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], answer: "A" }],
+    questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${forgedId}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } }],
   });
   await assert.rejects(
     () => parseQuestionBankZip(toArrayBuffer(buildStoredZip([{ name: "bank.json", data: new TextEncoder().encode(forged) }, { name: `images/${forgedId}.png`, data: pngA }]))),
@@ -374,7 +374,7 @@ await resetV7Database();
 // ---------------------------------------------------------------------------
 {
   await importQuestionBankV7("悬空占位符.json", [
-    { q: "题干【图1】中间【图2】结尾", a: ["甲", "乙"], ans: "A", type: "单选" },
+    { stem: "题干【图1】中间【图2】结尾", options: ["甲", "乙"], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] }, type: "单选" },
   ]);
   const all = await dbV7.questions.toArray();
   const dangling = all.find((question) => question.content.some((block) => block.type === "text" && block.text.includes("题干")));
@@ -398,7 +398,7 @@ await resetV7Database();
     /JSON 文件超过 128 MB 上限/,
     "JSON 文件大小必须在解析前受 128 MiB 限制",
   );
-  const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", options: ["甲", "乙"], answer: "A" })) });
+  const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", type: "单选", options: ["甲", "乙"], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } })) });
   await assert.rejects(
     () => importQuestionBankFile(new File([tooManyJsonQuestions], "超多题.json", { type: "application/json" })),
     /JSON 题库最多包含 50000 道题/,
@@ -473,7 +473,8 @@ await resetV7Database();
     type: "单选",
     stem: "识别原图",
     options: ["甲", "乙"],
-    answer: "A",
+    optionIds: ["webp-a", "webp-b"],
+    solution: { kind: "choice", correctOptionIds: ["webp-a"] },
     tags: ["WebP"],
     content: [text("识别原图"), image(webpId)],
     optionBlocks: [[text("甲")], [text("乙")]],

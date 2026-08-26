@@ -1,6 +1,6 @@
 import type { GitHubSettings } from "../../types/types";
 import { recomputeChangeSetProjectionV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
-import type { ChangeSetV7 } from "./change-set-v7";
+import type { ChangeSetV7 } from "./change-set-v7-types";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 

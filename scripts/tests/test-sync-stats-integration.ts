@@ -48,11 +48,17 @@ async function freshClient(deviceId: string): Promise<void> {
 }
 
 function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+  const optionIds = options.map((_, index) => `opt-${index}`);
+  const correctOptionIds = answer
+    .split("")
+    .map((letter) => optionIds[letter.charCodeAt(0) - 65])
+    .filter((id): id is string => Boolean(id));
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer,
+    optionIds,
+    solution: { kind: "choice", correctOptionIds },
     tags: ["统计测试"],
   };
 }

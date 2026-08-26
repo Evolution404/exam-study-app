@@ -1,10 +1,10 @@
-import { dbV7, dropLegacyLocalDatabases, listChangeSetsV7 } from "../db/db-v7";
+import { dbV7, listChangeSetsV7 } from "../db/db-v7";
 import type { GitHubSettings } from "../../types/types";
 import { bandPercent, monotonicProgress, remote, report, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-v7-context";
 import { saveHeadCache, saveInstalledCursors, saveInstalledHead, saveRemoteCache } from "./sync-v7-cache";
 import { downloadRemoteV7 } from "./sync-v7-download";
 import { installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createSyncCheckpointV7 } from "./sync-v7-checkpoint-store";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-v7-watermark";
 
@@ -68,9 +68,6 @@ export async function restoreFullHistoryFromGitHub(
     await saveInstalledHead(settings, installFingerprint(read.cache));
     await saveInstalledCursors(settings, read.head.cursors);
     await pruneCommittedChangeSets(read.head.cursors);
-    // The v9 projection is fully installed and cached; old pre-upgrade local
-    // namespaces are only released after this point.
-    await dropLegacyLocalDatabases();
     report(callback, "complete", "v9 远端恢复完成", 100);
 
     return {

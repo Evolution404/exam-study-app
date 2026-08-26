@@ -22,6 +22,17 @@ function switchDevice(deviceId?: string) {
   return resetV7Database();
 }
 
+function choiceQuestion(stem: string, correctIndex = 0): Parameters<typeof createQuestionV7>[1] {
+  const optionIds = ["opt-0", "opt-1", "opt-2", "opt-3"];
+  return {
+    type: "单选",
+    stem,
+    options: ["选项一", "选项二", "选项三", "选项四"],
+    optionIds,
+    solution: { kind: "choice", correctOptionIds: [optionIds[correctIndex]!] },
+  };
+}
+
 async function fetchWithOneHeadPutConflict(): Promise<typeof fetch> {
   let injected = false;
   return async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -48,12 +59,7 @@ try {
   const bank = await createBankV7("多设备检查点题库");
   const questionIds: string[] = [];
   for (let index = 1; index <= 36; index += 1) {
-    const question = await createQuestionV7(bank.id, {
-      type: "单选",
-      stem: `设备 A 基础题目 ${index}`,
-      options: ["选项一", "选项二", "选项三", "选项四"],
-      answer: "A",
-    });
+    const question = await createQuestionV7(bank.id, choiceQuestion(`设备 A 基础题目 ${index}`));
     questionIds.push(question.id);
   }
   const deviceAId = memoryLocalStorage.get("shijuan-study-v7-device-id") ?? "device-a";
@@ -90,12 +96,7 @@ try {
   // ===== 设备 B：新增一道题并推送 =====
   const deviceBBank = await dbV7.banks.toCollection().first();
   assert.ok(deviceBBank, "设备 B 应存在题库");
-  await createQuestionV7(deviceBBank.id, {
-    type: "单选",
-    stem: "设备 B 新增题目",
-    options: ["选项一", "选项二", "选项三", "选项四"],
-    answer: "B",
-  });
+  await createQuestionV7(deviceBBank.id, choiceQuestion("设备 B 新增题目", 1));
   const deviceBPush = await syncWithGitHub(settings, token);
   assert.equal(deviceBPush.pushed, 1, "设备 B 应推送 1 条新增题目变更");
   assert.equal(deviceBPush.remaining, 0, "设备 B 推送后应无待同步变更");

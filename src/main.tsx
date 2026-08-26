@@ -36,8 +36,8 @@ void dbV7Ready.then(() => platformRuntimeReady).then((environment) => {
   );
   void registerServiceWorker(import.meta.env.PROD, environment, `${import.meta.env.BASE_URL}sw.js`);
 }).catch((error: unknown) => {
-  // A failed migration used to reject before React mounted, leaving a blank
-  // page. Keep this fallback outside AppShell so the user can retry without
+  // Bootstrap can reject before React mounts. Keep this recovery screen
+  // outside AppShell so the user can retry without
   // touching IndexedDB or localStorage.
   root.render(
     <StrictMode>

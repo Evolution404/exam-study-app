@@ -2,10 +2,9 @@
  * Export a question bank as an Excel workbook, a JSON file, or — when the bank
  * contains images — a zip bundle (bank.json + images/).
  *
- * Both formats round-trip through the v7 import path: Excel uses the app's own
- * template columns (题干 / 题型 / 标签 / 解析 / 答案1… / 选项A… / 图片1…), embedding
- * images as WPS DISPIMG cell images, and the zip bundle carries structured
- * content blocks plus content-addressed image files.
+ * Excel uses the app's template columns (题干 / 题型 / 标签 / 解析 / 答案1… /
+ * 选项A… / 图片1…) and formats the canonical structured solution into display
+ * cells only at this boundary. JSON/ZIP persist the canonical solution directly.
  */
 import type { ContentBlock, QuestionSolution } from "../db/v7-types";
 import type { QuestionType } from "../../types/types";
@@ -13,16 +12,15 @@ import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
 import { buildStoredZip, buildXlsx, type XlsxEmbeddedImage, type XlsxSheet } from "../io/xlsx-export";
 import { mapWithConcurrency } from "../async/bounded-concurrency";
-import { calculationAnswers, legacyAnswerForSolution, questionSolution, stableQuestionOptionIds } from "./question-utils";
+import { solutionAnswerText, stableQuestionOptionIds } from "./question-utils";
 
 export interface ExportQuestionInput {
   id: string;
   type: QuestionType;
   stem: string;
   options: string[];
-  answer: string;
   optionIds?: string[];
-  solution?: QuestionSolution;
+  solution: QuestionSolution;
   tags: string[];
   /** Canonical stem blocks; image blocks become 【图N】 placeholders. */
   content?: ContentBlock[];
@@ -76,28 +74,27 @@ function canonicalOptions(question: ExportQuestionInput): ContentBlock[][] | und
 }
 
 function optionColumns(questions: readonly ExportQuestionInput[]): number {
-  // The importer requires at least A、B two option columns, so an all-计算题
-  // bank must still export those two empty columns to remain re-importable.
   return Math.max(2, questions.reduce((max, question) => Math.max(max, question.options.length), 0));
 }
 
 function answerColumns(questions: readonly ExportQuestionInput[]): number {
   return Math.max(1, questions.reduce((max, question) => {
-    if (question.type === "计算") return Math.max(max, calculationAnswers(question.answer).length);
-    if (question.type === "填空") {
-      const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
-      return solution.kind === "fill" ? Math.max(max, solution.blanks.length) : max;
+    if (question.solution.kind === "calculation" || question.solution.kind === "fill") {
+      return Math.max(max, question.solution.blanks.length);
     }
     return max;
   }, 1));
 }
 
 function answerCells(question: ExportQuestionInput): string[] {
-  const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
+  const solution = question.solution;
   if (solution.kind === "calculation") return solution.blanks.map((blank) => String(blank.expected));
   if (solution.kind === "fill") return solution.blanks.map((blank) => blank.acceptedAnswers.join("||"));
   if (solution.kind === "short") return [solution.referenceText];
-  return [legacyAnswerForSolution(solution, question.optionIds ?? stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: undefined }))];
+  return [solutionAnswerText(solution, question.optionIds ?? stableQuestionOptionIds({
+    options: question.options.map((text) => [{ id: "text", type: "text", text }]),
+    optionIds: undefined,
+  }))];
 }
 
 function imageDisplaySize(data: ExportImageData): { width: number; height: number } {
@@ -123,8 +120,6 @@ function blocksToPlaceholderText(blocks: readonly ContentBlock[], available: Rea
       images.push(block.assetId);
       parts.push(imagePlaceholder(startIndex + images.length));
     } else if (block.caption?.trim() || block.alt?.trim()) {
-      // The image bytes are unavailable; keep its caption/alt so the reader
-      // knows something was here instead of silently joining the text.
       parts.push(`［${block.caption?.trim() || block.alt?.trim()}］`);
     }
   }
@@ -142,7 +137,7 @@ export interface QuestionExportSheetPlan {
 
 /** Build the 题库 sheet plan: header row, one row per question with 【图N】
  *  placeholders in the text and =DISPIMG() formulas in the trailing 图片N
- *  columns.  Images missing from `images` degrade to caption/alt text. */
+ *  columns. Images missing from `images` degrade to caption/alt text. */
 export function questionExportSheetPlan(questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>, images: ReadonlyMap<string, ExportImageData>): QuestionExportSheetPlan {
   const answerCount = answerColumns(questions);
   const optionCount = optionColumns(questions);
@@ -195,7 +190,7 @@ export function questionExportSheetPlan(questions: readonly ExportQuestionInput[
   return { rows: [header, ...rows], rowHeights: [0, ...rowHeights], columnWidths, imageColumnCount, usedAssetIds };
 }
 
-/** Build the 题库 sheet rows without images (legacy text-only shape). */
+/** Build the 题库 sheet rows without images. */
 export function questionExportRows(questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>): string[][] {
   const answerCount = answerColumns(questions);
   const columns = optionColumns(questions);
@@ -294,7 +289,7 @@ function bundleBlocks(blocks: readonly ContentBlock[], images: ReadonlyMap<strin
   return result;
 }
 
-/** Build the JSON export body for a bank (text-only legacy shape). */
+/** Build the canonical JSON export body for a bank. */
 export function questionExportJson(name: string, questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>): string {
   const body = {
     name,
@@ -304,9 +299,8 @@ export function questionExportJson(name: string, questions: readonly ExportQuest
         type: question.type,
         stem: question.stem,
         options: question.options,
-        answer: question.type === "计算" || question.type === "填空" ? answerCells(question) : question.type === "简答" ? answerCells(question)[0] ?? "" : question.answer,
         ...(question.optionIds ? { optionIds: question.optionIds } : {}),
-        ...(question.solution ? { solution: question.solution } : {}),
+        solution: question.solution,
         tags: question.tags,
         ...(note ? { note } : {}),
       };
@@ -316,7 +310,7 @@ export function questionExportJson(name: string, questions: readonly ExportQuest
 }
 
 /** Build the zip bundle body: structured content blocks plus a manifest of the
- *  bundled image files.  Image files themselves are returned separately so the
+ *  bundled image files. Image files themselves are returned separately so the
  *  caller controls the archive layout. */
 export function questionExportBundle(name: string, questions: readonly ExportQuestionInput[], notes: ReadonlyMap<string, string>, images: ReadonlyMap<string, ExportImageData>): { json: string; files: Array<{ name: string; data: Uint8Array }> } {
   const assetIds = collectImageAssetIds(questions);
@@ -345,9 +339,8 @@ export function questionExportBundle(name: string, questions: readonly ExportQue
         type: question.type,
         content,
         options,
-        answer: question.type === "计算" || question.type === "填空" ? answerCells(question) : question.type === "简答" ? answerCells(question)[0] ?? "" : question.answer,
         ...(question.optionIds ? { optionIds: question.optionIds } : {}),
-        ...(question.solution ? { solution: question.solution } : {}),
+        solution: question.solution,
         tags: question.tags,
         ...(note ? { note } : {}),
       };
@@ -406,7 +399,7 @@ async function browserWebpToPng(blob: Blob): Promise<Blob> {
 }
 
 /** Gather exportable image bytes through a bounded pool. Excel converts WebP
- *  to PNG for WPS cell-image compatibility; bundles preserve original bytes
+ *  to PNG for WPS cell-image support; bundles preserve original bytes
  *  and MIME types so content-addressed asset ids remain valid. */
 export async function collectExportImages(
   questions: readonly ExportQuestionInput[],

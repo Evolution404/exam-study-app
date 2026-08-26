@@ -12,7 +12,7 @@ import {
   saveNoteV7,
   saveQuestionGroupV7,
 } from "../../src/lib/db/db-v7";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
 
 // G6 — checkpoint round-trip fidelity. A checkpoint must survive encode → parse
 // without dropping any entity field. We seed a representative slice of every
@@ -36,7 +36,8 @@ function singleChoice(stem: string, answer: string): Parameters<typeof createQue
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["对", "错"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer,
+    optionIds: ["opt-0", "opt-1"],
+    solution: { kind: "choice", correctOptionIds: [answer === "A" ? "opt-0" : "opt-1"] },
     tags: ["完整性"],
   };
 }
@@ -51,7 +52,7 @@ try {
   const q2 = await createQuestionV7(bank.id, singleChoice("往返题二", "A"));
   await saveNoteV7(q1.id, "往返解析笔记");
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q1.id] });
-  await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true });
+  await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true, elapsedMs: 10 });
   await saveQuestionGroupV7({ name: "往返题组", type: "自定义", description: "组说明", items: [{ questionId: q1.id, note: "组内提示" }] });
   await createReviewRoundV7({ name: "往返复习轮", bankIds: [bank.id] });
   await putImageAssetDescriptorV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });

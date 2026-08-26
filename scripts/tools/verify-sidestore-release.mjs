@@ -18,7 +18,7 @@ export function validatePublishedSource(source, expectedVersion) {
   if (latest?.version !== expectedVersion) {
     throw new Error(`线上版本尚未更新：期望 ${expectedVersion}，实际 ${latest?.version ?? "缺失"}`);
   }
-  if (latest.downloadURL !== SIDESTORE_IPA_URL || app.downloadURL !== SIDESTORE_IPA_URL) {
+  if (latest.downloadURL !== SIDESTORE_IPA_URL) {
     throw new Error("更新源没有使用 Cloudflare IPA 代理地址");
   }
   if (!Number.isSafeInteger(latest.size) || latest.size <= 0) throw new Error("更新源 IPA 大小无效");

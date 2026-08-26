@@ -33,18 +33,13 @@ function resolveTransportDefaultApiBaseUrl(
   return hostname.toLowerCase().endsWith(".github.io") ? GITHUB_RELAY_URL : GITHUB_WEB_RELAY_PATH;
 }
 
-/**
- * Normalize a persisted endpoint for the active platform. Only the old
- * same-origin default is migrated in native iOS; arbitrary user endpoints
- * remain untouched.
- */
+/** Resolve the configured endpoint, or use the active platform default. */
 export function resolveGitHubApiBaseUrl(
   configured: string | undefined,
   transport: GitHubTransport = getGitHubTransport(),
 ): string {
   const value = configured?.trim();
   if (!value) return transport.defaultApiBaseUrl;
-  if (transport.defaultApiBaseUrl === GITHUB_RELAY_URL && value === GITHUB_WEB_RELAY_PATH) return GITHUB_RELAY_URL;
   return value;
 }
 

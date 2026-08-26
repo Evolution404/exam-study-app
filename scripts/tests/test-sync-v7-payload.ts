@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
-import { encodeSyncV7Event, SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../src/lib/sync/sync-v7-head";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
+import { SYNC_V7_MAX_EVENT_BYTES, SYNC_V9_OBJECT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import { encodeSyncV7Event } from "../../src/lib/sync/sync-v7-head-operations";
 import { hydrateSyncV7Events, offloadedRefOf, offloadSyncV7Events, SYNC_V7_INLINE_EVENT_BUDGET } from "../../src/lib/sync/sync-v7-payload";
 import type { BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 
@@ -36,7 +37,7 @@ const offloaded = await offloadSyncV7Events([big as unknown as Record<string, un
 assert.equal(offloaded.objects.length, 1, "the oversized body becomes exactly one immutable object");
 assert.equal(offloaded.events.length, 1);
 const objectFile = offloaded.objects[0];
-assert.ok(objectFile.path.startsWith(SYNC_V7_OBJECT_PREFIX), "object lives in the v7 objects namespace");
+assert.ok(objectFile.path.startsWith(SYNC_V9_OBJECT_PREFIX), "object lives in the v7 objects namespace");
 const objectBytes = objectFile.bytes as Uint8Array;
 const objectSha = await sha256Hex(objectBytes);
 const stub = offloaded.events[0];
@@ -44,7 +45,7 @@ const ref = offloadedRefOf(stub);
 assert.ok(ref, "the wire event is a stub carrying a payloadRef");
 assert.equal(ref!.path, objectFile.path);
 assert.equal(ref!.sha256, objectSha, "the ref digest matches the object body");
-assert.equal(ref!.path.slice(SYNC_V7_OBJECT_PREFIX.length, SYNC_V7_OBJECT_PREFIX.length + 64), objectSha, "the path embeds the content digest");
+assert.equal(ref!.path.slice(SYNC_V9_OBJECT_PREFIX.length, SYNC_V9_OBJECT_PREFIX.length + 64), objectSha, "the path embeds the content digest");
 // The stub preserves ordering/dedup identity but drops the heavy body.
 assert.equal(stub.id, big.id);
 assert.equal(stub.deviceId, "dev-a");

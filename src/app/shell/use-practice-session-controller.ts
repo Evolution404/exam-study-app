@@ -4,7 +4,7 @@ import { dbV7, createPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToLegacyAttemptStats } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats } from "@/lib/practice/progress-scope";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
@@ -217,7 +217,7 @@ export function usePracticeSessionController({
       if (filter.status === "unanswered" && doneInScope) return false;
       if (filter.status === "wrong") {
         const scoped = scopedWrongStats?.get(question.id);
-        if (!statsNeedWrongReview(scoped ? scopedStatsToLegacyAttemptStats(scoped) : undefined, preferences.wrongRemovalStreak)) return false;
+        if (!statsNeedWrongReview(scoped ? scopedStatsToAttemptStats(scoped) : undefined, preferences.wrongRemovalStreak)) return false;
       }
       if (filter.status === "favorite" && !question.favorite) return false;
       if (filter.totalAttemptsMin !== null && metric.total < filter.totalAttemptsMin) return false;

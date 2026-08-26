@@ -22,6 +22,7 @@ import type {
   SyncPendingChangeEdit,
   SyncQueueItem,
 } from "@/lib/sync/sync-application";
+import { solutionAnswerText, stableQuestionOptionIds } from "@/lib/question/question-utils";
 import "@/app/styles/sync-events-1.css";
 import "@/app/styles/sync-events-2.css";
 
@@ -188,7 +189,7 @@ function TypedMutationEditor({
   const [bankDisplayName, setBankDisplayName] = useState(mutation.kind === "bank.update" ? mutation.bank.displayName ?? "" : "");
   const [bankDescription, setBankDescription] = useState(mutation.kind === "bank.update" ? mutation.bank.description ?? "" : "");
   const [questionStem, setQuestionStem] = useState(mutation.kind === "question.upsert" ? mutation.question.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") : "");
-  const [questionAnswer, setQuestionAnswer] = useState(mutation.kind === "question.upsert" ? mutation.question.answer : "");
+  const [questionAnswer, setQuestionAnswer] = useState(mutation.kind === "question.upsert" ? solutionAnswerText(mutation.question.solution, stableQuestionOptionIds(mutation.question)) : "");
   const [questionTags, setQuestionTags] = useState(mutation.kind === "question.upsert" ? mutation.question.tags.join("，") : "");
 
   async function submit(event: FormEvent) {

@@ -1,11 +1,13 @@
-import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
+import { type ChangeSetV7 } from "./change-set-v7-types";
+import { verifyChangeSetDigestV7 } from "./change-set-v7-codec";
 import type { GitHubV7Remote } from "./github-v7-remote";
 import { SYNC_V7_DOWNLOAD_CONCURRENCY, descriptorEqual, mapWithConcurrency } from "./sync-v7-context";
 import type { RemoteCacheV7 } from "./sync-v7-cache";
-import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import { decodeRemoteCheckpoint } from "./sync-v8-history";
 import { normalizeHistorySyncStart } from "./history-sync-range";
-import { decodeSyncV7Segment, type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head";
+import { type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head-types";
+import { decodeSyncV7Segment } from "./sync-v7-head-operations";
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse
@@ -37,9 +39,9 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
   };
   // Weight the download steps by their actual bytes so a many-segment pull
   // advances the bar per segment instead of stalling on one flat report.
-  const checkpointBytes = canReuse ? 0 : checkpointDescriptor.storedSize ?? checkpointDescriptor.size;
+  const checkpointBytes = canReuse ? 0 : checkpointDescriptor.storedSize;
   const pendingSegments = [...head.segments].sort((a, b) => a.generation - b.generation || a.ordinal - b.ordinal).filter((descriptor) => !(canReuse && segmentCovered(descriptor)));
-  const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + (descriptor.storedSize ?? descriptor.size), 0);
+  const segmentBytes = pendingSegments.reduce((sum, descriptor) => sum + descriptor.storedSize, 0);
   const totalBytes = Math.max(1, checkpointBytes + segmentBytes);
   let checkpointLoadedBytes = 0;
   let completedSegmentBytes = 0;
@@ -53,9 +55,7 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
     
   }) : (async () => {
     const megabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    const sizeLabel = checkpointDescriptor.storedSize !== undefined
-      ? `实际 ${megabytes(checkpointDescriptor.storedSize)} / 解压后 ${megabytes(checkpointDescriptor.size)}`
-      : `解压后 ${megabytes(checkpointDescriptor.size)}`;
+    const sizeLabel = `实际 ${megabytes(checkpointDescriptor.storedSize)} / 解压后 ${megabytes(checkpointDescriptor.size)}`;
     onStep?.(0.01, `正在下载检查点（${sizeLabel}）`);
     const bytes = await client.readBlob(checkpointDescriptor, {
       onProgress: (loaded, total) => {
@@ -93,7 +93,7 @@ export async function downloadRemoteV7(client: GitHubV7Remote, head: SyncHeadV7,
     for (const change of resolved) {
       if (!await verifyChangeSetDigestV7(change)) throw new Error(`远端变更集 ${change.id} 完整性校验失败。`);
     }
-    completedSegmentBytes += descriptor.storedSize ?? descriptor.size;
+    completedSegmentBytes += descriptor.storedSize;
     doneSegments += 1;
     onStep?.(combinedFraction(), `正在下载热窗口分段（${doneSegments}/${pendingSegments.length}）`);
     return resolved;

@@ -6,7 +6,7 @@ import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBankV7 } from "@/lib/db/app-data-v7";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToLegacyAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { bankTitle, formatDateTime, formatDuration, fullDate, percent, runAccuracy, runAnswered, type ActivityRange, type AttemptStats, type Bank, type BankFolder, type Question, type QuestionPreset, type QuestionType } from "./bank-library-shared";
 import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
@@ -54,7 +54,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const roundProgress = useMemo(() => dataset?.roundProgress ?? [], [dataset?.roundProgress]);
   const normalizedScope = useMemo(() => normalizeProgressScope(progressScope), [progressScope]);
   const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats(questions.map((question) => question.id), normalizedScope, attempts, roundProgress, referenceTime), [questions, normalizedScope, attempts, roundProgress, referenceTime]);
-  const attemptStats = useMemo<AttemptStats[]>(() => [...scopedStatsByQuestion.values()].map((stats) => scopedStatsToLegacyAttemptStats(stats, bank.id)), [bank.id, scopedStatsByQuestion]);
+  const attemptStats = useMemo<AttemptStats[]>(() => [...scopedStatsByQuestion.values()].map((stats) => scopedStatsToAttemptStats(stats, bank.id)), [bank.id, scopedStatsByQuestion]);
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
   const dashboard = useMemo(() => {
     const noteIds = new Set(notes.map((note) => note.questionId));

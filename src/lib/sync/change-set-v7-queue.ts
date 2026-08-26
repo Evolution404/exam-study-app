@@ -1,4 +1,6 @@
-import { createChangeSetV7, dependentChangeSetIdsV7, type ChangeSetMutationV7 } from "./change-set-v7";
+import { type ChangeSetMutationV7 } from "./change-set-v7-types";
+import { createChangeSetV7 } from "./change-set-v7-codec";
+import { dependentChangeSetIdsV7 } from "./change-set-v7-planning";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7 } from "../db/db-v7";
 
@@ -19,7 +21,7 @@ export async function ensureChangeSetQueueBaseV7(): Promise<void> {
   ]);
   const projection: ChangeSetProjectionV7 = {
     banks, bankFolders, questions, memberships,
-    imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height, remote: asset.remote })),
+    imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height })),
     attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats,
     questionGroups, reviewRounds, reviewRoundProgress, tombstones,
   };

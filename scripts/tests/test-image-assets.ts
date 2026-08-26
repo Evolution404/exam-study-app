@@ -17,7 +17,7 @@ import {
   imageAssetIndexShardKey,
   parseImageAssetPack,
 } from "../../src/lib/sync/image-asset-pack";
-import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
 import { sha256HexBytes } from "../../src/lib/crypto/sha256";
 import { mapWithConcurrency } from "../../src/lib/async/bounded-concurrency";
 import type { ImageAsset } from "../../src/lib/db/v7-types";
@@ -40,9 +40,7 @@ assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache U
 assert.match(syncUploadSource, /publishImageAssetsAsPacks/, "sync upload must publish image packs instead of individual image files");
 assert.doesNotMatch(syncUploadSource, /putImmutable\([\s\S]*sha256:\s*asset\.id/, "sync upload must not create one immutable Git file per image");
 assert.match(imageCacheSource, /readImageAssetsFromPacks/, "full image cache must batch by pack instead of requesting every image blob");
-assert.match(imagePackSource, /for \(const group of groupImageAssetsForPacks\(pendingBase\)\)/, "one-shot migration must hydrate and upload one bounded pack group at a time");
 assert.match(imagePackSource, /if \(assets\.every\(\(asset\) => isIndexed\(knownShards, asset\)\)\) return \[\];/, "idempotent pack publication must use the cached index fast path before Git ref reads");
-assert.doesNotMatch(imagePackSource, /const pending = await mapWithConcurrency\(pendingBase/, "migration must not hydrate every legacy image into memory at once");
 
 // The shared pool must preserve order, cap active work and stop claiming new
 // items after the first worker error. This protects import/export/image-cache

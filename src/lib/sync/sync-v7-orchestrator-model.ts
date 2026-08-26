@@ -1,6 +1,6 @@
 import type { ChangeSetQueueRecordV7 } from "../db/db-v7";
 import type { AttemptV7, PracticeRunV7 } from "../db/v7-types";
-import type { ChangeSetV7 } from "./change-set-v7";
+import type { ChangeSetV7 } from "./change-set-v7-types";
 import type { ChangeSetProjectionV7 } from "./change-set-v7-projection";
 
 export function formatTransferBytesV7(bytes: number): string {

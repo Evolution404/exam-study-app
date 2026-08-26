@@ -24,24 +24,24 @@ export interface ScopedQuestionStats {
   total: number;
   correct: number;
   wrong: number;
-  giveUps?: number;
-  totalElapsedMs?: number;
+  giveUps: number;
+  totalElapsedMs: number;
   firstAttemptAt: string;
-  firstAttemptCorrect?: boolean;
+  firstAttemptCorrect: boolean;
   latestAttemptAt: string;
   hasBeenWrong: boolean;
   currentCorrectStreak: number;
   correctStreakAfterWrong: number;
   /** 窗口内最近作答序列（含作答时间），供时间/间隔感知的个人难度使用。 */
-  recentOutcomes?: Array<{ id?: string; correct: boolean; createdAt: string; elapsedMs?: number }>;
+  recentOutcomes: Array<{ id: string; correct: boolean; createdAt: string; elapsedMs: number }>;
 }
 
 export interface ScopedAttemptSummary {
   attempts: number;
   correct: number;
   wrong: number;
-  giveUps?: number;
-  totalElapsedMs?: number;
+  giveUps: number;
+  totalElapsedMs: number;
   attemptedQuestions: number;
   firstCorrect: number;
   firstKnown: number;
@@ -110,8 +110,7 @@ function progressForQuestion(roundId: string, questionId: string, progress: read
 }
 
 function hasRoundProgress(progress: ReviewRoundProgress | undefined): boolean {
-  if (!progress) return false;
-  return progress.attempts > 0 || progress.correct > 0 || progress.wrong > 0;
+  return progress !== undefined;
 }
 
 /**
@@ -182,8 +181,7 @@ export function calculateProgressCompletion(
 /**
  * Build per-question statistics for the exact user-selected scope.
  * Rolling/lifetime scopes use immutable attempts so accuracy and streaks are
- * exact. Named rounds use their durable aggregate projection; fields that
- * cannot be reconstructed after a run is deleted remain explicitly unknown.
+ * exact. Named rounds use their complete durable aggregate projection.
  */
 export function buildScopedQuestionStats(
   questionIds: readonly string[],
@@ -207,9 +205,9 @@ export function buildScopedQuestionStats(
         firstAttemptAt: row.firstAttemptAt,
         firstAttemptCorrect: row.firstAttemptCorrect,
         latestAttemptAt: row.latestAttemptAt,
-        hasBeenWrong: row.hasBeenWrong ?? row.wrong > 0,
-        currentCorrectStreak: row.currentCorrectStreak ?? (row.wrong === 0 ? row.correct : 0),
-        correctStreakAfterWrong: row.correctStreakAfterWrong ?? 0,
+        hasBeenWrong: row.hasBeenWrong,
+        currentCorrectStreak: row.currentCorrectStreak,
+        correctStreakAfterWrong: row.correctStreakAfterWrong,
         recentOutcomes: row.recentOutcomes,
       }]));
   }
@@ -272,7 +270,6 @@ export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQu
   let wrong = 0;
   let giveUps = 0;
   let totalElapsedMs = 0;
-  let completeDetails = true;
   let firstCorrect = 0;
   let firstKnown = 0;
   let lastAttemptAt: string | undefined;
@@ -280,52 +277,37 @@ export function summarizeScopedQuestionStats(stats: ReadonlyMap<string, ScopedQu
     attempts += row.total;
     correct += row.correct;
     wrong += row.wrong;
-    if (row.giveUps === undefined || row.totalElapsedMs === undefined) completeDetails = false;
-    else {
-      giveUps += row.giveUps;
-      totalElapsedMs += row.totalElapsedMs;
-    }
-    if (row.firstAttemptCorrect !== undefined) {
-      firstKnown += 1;
-      if (row.firstAttemptCorrect) firstCorrect += 1;
-    }
+    giveUps += row.giveUps;
+    totalElapsedMs += row.totalElapsedMs;
+    firstKnown += 1;
+    if (row.firstAttemptCorrect) firstCorrect += 1;
     if (!lastAttemptAt || row.latestAttemptAt > lastAttemptAt) lastAttemptAt = row.latestAttemptAt;
   }
-  return {
-    attempts,
-    correct,
-    wrong,
-    ...(completeDetails ? { giveUps, totalElapsedMs } : {}),
-    attemptedQuestions: stats.size,
-    firstCorrect,
-    firstKnown,
-    lastAttemptAt,
-  };
+  return { attempts, correct, wrong, giveUps, totalElapsedMs, attemptedQuestions: stats.size, firstCorrect, firstKnown, lastAttemptAt };
 }
 
 /**
- * Bridge a scoped per-question stats row back into the legacy `AttemptStats`
+ * Convert scoped per-question statistics into the canonical `AttemptStats`
  * shape so existing helpers (`summarizeAttemptStats`, `calculateDifficulty`)
  * work on date-range-filtered data.  The rolling/lifetime path now carries a
- * `recentOutcomes` window for the time-aware personal difficulty. New round
- * projections carry the same evidence; legacy aggregate-only rows still use
- * the count-based fallback.
+ * `recentOutcomes` window for the time-aware personal difficulty. Round
+ * projections carry the same evidence.
  */
-export function scopedStatsToLegacyAttemptStats(stats: ScopedQuestionStats, bankId = ""): AttemptStats {
+export function scopedStatsToAttemptStats(stats: ScopedQuestionStats, bankId = ""): AttemptStats {
   return {
     questionId: stats.questionId,
     bankId,
     total: stats.total,
     correct: stats.correct,
     wrong: stats.wrong,
-    giveUps: stats.giveUps ?? 0,
-    totalElapsedMs: stats.totalElapsedMs ?? 0,
+    giveUps: stats.giveUps,
+    totalElapsedMs: stats.totalElapsedMs,
     firstAttemptAt: stats.firstAttemptAt,
-    firstAttemptCorrect: stats.firstAttemptCorrect ?? false,
+    firstAttemptCorrect: stats.firstAttemptCorrect,
     latestAttemptAt: stats.latestAttemptAt,
     hasBeenWrong: stats.hasBeenWrong,
     correctStreakAfterWrong: stats.correctStreakAfterWrong,
     currentCorrectStreak: stats.currentCorrectStreak,
-    recentOutcomes: (stats.recentOutcomes ?? []).map((outcome, index) => ({ ...outcome, id: outcome.id ?? `${stats.questionId}:${index}` })),
+    recentOutcomes: stats.recentOutcomes.map((outcome) => ({ ...outcome })),
   };
 }

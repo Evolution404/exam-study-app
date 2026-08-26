@@ -6,25 +6,13 @@ import {
   plainTextToContentBlocks,
   questionContentFingerprint,
 } from "../question/question-content";
-import {
-  legacyAnswerForSolution,
-  normalizeCalculationAnswer,
-  questionSolution,
-  stableOptionIdForBlocks,
-} from "../question/question-utils";
-import type { ContentBlock, QuestionTypeV7, QuestionV7, QuestionSolution } from "./v7-types";
+import { stableOptionIdForBlocks } from "../question/question-utils";
+import type { ContentBlock, QuestionV7, QuestionSolution } from "./v7-types";
 
-export type StructuredQuestionDraftV7 = QuestionDraftV7 & {
+export type StructuredQuestionDraftV7 = Omit<QuestionDraftV7, "answer"> & {
   optionIds?: string[];
-  solution?: QuestionSolution;
+  solution: QuestionSolution;
 };
-
-function normalizeAnswer(type: QuestionTypeV7, input: string | readonly string[]): string {
-  if (type === "计算") return normalizeCalculationAnswer(input);
-  if (type === "填空" || type === "简答") return String(Array.isArray(input) ? input.join("\n") : input).trim();
-  const raw = Array.isArray(input) ? input.join("") : String(input);
-  return uniqueStrings([...raw.toUpperCase().replace(/[^A-Z]/g, "")]).sort().join("");
-}
 
 function normalizeBlocks(blocks: readonly ContentBlock[]): ContentBlock[] {
   return blocks.map((block, index) => {
@@ -51,16 +39,13 @@ export function questionFromDraft(id: string, draft: StructuredQuestionDraftV7, 
   const optionIds = (draft.type === "判断" || draft.type === "单选" || draft.type === "多选")
     ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : options.map((option) => stableOptionIdForBlocks(option)))
     : [];
-  const suppliedSolution = draft.solution;
-  const solution = suppliedSolution ?? questionSolution({ type: draft.type, answer: normalizeAnswer(draft.type, draft.answer), options, optionIds });
-  const answer = suppliedSolution ? legacyAnswerForSolution(solution, optionIds) : normalizeAnswer(draft.type, draft.answer);
-  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, answer: `${answer}\u0000${JSON.stringify(solution)}` });
+  const solution = structuredClone(draft.solution);
+  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, solution });
   return {
     id,
     type: draft.type,
     content,
     options,
-    answer,
     ...(optionIds.length ? { optionIds } : {}),
     solution,
     tags: uniqueStrings(draft.tags ?? []),

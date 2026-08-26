@@ -9,7 +9,7 @@ export interface QuestionContentFingerprintInput {
   type: QuestionV7["type"];
   content: readonly ContentBlock[];
   options: readonly (readonly ContentBlock[])[];
-  answer: string;
+  solution: QuestionV7["solution"];
 }
 
 const encoder = new TextEncoder();
@@ -84,7 +84,7 @@ function canonicalFingerprintPayload(input: QuestionContentFingerprintInput): st
     type: input.type,
     content: normalizedFingerprintBlocks(input.content),
     options: input.options.map((option) => normalizedFingerprintBlocks(option)),
-    answer: normalizeContentText(input.answer),
+    solution: input.solution,
   });
 }
 

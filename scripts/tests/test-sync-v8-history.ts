@@ -5,8 +5,9 @@ import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src
 import type { AttemptV7, PracticeRunV7 } from "../../src/lib/db/v7-types";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-v7-context";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
-import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import { validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
+import { SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 import {
   createRemoteCheckpointV8,
   encodeSyncCheckpointV8,
@@ -35,7 +36,7 @@ try {
     type: "单选",
     stem: "历史归档是否保持完整恢复？",
     options: ["是", "否"],
-    answer: "A",
+    solution: { kind: "choice", correctOptionIds: ["option-1y6l9uk"] },
   });
   const deviceId = "history-device";
   memoryLocalStorage.set("shijuan-study-v7-device-id", deviceId);
@@ -114,9 +115,7 @@ try {
   assert.equal(server.stats.blobReads - readsBeforeWindowedHydration, 3, "windowed hydration reads only the index and two boundary/relevant chunks");
   assert.equal(windowed.state.attemptStats[0]?.total, 4, "derived statistics are rebuilt from the selected device history window");
 
-  // Publish the bounded checkpoint and prove dedicated history GC preserves its
-  // reachable index/chunks while removing an unrelated orphan history object.
-  const checkpointPath = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest(boundedBytes));
+  const checkpointPath = descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest(boundedBytes));
   const uploadedCheckpoint = await client.putImmutable({ path: checkpointPath, bytes: boundedBytes, kind: "checkpoint" });
   const checkpointDescriptor = {
     path: checkpointPath,

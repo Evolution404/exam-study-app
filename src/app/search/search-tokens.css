@@ -1,5 +1,5 @@
 /* Search-owned semantic tokens. Keep light/dark values paired here so Search can
- * migrate without expanding the core token layer. */
+ * move without expanding the core token layer. */
 :root {
   --search-shell-bg: #f9f7f2;
   --search-muted-action-text: #758078;

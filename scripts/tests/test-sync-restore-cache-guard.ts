@@ -19,7 +19,14 @@ try {
   const settings = { owner: "qa", repo: "restore-guard-vault", branch: "main", apiBaseUrl: server.url };
   await resetV7Database();
   const syncedBank = await createBankV7("已同步题库");
-  await createQuestionV7(syncedBank.id, { type: "单选", content: [{ id: "stem-0", type: "text", text: "已同步的题目？" }], options: [[{ id: "opt-0", type: "text", text: "是" }], [{ id: "opt-1", type: "text", text: "否" }]], answer: "A", tags: [] });
+  await createQuestionV7(syncedBank.id, {
+    type: "单选",
+    content: [{ id: "stem-0", type: "text", text: "已同步的题目？" }],
+    options: [[{ id: "opt-0", type: "text", text: "是" }], [{ id: "opt-1", type: "text", text: "否" }]],
+    optionIds: ["opt-0", "opt-1"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
+    tags: [],
+  });
   await syncWithGitHub(settings, "qa-token");
 
   // 产生一组未同步的本地修改。本地恢复的用途就是丢弃待同步事件、回滚到

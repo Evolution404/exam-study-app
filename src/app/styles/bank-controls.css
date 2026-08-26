@@ -1,4 +1,4 @@
-/* Question-bank control variants migrated out of the global entrypoint. */
+/* Question-bank control variants moved out of the global entrypoint. */
 .bank-row-actions{padding-right:7px;display:flex;align-items:center;gap:6px}
 .bank-enable-toggle{width:48px;height:42px;border:0;padding:0;display:grid;place-items:center;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .bank-enable-toggle-track{width:36px;height:22px;border:1px solid var(--color-border);border-radius:999px;padding:2px;display:block;background:var(--color-surface-muted);transition:background .16s ease,border-color .16s ease}

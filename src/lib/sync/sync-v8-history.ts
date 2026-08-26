@@ -5,17 +5,9 @@ import { filterProjectionHistoryV7, historyTimestampIncluded, normalizeHistorySy
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
 import { descriptorPath, sha256 } from "./sync-v7-context";
 import { checkpointFromProjection } from "./sync-v7-checkpoint-bridge";
-import {
-  validateSyncCheckpointV7,
-  type SyncCheckpointV7,
-  type SyncCheckpointV7Counts,
-  type SyncCheckpointV7State,
-} from "./sync-v7-checkpoint";
-import {
-  SYNC_V9_HISTORY_PREFIX,
-  type SyncHeadV7,
-  type SyncV7Descriptor,
-} from "./sync-v7-head";
+import { type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
+import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
+import { SYNC_V9_HISTORY_PREFIX, type SyncHeadV7, type SyncV7Descriptor } from "./sync-v7-head-types";
 
 export const SYNC_V9_CHECKPOINT_FORMAT = 9 as const;
 export const SYNC_V8_RECENT_ATTEMPT_LIMIT = 5_000;
@@ -111,7 +103,7 @@ function assertDescriptor(value: unknown, field: string): asserts value is SyncV
   if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`invalid v9 checkpoint: ${field}.blobSha is invalid`);
   if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);
-  if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${field}.storedSize`);
+  assertSafeInt(value.storedSize, `${field}.storedSize`);
   if (!value.path.includes(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.path digest mismatch`);
 }
 
@@ -121,7 +113,7 @@ function cloneBoundedState(full: SyncCheckpointV7State, attempts: AttemptV7[], p
     bankFolders: full.bankFolders.map((item) => ({ ...item })),
     questions: full.questions.map((item) => ({ ...item, content: item.content.map((block) => ({ ...block })), options: item.options.map((option) => option.map((block) => ({ ...block }))), tags: [...item.tags] })),
     memberships: full.memberships.map((item) => ({ ...item })),
-    imageAssets: full.imageAssets.map((item) => ({ ...item, remote: item.remote ? { ...item.remote } : undefined })),
+    imageAssets: full.imageAssets.map((item) => ({ id: item.id, mimeType: item.mimeType, size: item.size, width: item.width, height: item.height })),
     attempts: attempts.map((item) => ({ ...item })),
     // These are authoritative only after history hydration. Keeping them empty
     // prevents recent-only data from masquerading as lifetime aggregates.
@@ -421,10 +413,9 @@ export async function decodeRemoteCheckpoint(client: GitHubV7Remote, bytes: Uint
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
-  // v9-only: older checkpoints exist solely in unmigrated vaults, which the
-  // client rejects at the head; the one-time migration decodes them itself.
+  // Current clients accept only the v9 checkpoint envelope.
   if (!isRecord(header) || header.formatVersion !== SYNC_V9_CHECKPOINT_FORMAT) {
-    throw new Error("远程检查点格式不是 v9，请先执行 v8→v9 数据仓库迁移。");
+    throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");
   }
   const checkpoint = parseSyncCheckpointV8(bytes);
   return hydrateSyncCheckpointV8WithStats(client, checkpoint, options);

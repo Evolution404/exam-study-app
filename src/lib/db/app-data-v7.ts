@@ -1,7 +1,7 @@
 import { dbV7, getBankQuestionJoinsV7 } from "./db-v7";
 import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
-import type { BankQuestionMembership, BankV7, ContentBlock, QuestionV7 } from "./v7-types";
-import { formatCalculationAnswers } from "../question/question-utils";
+import type { BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
+import { formatCalculationAnswers, stableQuestionOptionIds } from "../question/question-utils";
 
 /**
  * A presentation-only join.  Bank identity and ordering remain membership
@@ -37,12 +37,25 @@ export function questionPlainViewV7(question: QuestionV7): QuestionPlainViewV7 {
 }
 
 export function questionAnswerTextV7(question: QuestionV7): string {
-  if (question.type === "计算") return formatCalculationAnswers(question.answer);
-  return [...question.answer]
-    .map((letter) => question.options[letter.charCodeAt(0) - 65])
-    .filter((blocks): blocks is ContentBlock[] => Boolean(blocks))
-    .map((blocks) => deriveContentText(blocks))
-    .join("、");
+  const solution = question.solution;
+  if (solution.kind === "choice") {
+    const optionIds = stableQuestionOptionIds(question);
+    return solution.correctOptionIds
+      .map((id) => optionIds.indexOf(id))
+      .filter((index) => index >= 0)
+      .map((index) => deriveContentText(question.options[index] ?? []))
+      .filter(Boolean)
+      .join("、");
+  }
+  if (solution.kind === "calculation") {
+    return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
+  }
+  if (solution.kind === "fill") {
+    return solution.blanks
+      .map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`)
+      .join("；");
+  }
+  return solution.referenceText;
 }
 
 export async function getQuestionViewV7(questionId: string, preferredBankId?: string): Promise<QuestionViewV7 | undefined> {

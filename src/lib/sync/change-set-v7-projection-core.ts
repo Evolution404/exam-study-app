@@ -26,8 +26,6 @@ export interface ChangeSetProjectionV7 {
   bankFolders: BankFolderV7[];
   questions: QuestionV7[];
   memberships: BankQuestionMembership[];
-  /** Alias retained for callers using the v7 table name. */
-  bankQuestionMemberships?: BankQuestionMembership[];
   imageAssets: ImageAsset[];
   attempts: AttemptV7[];
   attemptStats: AttemptStatsV7[];
@@ -43,10 +41,7 @@ export interface ChangeSetProjectionV7 {
   attemptRoundIds?: Record<string, string[]>;
 }
 
-export type ChangeSetProjectionInputV7 = Omit<ChangeSetProjectionV7, "bankQuestionMemberships"> & {
-  bankQuestionMemberships?: BankQuestionMembership[];
-  memberships?: BankQuestionMembership[];
-};
+export type ChangeSetProjectionInputV7 = ChangeSetProjectionV7;
 
 export interface ProjectionValidationIssueV7 {
   path: string;
@@ -98,13 +93,11 @@ export function uniqueStrings(values: readonly string[]): string[] {
 }
 
 export function normalizeProjection(input: ChangeSetProjectionInputV7): ChangeSetProjectionV7 {
-  const memberships = input.memberships ?? input.bankQuestionMemberships ?? [];
   return {
     banks: list(input.banks),
     bankFolders: list(input.bankFolders),
     questions: list(input.questions),
-    memberships: list(memberships),
-    bankQuestionMemberships: list(memberships),
+    memberships: list(input.memberships),
     imageAssets: list(input.imageAssets),
     attempts: list(input.attempts),
     attemptStats: list(input.attemptStats),
@@ -235,13 +228,11 @@ export function runWithAnswer(run: PracticeRunV7, questionId: string, answer: Pr
  *  so the base projection is never observably mutated and a failed record can
  *  be rolled back by simply discarding its envelope. */
 export function shallowEnvelope(base: ChangeSetProjectionV7): ChangeSetProjectionV7 {
-  const memberships = [...base.memberships];
   return {
     banks: [...base.banks],
     bankFolders: [...base.bankFolders],
     questions: [...base.questions],
-    memberships,
-    bankQuestionMemberships: memberships,
+    memberships: [...base.memberships],
     imageAssets: [...base.imageAssets],
     attempts: [...base.attempts],
     attemptStats: [...base.attemptStats],

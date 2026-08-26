@@ -21,7 +21,7 @@ import {
   progressScopeCutoff,
   progressScopeKey,
   progressScopeLabel,
-  scopedStatsToLegacyAttemptStats,
+  scopedStatsToAttemptStats,
   summarizeScopedQuestionStats,
   type ProgressScope,
 } from "../../src/lib/practice/progress-scope";
@@ -47,8 +47,20 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   attempts,
   correct,
   wrong,
+  giveUps: 0,
+  totalElapsedMs: attempts * 10,
   firstAttemptAt: T0,
+  firstAttemptCorrect: correct > 0,
   latestAttemptAt: T0,
+  hasBeenWrong: wrong > 0,
+  currentCorrectStreak: wrong > 0 ? 0 : correct,
+  correctStreakAfterWrong: 0,
+  recentOutcomes: Array.from({ length: attempts }, (_, index) => ({
+    id: `${roundId}:${questionId}:${index}`,
+    createdAt: T0,
+    correct: index < correct,
+    elapsedMs: 10,
+  })),
 });
 
 // ---------------------------------------------------------------------------
@@ -84,7 +96,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(isQuestionDoneInScope("q1", scope, [{ questionId: "q1", total: 0, latestAttemptAt: at(0) }], [], T0), false, "total=0 不算完成");
   assert.equal(isQuestionDoneInScope("q1", { type: "lifetime" }, [{ questionId: "q1", total: 2, latestAttemptAt: at(-999) }], [], T0), true, "lifetime 只要有过作答");
   assert.equal(isQuestionDoneInScope("q1", { type: "round", roundId: "r1" }, [], [round("r1", "q1", 1, 1, 0)], T0), true);
-  assert.equal(isQuestionDoneInScope("q1", { type: "round", roundId: "r1" }, [], [round("r1", "q1", 0, 0, 0)], T0), false, "轮次 0 作答不算完成");
+  assert.equal(isQuestionDoneInScope("q1", { type: "round", roundId: "r1" }, [], [], T0), false, "没有轮次进度行时不算完成");
 }
 
 // ---------------------------------------------------------------------------
@@ -123,10 +135,10 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   ];
   const stats = buildScopedQuestionStats(["q1", "q2"], scope, attempts, [], T0);
   assert.equal(stats.size, 2);
-  // 窗口口径应携带作答序列（含作答时间）供难度 v2 使用；round 口径保持缺省走回退。
+  // 窗口和轮次口径都携带完整作答证据，供当前个人难度模型使用。
   assert.equal(stats.get("q1")!.recentOutcomes?.length, 3, "rolling 窗口内的作答应生成 outcomes 序列");
   assert.equal(stats.get("q1")!.recentOutcomes?.[0].elapsedMs, 10);
-  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes, undefined);
+  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes.length, 5);
   const roundWithEvidence: ReviewRoundProgress = {
     ...round("r2", "q1", 2, 2, 0),
     giveUps: 0,
@@ -142,8 +154,8 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   };
   const roundEvidenceStats = buildScopedQuestionStats(["q1"], { type: "round", roundId: "r2" }, [], [roundWithEvidence], T0).get("q1")!;
   assert.equal(roundEvidenceStats.recentOutcomes?.length, 2, "新轮次投影应携带与普通练习一致的难度证据");
-  assert.equal(summarizeAttemptStats(scopedStatsToLegacyAttemptStats(roundEvidenceStats), T0).difficulty, 23, "轮次个人难度应与同一作答序列的普通练习口径一致");
-  assert.equal(scopedStatsToLegacyAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
+  assert.equal(summarizeAttemptStats(scopedStatsToAttemptStats(roundEvidenceStats), T0).difficulty, 23, "轮次个人难度应与同一作答序列的普通练习口径一致");
+  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "统计转换应透传窗口内序列");
   const q1 = stats.get("q1")!;
   assert.equal(q1.total, 3, "窗口内 3 条（-2/-1/0）");
   assert.equal(q1.correct, 1);
@@ -195,13 +207,18 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(summary.firstKnown, 2);
   assert.equal(summary.lastAttemptAt, at(0));
 
-  const legacy = scopedStatsToLegacyAttemptStats({
+  const converted = scopedStatsToAttemptStats({
     questionId: "q1", total: 3, correct: 1, wrong: 2, giveUps: 1, totalElapsedMs: 30,
     firstAttemptAt: at(-2), firstAttemptCorrect: false, latestAttemptAt: at(0),
     hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0,
+    recentOutcomes: [
+      { id: "q1:0", createdAt: at(-2), correct: false, elapsedMs: 10 },
+      { id: "q1:1", createdAt: at(-1), correct: false, elapsedMs: 10 },
+      { id: "q1:2", createdAt: at(0), correct: true, elapsedMs: 10 },
+    ],
   });
-  assert.equal(legacy.total, 3);
-  assert.deepEqual(legacy.recentOutcomes, []);
+  assert.equal(converted.total, 3);
+  assert.equal(converted.recentOutcomes.length, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,10 +261,10 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
 {
   const HOUR = 3_600_000;
   const T1 = "2026-08-01T00:00:00.000Z";
-  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs?: number) => ({
+  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs: number) => ({
     correct,
     createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),
-    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    elapsedMs,
   });
   // 逐步轨迹：对前缀序列逐个求难度，观察演化路径。
   const trajectory = (...outcomes: ReturnType<typeof outcome>[]) =>
@@ -306,8 +323,9 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     "错误和不会的耗时不得改变后续正确作答的速度基线",
   );
 
-  // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。
-  assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");
+  assert.throws(() => difficultyFromOutcomes([{ correct: true, createdAt: T1, elapsedMs: Number.NaN }]), /elapsedMs/, "current outcomes reject invalid elapsedMs");
+  assert.doesNotThrow(() => difficultyFromOutcomes([outcome(0, true, 20_000), outcome(13, true, 500)]), "sub-second valid timings must remain valid");
+  assert.doesNotThrow(() => difficultyFromOutcomes([outcome(0, true, 20_000), outcome(13, true, 25 * 60_000)]), "long valid timings must remain valid");
 
   // 有 12 条以上本机历史时用 walk-forward Brier score 在有界候选中校准学习率；
   // 短历史保持默认参数，未作答仍固定为 50。
@@ -327,7 +345,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     outcome(26, true, 8_000),
   ).at(-1), 28, "单次超长作答不应击穿速度基准");
 
-  // 聚合行读取路径：recentOutcomes 非空走 EMA；为空（round 口径/旧本地行）回退终身错误率。
+  // 聚合行读取路径：recentOutcomes 直接驱动 EMA 难度。
   assert.equal(summarizeAttemptStats({
     questionId: "q", bankId: "", total: 2, correct: 2, wrong: 0, giveUps: 0, totalElapsedMs: 28_000,
     firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
@@ -337,14 +355,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
       { id: "a2", createdAt: at(-1), correct: true, elapsedMs: 8_000 },
     ],
   }).difficulty, 23, "聚合行有 outcomes 时按 EMA 估计（跨天快速连对第二步）");
-  assert.equal(summarizeAttemptStats({
-    questionId: "q", bankId: "", total: 8, correct: 8, wrong: 0, giveUps: 0, totalElapsedMs: 0,
-    firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
-    correctStreakAfterWrong: 0, currentCorrectStreak: 8,
-    recentOutcomes: [],
-  }).difficulty, calculateDifficulty(8, 0), "outcomes 为空时回退终身错误率公式");
-
-  // 写入链把作答时间记进 recentOutcomes（legacy 链；V7 链由静态断言覆盖）。
+  // 写入链把作答时间记进 recentOutcomes。
   const builtChain = buildAttemptStats([attempt("a1", "q", at(-2), true), attempt("a2", "q", at(-1), false)]);
   assert.equal(builtChain?.recentOutcomes[0].elapsedMs, 10);
   assert.equal(builtChain?.recentOutcomes[1].elapsedMs, 10);
@@ -364,15 +375,11 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     "2026-08-15T08:00:00.000Z",
     "已完成按完成时间排序（不是开始时间，也不是最后一题时间）",
   );
-  assert.equal(
-    runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),
-    "2026-08-14T22:00:00.000Z",
-    "缺 completedAt 的旧数据回退最后一道作答题的时间",
-  );
+  assert.throws(() => runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })), /completedAt/, "completed current runs require completedAt");
   assert.equal(
     runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: answers(["2026-08-16T09:00:00.000Z", true], ["2026-08-16T10:30:00.000Z", true], ["2026-08-16T10:00:00.000Z", true]) })),
     "2026-08-16T10:30:00.000Z",
-    "进行中取多道作答里最新的 updatedAt（恢复旧练习后应排到最前）",
+    "进行中取多道作答里最新的 updatedAt",
   );
   assert.equal(
     runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: false, updatedAt: "2026-08-16T12:00:00.000Z" }, q2: { submitted: true, updatedAt: "2026-08-16T09:00:00.000Z" } } })),
@@ -387,13 +394,9 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(
     runActivityAt(run({ status: "abandoned", abandonedAt: "2026-08-16T12:00:00.000Z" })),
     "2026-08-16T12:00:00.000Z",
-    "未作答的已放弃记录回退放弃时间",
+    "未作答的已放弃记录使用 abandonedAt",
   );
-  assert.equal(
-    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })),
-    "2026-08-01T00:00:00.000Z",
-    "旧数据 answer.updatedAt 缺失时回退开始时间",
-  );
+  assert.throws(() => runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })), /updatedAt/, "submitted current answers require updatedAt");
 }
 
 // ===== 错题口径：scoped（进度口径）与 lifetime（终身）的区分性用例 =====
@@ -406,7 +409,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     attempt("w2", "q1", at(-9), true),
     attempt("w3", "q1", at(-8), true),
   ], [], Date.parse(T0));
-  const inWindowLegacy = scopedStatsToLegacyAttemptStats(inWindow.get("q1")!);
+  const inWindowLegacy = scopedStatsToAttemptStats(inWindow.get("q1")!);
   assert.equal(statsNeedWrongReview(inWindowLegacy, 2), false, "窗口内错后 2 连对应移出错题");
 
   // 场景 2：错误与连对都在窗口外（40 天前）→ rolling(30) 下 scoped 无记录，不再是错题；
@@ -425,13 +428,13 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     attempt("r1", "q3", at(-40), true),
     attempt("r2", "q3", at(-5), false),
   ], [], Date.parse(T0));
-  assert.equal(statsNeedWrongReview(scopedStatsToLegacyAttemptStats(wrongRecent.get("q3")!), 2), true, "窗口内的错误即使之前有历史连对也仍是错题");
+  assert.equal(statsNeedWrongReview(scopedStatsToAttemptStats(wrongRecent.get("q3")!), 2), true, "窗口内的错误即使之前有历史连对也仍是错题");
 
   // 场景 4：round 口径下 wrong>0 恒为错题（correctStreakAfterWrong 恒 0，既定行为）。
   const roundScoped = buildScopedQuestionStats(["q4"], normalizeProgressScope({ type: "round", roundId: "round-1" }), [], [
     round("round-1", "q4", 6, 5, 1),
   ], Date.parse(T0));
-  assert.equal(statsNeedWrongReview(scopedStatsToLegacyAttemptStats(roundScoped.get("q4")!), 1), true, "轮次内错过永不移出（既定行为）");
+  assert.equal(statsNeedWrongReview(scopedStatsToAttemptStats(roundScoped.get("q4")!), 1), true, "轮次内错过永不移出（既定行为）");
 }
 
 console.log("progress metrics boundary tests passed");

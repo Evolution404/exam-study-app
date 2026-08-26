@@ -15,8 +15,6 @@ const source = createSideStoreSource({
 assert.equal(source.identifier, "com.evolution404.shijuan.source");
 assert.equal(source.sourceURL, SIDESTORE_SOURCE_URL);
 assert.equal(source.apps[0].bundleIdentifier, IOS_BUNDLE_ID);
-assert.equal(source.apps[0].version, "1.0.321", "legacy version field must remain available");
-assert.equal(source.apps[0].downloadURL, SIDESTORE_IPA_URL, "legacy download URL must use Cloudflare");
 assert.equal(source.apps[0].versions[0].version, "1.0.321");
 assert.equal(source.apps[0].versions[0].downloadURL, SIDESTORE_IPA_URL);
 assert.equal(source.apps[0].versions[0].size, 123456);
@@ -82,3 +80,6 @@ const routes = JSON.parse(read("public/_routes.json"));
 assert.deepEqual(routes.include, ["/api-github/*", "/sidestore/*"]);
 
 console.log("iOS release tests passed: deterministic source metadata, Cloudflare relay, parallel publish, online smoke and latest-pointer rollback");
+
+assert.equal("version" in source.apps[0], false, "deprecated app-level version field must stay removed");
+assert.equal("downloadURL" in source.apps[0], false, "deprecated app-level downloadURL field must stay removed");

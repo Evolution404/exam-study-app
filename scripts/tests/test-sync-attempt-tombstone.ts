@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
 import type { BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 

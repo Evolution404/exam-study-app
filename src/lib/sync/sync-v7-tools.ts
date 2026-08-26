@@ -7,7 +7,7 @@ import { installFingerprint } from "./sync-v7-watermark";
 import { withSyncLock } from "./sync-lock";
 import { filterProjectionHistoryV7, historySyncStartFor } from "./history-sync-range";
 import { getGitHubTransport, resolveGitHubApiBaseUrl } from "../../platform/github-transport";
-import { SYNC_V7_MAX_HOT_BYTES } from "./sync-v7-head";
+import { SYNC_V7_MAX_HOT_BYTES } from "./sync-v7-head-types";
 
 export async function getGitHubLogin(token: string, apiBaseUrl?: string, options?: SyncWithGitHubOptions): Promise<string> {
   const transport = options?.transport ?? getGitHubTransport();
@@ -42,7 +42,7 @@ export interface SyncHotWindowState {
   segmentSizes: number[];
   /** Logical (decompressed) size of the checkpoint snapshot, when one exists. */
   checkpointSize?: number;
-  /** Actual stored (compressed) bytes of the checkpoint blob, when the descriptor carries it. */
+  /** Actual stored (compressed) bytes of the checkpoint blob, when one exists. */
   checkpointStoredSize?: number;
   /** Change events held in the hot-window segments (sum of per-segment counts). */
   segmentEvents: number;
@@ -66,7 +66,7 @@ export async function getSyncHotWindowState(settings: GitHubSettings): Promise<S
     checkpointGeneration: head.checkpoint?.generation ?? (head.segments.length ? head.segments[0].generation - 1 : head.generation),
     hasCheckpoint: Boolean(head.checkpoint),
     segmentSizes: head.segments.map((segment) => segment.size),
-    ...(head.checkpoint ? { checkpointSize: head.checkpoint.size, ...(head.checkpoint.storedSize !== undefined ? { checkpointStoredSize: head.checkpoint.storedSize } : {}) } : {}),
+    ...(head.checkpoint ? { checkpointSize: head.checkpoint.size, checkpointStoredSize: head.checkpoint.storedSize } : {}),
     segmentEvents: head.segments.reduce((sum, segment) => sum + segment.count, 0),
   };
 }

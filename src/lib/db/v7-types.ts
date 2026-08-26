@@ -1,24 +1,20 @@
 import type {
-  Bank as LegacyBank,
-  BankFolder as LegacyBankFolder,
-  Note as LegacyNote,
+  Bank as BaseBank,
+  BankFolder as BaseBankFolder,
+  Note as BaseNote,
   PracticeRun,
   AttemptOutcome,
-  QuestionGroup as LegacyQuestionGroup,
+  QuestionGroup as BaseQuestionGroup,
   QuestionSolution,
   PracticeResponse,
   QuestionType,
-  SyncFile as LegacySyncFile,
-  SyncMeta as LegacySyncMeta,
-  SyncTombstone as LegacySyncTombstone,
+  SyncFile as BaseSyncFile,
+  SyncMeta as BaseSyncMeta,
+  SyncTombstone as BaseSyncTombstone,
 } from "../../types/types";
 
-/**
- * v7 reuses only the bank metadata concepts (name, folder, colour and order);
- * question membership and all learning records live in v7-owned tables.  The
- * v7 namespace never reads, migrates or falls back to the legacy database.
- */
-export interface BankV7 extends Omit<LegacyBank, "questionCount"> {
+/** Current local-domain records used by the v9 sync wire. */
+export interface BankV7 extends Omit<BaseBank, "questionCount"> {
   sortOrder: number;
   questionCount: number;
   /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
@@ -29,23 +25,21 @@ export function isBankEnabled(bank: Pick<BankV7, "enabled">): boolean {
   return bank.enabled !== false;
 }
 
-export type BankFolderV7 = LegacyBankFolder;
-export type NoteV7 = LegacyNote;
-export type QuestionGroupV7 = LegacyQuestionGroup;
-export type SyncFileV7 = LegacySyncFile;
-export type SyncMetaV7 = LegacySyncMeta;
-export interface TombstoneV7 extends Omit<LegacySyncTombstone, "entityType"> {
-  entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
+export type BankFolderV7 = BaseBankFolder;
+export type NoteV7 = BaseNote;
+export type QuestionGroupV7 = BaseQuestionGroup;
+export type SyncFileV7 = BaseSyncFile;
+export type SyncMetaV7 = BaseSyncMeta;
+export interface TombstoneV7 extends Omit<BaseSyncTombstone, "entityType"> {
+  entityType: BaseSyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
   /**
    * Causal-stability anchor: the deleting device's localSequence for the
-   * deletion event.  A tombstone is reclaimable once every known device's
-   * reported watermark for the deleting device reaches this sequence — the
-   * Yorkie minVersionVector / Riak reaping rule (see SYNC_V7_DEVICE_RETIRE_DAYS).
+   * deletion event. A tombstone is reclaimable once every known device's
+   * reported watermark for the deleting device reaches this sequence.
    */
   sequence: number;
 }
 
-/** The question kinds currently supported by the v7 content model. */
 export type QuestionTypeV7 = QuestionType;
 export type { AttemptOutcome, PracticeResponse, QuestionSolution };
 
@@ -65,20 +59,16 @@ export interface ImageContentBlock {
 
 export type ContentBlock = TextContentBlock | ImageContentBlock;
 
-/**
- * A question is content-addressed independently of the bank(s) that contain
- * it.  Bank membership is represented by BankQuestionMembership below.
- */
+/** A question is independent of the bank memberships that reference it. */
 export interface QuestionV7 {
   id: string;
   type: QuestionTypeV7;
   content: ContentBlock[];
   options: ContentBlock[][];
-  answer: string;
   /** Stable option IDs aligned with `options`; never derive identity from A/B/C. */
   optionIds?: string[];
-  /** Structured solution; `answer` is retained as a legacy projection. */
-  solution?: QuestionSolution;
+  /** The single canonical answer representation persisted and synchronized. */
+  solution: QuestionSolution;
   tags: string[];
   favorite?: boolean;
   contentFingerprint: string;
@@ -110,7 +100,6 @@ export interface AttemptV7 {
   outcome?: AttemptOutcome;
 }
 
-/** Global (bank-independent) attempt projection keyed only by question id. */
 export interface AttemptStatsV7 {
   questionId: string;
   total: number;
@@ -124,7 +113,7 @@ export interface AttemptStatsV7 {
   hasBeenWrong: boolean;
   correctStreakAfterWrong: number;
   currentCorrectStreak: number;
-  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs: number }>;
 }
 
 export interface AttemptDailyStatsV7 {
@@ -172,30 +161,16 @@ export interface ReviewRoundProgress {
   wrong: number;
   firstAttemptAt: string;
   latestAttemptAt: string;
-  /** Optional on legacy rows; new/rebuilt rows carry the same evidence as global stats. */
-  giveUps?: number;
-  totalElapsedMs?: number;
-  firstAttemptCorrect?: boolean;
-  hasBeenWrong?: boolean;
-  currentCorrectStreak?: number;
-  correctStreakAfterWrong?: number;
-  recentOutcomes?: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
+  giveUps: number;
+  totalElapsedMs: number;
+  firstAttemptCorrect: boolean;
+  hasBeenWrong: boolean;
+  currentCorrectStreak: number;
+  correctStreakAfterWrong: number;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs: number }>;
 }
 
-/** v7 only adds an optional review-round association to the existing run. */
 export type PracticeRunV7 = PracticeRun & { reviewRoundId?: string };
-
-/**
- * A remote image is an immutable blob-addressed object in the sync vault.
- * `blob` is the local browser cache and is deliberately not part of the
- * remote descriptor.
- */
-export interface ImageAssetRemoteDescriptor {
-  path: string;
-  blobSha: string;
-  sha256: string;
-  size: number;
-}
 
 export interface ImageAsset {
   id: string;
@@ -203,6 +178,5 @@ export interface ImageAsset {
   size: number;
   width: number;
   height: number;
-  remote?: ImageAssetRemoteDescriptor;
   blob?: Blob;
 }
