@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('src/lib/question/question-bank-file-import.ts')
           s = p.read_text()
           old = '      const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });'
@@ -55,8 +56,9 @@ jobs:
           new = '  if (rawType !== "判断" && rawType !== "单选" && rawType !== "多选" && rawType !== "计算" && rawType !== "填空" && rawType !== "简答") return undefined;\n  const type: QuestionTypeV7 = rawType;'
           assert s.count(old) == 1
           s = s.replace(old, new)
-          for token in ['record.items', 'record.data', 'record.ans', 'record.correctAnswer', 'record["答案"]', 'record["标签"]', 'rowString(', 'rowOptions(', 'questionType']:
+          for token in ['record.items', 'record.data', 'record.correctAnswer', 'record["答案"]', 'record["标签"]', 'rowString(', 'rowOptions(', 'questionType']:
             assert token not in s, token
+          assert re.search(r'\brecord\.ans\b', s) is None
           p.write_text(s)
 
           p = Path('src/lib/sync/github-v7-remote.ts')
