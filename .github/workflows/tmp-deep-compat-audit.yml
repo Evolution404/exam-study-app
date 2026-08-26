@@ -1,4 +1,4 @@
-name: Temporary Deep Compatibility Audit
+name: Temporary Latest-Only Cutoff Verifier
 
 on:
   push:
@@ -6,29 +6,51 @@ on:
       - refactor/remove-obsolete-compat
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  verify-commit:
+    if: contains(github.event.head_commit.message, '[latest-only-stage1]')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
-      - name: Deep compatibility inventory
-        shell: bash
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Apply latest-only cutoff
         run: |
-          set -euo pipefail
-          echo '=== compatibility markers ==='
-          grep -RInEi --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' --include='*.json' \
-            --exclude-dir=node_modules --exclude-dir=dist --exclude='tmp-*' \
-            'legacy|compatib|migration|migrat(ed|ion|e)|fallback|deprecated|obsolete|retired|one-shot|old (db|database|format|client|version)|previous version|旧版|旧数据|兼容|迁移|退役' src scripts package.json || true
-          echo '=== historical wire/db path literals ==='
-          grep -RInE --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' \
-            --exclude-dir=node_modules --exclude-dir=dist \
-            'sync/v[1-8]/|formatVersion[^0-9]+[1-8]|version\([1-6]\)|shijuan-study-v[1-6]|migratedFrom|LEGACY_|legacy[A-Z_]|V[1-6][A-Z_]' src scripts || true
-          echo '=== v7/v8 aliases layered over v9 ==='
-          grep -RInE --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' \
-            --exclude-dir=node_modules --exclude-dir=dist \
-            'SYNC_V7_[A-Z0-9_]+|SyncV7[A-Z]|SyncHeadV7|github-sync-v7|sync-v8-history' src scripts | head -n 1200 || true
-          echo '=== current test scripts with compat/migration intent ==='
-          find scripts/tests -maxdepth 1 -type f | grep -Ei 'compat|migration|legacy|v8|v7' | sort || true
+          python3 scripts/tmp-latest-only-cleanup.py
+          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py
+          git diff --check
+      - name: Focused current-format checks
+        run: |
+          npm run test:sync-v7-protocol
+          npm run test:checkpoint-extra
+          npm run test:image-assets
+          npm run test:secure-credentials
+          npm run test:persistent-config
+          npm run test:ios-release
+          npm run test:answer-ui
+      - name: Full gates
+        run: |
+          npm run test:sync
+          npm run test:fast
+          npm run build
+          npm run lint:dead-code
+          node scripts/tools/check-architecture.mjs
+          node scripts/tools/check-export-surface.mjs
+          node scripts/tools/check-workflow-hygiene.mjs
+          git diff --check
+      - name: Commit verified cutoff
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: drop historical compatibility paths [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
