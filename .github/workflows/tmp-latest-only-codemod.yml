@@ -1,0 +1,97 @@
+name: Temporary Latest-Only Large File Codemod
+
+on:
+  push:
+    branches:
+      - refactor/remove-obsolete-compat
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: contains(github.event.head_commit.message, '[latest-only-codemod]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - name: Apply exact latest-only replacements
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/question/question-bank-export.ts')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'import { calculationAnswers, legacyAnswerForSolution, questionSolution, stableQuestionOptionIds } from "./question-utils";',
+              'import { solutionAnswerText, stableQuestionOptionIds } from "./question-utils";'
+          )
+          text = text.replace('  answer: string;\n', '')
+          text = text.replace('  solution?: QuestionSolution;\n', '  solution: QuestionSolution;\n')
+          old = '''function answerColumns(questions: readonly ExportQuestionInput[]): number {
+  return Math.max(1, questions.reduce((max, question) => {
+    if (question.type === "计算") return Math.max(max, calculationAnswers(question.answer).length);
+    if (question.type === "填空") {
+      const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
+      return solution.kind === "fill" ? Math.max(max, solution.blanks.length) : max;
+    }
+    return max;
+  }, 1));
+}
+
+function answerCells(question: ExportQuestionInput): string[] {
+  const solution = question.solution ?? questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]) });
+  if (solution.kind === "calculation") return solution.blanks.map((blank) => String(blank.expected));
+  if (solution.kind === "fill") return solution.blanks.map((blank) => blank.acceptedAnswers.join("||"));
+  if (solution.kind === "short") return [solution.referenceText];
+  return [legacyAnswerForSolution(solution, question.optionIds ?? stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: undefined }))];
+}
+'''
+          new = '''function answerColumns(questions: readonly ExportQuestionInput[]): number {
+  return Math.max(1, questions.reduce((max, question) => {
+    if (question.solution.kind === "calculation") return Math.max(max, question.solution.blanks.length);
+    if (question.solution.kind === "fill") return Math.max(max, question.solution.blanks.length);
+    return max;
+  }, 1));
+}
+
+function answerCells(question: ExportQuestionInput): string[] {
+  const solution = question.solution;
+  if (solution.kind === "calculation") return solution.blanks.map((blank) => String(blank.expected));
+  if (solution.kind === "fill") return solution.blanks.map((blank) => blank.acceptedAnswers.join("||"));
+  if (solution.kind === "short") return [solution.referenceText];
+  return [solutionAnswerText(solution, question.optionIds ?? stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: undefined }))];
+}
+'''
+          if old not in text:
+              raise RuntimeError('question-bank-export answer adapter block not found')
+          text = text.replace(old, new)
+          text = text.replace('/** Build the 题库 sheet rows without images (legacy text-only shape). */', '/** Build the 题库 sheet rows without images. */')
+          path.write_text(text, encoding='utf-8')
+
+          path = Path('src/lib/sync/github-v7-remote.ts')
+          text = path.read_text(encoding='utf-8')
+          start = text.find('  /** Actual wire size of a Git blob. This one-time measurement is used to backfill')
+          if start < 0:
+              raise RuntimeError('readBlobWireSize comment start not found')
+          end = text.find('\n  async ', start + 4)
+          if end < 0:
+              raise RuntimeError('readBlobWireSize next method marker not found')
+          block = text[start:end]
+          if 'readBlobWireSize' not in block:
+              raise RuntimeError('readBlobWireSize method not found in selected block')
+          text = text[:start] + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm -f .github/workflows/tmp-latest-only-codemod.yml
+          git diff --check
+          rg -n 'legacyAnswerForSolution|questionSolution|readBlobWireSize' src || true
+      - name: Commit codemod
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: remove large-file answer and descriptor compatibility paths"
+          git push origin HEAD:refactor/remove-obsolete-compat
