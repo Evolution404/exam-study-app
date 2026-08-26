@@ -46,6 +46,24 @@ jobs:
               raise RuntimeError('db-v7-restore memberships cutoff target not found')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/tests/test-progress-metrics-boundaries.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '''  assert.equal(summarizeAttemptStats({
+            questionId: "q", bankId: "", total: 8, correct: 8, wrong: 0, giveUps: 0, totalElapsedMs: 0,
+            firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
+            correctStreakAfterWrong: 0, currentCorrectStreak: 8,
+            recentOutcomes: [],
+          }).difficulty, calculateDifficulty(8, 0), "outcomes 为空时回退终身错误率公式");
+
+          '''
+          if old not in text:
+              raise RuntimeError('empty-evidence difficulty fallback fixture not found')
+          text = text.replace(old, '', 1)
+          text = text.replace('  // 写入链把作答时间记进 recentOutcomes（legacy 链；V7 链由静态断言覆盖）。\n', '  // 写入链把作答时间记进 recentOutcomes。\n')
+          path.write_text(text, encoding='utf-8')
+          PY
           python3 scripts/tmp-latest-only-diagnostic.py
           python3 scripts/tmp-latest-only-semantic-scan.py
           python3 scripts/tmp-latest-only-target-scan.py
