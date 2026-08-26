@@ -15,14 +15,14 @@ await createQuestionV7(typeBank.id, {
   type: "填空",
   content: [{ id: "fill-stem", type: "text", text: "填空恢复题" }],
   options: [],
-  answer: "填空答案",
+  solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["填空答案"] }] },
   tags: ["恢复"],
 });
 await createQuestionV7(typeBank.id, {
   type: "简答",
   content: [{ id: "short-stem", type: "text", text: "简答恢复题" }],
   options: [],
-  answer: "简答参考答案",
+  solution: { kind: "short", referenceText: "简答参考答案" },
   tags: ["恢复"],
 });
 
@@ -64,7 +64,6 @@ await createQuestionV7(typeBank.id, {
   badFormat.formatVersion = 5;
   assert.throws(() => validateSyncCheckpointV7(badFormat), /formatVersion/);
 
-
   const badCounts = structuredClone(current);
   badCounts.counts.banks += 1;
   assert.throws(() => validateSyncCheckpointV7(badCounts), /counts/);
@@ -78,6 +77,5 @@ await createQuestionV7(typeBank.id, {
   assert.throws(() => validateSyncCheckpointV7(withBlob), /must not contain a Blob/);
 }
 
-await dbV7.close();
-console.log("sync-v7 checkpoint extra tests passed");
-process.exit(0);
+dbV7.close();
+console.log("sync v7 checkpoint extra tests passed");
