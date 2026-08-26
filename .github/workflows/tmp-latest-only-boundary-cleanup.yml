@@ -28,7 +28,6 @@ jobs:
                   raise SystemExit(f'{label}: expected 1 match, got {text.count(old)}')
               return text.replace(old, new)
 
-          # JSON only accepts the current envelope; XLSX is converted at the file boundary.
           p = Path('src/lib/question/question-bank-file-import.ts')
           s = p.read_text()
           s = replace_once(s,
@@ -41,7 +40,6 @@ jobs:
           strict_json = '  const raw = parsedJson.raw;\n  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray((raw as Record<string, unknown>).questions)) throw new Error("JSON 题库必须使用当前 { name?, questions: [] } 格式。");\n  const questionRows = (raw as { questions: unknown[] }).questions;\n  if (questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);\n  const bank = await importQuestionBankV7(file.name, raw, options);'
           p.write_text(s[:start] + strict_json + s[end:])
 
-          # DB importer consumes only current field names. `answer` remains transient XLSX/editor input.
           p = Path('src/lib/db/db-v7-question-import.ts')
           s = p.read_text()
           start = s.index('function rawQuestionRows(')
@@ -65,7 +63,6 @@ jobs:
           if re.search(r'\brecord\.ans\b', s): raise SystemExit('record.ans remains')
           p.write_text(s)
 
-          # Descriptor storedSize is mandatory; no wire-size backfill API remains.
           p = Path('src/lib/sync/github-v7-remote.ts')
           s = p.read_text()
           start = s.index('  /** Actual wire size of a stored blob')
@@ -80,7 +77,6 @@ jobs:
               js = lambda xs: ', '.join(f'"{x}"' for x in xs)
               return f'createQuestionV7({bank}, {{ type: "{qtype}", stem: "{stem}", options: [{options}], optionIds: [{js(ids)}], solution: {{ kind: "choice", correctOptionIds: [{js(selected)}] }} }})'
 
-          # Canonicalize direct Question creation fixtures; import `answer` is allowed as a current text boundary.
           for filename in ['scripts/tests/test-db-v7.ts','scripts/tests/test-db-v7-extra.ts']:
               p = Path(filename); s = p.read_text()
               s = re.sub(r'\{ q: ', '{ stem: ', s); s = re.sub(r', a: ', ', options: ', s); s = re.sub(r', ans: ', ', answer: ', s)
@@ -93,56 +89,33 @@ jobs:
               if re.search(r'createQuestionV7\([^\n]*\banswer:', s): raise SystemExit(f'direct answer fixture remains: {filename}')
               p.write_text(s)
 
-          def rewrite_choice_helper(filename, tag, option_count_dynamic=True):
-              p = Path(filename); s = p.read_text()
-              if option_count_dynamic:
-                  old = f'''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {{
-            return {{
+          p = Path('scripts/tests/test-sync-stats-integration.ts')
+          s = p.read_text()
+          old = '''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+            return {
               type: "单选",
-              content: [{{ id: "stem-0", type: "text", text: stem }}],
-              options: options.map((text, index) => [{{ id: `opt-${{index}}`, type: "text", text }}]),
+              content: [{ id: "stem-0", type: "text", text: stem }],
+              options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
               answer,
-              tags: ["{tag}"],
-            }};
-          }}'''
-                  new = f'''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {{
-            const optionIds = options.map((_, index) => `opt-${{index}}`);
+              tags: ["统计测试"],
+            };
+          }'''
+          new = '''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+            const optionIds = options.map((_, index) => `opt-${index}`);
             const correctOptionIds = answer
               .split("")
               .map((letter) => optionIds[letter.charCodeAt(0) - 65])
               .filter((id): id is string => Boolean(id));
-            return {{
+            return {
               type: "单选",
-              content: [{{ id: "stem-0", type: "text", text: stem }}],
-              options: options.map((text, index) => [{{ id: `opt-${{index}}`, type: "text", text }}]),
+              content: [{ id: "stem-0", type: "text", text: stem }],
+              options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
               optionIds,
-              solution: {{ kind: "choice", correctOptionIds }},
-              tags: ["{tag}"],
-            }};
-          }}'''
-                  s = replace_once(s, old, new, f'{filename} singleChoice')
-              p.write_text(s)
-
-          rewrite_choice_helper('scripts/tests/test-sync-stats-integration.ts', '统计测试')
-          rewrite_choice_helper('scripts/tests/test-sync-question-management.ts', '试题管理')
-          rewrite_choice_helper('scripts/tests/test-sync-fault-tolerance.ts', '故障测试')
-
-          # Current import field names in question-management fixtures.
-          p = Path('scripts/tests/test-sync-question-management.ts'); s = p.read_text()
-          s = re.sub(r'\{ q: ', '{ stem: ', s); s = re.sub(r', a: ', ', options: ', s); s = re.sub(r', ans: ', ', type: "单选", answer: ', s)
-          p.write_text(s)
-
-          # Coalescing fixtures are fixed four-option choices.
-          p = Path('scripts/tests/test-sync-coalescing.ts'); s = p.read_text()
-          s, n = re.subn(r'    answer: "A",\n    tags: \["(合并测试|混合合并|压缩触发)"\],', r'    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],\n    solution: { kind: "choice", correctOptionIds: ["opt-0"] },\n    tags: ["\1"],', s)
-          if n != 3: raise SystemExit(f'coalescing fixtures: expected 3, got {n}')
-          p.write_text(s)
-
-          # Integrity fixture is a fixed two-option choice.
-          p = Path('scripts/tests/test-sync-integrity.ts'); s = p.read_text()
-          old = '    answer,\n    tags: ["完整性"],'
-          new = '    optionIds: ["opt-0", "opt-1"],\n    solution: { kind: "choice", correctOptionIds: [answer === "A" ? "opt-0" : "opt-1"] },\n    tags: ["完整性"],'
-          s = replace_once(s, old, new, 'integrity choice')
+              solution: { kind: "choice", correctOptionIds },
+              tags: ["统计测试"],
+            };
+          }'''
+          s = replace_once(s, old, new, 'stats singleChoice')
           p.write_text(s)
           PY
       - run: npm ci
@@ -159,7 +132,7 @@ jobs:
           rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts scripts/tests/test-sync-coalescing.ts scripts/tests/test-sync-fault-tolerance.ts scripts/tests/test-sync-integrity.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git diff --cached --check
           git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
