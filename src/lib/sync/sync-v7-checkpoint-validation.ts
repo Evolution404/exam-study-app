@@ -120,8 +120,15 @@ function validateQuestion(value: unknown, assets: Map<string, Omit<ImageAsset, "
     assertArray(value.optionIds, `state.questions[${index}].optionIds`);
     if (value.optionIds.length !== value.options.length) fail(`state.questions[${index}].optionIds must align with options`);
     value.optionIds.forEach((id, optionIndex) => assertString(id, `state.questions[${index}].optionIds[${optionIndex}]`));
+    if (new Set(value.optionIds as string[]).size !== value.optionIds.length) fail(`state.questions[${index}].optionIds must be unique`);
   }
   validateSolution(value.solution, `state.questions[${index}].solution`, value.type as QuestionV7["type"]);
+  if (value.solution.kind === "choice") {
+    if (!Array.isArray(value.optionIds)) fail(`state.questions[${index}].optionIds are required for choice questions`);
+    const validOptionIds = new Set(value.optionIds as string[]);
+    if (new Set(value.solution.correctOptionIds).size !== value.solution.correctOptionIds.length) fail(`state.questions[${index}].solution.correctOptionIds must be unique`);
+    value.solution.correctOptionIds.forEach((id) => { if (!validOptionIds.has(id)) fail(`state.questions[${index}].solution references missing option id ${id}`); });
+  }
   assertArray(value.tags, `state.questions[${index}].tags`);
   value.tags.forEach((tag, tagIndex) => assertString(tag, `state.questions[${index}].tags[${tagIndex}]`, true));
   assertString(value.contentFingerprint, `state.questions[${index}].contentFingerprint`);

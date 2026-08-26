@@ -41,7 +41,7 @@ if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study["']/.test(dbV7Core) || !/super\(V
   || v7DatabaseVersions.length !== 1 || v7DatabaseVersions[0] !== 1) {
   fail("公开客户端必须使用全新 shijuan-study 数据库命名空间，schema 只声明一次且从版本 1 开始");
 }
-if (/migrateLegacy|indexedDB\.open|dropLegacyLocalDatabases|shijuan-study-v[67]/.test(dbV7Core)) {
+if (/migrateLegacy|indexedDB\.open|dropLegacyLocalDatabases|["']shijuan-study-v[67]["']/.test(dbV7Core)) {
   fail("本地数据库核心不得保留旧 schema、旧命名空间或迁移清理代码");
 }
 

@@ -33,6 +33,14 @@ Object.defineProperty(globalThis, "localStorage", {
 
 await resetV7Database();
 
+// Current choice imports must contain at least one real option id.
+{
+  const base = { type: "单选", stem: "非法答案完整性", options: ["甲", "乙"], optionIds: ["opt-a", "opt-b"], tags: [] };
+  await assert.rejects(() => importQuestionBankV7("empty-choice.json", { questions: [{ ...base, solution: { kind: "choice", correctOptionIds: [] } }] }), /没有可导入的有效题目/);
+  await assert.rejects(() => importQuestionBankV7("missing-choice.json", { questions: [{ ...base, solution: { kind: "choice", correctOptionIds: ["missing"] } }] }), /没有可导入的有效题目/);
+  await assert.rejects(() => importQuestionBankV7("bad-letter.json", { questions: [{ ...base, solution: undefined, answer: "Z" }] }), /没有可导入的有效题目/);
+}
+
 // ---------------------------------------------------------------------------
 // 题库不能引用不存在的文件夹（否则 checkpoint 无法通过校验）
 // ---------------------------------------------------------------------------

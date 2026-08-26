@@ -127,7 +127,7 @@ export function makeV7Id(prefix = "v7"): string {
   return `${prefix}_${Date.now().toString(36)}_${idCounter.toString(36)}`;
 }
 
-const V7_DEVICE_ID_KEY = "shijuan-study-device-id";
+const V7_DEVICE_ID_KEY = "shijuan-study-v7-device-id";
 
 export function getV7DeviceId(): string {
   if (typeof localStorage === "undefined") return "server-v7";
@@ -158,7 +158,7 @@ async function withSequenceLock<T>(operation: () => Promise<T>): Promise<T> {
   await previous;
   try {
     const locks = navigatorLocks();
-    if (locks) return await locks.request("shijuan-study-sequence", { mode: "exclusive" }, operation);
+    if (locks) return await locks.request("shijuan-study-v7-sequence", { mode: "exclusive" }, operation);
     return await operation();
   } finally {
     release();
@@ -177,7 +177,7 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
     if (!current.storeNames.includes(dbV7.syncMeta.name)) {
       throw new Error("分配同步序号的业务事务必须包含 syncMeta，禁止在 Safari 中启动嵌套写事务。");
     }
-    const key = `shijuan-study-sequence:${deviceId}`;
+    const key = `shijuan-study-v7-sequence:${deviceId}`;
     const row = await dbV7.syncMeta.get(key);
     const persisted = Number(row?.value) || 0;
     // The localStorage mirror survives the namespace swap and keeps allocated
@@ -190,7 +190,7 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
     return value;
   }
   return withSequenceLock(async () => {
-    const key = `shijuan-study-sequence:${deviceId}`;
+    const key = `shijuan-study-v7-sequence:${deviceId}`;
     // Outside a domain transaction, reserve through a short independent
     // transaction. Domain transactions include syncMeta and use the branch
     // above: Safari serializes all read/write transactions at database level,

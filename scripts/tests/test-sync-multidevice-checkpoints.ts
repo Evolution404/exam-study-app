@@ -5,7 +5,7 @@ import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 用 Map 实现一个最简单的 localStorage stub，模拟浏览器持久化，
-// 并让测试可以切换设备 id（删除 shijuan-study-device-id 后重新生成）。
+// 并让测试可以切换设备 id（删除 shijuan-study-v7-device-id 后重新生成）。
 const memoryLocalStorage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -17,8 +17,8 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 function switchDevice(deviceId?: string) {
-  if (deviceId) memoryLocalStorage.set("shijuan-study-device-id", deviceId);
-  else memoryLocalStorage.delete("shijuan-study-device-id");
+  if (deviceId) memoryLocalStorage.set("shijuan-study-v7-device-id", deviceId);
+  else memoryLocalStorage.delete("shijuan-study-v7-device-id");
   return resetV7Database();
 }
 
@@ -62,7 +62,7 @@ try {
     const question = await createQuestionV7(bank.id, choiceQuestion(`设备 A 基础题目 ${index}`));
     questionIds.push(question.id);
   }
-  const deviceAId = memoryLocalStorage.get("shijuan-study-device-id") ?? "device-a";
+  const deviceAId = memoryLocalStorage.get("shijuan-study-v7-device-id") ?? "device-a";
   const firstSync = await syncWithGitHub(settings, token);
   assert.equal(firstSync.formatVersion, 9, "初始化同步应返回 v9 协议版本");
   assert.equal(firstSync.remaining, 0, "初始化后应无待同步变更");
@@ -91,7 +91,7 @@ try {
   assert.equal(await dbV7.banks.count(), 1, "设备 B 应同步到 1 个题库");
   assert.equal(await dbV7.questions.count(), 36, "设备 B 应同步到 36 道题");
   assert.equal(await dbV7.notes.count(), 36, "设备 B 应同步到 36 条解析");
-  const deviceBId = memoryLocalStorage.get("shijuan-study-device-id") ?? "device-b";
+  const deviceBId = memoryLocalStorage.get("shijuan-study-v7-device-id") ?? "device-b";
 
   // ===== 设备 B：新增一道题并推送 =====
   const deviceBBank = await dbV7.banks.toCollection().first();
@@ -114,7 +114,7 @@ try {
   assert.equal(await dbV7.banks.count(), 1, "设备 C 应同步到 1 个题库");
   assert.equal(await dbV7.questions.count(), 37, "设备 C 应同步到 37 道题");
   assert.equal(await dbV7.notes.count(), 36, "设备 C 应同步到 36 条解析");
-  const deviceCId = memoryLocalStorage.get("shijuan-study-device-id") ?? "device-c";
+  const deviceCId = memoryLocalStorage.get("shijuan-study-v7-device-id") ?? "device-c";
 
   // ===== A/B/C 依次产生本地事件并同步，后两台设备会遇到 CAS 冲突 =====
   async function renameBankOnCurrentDevice(name: string): Promise<void> {

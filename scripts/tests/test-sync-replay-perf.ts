@@ -26,9 +26,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
     },
   },
 });

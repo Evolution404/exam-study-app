@@ -43,6 +43,7 @@ const QUALITY_FAST = 1;
 const QUALITY_NORMAL = 0.75;
 const QUALITY_SLOW = 0.45;
 const QUALITY_FIRST_CORRECT = 0.9;
+const QUALITY_TIMING_OUTLIER_CORRECT = 0.85;
 const BASELINE_WINDOW = 8;
 const BASELINE_MIN_ELAPSED_MS = 1_000;
 const BASELINE_MAX_ELAPSED_MS = 20 * 60_000;
@@ -68,7 +69,7 @@ function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {
   if (!Number.isFinite(outcome.elapsedMs) || outcome.elapsedMs < 0) throw new Error("current difficulty outcomes require elapsedMs");
   if (!outcome.correct) return 0;
   if (baselineMs == null) return QUALITY_FIRST_CORRECT;
-  if (!validBaselineElapsed(outcome.elapsedMs)) throw new Error("current difficulty outcomes require elapsedMs");
+  if (!validBaselineElapsed(outcome.elapsedMs)) return QUALITY_TIMING_OUTLIER_CORRECT;
   if (outcome.elapsedMs <= FAST_BASELINE_RATIO * baselineMs) return QUALITY_FAST;
   if (outcome.elapsedMs <= SLOW_BASELINE_RATIO * baselineMs) return QUALITY_NORMAL;
   return QUALITY_SLOW;

@@ -69,7 +69,19 @@ await createQuestionV7(typeBank.id, {
   assert.throws(() => validateSyncCheckpointV7(badCounts), /counts/);
 }
 
-// 5) 检查点不接受 blob 字段
+// 5) choice solution 必须引用当前题目的真实 option id
+{
+  const current = await createSyncCheckpointV7();
+  const invalid = structuredClone(current);
+  const question = invalid.state.questions[0]!;
+  question.type = "单选";
+  question.options = [[{ id: "choice-a", type: "text", text: "甲" }], [{ id: "choice-b", type: "text", text: "乙" }]];
+  question.optionIds = ["opt-a", "opt-b"];
+  question.solution = { kind: "choice", correctOptionIds: ["missing"] };
+  assert.throws(() => validateSyncCheckpointV7(invalid), /missing option id/, "checkpoint must reject missing choice option ids");
+}
+
+// 6) 检查点不接受 blob 字段
 {
   const current = await createSyncCheckpointV7();
   const withBlob = structuredClone(current) as SyncCheckpointV7 & { state: { imageAssets: Array<Record<string, unknown>> } };

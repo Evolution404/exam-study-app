@@ -39,7 +39,7 @@ try {
     solution: { kind: "choice", correctOptionIds: ["option-1y6l9uk"] },
   });
   const deviceId = "history-device";
-  memoryLocalStorage.set("shijuan-study-device-id", deviceId);
+  memoryLocalStorage.set("shijuan-study-v7-device-id", deviceId);
   const base = Date.parse("2026-01-01T00:00:00.000Z");
 
   const attempts: AttemptV7[] = Array.from({ length: 8 }, (_, index) => ({

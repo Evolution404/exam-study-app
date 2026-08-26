@@ -38,7 +38,7 @@ function deleteIndexedDatabase(name: string) {
  * connection (repo + token), and this browser's device identity. Runtime state
  * (selected banks, search history) is treated as data and cleared.
  */
-const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "github-settings", "github-token", "shijuan-study-device-id"] as const;
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "github-settings", "github-token", "shijuan-study-v7-device-id"] as const;
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {

@@ -72,7 +72,7 @@ function importedBlocks(value: unknown): ContentBlock[] | undefined {
 function isQuestionSolution(value: unknown): value is QuestionSolution {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  if (record.kind === "choice") return Array.isArray(record.correctOptionIds) && record.correctOptionIds.every((id) => typeof id === "string" && id.length > 0);
+  if (record.kind === "choice") return Array.isArray(record.correctOptionIds) && record.correctOptionIds.length > 0 && record.correctOptionIds.every((id) => typeof id === "string" && id.length > 0) && new Set(record.correctOptionIds).size === record.correctOptionIds.length;
   if (record.kind === "calculation") return Array.isArray(record.blanks) && record.blanks.length > 0 && record.blanks.every((blank) => {
     if (!blank || typeof blank !== "object" || Array.isArray(blank)) return false;
     const item = blank as Record<string, unknown>;
@@ -132,6 +132,12 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
   const suppliedSolution = isQuestionSolution(record.solution) ? structuredClone(record.solution) : undefined;
   const solution = suppliedSolution ?? (answer.trim() ? solutionFromInput(type, answer, optionBlocks, optionIds) : undefined);
   if (!solution || !solutionMatchesType(type, solution)) return undefined;
+  if (optionIds && new Set(optionIds).size !== optionIds.length) return undefined;
+  if (solution.kind === "choice") {
+    if (!optionIds?.length || !solution.correctOptionIds.length) return undefined;
+    const validOptionIds = new Set(optionIds);
+    if (new Set(solution.correctOptionIds).size !== solution.correctOptionIds.length || solution.correctOptionIds.some((id) => !validOptionIds.has(id))) return undefined;
+  }
   const rawTags = record.tags;
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
   const note = typeof record.note === "string" ? record.note.trim() : "";

@@ -324,6 +324,8 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   );
 
   assert.throws(() => difficultyFromOutcomes([{ correct: true, createdAt: T1, elapsedMs: Number.NaN }]), /elapsedMs/, "current outcomes reject invalid elapsedMs");
+  assert.doesNotThrow(() => difficultyFromOutcomes([outcome(0, true, 20_000), outcome(13, true, 500)]), "sub-second valid timings must remain valid");
+  assert.doesNotThrow(() => difficultyFromOutcomes([outcome(0, true, 20_000), outcome(13, true, 25 * 60_000)]), "long valid timings must remain valid");
 
   // 有 12 条以上本机历史时用 walk-forward Brier score 在有界候选中校准学习率；
   // 短历史保持默认参数，未作答仍固定为 50。

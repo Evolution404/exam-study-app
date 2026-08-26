@@ -21,7 +21,7 @@ const native = { platform: "ios" as const, native: true, ios: true };
 const values = new Map<string, string>([
   ["github-settings", JSON.stringify({ owner: "owner", repo: "repo", branch: "main", apiBaseUrl: "/api-github" })],
   ["study-v7-preferences", JSON.stringify({ themeMode: "dark" })],
-  ["shijuan-study-device-id", "device-persisted"],
+  ["shijuan-study-v7-device-id", "device-persisted"],
 ]);
 let failSet = false;
 const bridge = {
@@ -34,7 +34,7 @@ setPersistentPreferencesBridge(bridge);
 await hydratePersistentConfig(native);
 assert.equal(JSON.parse(localStorage.getItem("github-settings") ?? "{}").apiBaseUrl, "/api-github", "native hydration preserves the authoritative current value");
 assert.equal(getPersistentConfigMirror("study-v7-preferences"), JSON.stringify({ themeMode: "dark" }));
-assert.equal(getPersistentConfigMirror("shijuan-study-device-id"), "device-persisted");
+assert.equal(getPersistentConfigMirror("shijuan-study-v7-device-id"), "device-persisted");
 
 await persistConfigValue("study-v7-preferences", JSON.stringify({ themeMode: "light" }));
 assert.equal(values.get("study-v7-preferences"), JSON.stringify({ themeMode: "light" }));
