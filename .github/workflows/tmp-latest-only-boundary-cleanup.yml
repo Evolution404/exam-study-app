@@ -143,6 +143,9 @@ jobs:
           }'''
           s = replace_once(s, old, new, 'question management singleChoice')
           s = s.replace('{ q:', '{ stem:').replace(', a:', ', type: "单选", options:').replace(', ans:', ', answer:')
+          shared_import = '    await importQuestionBankV7("共享到Y.json", [{ stem: "X与Y共享题", type: "单选", options: ["对", "错"], answer: "A" }]); // 同指纹 → 复用 qShared，建立 Y 关系'
+          shared_membership = '    await createQuestionV7(bankY.id, singleChoice("X与Y共享题", "A", ["对", "错"])); // 显式复用 qShared，建立 Y 关系'
+          s = replace_once(s, shared_import, shared_membership, 'explicit shared membership')
           p.write_text(s)
           PY
       - run: npm ci
