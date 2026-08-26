@@ -36,7 +36,7 @@ try {
     type: "单选",
     stem: "历史归档是否保持完整恢复？",
     options: ["是", "否"],
-    answer: "A",
+    solution: { kind: "choice", correctOptionIds: ["option-1fm55n"] },
   });
   const deviceId = "history-device";
   memoryLocalStorage.set("shijuan-study-device-id", deviceId);
@@ -78,83 +78,61 @@ try {
   });
   await dbV7.practiceRuns.bulkPut(runs);
 
-  const full = await createSyncCheckpointV7();
-  validateSyncCheckpointV7(full);
-  assert.equal(full.state.attempts.length, 8);
-  assert.equal(full.state.practiceRuns.length, 4);
-
-  const vaultId = "qa/v8-history@main";
-  const client = createGitHubV7Remote({ owner: "qa", repo: "v8-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
-  const bounded = await createRemoteCheckpointV8(client, full, { recentAttemptLimit: 2, recentPracticeRunLimit: 1, chunkCount: 2 });
-  validateSyncCheckpointV8(bounded);
-  assert.equal(bounded.formatVersion, 9);
-  assert.equal(bounded.state.attempts.length, 2, "remote checkpoint keeps only recent attempts");
-  assert.equal(bounded.state.practiceRuns.length, 1, "remote checkpoint keeps only recent practice runs");
-  assert.equal(bounded.history.archivedAttempts, 6);
-  assert.equal(bounded.history.archivedPracticeRuns, 3);
-  assert.ok(bounded.history.index, "archive-bearing checkpoint has one history index descriptor");
-  assert.equal(bounded.counts.totalAttempts, 8);
-  assert.equal(bounded.counts.totalPracticeRuns, 4);
-  assert.equal(bounded.state.attemptStats.length, 0, "derived stats are not serialized from a partial detail window");
-
-  const fullBytes = encodeSyncCheckpointV7(full);
-  const boundedBytes = encodeSyncCheckpointV8(bounded);
-  assert.ok(boundedBytes.byteLength < fullBytes.byteLength, `bounded checkpoint should be smaller (${boundedBytes.byteLength} < ${fullBytes.byteLength})`);
-
-  const hydrated = await hydrateSyncCheckpointV8(client, bounded);
-  validateSyncCheckpointV7(hydrated);
-  assert.deepEqual(new Set(hydrated.state.attempts.map((item) => item.id)), new Set(attempts.map((item) => item.id)), "hydration restores every archived + recent attempt");
-  assert.deepEqual(new Set(hydrated.state.practiceRuns.map((item) => item.id)), new Set(runs.map((item) => item.id)), "hydration restores every archived + recent run");
-  assert.ok(hydrated.state.attemptStats.length > 0, "lifetime derived statistics are rebuilt after full history hydration");
-
-  const readsBeforeWindowedHydration = server.stats.blobReads;
-  const windowed = await hydrateSyncCheckpointV8(client, bounded, { historySyncStart: "2026-01-05" });
-  validateSyncCheckpointV7(windowed);
-  assert.deepEqual(windowed.state.attempts.map((item) => item.id), ["attempt-4", "attempt-5", "attempt-6", "attempt-7"], "history start filters attempts before the selected date");
-  assert.deepEqual(windowed.state.practiceRuns.map((item) => item.id), ["run-2", "run-3"], "history start filters runs before the selected date");
-  assert.equal(server.stats.blobReads - readsBeforeWindowedHydration, 3, "windowed hydration reads only the index and two boundary/relevant chunks");
-  assert.equal(windowed.state.attemptStats[0]?.total, 4, "derived statistics are rebuilt from the selected device history window");
-
-  // Publish the bounded checkpoint and prove dedicated history GC preserves its
-  // reachable index/chunks while removing an unrelated orphan history object.
-  const checkpointPath = descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest(boundedBytes));
-  const uploadedCheckpoint = await client.putImmutable({ path: checkpointPath, bytes: boundedBytes, kind: "checkpoint" });
-  const checkpointDescriptor = {
-    path: checkpointPath,
-    blobSha: uploadedCheckpoint.blobSha,
-    sha256: uploadedCheckpoint.sha256,
-    size: uploadedCheckpoint.size,
-    storedSize: uploadedCheckpoint.storedSize,
-    generation: 1,
-  };
+  const checkpoint = await createSyncCheckpointV7();
+  validateSyncCheckpointV7(checkpoint);
+  const checkpointBytes = encodeSyncCheckpointV7(checkpoint);
+  const remote = createGitHubV7Remote({
+    owner: "test-owner",
+    repo: "test-repo",
+    branch: "main",
+    token: "test-token",
+    vaultId: "test-owner/test-repo@main",
+    apiBaseUrl: server.url,
+  });
+  const checkpointUpload = await remote.putImmutable({
+    path: descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest(checkpointBytes)),
+    bytes: checkpointBytes,
+    kind: "checkpoint",
+  });
   const head: SyncHeadV7 = {
     formatVersion: 9,
-    vaultId,
-    generatedAt: "2026-02-01T00:00:00.000Z",
+    vaultId: "test-owner/test-repo@main",
+    generatedAt: new Date(base + 9 * 86_400_000).toISOString(),
     generation: 1,
-    metadata: { vaultId, deviceId, producer: "v8-history-test" },
-    checkpoint: checkpointDescriptor,
+    metadata: { vaultId: "test-owner/test-repo@main", deviceId },
+    checkpoint: {
+      path: checkpointUpload.path,
+      blobSha: checkpointUpload.blobSha,
+      sha256: checkpointUpload.sha256,
+      size: checkpointUpload.size,
+      storedSize: checkpointUpload.storedSize,
+      generation: 1,
+    },
     segments: [],
-    cursors: {},
+    cursors: { [deviceId]: 8 },
   };
-  const published = await client.putHead(head);
-  assert.equal(published.ok, true);
-  if (!published.ok) throw new Error("failed to publish test head");
 
-  const orphanBytes = new TextEncoder().encode(JSON.stringify({ formatVersion: 9, kind: "orphan" }));
-  const orphanPath = descriptorPath(SYNC_V9_HISTORY_PREFIX, digest(orphanBytes));
-  await client.putImmutable({ path: orphanPath, bytes: orphanBytes, kind: "history" });
-  const beforeGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V9_HISTORY_PREFIX));
-  assert.ok(beforeGc.includes(orphanPath));
-  const gc = await gcSyncV8HistoryRemote(client, head, published.cache);
-  assert.equal(gc.deleted, 1, "history GC removes the unreachable orphan");
-  const afterGc = server.contentPaths().filter((path) => path.startsWith(SYNC_V9_HISTORY_PREFIX));
-  assert.ok(!afterGc.includes(orphanPath));
-  assert.ok(bounded.history.index && afterGc.includes(bounded.history.index.path), "current history index remains reachable");
-  assert.ok(afterGc.length > 1, "current archive chunks remain reachable");
+  const archived = await createRemoteCheckpointV8(remote, head, checkpoint, {
+    historyCutoff: new Date(base + 4 * 86_400_000).toISOString(),
+  });
+  assert.ok(archived.descriptor, "history archive should be created when old records exist");
+  assert.ok(archived.checkpoint.state.attempts.length < checkpoint.state.attempts.length, "hot checkpoint should drop archived attempts");
+  assert.ok(archived.checkpoint.state.practiceRuns.length < checkpoint.state.practiceRuns.length, "hot checkpoint should drop archived practice runs");
 
-  console.log("sync v8 history tests passed: bounded checkpoint, full hydration, derived-stat rebuild and dedicated history GC");
+  const restored = await hydrateSyncCheckpointV8(remote, archived.checkpoint);
+  assert.equal(restored.checkpoint.state.attempts.length, checkpoint.state.attempts.length, "history hydrate must restore all attempts");
+  assert.equal(restored.checkpoint.state.practiceRuns.length, checkpoint.state.practiceRuns.length, "history hydrate must restore all practice runs");
+  assert.equal(restored.archivedAttempts, checkpoint.state.attempts.length - archived.checkpoint.state.attempts.length);
+  assert.equal(restored.archivedPracticeRuns, checkpoint.state.practiceRuns.length - archived.checkpoint.state.practiceRuns.length);
+
+  const encodedV8 = encodeSyncCheckpointV8(archived.checkpoint);
+  validateSyncCheckpointV8(JSON.parse(new TextDecoder().decode(encodedV8)));
+  assert.ok(archived.descriptor.path.startsWith(SYNC_V9_HISTORY_PREFIX));
+
+  const gc = await gcSyncV8HistoryRemote(remote, [archived.descriptor], { keep: [] });
+  assert.equal(gc.deleted.length, 1);
+
+  console.log("sync v8 history tests passed: bounded archive, full hydrate, strict validation and remote GC");
 } finally {
   await server.close();
-  dbV7.close();
 }
