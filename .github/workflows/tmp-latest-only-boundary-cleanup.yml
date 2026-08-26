@@ -154,6 +154,7 @@ jobs:
               old = f'    answer: "A",\n    tags: ["{tag}"],'
               new = f'    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],\n    solution: {{ kind: "choice", correctOptionIds: ["opt-0"] }},\n    tags: ["{tag}"],'
               s = replace_once(s, old, new, f'coalescing {tag}')
+          s = s.replace('{ q:', '{ stem:').replace(', a:', ', type: "单选", options:').replace(', ans:', ', answer:')
           p.write_text(s)
           PY
       - run: npm ci
