@@ -1,0 +1,77 @@
+name: Temporary latest-only fixture cleanup
+
+on:
+  push:
+    branches:
+      - refactor/remove-obsolete-compat
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Rewrite current-format fixtures
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/tests/test-question-images.ts')
+          text = path.read_text()
+          replacements = {
+            'id: "iq1", type: "单选", stem: "图中①处部件是", options: ["绝缘子", "横担", "避雷针", "拉线"], answer: "B", tags: ["图片"],': 'id: "iq1", type: "单选", stem: "图中①处部件是", options: ["绝缘子", "横担", "避雷针", "拉线"], optionIds: ["iq1-a", "iq1-b", "iq1-c", "iq1-d"], solution: { kind: "choice", correctOptionIds: ["iq1-b"] }, tags: ["图片"],',
+            'id: "iq2", type: "判断", stem: "该杆塔安装正确", options: ["正确", "错误"], answer: "A", tags: [],': 'id: "iq2", type: "判断", stem: "该杆塔安装正确", options: ["正确", "错误"], optionIds: ["iq2-a", "iq2-b"], solution: { kind: "choice", correctOptionIds: ["iq2-a"] }, tags: [],',
+            'id: "iq3", type: "多选", stem: "结合下图回答", options: ["选项甲", "见图", "选项丙", "选项丁"], answer: "ABC", tags: ["多图"],': 'id: "iq3", type: "多选", stem: "结合下图回答", options: ["选项甲", "见图", "选项丙", "选项丁"], optionIds: ["iq3-a", "iq3-b", "iq3-c", "iq3-d"], solution: { kind: "choice", correctOptionIds: ["iq3-a", "iq3-b", "iq3-c"] }, tags: ["多图"],',
+            'const plainBytes = buildQuestionBankXlsx([{ id: "p1", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] }], new Map());': 'const plainBytes = buildQuestionBankXlsx([{ id: "p1", type: "单选", stem: "纯文字", options: ["甲", "乙"], optionIds: ["p1-a", "p1-b"], solution: { kind: "choice", correctOptionIds: ["p1-a"] }, tags: [] }], new Map());',
+            'const plainQuestion: ExportQuestionInput = { id: "plain", type: "单选", stem: "纯文字", options: ["甲", "乙"], answer: "A", tags: [] };': 'const plainQuestion: ExportQuestionInput = { id: "plain", type: "单选", stem: "纯文字", options: ["甲", "乙"], optionIds: ["plain-a", "plain-b"], solution: { kind: "choice", correctOptionIds: ["plain-a"] }, tags: [] };',
+            'questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${idA}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], answer: "A" }],': 'questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${idA}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } }],',
+            'questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${forgedId}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], answer: "A" }],': 'questions: [{ type: "单选", content: [{ type: "text", text: "题" }, { type: "image", src: `images/${forgedId}.png` }], options: [[{ type: "text", text: "甲" }], [{ type: "text", text: "乙" }]], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } }],',
+            '{ q: "题干【图1】中间【图2】结尾", a: ["甲", "乙"], ans: "A", type: "单选" },': '{ stem: "题干【图1】中间【图2】结尾", options: ["甲", "乙"], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] }, type: "单选" },',
+            'const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", options: ["甲", "乙"], answer: "A" })) });': 'const tooManyJsonQuestions = JSON.stringify({ questions: Array.from({ length: IMPORT_LIMITS.json.maxQuestions + 1 }, () => ({ stem: "题", type: "单选", options: ["甲", "乙"], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] } })) });',
+            '    answer: "A",\n    tags: ["WebP"],': '    optionIds: ["webp-a", "webp-b"],\n    solution: { kind: "choice", correctOptionIds: ["webp-a"] },\n    tags: ["WebP"],',
+          }
+          for old, new in replacements.items():
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'expected exactly one fixture match, got {count}: {old[:100]}')
+            text = text.replace(old, new)
+          if ' answer:' in text or ' answer =' in text:
+            raise SystemExit('old answer fixture remains in test-question-images.ts')
+          path.write_text(text)
+
+          browser = Path('scripts/tests/browser/fixtures.mjs')
+          text = browser.read_text()
+          old = 'buffer: Buffer.from(JSON.stringify(fixture), "utf8"),'
+          new = 'buffer: Buffer.from(JSON.stringify({ name: "送电线路工-初级工", questions: fixture }), "utf8"),'
+          if text.count(old) != 1:
+            raise SystemExit('browser fixture shape match failed')
+          text = text.replace(old, new)
+          old = '    Array.from({ length: 30 }, (_, index) => choice('
+          if text.count(old) != 1:
+            raise SystemExit('big browser fixture start match failed')
+          text = text.replace('buffer: Buffer.from(JSON.stringify(\n    Array.from({ length: 30 }, (_, index) => choice(', 'buffer: Buffer.from(JSON.stringify({ name: "吸附测试加长题库", questions: Array.from({ length: 30 }, (_, index) => choice(', 1)
+          text = text.replace('    )),\n  ), "utf8"),', '    )) }), "utf8"),', 1)
+          browser.write_text(text)
+          PY
+      - run: npm ci
+      - run: npm run test:xlsx
+      - run: npm run build
+      - name: Commit verified cleanup and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-latest-only-fixture-cleanup.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/tests/test-question-images.ts scripts/tests/browser/fixtures.mjs .github/workflows/tmp-latest-only-fixture-cleanup.yml
+          git diff --cached --check
+          git commit -m "test: use canonical question solutions [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
