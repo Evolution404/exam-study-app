@@ -57,11 +57,14 @@ async function restorePending(records: PendingSnapshot[]): Promise<void> {
 }
 
 function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+  const optionIds = options.map((_, index) => `opt-${index}`);
+  const correctOptionIds = answer.split("").map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer,
+    optionIds,
+    solution: { kind: "choice", correctOptionIds },
     tags: ["试题管理"],
   };
 }
@@ -72,7 +75,7 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const rows = Array.from({ length: 200 }, (_, index) => ({ q: `导入第 ${index + 1} 题：考点 ${index}，下列哪项正确？`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
+    const rows = Array.from({ length: 200 }, (_, index) => ({ stem: `导入第 ${index + 1} 题：考点 ${index}，下列哪项正确？`, type: "单选", options: ["甲", "乙", "丙", "丁"], answer: "A" }));
     const bank = await importQuestionBankV7("试题导入.json", rows);
     assert.equal(await dbV7.questions.count(), 200, "本地应导入 200 题");
     const fingerprints = new Set((await dbV7.questions.toArray()).map((question) => question.contentFingerprint));
@@ -167,7 +170,7 @@ try {
     await sync();
     // Importing the same content under two filenames creates two banks sharing
     // one global question (fingerprint dedup), with a membership in each bank.
-    const row = [{ q: "共享题目", a: ["对", "错"], ans: "A" }];
+    const row = [{ stem: "共享题目", type: "单选", options: ["对", "错"], answer: "A" }];
     const bankA = await importQuestionBankV7("共享A.json", row);
     const bankB = await importQuestionBankV7("共享B.json", row);
     const shared = (await dbV7.questions.toArray()).find((question) => (question.content[0] as { text?: string } | undefined)?.text === "共享题目");
@@ -189,7 +192,7 @@ try {
     server.reset();
     await freshClient("device-a");
     await sync();
-    const rows = Array.from({ length: 50 }, (_, index) => ({ q: `去重第 ${index + 1} 题`, a: ["甲", "乙"], ans: "A" }));
+    const rows = Array.from({ length: 50 }, (_, index) => ({ stem: `去重第 ${index + 1} 题`, type: "单选", options: ["甲", "乙"], answer: "A" }));
     await importQuestionBankV7("第一次.json", rows);
     await importQuestionBankV7("第二次.json", rows); // identical content
     assert.equal(await dbV7.questions.count(), 50, "重复导入不应产生重复题目");
@@ -477,7 +480,7 @@ try {
     const bankY = await createBankV7("共享存留Y");
     const qExclusive = await createQuestionV7(bankX.id, singleChoice("仅X独占题", "A", ["对", "错"]));
     const qShared = await createQuestionV7(bankX.id, singleChoice("X与Y共享题", "A", ["对", "错"]));
-    await importQuestionBankV7("共享到Y.json", [{ q: "X与Y共享题", a: ["对", "错"], ans: "A" }]); // 同指纹 → 复用 qShared，建立 Y 关系
+    await createQuestionV7(bankY.id, singleChoice("X与Y共享题", "A", ["对", "错"])); // 显式复用 qShared，建立 Y 关系
     const run = await createPracticeRunV7({ bankId: bankX.id, questionIds: [qExclusive.id, qShared.id] });
     await sync();
 

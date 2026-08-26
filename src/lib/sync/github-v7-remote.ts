@@ -527,15 +527,6 @@ export class GitHubV7Remote {
     return content;
   }
 
-  /** Actual wire size of a stored blob (the envelope, before inflation) —
-   *  one-time measurement used to backfill `storedSize` on legacy descriptors. */
-  async readBlobWireSize(blobSha: string): Promise<number> {
-    assertSha1(blobSha, "blobSha");
-    const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
-    this.requireOk(response, `read blob wire size ${blobSha}`);
-    return (await response.arrayBuffer()).byteLength;
-  }
-
   readImmutableBlob(blobSha: string, expected: SyncV7BlobExpectation): Promise<Uint8Array>;
   readImmutableBlob(descriptor: SyncV7Descriptor): Promise<Uint8Array>;
   readImmutableBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expected?: SyncV7BlobExpectation): Promise<Uint8Array> { return typeof blobShaOrDescriptor === "string" ? this.readBlob(blobShaOrDescriptor, expected as SyncV7BlobExpectation) : this.readBlob(blobShaOrDescriptor); }

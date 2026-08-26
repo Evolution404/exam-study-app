@@ -50,9 +50,9 @@ await resetV7Database();
   const b1 = await createBankV7("共享题库一");
   const b2 = await createBankV7("共享题库二");
   const b3 = await createBankV7("独占题库");
-  const qShared = await createQuestionV7(b1.id, { type: "单选", stem: "共享题", options: ["甲", "乙"], answer: "A" });
-  await createQuestionV7(b2.id, { type: "单选", stem: "共享题", options: ["甲", "乙"], answer: "A" });
-  const qExclusive = await createQuestionV7(b3.id, { type: "单选", stem: "独占题", options: ["甲", "乙"], answer: "A" });
+  const qShared = await createQuestionV7(b1.id, { type: "单选", stem: "共享题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  await createQuestionV7(b2.id, { type: "单选", stem: "共享题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const qExclusive = await createQuestionV7(b3.id, { type: "单选", stem: "独占题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
 
   const result = await deleteBankWithExclusiveQuestionsV7(b3.id);
   assert.equal(result.bankDeleted, true);
@@ -67,7 +67,7 @@ await resetV7Database();
 // ---------------------------------------------------------------------------
 {
   const bank = await createBankV7("移除测试");
-  const q = await createQuestionV7(bank.id, { type: "单选", stem: "移除后未归档", options: ["甲", "乙"], answer: "A" });
+  const q = await createQuestionV7(bank.id, { type: "单选", stem: "移除后未归档", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   await removeMembershipV7(bank.id, q.id);
   assert.equal(await dbV7.bankQuestionMemberships.where("questionId").equals(q.id).count(), 0);
   assert.ok(await dbV7.questions.get(q.id), "题目本身保留");
@@ -79,8 +79,8 @@ await resetV7Database();
 {
   const b1 = await createBankV7("分裂源题库");
   const b2 = await createBankV7("分裂目标题库");
-  const q = await createQuestionV7(b1.id, { type: "单选", stem: "分裂题", options: ["甲", "乙"], answer: "A" });
-  await createQuestionV7(b2.id, { type: "单选", stem: "分裂题", options: ["甲", "乙"], answer: "A" });
+  const q = await createQuestionV7(b1.id, { type: "单选", stem: "分裂题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  await createQuestionV7(b2.id, { type: "单选", stem: "分裂题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const note = await saveNoteV7(q.id, "原题解析");
 
   const { original, clones } = await splitQuestionV7(q.id, [b2.id]);
@@ -110,7 +110,7 @@ await resetV7Database();
 // ---------------------------------------------------------------------------
 {
   const bank = await createBankV7("作答统计");
-  const q = await createQuestionV7(bank.id, { type: "单选", stem: "作答统计题", options: ["甲", "乙"], answer: "A" });
+  const q = await createQuestionV7(bank.id, { type: "单选", stem: "作答统计题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id] });
   const { attempt } = await recordPracticeAnswerV7({ runId: run.id, questionId: q.id, selected: ["A"], correct: true, elapsedMs: 100 });
   assert.ok(attempt.id);
@@ -149,7 +149,7 @@ await resetV7Database();
 // ---------------------------------------------------------------------------
 {
   const bank = await createBankV7("轮次删除题");
-  const q = await createQuestionV7(bank.id, { type: "单选", stem: "轮次删除题", options: ["甲", "乙"], answer: "A" });
+  const q = await createQuestionV7(bank.id, { type: "单选", stem: "轮次删除题", options: ["甲", "乙"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const round = await createReviewRoundV7({ name: "轮次", bankIds: [bank.id] });
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id], reviewRoundId: round.id });
   await deleteQuestionV7(q.id);

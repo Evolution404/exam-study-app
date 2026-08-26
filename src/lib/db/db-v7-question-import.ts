@@ -41,32 +41,11 @@ interface ImportedQuestionRowV7 {
 }
 
 function rawQuestionRows(raw: unknown): { name?: string; rows: ImportedQuestionRowV7[] } {
-  if (typeof raw === "string") {
-    try {
-      return rawQuestionRows(JSON.parse(raw) as unknown);
-    } catch {
-      throw new Error("JSON 题库内容无效。");
-    }
-  }
   if (Array.isArray(raw)) return { rows: raw as ImportedQuestionRowV7[] };
-  if (!raw || typeof raw !== "object") throw new Error("未找到题目数组。支持数组或 { questions: [] } 格式。");
+  if (!raw || typeof raw !== "object") throw new Error("未找到当前 questions 题目数组。");
   const record = raw as Record<string, unknown>;
-  const questions = record.questions ?? record.items ?? record.data;
-  if (!Array.isArray(questions)) throw new Error("未找到题目数组。支持数组或 { questions: [] } 格式。");
-  return { name: typeof record.name === "string" ? record.name : undefined, rows: questions as ImportedQuestionRowV7[] };
-}
-
-function rowString(row: Record<string, unknown>, ...keys: string[]): string {
-  for (const key of keys) {
-    if (row[key] === undefined || row[key] === null) continue;
-    if (Array.isArray(row[key])) return row[key].join("");
-    return String(row[key]);
-  }
-  return "";
-}
-
-function rowOptions(row: Record<string, unknown>): unknown {
-  return row.options ?? row.a ?? row.choices ?? row["选项"];
+  if (!Array.isArray(record.questions)) throw new Error("未找到当前 questions 题目数组。");
+  return { name: typeof record.name === "string" ? record.name : undefined, rows: record.questions as ImportedQuestionRowV7[] };
 }
 
 const ASSET_ID_PATTERN = /^[0-9a-f]{64}$/;
@@ -121,12 +100,12 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
     ? record.images.map(String).filter((id) => ASSET_ID_PATTERN.test(id))
     : [];
   const structuredContent = importedBlocks(record.content);
-  const rawStem = normalizeContentText(rowString(record, "stem", "question", "q", "题干"));
+  const rawStem = normalizeContentText(typeof record.stem === "string" ? record.stem : "");
   const stem = rawStem || (structuredContent ? deriveContentText(structuredContent) : "");
   if (!stem && !structuredContent?.length) return undefined;
   const content = structuredContent ?? (imageIds.length ? blocksFromPlaceholderText(rawStem, imageIds, "stem") : undefined);
   const cleanStem = content ? undefined : (imageIds.length ? rawStem : stripImagePlaceholders(rawStem));
-  const rawOptions = rowOptions(record);
+  const rawOptions = record.options;
   const blockOptions = Array.isArray(rawOptions) && rawOptions.length > 0 && rawOptions.every((item) => Array.isArray(item))
     ? rawOptions.map((item, index) => importedBlocks(item) ?? plainTextToContentBlocks("", `option-${index}-0`))
     : undefined;
@@ -136,19 +115,15 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
   };
   const options = blockOptions ?? (Array.isArray(rawOptions) ? rawOptions.map(placeholderOption) : []);
   const optionBlocks = options.map((option, index) => typeof option === "string" ? plainTextToContentBlocks(option, `option-${index}-0`) : option);
-  const optionTexts = optionBlocks.map((option) => deriveContentText(option));
-  const rawType = rowString(record, "type", "questionType", "题型").trim();
-  const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";
+  const rawType = typeof record.type === "string" ? record.type.trim() : "";
+  const rawAnswer = record.answer ?? "";
   const answer = Array.isArray(rawAnswer)
     ? rawType === "填空" && rawAnswer.every((item) => Array.isArray(item))
       ? rawAnswer.map((item) => (item as unknown[]).map(String).join("||")).join("\n")
       : rawAnswer.map((item) => Array.isArray(item) ? item.map(String).join("||") : String(item)).join(rawType === "计算" || rawType === "填空" ? "\n" : "")
     : String(rawAnswer);
-  const type: QuestionTypeV7 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算" || rawType === "填空" || rawType === "简答"
-    ? rawType
-    : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"
-      ? "判断"
-      : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
+  if (rawType !== "判断" && rawType !== "单选" && rawType !== "多选" && rawType !== "计算" && rawType !== "填空" && rawType !== "简答") return undefined;
+  const type: QuestionTypeV7 = rawType;
   if (!["计算", "填空", "简答"].includes(type) && options.length < 2) return undefined;
   const suppliedOptionIds = Array.isArray(record.optionIds) && record.optionIds.length === options.length
     ? record.optionIds.map(String)
@@ -157,9 +132,9 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
   const suppliedSolution = isQuestionSolution(record.solution) ? structuredClone(record.solution) : undefined;
   const solution = suppliedSolution ?? (answer.trim() ? solutionFromInput(type, answer, optionBlocks, optionIds) : undefined);
   if (!solution || !solutionMatchesType(type, solution)) return undefined;
-  const rawTags = record.tags ?? record["标签"];
+  const rawTags = record.tags;
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
-  const note = rowString(record, "note", "analysis", "解析").trim();
+  const note = typeof record.note === "string" ? record.note.trim() : "";
   return {
     type,
     ...(content ? { content } : { stem: cleanStem ?? stem }),
@@ -264,6 +239,3 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
   const imported = await dbV7.banks.get(bank.id);
   return { ...imported!, importedCount: materialised.filter((item) => item.isNewMembership).length };
 }
-
-export const importTextJsonBankV7 = importQuestionBankV7;
-export const importBankV7 = importQuestionBankV7;

@@ -8,7 +8,7 @@ import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer, FillContentRenderer } from "@/app/practice/calculation-content-renderer";
 import { resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
-import { areCalculationAnswersCorrect, calculationAnswers, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, questionSolution, stableQuestionOptionIds } from "@/lib/question/question-utils";
+import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, stableQuestionOptionIds } from "@/lib/question/question-utils";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
 import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
 import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
@@ -19,10 +19,10 @@ import { PracticeActionBar, PracticeHeader, PracticeNavigationHints, PracticeNot
 export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
-  const solution = questionSolution(question.canonical);
+  const solution = question.canonical.solution;
   const optionIds = solution.kind === "choice" ? stableQuestionOptionIds(question.canonical) : [];
   const correctOptionIds = solution.kind === "choice" ? new Set(solution.correctOptionIds) : new Set<string>();
-  const expectedCalculationAnswers = solution.kind === "calculation" ? solution.blanks.map((blank) => String(blank.expected)) : question.type === "计算" ? calculationAnswers(question.answer) : [];
+  const expectedCalculationAnswers = solution.kind === "calculation" ? solution.blanks.map((blank) => String(blank.expected)) : [];
   const expectedFillSolution = solution.kind === "fill" ? solution : undefined;
   const shortSolution = solution.kind === "short" ? solution : undefined;
   const [calculationDrafts, setCalculationDrafts] = useState<string[]>(question.type === "计算"
@@ -256,7 +256,10 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
         ? Boolean(expectedFillSolution && fillAnswersAreCorrect(fillValues, expectedFillSolution))
         : question.type === "简答"
           ? manualOutcome === "correct"
-          : value === [...question.answer].sort().join("");
+          : solution.kind === "choice" && (() => {
+            const selectedOptionIds = valueList.map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));
+            return selectedOptionIds.length === correctOptionIds.size && selectedOptionIds.every((id) => correctOptionIds.has(id));
+          })();
     try {
       const result = await recordPracticeAnswer({ runId, questionId: question.id, bankId: question.bankId, selected: finalSelection, correct: isCorrect, outcome: question.type === "简答" ? manualOutcome : undefined, elapsedMs: activeTimer.current?.elapsedMs(window.performance.now()) ?? 0 });
       setSelected(finalSelection);

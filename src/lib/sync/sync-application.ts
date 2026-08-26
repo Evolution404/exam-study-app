@@ -1,5 +1,6 @@
 import { dbV7 } from "../db/db-v7";
 import { questionContentFingerprint } from "../question/question-content";
+import { solutionFromInput, stableQuestionOptionIds } from "../question/question-utils";
 import type { GitHubSettings } from "../../types/types";
 import {
   clearImageCache as clearImageCacheInternal,
@@ -193,7 +194,9 @@ class SyncApplication {
           }
         }
         if (!insertedText) content.unshift({ id: "stem-0", type: "text", text: edit.stem });
-        const question = { ...mutation.question, answer: edit.answer, tags: edit.tags, content, updatedAt: new Date().toISOString() };
+        const optionIds = stableQuestionOptionIds(mutation.question);
+        const solution = solutionFromInput(mutation.question.type, edit.answer, mutation.question.options, optionIds);
+        const question = { ...mutation.question, optionIds, solution, tags: edit.tags, content, updatedAt: new Date().toISOString() };
         return { ...mutation, question: { ...question, contentFingerprint: questionContentFingerprint(question) } };
       }
       return mutation;

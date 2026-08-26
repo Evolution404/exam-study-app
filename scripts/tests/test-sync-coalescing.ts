@@ -41,7 +41,8 @@ function shortChoice(stem: string): Parameters<typeof createQuestionV7>[1] {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["甲", "乙", "丙", "丁"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["合并测试"],
   };
 }
@@ -53,7 +54,8 @@ function longChoice(stem: string): Parameters<typeof createQuestionV7>[1] {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["甲", "乙", "丙", "丁"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["混合合并"],
   };
 }
@@ -66,7 +68,8 @@ function bigInlineChoice(index: number): Parameters<typeof createQuestionV7>[1] 
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: `压缩触发第 ${index} 题：` + "考".repeat(26000) }],
     options: ["甲", "乙", "丙", "丁"].map((text, i) => [{ id: `opt-${i}`, type: "text", text }]),
-    answer: "A",
+    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],
+    solution: { kind: "choice", correctOptionIds: ["opt-0"] },
     tags: ["压缩触发"],
   };
 }
@@ -290,7 +293,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
 
   // One large import (>128 KB) becomes a single offloaded change-set: its
   // segment carries only a stub pointing at sync/v9/objects/<sha>.json.
-  const rows = Array.from({ length: 600 }, (_, index) => ({ q: `卸载合并第 ${index + 1} 题：考点 ${index} 的详细描述与选项辨析。`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
+  const rows = Array.from({ length: 600 }, (_, index) => ({ stem: `卸载合并第 ${index + 1} 题：考点 ${index} 的详细描述与选项辨析。`, type: "单选", options: ["甲", "乙", "丙", "丁"], answer: "A" }));
   const bank = await importQuestionBankV7("offload-coalesce.json", rows);
   await sync();
   assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "大导入应卸载为不可变对象");

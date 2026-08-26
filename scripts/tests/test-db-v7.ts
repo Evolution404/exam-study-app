@@ -49,7 +49,7 @@ await oldSentinel.close();
 await resetV7Database();
 await ensureChangeSetQueueBaseV7();
 const queueTestBank = await createBankV7("队列级联测试");
-await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });
+await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
 const queueTestCreate = await dbV7.changeSets.filter((record) => record.mutations.some((mutation) => mutation.kind === "bank.create" && mutation.bank.id === queueTestBank.id)).first();
 assert.ok(queueTestCreate);
 await assert.rejects(() => discardManagedChangeSetV7(queueTestCreate.id), /依赖|同时删除/);
@@ -58,8 +58,8 @@ assert.equal(await dbV7.banks.get(queueTestBank.id), undefined, "discarding a cr
 assert.equal(await dbV7.questions.count(), 0, "cascade discard removes dependent question creation");
 assert.equal(await dbV7.changeSets.count(), 0, "cascade discard removes the complete dependent queue chain");
 const source = [
-  { q: "  Shared   stem\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },
-  { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },
+  { stem: "  Shared   stem\n", type: "单选", options: ["甲", "乙"], answer: "a", tags: ["共享"] },
+  { stem: "Only A", type: "判断", options: ["正确", "错误"], answer: "A" },
 ];
 const importedA = await importQuestionBankV7("import-a.json", source);
 const importedB = await importQuestionBankV7("import-b.json", [source[0]]);
@@ -92,7 +92,7 @@ assert.equal((await dbV7.notes.get(shared.id))?.revision, secondNote.revision);
 const round = await createReviewRoundV7({ name: "round", bankIds: [importedA.id] });
 const targetBefore = await getReviewRoundQuestionIdsV7(round.id);
 assert.equal(targetBefore.length, 2);
-const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], answer: "A" });
+const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
 assert.equal((await getReviewRoundQuestionIdsV7(round.id)).length, 3);
 const parallelRound = await createReviewRoundV7({ name: "parallel", bankIds: [importedA.id] });
 const dynamicTargets = await getReviewRoundQuestionIdsV7(round.id);
@@ -159,9 +159,9 @@ assert.equal(await dbV7.attemptStats.get(shared.id), undefined);
 // Batch cleanup removes selected joins/content, and deleting a bank can clean
 // only its exclusive questions without damaging shared content.
 const cleanupSource = [
-  { q: "批量独占一", type: "单选", a: ["甲", "乙"], ans: "A" },
-  { q: "批量独占二", type: "单选", a: ["甲", "乙"], ans: "A" },
-  { q: "批量共享", type: "单选", a: ["甲", "乙"], ans: "A" },
+  { stem: "批量独占一", type: "单选", options: ["甲", "乙"], answer: "A" },
+  { stem: "批量独占二", type: "单选", options: ["甲", "乙"], answer: "A" },
+  { stem: "批量共享", type: "单选", options: ["甲", "乙"], answer: "A" },
 ];
 const cleanupA = await importQuestionBankV7("cleanup-a.json", cleanupSource);
 const cleanupB = await importQuestionBankV7("cleanup-b.json", [cleanupSource[2]]);
@@ -176,8 +176,8 @@ assert.ok(await dbV7.questions.get(sharedCleanup.id), "shared question must surv
 assert.equal((await getBankQuestionsV7(cleanupB.id)).length, 1);
 
 const detachBank = await importQuestionBankV7("batch-detach.json", [
-  { q: "批量移除一", type: "判断", a: ["正确", "错误"], ans: "A" },
-  { q: "批量移除二", type: "判断", a: ["正确", "错误"], ans: "B" },
+  { stem: "批量移除一", type: "判断", options: ["正确", "错误"], answer: "A" },
+  { stem: "批量移除二", type: "判断", options: ["正确", "错误"], answer: "B" },
 ]);
 const detachIds = (await getBankQuestionsV7(detachBank.id)).map((question) => question.id);
 assert.equal(await removeMembershipsV7(detachBank.id, detachIds), 2);
@@ -190,8 +190,8 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
 // 不得把已删题目塞回 run（复活）。修复后以 DB 当前的 questionIds 为准，并丢弃指向已删题的作答。
 {
   const r4Bank = await createBankV7("R4竞争测试");
-  const r4q1 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题一", options: ["对", "错"], answer: "A" });
-  const r4q2 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题二", options: ["对", "错"], answer: "A" });
+  const r4q1 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题一", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const r4q2 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题二", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const r4Run = await createPracticeRunV7({ bankId: r4Bank.id, questionIds: [r4q1.id, r4q2.id] });
   await recordPracticeAnswerV7({ runId: r4Run.id, questionId: r4q1.id, selected: "A", correct: true });
   // 模拟 study-app 保存前读到的陈旧快照（含 q1、q1 的答案）
@@ -214,8 +214,8 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
 {
   const e5Bank = await createBankV7("E5跨run清理");
-  const e5q1 = await createQuestionV7(e5Bank.id, { type: "单选", stem: "E5共享题", options: ["对", "错"], answer: "A" });
-  const e5q2 = await createQuestionV7(e5Bank.id, { type: "单选", stem: "E5陪跑题", options: ["对", "错"], answer: "A" });
+  const e5q1 = await createQuestionV7(e5Bank.id, { type: "单选", stem: "E5共享题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const e5q2 = await createQuestionV7(e5Bank.id, { type: "单选", stem: "E5陪跑题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const runA = await createPracticeRunV7({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
   const runB = await createPracticeRunV7({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
   await recordPracticeAnswerV7({ runId: runA.id, questionId: e5q1.id, selected: "A", correct: true });
@@ -237,8 +237,8 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
 // 活动轮次的目标集运行时按 bankIds 动态派生，删题后该题不再属于目标集。
 {
   const e4Bank = await createBankV7("E4复习轮次");
-  const e4q1 = await createQuestionV7(e4Bank.id, { type: "单选", stem: "E4轮次题一", options: ["对", "错"], answer: "A" });
-  await createQuestionV7(e4Bank.id, { type: "单选", stem: "E4轮次题二", options: ["对", "错"], answer: "A" });
+  const e4q1 = await createQuestionV7(e4Bank.id, { type: "单选", stem: "E4轮次题一", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  await createQuestionV7(e4Bank.id, { type: "单选", stem: "E4轮次题二", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const e4Round = await createReviewRoundV7({ name: "E4轮", bankIds: [e4Bank.id] });
   assert.ok((await getReviewRoundQuestionIdsV7(e4Round.id)).includes(e4q1.id), "删前 q1 应在轮次目标集");
   const e4Run = await createPracticeRunV7({ bankIds: [e4Bank.id], questionIds: await getReviewRoundQuestionIdsV7(e4Round.id), reviewRoundId: e4Round.id });
@@ -278,14 +278,14 @@ await oldCheck.close();
 // membership 追加排序、题库原名与计数语义全部沿用导入链。放在文件末尾——
 // 前面的场景对全局 questions 计数敏感。
 {
-  const targetRows = [{ q: "目标库已有题", type: "单选", a: ["甲", "乙"], ans: "A" }];
+  const targetRows = [{ stem: "目标库已有题", type: "单选", options: ["甲", "乙"], answer: "A" }];
   const targetBank = await importQuestionBankV7("target-bank.json", targetRows);
   const bankCountBefore = await dbV7.banks.count();
   const questionCountBefore = await dbV7.questions.count();
   const targetImport = await importQuestionBankV7("more-questions.json", [
     targetRows[0], // 与目标库已有题内容一致 → 指纹去重，不计入 importedCount
-    { q: "目标库新增单选", type: "单选", a: ["甲", "乙"], ans: "A" },
-    { q: "目标库新增判断", type: "判断", a: ["正确", "错误"], ans: "A" },
+    { stem: "目标库新增单选", type: "单选", options: ["甲", "乙"], answer: "A" },
+    { stem: "目标库新增判断", type: "判断", options: ["正确", "错误"], answer: "A" },
   ], { targetBankId: targetBank.id });
   assert.equal(targetImport.id, targetBank.id, "目标导入不得派生新题库 id");
   assert.equal(targetImport.name, targetBank.name, "目标导入不得改动题库原名");
@@ -308,9 +308,9 @@ await oldCheck.close();
     type: "计算",
     stem: "两个结果分别为【空1】和【空2】",
     options: [],
-    answer: ["1", "1"],
+    solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }, { id: "blank-2", expected: 1 }] },
   });
-  assert.equal(calculationQuestion.answer, "1\n1");
+  assert.deepEqual(calculationQuestion.solution, { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }, { id: "blank-2", expected: 1 }] });
   const calculationRun = await createPracticeRunV7({ bankId: calculationBank.id, questionIds: [calculationQuestion.id] });
   const submitted = await recordPracticeAnswerV7({ runId: calculationRun.id, questionId: calculationQuestion.id, selected: ["1", "1"], correct: true });
   assert.deepEqual(submitted.answer.selected, ["1", "1"], "重复数值必须保留为两个位置答案");

@@ -36,7 +36,8 @@ function singleChoice(stem: string, answer: string): Parameters<typeof createQue
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: ["对", "错"].map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer,
+    optionIds: ["opt-0", "opt-1"],
+    solution: { kind: "choice", correctOptionIds: [answer === "A" ? "opt-0" : "opt-1"] },
     tags: ["完整性"],
   };
 }

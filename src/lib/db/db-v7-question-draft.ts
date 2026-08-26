@@ -40,7 +40,7 @@ export function questionFromDraft(id: string, draft: StructuredQuestionDraftV7, 
     ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : options.map((option) => stableOptionIdForBlocks(option)))
     : [];
   const solution = structuredClone(draft.solution);
-  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, answer: JSON.stringify(solution) });
+  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, solution });
   return {
     id,
     type: draft.type,
