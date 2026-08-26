@@ -25,7 +25,7 @@ Object.defineProperty(globalThis, "localStorage", {
 await resetV7Database();
 
 // Mobile/Safari restore must not materialize every cached image Blob into JS
-// just to update descriptors.  Keep the cache row in place, patch metadata,
+// just to update descriptors. Keep the cache row in place, patch metadata,
 // write in bounded batches, and abort an actually stalled atomic transaction.
 const restoreSource = readFileSync(resolve(process.cwd(), "src/lib/db/db-v7-restore.ts"), "utf8");
 assert.doesNotMatch(restoreSource, /imageAssets\.toArray\(\)/, "checkpoint install must not load the entire image Blob cache into JS memory");
@@ -80,8 +80,8 @@ await assert.rejects(
 const bank = await importQuestionBankV7("safari.json", {
   name: "Safari 事务兼容",
   questions: [
-    { q: "Safari Q1", a: ["甲", "乙"], ans: "A", type: "单选" },
-    { q: "Safari Q2", a: ["甲", "乙"], ans: "B", type: "单选" },
+    { stem: "Safari Q1", options: ["甲", "乙"], answer: "A", type: "单选" },
+    { stem: "Safari Q2", options: ["甲", "乙"], answer: "B", type: "单选" },
   ],
 });
 assert.equal(bank.questionCount, 2, "Safari 模型下题库导入应完成");
