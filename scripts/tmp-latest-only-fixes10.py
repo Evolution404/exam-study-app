@@ -75,7 +75,17 @@ text = text.replace('''/**
 text = text.replace('''  // The storage key keeps its historical name so an upgrading device reuses
   // its sync identity instead of appearing as a brand-new collaborator.
 ''', '  // This is the current durable sync-device identity key.\n')
+# Current-only runtime identifiers must not retain a versioned historical name.
+text = text.replace('shijuan-study-v7-device-id', 'shijuan-study-device-id')
+text = text.replace('shijuan-study-v7-sequence', 'shijuan-study-sequence')
 write(path, text)
+
+# Keep reset/config cleanup aligned with the current unversioned device key.
+for path in ['src/lib/sync/site-data-reset.ts', 'scripts/tests/test-db-v7.ts', 'scripts/tests/test-safari-idb-compat.ts']:
+    file = ROOT / path
+    if file.exists():
+        text = read(path).replace('shijuan-study-v7-device-id', 'shijuan-study-device-id').replace('shijuan-study-v7-sequence', 'shijuan-study-sequence')
+        write(path, text)
 
 path = 'src/lib/db/db-v7-restore.ts'
 text = read(path)
