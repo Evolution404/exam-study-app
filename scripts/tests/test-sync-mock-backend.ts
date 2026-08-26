@@ -62,7 +62,8 @@ try {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: "看图作答" }, { id: "img-0", type: "image", assetId: imageQuestionDigest }],
     options: [[{ id: "opt-a", type: "text", text: "甲" }], [{ id: "opt-b", type: "text", text: "乙" }]],
-    answer: "A",
+    optionIds: ["opt-a", "opt-b"],
+    solution: { kind: "choice", correctOptionIds: ["opt-a"] },
   });
   const imageQuestionPush = await syncWithGitHub(settings, "qa-token");
   assert.equal(imageQuestionPush.pushed, 2, "应推送 image.asset.save 与题目 batch 两组逻辑变更");
