@@ -73,14 +73,15 @@ jobs:
 
           p = Path('scripts/tests/test-db-v7.ts')
           s = p.read_text()
-          old = 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });'
-          new = 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], optionIds: ["queue-a", "queue-b"], solution: { kind: "choice", correctOptionIds: ["queue-a"] } });'
-          assert s.count(old) == 1
-          s = s.replace(old, new)
-          old = '  { q: "  Shared   stem\\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },\n  { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },'
-          new = '  { stem: "  Shared   stem\\n", type: "单选", options: ["甲", "乙"], answer: "a", tags: ["共享"] },\n  { stem: "Only A", type: "判断", options: ["正确", "错误"], answer: "A" },'
-          assert s.count(old) == 1
-          p.write_text(s.replace(old, new))
+          replacements = [
+            ('await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });', 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], optionIds: ["queue-a", "queue-b"], solution: { kind: "choice", correctOptionIds: ["queue-a"] } });'),
+            ('  { q: "  Shared   stem\\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },\n  { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },', '  { stem: "  Shared   stem\\n", type: "单选", options: ["甲", "乙"], answer: "a", tags: ["共享"] },\n  { stem: "Only A", type: "判断", options: ["正确", "错误"], answer: "A" },'),
+            ('const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], answer: "A" });', 'const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], optionIds: ["dynamic-a", "dynamic-b"], solution: { kind: "choice", correctOptionIds: ["dynamic-a"] } });'),
+          ]
+          for old, new in replacements:
+            assert s.count(old) == 1, old
+            s = s.replace(old, new)
+          p.write_text(s)
           PY
       - run: npm ci
       - run: npm run test:xlsx
