@@ -23,20 +23,18 @@ const fixture = [
 export const fixtureFile = {
   name: "送电线路工-初级工.json",
   mimeType: "application/json",
-  buffer: Buffer.from(JSON.stringify(fixture), "utf8"),
+  buffer: Buffer.from(JSON.stringify({ name: "送电线路工-初级工", questions: fixture }), "utf8"),
 };
 // 吸附几何断言专用：默认 fixture 只有 5 题，桌面视口下滚动量不足以让搜索框
 // 真正吸顶（最大滚动 187px < 自然位置 265px）。这批题目让条件搜索结果足够长。
 export const bigFixtureFile = {
   name: "吸附测试加长题库.json",
   mimeType: "application/json",
-  buffer: Buffer.from(JSON.stringify(
-    Array.from({ length: 30 }, (_, index) => choice(
+  buffer: Buffer.from(JSON.stringify({ name: "吸附测试加长题库", questions: Array.from({ length: 30 }, (_, index) => choice(
       `加长题库第 ${index + 1} 题：设备巡检记录的归档要求是？`,
       ["按月装订成册", "随意存放", "口头交接", "无需归档"],
       ["option-1"],
-    )),
-  ), "utf8"),
+    )) }), "utf8"),
 };
 export const excelFixtureFile = {
   name: "送电线路工-中级工.xlsx",

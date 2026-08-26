@@ -219,7 +219,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
     const existingMembership = await dbV7.bankQuestionMemberships.get(membershipKey(bank.id, question.id));
     const membership: BankQuestionMembership = existingMembership ?? {
       key: membershipKey(bank.id, question.id),
-      bankId,
+      bankId: bank.id,
       questionId: question.id,
       sortOrder: sortOrder++,
       addedAt: timestamp,
