@@ -68,7 +68,7 @@ assert.doesNotMatch(
 );
 
 assert.match(
-  readProjectFile("scripts/tests/test-browser-visible.mjs"),
+  readProjectFile("scripts/tests/browser/harness.mjs"),
   /BROWSER_ENGINE must be chromium or webkit/,
   "browser QA must reject unknown engines instead of silently changing coverage",
 );

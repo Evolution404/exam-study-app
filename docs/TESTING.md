@@ -19,7 +19,7 @@
 
 ## 2. 浏览器分组速查
 
-`scripts/tests/test-browser-visible.mjs` 由 `BROWSER_GROUPS` 环境变量选择场景分组（逗号分隔，缺省=全部）。每组独立浏览器上下文 + 独立 IndexedDB；共享一个进程内 mock GitHub 服务器，因此可做真实跨设备同步。
+`scripts/tests/test-browser-visible.mjs` 保留兼容 runner；实现已拆到 `scripts/tests/browser/` 的 harness / fixtures / helpers / feature specs。`BROWSER_GROUPS` 仍以逗号分隔选择场景（缺省=全部）。每组仍使用独立浏览器上下文 + 独立 IndexedDB，并共享一个进程内 mock GitHub 服务器，因此跨设备同步语义不变。
 
 浏览器 runner 默认使用 `npm run browser:install` 安装的 Playwright Chromium，不会查找或启动用户日常使用的系统 Chrome；只有显式设置 `CHROME_PATH=/path/to/browser` 时才覆盖默认浏览器。浏览器启动超过 20 秒会快速失败并提示安装命令，不再等待 180 秒。未提供 `BASE_URL` 时，runner 以 `BROWSER_PORT`（默认 `5173`）启动 Vite，并传入 `--strictPort`：端口已被占用会直接失败，不会接受其他服务的页面。需要并行运行时为每个 runner 传不同的 `BROWSER_PORT`；测试结束会回收它自己启动的进程。
 
