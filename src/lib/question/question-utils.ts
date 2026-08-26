@@ -67,7 +67,7 @@ function splitAcceptedText(value: string): string[] {
 }
 
 /** Parse current text-import/editor syntax into positional fill answers. */
-export function fillBlankAnswers(value: string | readonly string[]): string[][] {
+function fillBlankAnswers(value: string | readonly string[]): string[][] {
   const cells = Array.isArray(value) ? value.map(String) : String(value).split(/\r?\n/);
   return cells.map(splitAcceptedText).filter((answers) => answers.length > 0);
 }
@@ -120,7 +120,7 @@ export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string
   return `option-${hashToken(contentIdentity(blocks))}`;
 }
 
-export function calculationSolutionFromInput(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
+function calculationSolutionFromInput(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
   const answers = calculationAnswers(value);
   if (!answers.length || answers.length > MAX_CALCULATION_BLANKS || answers.some((answer) => !Number.isFinite(Number(answer)))) {
     throw new Error(`计算题必须包含 1-${MAX_CALCULATION_BLANKS} 个有效数字答案。`);
