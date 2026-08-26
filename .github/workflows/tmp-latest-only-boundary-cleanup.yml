@@ -206,6 +206,84 @@ jobs:
           }'''
           s = replace_once(s, old, new, 'integrity singleChoice')
           p.write_text(s)
+
+          p = Path('src/lib/question/question-content.ts')
+          s = p.read_text()
+          s = replace_once(s, '  answer: string;\n}', '  solution: QuestionV7["solution"];\n}', 'fingerprint input solution')
+          s = replace_once(s, '    answer: normalizeContentText(input.answer),', '    solution: input.solution,', 'fingerprint payload solution')
+          p.write_text(s)
+
+          p = Path('src/lib/db/db-v7-question-draft.ts')
+          s = p.read_text()
+          s = replace_once(s, '  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, answer: JSON.stringify(solution) });', '  const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, solution });', 'draft fingerprint solution')
+          p.write_text(s)
+
+          p = Path('src/app/bank/bank-library/question-manager.tsx')
+          s = p.read_text()
+          s = replace_once(s, 'import { matchesTagSelection, type TagMatchMode } from "@/lib/question/tag-filter";', 'import { matchesTagSelection, type TagMatchMode } from "@/lib/question/tag-filter";\nimport { solutionAnswerText } from "@/lib/question/question-utils";', 'question manager solution import')
+          s = replace_once(s,
+              '  const blankCanonical: QuestionV7 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), answer: "A", tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };',
+              '  const blankCanonical: QuestionV7 = { id: "draft", type: "单选", content: [{ id: "stem-0", type: "text", text: "" }], options: [0, 1, 2, 3].map((index) => [{ id: `option-${index}-0`, type: "text", text: "" }]), optionIds: ["option-0", "option-1", "option-2", "option-3"], solution: { kind: "choice", correctOptionIds: ["option-0"] }, tags: [], favorite: false, contentFingerprint: "0".repeat(64), updatedAt: new Date().toISOString(), deviceId: "draft" };',
+              'question manager blank canonical')
+          s = replace_once(s, '<small>答案 {question.answer} · 作答 {summary.total} 次', '<small>答案 {solutionAnswerText(question.solution, question.optionIds ?? [])} · 作答 {summary.total} 次', 'question manager answer display')
+          p.write_text(s)
+
+          p = Path('src/app/practice/practice-history.tsx')
+          s = p.read_text()
+          s = replace_once(s, 'import { formatCalculationAnswers } from "@/lib/question/question-utils";', 'import { formatCalculationAnswers, solutionAnswerText } from "@/lib/question/question-utils";', 'practice history solution import')
+          s = replace_once(s,
+              'question.type === "计算" ? formatCalculationAnswers(question.answer) : question.answer',
+              'question.solution.kind === "calculation" ? formatCalculationAnswers(question.solution.blanks.map((blank) => String(blank.expected))) : solutionAnswerText(question.solution, question.optionIds ?? [])',
+              'practice history canonical answer')
+          p.write_text(s)
+
+          p = Path('src/app/shell/views/practice.tsx')
+          s = p.read_text()
+          s = replace_once(s,
+              'import { areCalculationAnswersCorrect, calculationAnswers, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, questionSolution, stableQuestionOptionIds } from "@/lib/question/question-utils";',
+              'import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, stableQuestionOptionIds } from "@/lib/question/question-utils";',
+              'practice remove answer adapters')
+          s = replace_once(s, '  const solution = questionSolution(question.canonical);', '  const solution = question.canonical.solution;', 'practice direct solution')
+          s = replace_once(s,
+              '  const expectedCalculationAnswers = solution.kind === "calculation" ? solution.blanks.map((blank) => String(blank.expected)) : question.type === "计算" ? calculationAnswers(question.answer) : [];',
+              '  const expectedCalculationAnswers = solution.kind === "calculation" ? solution.blanks.map((blank) => String(blank.expected)) : [];',
+              'practice calculation solution')
+          s = replace_once(s,
+              '          : value === [...question.answer].sort().join("");',
+              '          : solution.kind === "choice" && (() => {\n            const selectedOptionIds = valueList.map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));\n            return selectedOptionIds.length === correctOptionIds.size && selectedOptionIds.every((id) => correctOptionIds.has(id));\n          })();',
+              'practice choice correctness')
+          p.write_text(s)
+
+          p = Path('src/app/sync/sync-event-manager.tsx')
+          s = p.read_text()
+          s = replace_once(s, 'import "@/app/styles/sync-events-1.css";', 'import { solutionAnswerText, stableQuestionOptionIds } from "@/lib/question/question-utils";\nimport "@/app/styles/sync-events-1.css";', 'sync event solution import')
+          s = replace_once(s,
+              '  const [questionAnswer, setQuestionAnswer] = useState(mutation.kind === "question.upsert" ? mutation.question.answer : "");',
+              '  const [questionAnswer, setQuestionAnswer] = useState(mutation.kind === "question.upsert" ? solutionAnswerText(mutation.question.solution, stableQuestionOptionIds(mutation.question)) : "");',
+              'sync event answer text')
+          p.write_text(s)
+
+          p = Path('src/lib/sync/sync-application.ts')
+          s = p.read_text()
+          s = replace_once(s, 'import { questionContentFingerprint } from "../question/question-content";', 'import { questionContentFingerprint } from "../question/question-content";\nimport { solutionFromInput, stableQuestionOptionIds } from "../question/question-utils";', 'sync application solution import')
+          s = replace_once(s,
+              '        const question = { ...mutation.question, answer: edit.answer, tags: edit.tags, content, updatedAt: new Date().toISOString() };',
+              '        const optionIds = stableQuestionOptionIds(mutation.question);\n        const solution = solutionFromInput(mutation.question.type, edit.answer, mutation.question.options, optionIds);\n        const question = { ...mutation.question, optionIds, solution, tags: edit.tags, content, updatedAt: new Date().toISOString() };',
+              'sync application canonical solution')
+          p.write_text(s)
+
+          for filename in [
+              'src/app/bank/bank-library/question-manager.tsx',
+              'src/app/practice/practice-history.tsx',
+              'src/app/shell/views/practice.tsx',
+              'src/app/sync/sync-event-manager.tsx',
+              'src/lib/sync/sync-application.ts',
+              'src/lib/question/question-content.ts',
+              'src/lib/db/db-v7-question-draft.ts',
+          ]:
+              text = Path(filename).read_text()
+              if re.search(r'\bquestion\.answer\b|\bmutation\.question\.answer\b', text):
+                  raise SystemExit(f'persisted question.answer remains: {filename}')
           PY
       - run: npm ci
       - run: npm run test:xlsx
@@ -216,12 +294,13 @@ jobs:
         run: |
           rg -n -i 'legacy|migrat|compatibil|superseded|one[- ]shot|一次性|迁移|兼容' src scripts || true
           rg -n -i 'fallback|回退' src scripts || true
+          rg -n 'questionSolution\(|legacyAnswerForSolution|readBlobWireSize|bankQuestionMemberships|practiceRunStats.*\?\?|storedSize\s*\?\?' src scripts || true
       - name: Commit verified cleanup
         run: |
           rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts scripts/tests/test-sync-coalescing.ts scripts/tests/test-sync-fault-tolerance.ts scripts/tests/test-sync-integrity.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts scripts/tests/test-sync-coalescing.ts scripts/tests/test-sync-fault-tolerance.ts scripts/tests/test-sync-integrity.ts src/lib/question/question-content.ts src/lib/db/db-v7-question-draft.ts src/app/bank/bank-library/question-manager.tsx src/app/practice/practice-history.tsx src/app/shell/views/practice.tsx src/app/sync/sync-event-manager.tsx src/lib/sync/sync-application.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git diff --cached --check
-          git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
+          git commit -m "refactor: enforce current-only question and import boundaries [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
