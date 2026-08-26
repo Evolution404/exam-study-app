@@ -22,100 +22,75 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           def r(path, old, new, n=1):
-              p=Path(path); s=p.read_text(); c=s.count(old)
-              if c!=n: raise SystemExit(f'{path}: expected {n} for {old!r}, got {c}')
-              p.write_text(s.replace(old,new))
+              p = Path(path)
+              s = p.read_text()
+              c = s.count(old)
+              if c != n:
+                  raise SystemExit(f"{path}: expected {n} for {old!r}, got {c}")
+              p.write_text(s.replace(old, new))
           def ra(path, old, new):
-              p=Path(path); s=p.read_text(); c=s.count(old)
-              if c<1: raise SystemExit(f'{path}: missing {old!r}')
-              p.write_text(s.replace(old,new))
-
-          r('src/app/shell/views/practice.tsx','calculation-answer fallback-grid','calculation-answer manual-grid',2)
-          r('src/app/shell/views/practice.tsx','fill-fallback-grid','fill-manual-grid')
-          r('src/app/shell/views/practice.tsx','calculation-fallback-inputs','calculation-manual-inputs',2)
-          r('src/app/practice/practice-main-2.css','.calculation-answer.fallback-grid','.calculation-answer.manual-grid')
-          r('src/app/practice/practice-main-2.css','.calculation-fallback-inputs','.calculation-manual-inputs',3)
-          r('src/app/practice/practice-main-2.css','legacy structure remains shared','shared structure remains centralized')
-          r('src/app/search/search-tokens.css','migrate without expanding the core token layer','move without expanding the core token layer')
-          r('src/app/styles/palette-tokens.css','palette for legacy surfaces','palette for existing surfaces')
-          r('src/app/styles/dark-overrides.css','Centralized legacy dark-theme overrides','Centralized dark-theme overrides')
-          r('src/app/styles/bank-controls.css','variants migrated out of the global entrypoint','variants moved out of the global entrypoint')
-          r('src/lib/question/question-bank-export.ts','WPS cell-image compatibility','WPS cell-image support')
-
-          r('src/lib/db/db-v7-core.ts','  elapsedMs?: number;\n  /** Optional source bank for history display; statistics remain global. */','  elapsedMs: number;\n  /** Optional source bank for history display; statistics remain global. */')
-          r('src/lib/db/db-v7-practice.ts','  const timestamp = input.createdAt ?? nowIso();\n  const selectedAnswer = selected.join("");','  const timestamp = input.createdAt ?? nowIso();\n  if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw new Error("当前作答必须提供有效 elapsedMs。");\n  const selectedAnswer = selected.join("");')
-          r('src/lib/db/db-v7-practice.ts','      elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),','      elapsedMs: input.elapsedMs,')
-          ra('src/lib/db/db-v7-practice.ts','Math.max(0, attempt.elapsedMs || 0)','Math.max(0, attempt.elapsedMs)')
-          ra('src/lib/practice/practice-metrics.ts','Math.max(0, attempt.elapsedMs || 0)','Math.max(0, attempt.elapsedMs)')
-          r('src/lib/practice/practice-metrics.ts','function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {\n  if (!outcome.correct) return 0;','function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {\n  if (!Number.isFinite(outcome.elapsedMs) || outcome.elapsedMs < 0) throw new Error("current difficulty outcomes require elapsedMs");\n  if (!outcome.correct) return 0;')
-          r('src/lib/practice/practice-metrics.ts','  return elapsedMs !== undefined && Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;','  return Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;')
-          r('src/lib/practice/practice-metrics.ts','''export function runActivityAt(run: RunActivitySource): string {
-  if (run.status === "completed" && run.completedAt) return run.completedAt;
-  let latest: string | undefined;
-  for (const answer of Object.values(run.answers)) {
-    if (answer.submitted && answer.updatedAt && (!latest || answer.updatedAt > latest)) latest = answer.updatedAt;
-  }
-  return latest ?? run.abandonedAt ?? run.startedAt;
-}''','''export function runActivityAt(run: RunActivitySource): string {
-  if (run.status === "completed") {
-    if (!run.completedAt) throw new Error("completed practice runs require completedAt");
-    return run.completedAt;
-  }
-  let latest: string | undefined;
-  for (const answer of Object.values(run.answers)) {
-    if (!answer.submitted) continue;
-    if (!answer.updatedAt) throw new Error("submitted practice answers require updatedAt");
-    if (!latest || answer.updatedAt > latest) latest = answer.updatedAt;
-  }
-  if (latest) return latest;
-  if (run.status === "abandoned") {
-    if (!run.abandonedAt) throw new Error("abandoned practice runs require abandonedAt");
-    return run.abandonedAt;
-  }
-  return run.startedAt;
-}''')
-
-          p=Path('scripts/tests/test-progress-metrics-boundaries.ts'); s=p.read_text()
-          old='''  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs?: number) => ({
-    correct,
-    createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),
-    ...(elapsedMs === undefined ? {} : { elapsedMs }),
-  });'''
-          new='''  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs: number) => ({
-    correct,
-    createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),
-    elapsedMs,
-  });'''
-          if s.count(old)!=1: raise SystemExit('outcome helper mismatch')
-          s=s.replace(old,new)
-          old='''  // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。
-  assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");'''
-          new='''  assert.throws(() => difficultyFromOutcomes([{ correct: true, createdAt: T1, elapsedMs: Number.NaN }]), /elapsedMs/, "current outcomes reject invalid elapsedMs");'''
-          if s.count(old)!=1: raise SystemExit('elapsed strict test mismatch')
-          s=s.replace(old,new)
-          s=s.replace('  // 聚合行读取路径：recentOutcomes 非空走 EMA；为空（round 口径/旧本地行）回退终身错误率。','  // 聚合行读取路径：recentOutcomes 直接驱动 EMA 难度。')
-          old='''  assert.equal(
-    runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),
-    "2026-08-14T22:00:00.000Z",
-    "缺 completedAt 的旧数据回退最后一道作答题的时间",
-  );'''
-          new='''  assert.throws(() => runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })), /completedAt/, "completed current runs require completedAt");'''
-          if s.count(old)!=1: raise SystemExit('completedAt strict test mismatch')
-          s=s.replace(old,new)
-          s=s.replace('"进行中取多道作答里最新的 updatedAt（恢复旧练习后应排到最前）"','"进行中取多道作答里最新的 updatedAt"')
-          s=s.replace('"未作答的已放弃记录回退放弃时间"','"未作答的已放弃记录使用 abandonedAt"')
-          old='''  assert.equal(
-    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })),
-    "2026-08-01T00:00:00.000Z",
-    "旧数据 answer.updatedAt 缺失时回退开始时间",
-  );'''
-          new='''  assert.throws(() => runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })), /updatedAt/, "submitted current answers require updatedAt");'''
-          if s.count(old)!=1: raise SystemExit('updatedAt strict test mismatch')
-          p.write_text(s.replace(old,new))
+              p = Path(path)
+              s = p.read_text()
+              c = s.count(old)
+              if c < 1:
+                  raise SystemExit(f"{path}: missing {old!r}")
+              p.write_text(s.replace(old, new))
+          r('src/app/shell/views/practice.tsx', 'calculation-answer fallback-grid', 'calculation-answer manual-grid', 2)
+          r('src/app/shell/views/practice.tsx', 'fill-fallback-grid', 'fill-manual-grid')
+          r('src/app/shell/views/practice.tsx', 'calculation-fallback-inputs', 'calculation-manual-inputs', 2)
+          r('src/app/practice/practice-main-2.css', '.calculation-answer.fallback-grid', '.calculation-answer.manual-grid')
+          r('src/app/practice/practice-main-2.css', '.calculation-fallback-inputs', '.calculation-manual-inputs', 3)
+          r('src/app/practice/practice-main-2.css', 'legacy structure remains shared', 'shared structure remains centralized')
+          r('src/app/search/search-tokens.css', 'migrate without expanding the core token layer', 'move without expanding the core token layer')
+          r('src/app/styles/palette-tokens.css', 'palette for legacy surfaces', 'palette for existing surfaces')
+          r('src/app/styles/dark-overrides.css', 'Centralized legacy dark-theme overrides', 'Centralized dark-theme overrides')
+          r('src/app/styles/bank-controls.css', 'variants migrated out of the global entrypoint', 'variants moved out of the global entrypoint')
+          r('src/lib/question/question-bank-export.ts', 'WPS cell-image compatibility', 'WPS cell-image support')
+          r('src/lib/db/db-v7-core.ts', '  elapsedMs?: number;\n  /** Optional source bank for history display; statistics remain global. */', '  elapsedMs: number;\n  /** Optional source bank for history display; statistics remain global. */')
+          r('src/lib/db/db-v7-practice.ts', '  const timestamp = input.createdAt ?? nowIso();\n  const selectedAnswer = selected.join("");', '  const timestamp = input.createdAt ?? nowIso();\n  if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw new Error("当前作答必须提供有效 elapsedMs。");\n  const selectedAnswer = selected.join("");')
+          r('src/lib/db/db-v7-practice.ts', '      elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),', '      elapsedMs: input.elapsedMs,')
+          ra('src/lib/db/db-v7-practice.ts', 'Math.max(0, attempt.elapsedMs || 0)', 'Math.max(0, attempt.elapsedMs)')
+          ra('src/lib/practice/practice-metrics.ts', 'Math.max(0, attempt.elapsedMs || 0)', 'Math.max(0, attempt.elapsedMs)')
+          r('src/lib/practice/practice-metrics.ts', 'function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {\n  if (!outcome.correct) return 0;', 'function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {\n  if (!Number.isFinite(outcome.elapsedMs) || outcome.elapsedMs < 0) throw new Error("current difficulty outcomes require elapsedMs");\n  if (!outcome.correct) return 0;')
+          r('src/lib/practice/practice-metrics.ts', '  return elapsedMs !== undefined && Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;', '  return Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;')
+          p = Path('src/lib/practice/practice-metrics.ts')
+          s = p.read_text()
+          marker = 'export function runActivityAt(run: RunActivitySource): string {'
+          i = s.find(marker)
+          if i < 0:
+              raise SystemExit('runActivityAt marker missing')
+          strict_run = 'export function runActivityAt(run: RunActivitySource): string {\n  if (run.status === "completed") {\n    if (!run.completedAt) throw new Error("completed practice runs require completedAt");\n    return run.completedAt;\n  }\n  let latest: string | undefined;\n  for (const answer of Object.values(run.answers)) {\n    if (!answer.submitted) continue;\n    if (!answer.updatedAt) throw new Error("submitted practice answers require updatedAt");\n    if (!latest || answer.updatedAt > latest) latest = answer.updatedAt;\n  }\n  if (latest) return latest;\n  if (run.status === "abandoned") {\n    if (!run.abandonedAt) throw new Error("abandoned practice runs require abandonedAt");\n    return run.abandonedAt;\n  }\n  return run.startedAt;\n}\n'
+          p.write_text(s[:i] + strict_run)
+          p = Path('scripts/tests/test-progress-metrics-boundaries.ts')
+          s = p.read_text()
+          old = '  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs?: number) => ({\n    correct,\n    createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),\n    ...(elapsedMs === undefined ? {} : { elapsedMs }),\n  });'
+          new = '  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs: number) => ({\n    correct,\n    createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),\n    elapsedMs,\n  });'
+          if s.count(old) != 1:
+              raise SystemExit('outcome helper mismatch')
+          s = s.replace(old, new)
+          old = '  // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。\n  assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");'
+          new = '  assert.throws(() => difficultyFromOutcomes([{ correct: true, createdAt: T1, elapsedMs: Number.NaN }]), /elapsedMs/, "current outcomes reject invalid elapsedMs");'
+          if s.count(old) != 1:
+              raise SystemExit('elapsed strict test mismatch')
+          s = s.replace(old, new)
+          s = s.replace('  // 聚合行读取路径：recentOutcomes 非空走 EMA；为空（round 口径/旧本地行）回退终身错误率。', '  // 聚合行读取路径：recentOutcomes 直接驱动 EMA 难度。')
+          old = '  assert.equal(\n    runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),\n    "2026-08-14T22:00:00.000Z",\n    "缺 completedAt 的旧数据回退最后一道作答题的时间",\n  );'
+          new = '  assert.throws(() => runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })), /completedAt/, "completed current runs require completedAt");'
+          if s.count(old) != 1:
+              raise SystemExit('completedAt strict test mismatch')
+          s = s.replace(old, new)
+          s = s.replace('"进行中取多道作答里最新的 updatedAt（恢复旧练习后应排到最前）"', '"进行中取多道作答里最新的 updatedAt"')
+          s = s.replace('"未作答的已放弃记录回退放弃时间"', '"未作答的已放弃记录使用 abandonedAt"')
+          old = '  assert.equal(\n    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })),\n    "2026-08-01T00:00:00.000Z",\n    "旧数据 answer.updatedAt 缺失时回退开始时间",\n  );'
+          new = '  assert.throws(() => runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })), /updatedAt/, "submitted current answers require updatedAt");'
+          if s.count(old) != 1:
+              raise SystemExit('updatedAt strict test mismatch')
+          p.write_text(s.replace(old, new))
           PY
           git rm .github/workflows/tmp-latest-only-merge-ready.yml
           git diff --check
           ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'legacyAnswerForSolution|questionSolution\(|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?|calculation-fallback|fill-fallback|LegacyBank|LegacyNote|LegacySync|one-time migration|旧数据|旧本地|历史回填|历史迁移' src
+          ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist '旧数据|旧本地行|缺作答时间.*回退|缺 completedAt.*回退|answer\.updatedAt 缺失.*回退' scripts/tests
       - run: npm ci
       - run: npm run test:sync
       - run: npm run test:fast
