@@ -7,13 +7,8 @@ import {
   SyncV7BlobIntegrityError,
   SyncV7ImmutableConflictError,
 } from "../../src/lib/sync/github-v7-remote";
-import {
-  SYNC_V7_ASSET_PREFIX,
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_OBJECT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-} from "../../src/lib/sync/sync-v7-head";
-import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 const encode = (value: Uint8Array) => Buffer.from(value).toString("base64");

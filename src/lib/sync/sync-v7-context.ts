@@ -1,5 +1,5 @@
 import { GitHubV7Remote } from "./github-v7-remote";
-import type { SyncV7Descriptor } from "./sync-v7-head";
+import type { SyncV7Descriptor } from "./sync-v7-head-types";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 import { sha256DigestHex } from "../crypto/sha256";

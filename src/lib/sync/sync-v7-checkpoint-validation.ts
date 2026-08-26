@@ -1,5 +1,5 @@
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
-import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head";
+import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head-types";
 import { QUESTION_TYPE_ORDER } from "../../types/types";
 import type { AttemptV7, BankQuestionMembership, BankV7, ImageAsset, PracticeRunV7, QuestionV7 } from "../db/v7-types";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";

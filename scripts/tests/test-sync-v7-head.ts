@@ -3,28 +3,10 @@ import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-pro
 import { assetUploadProgressLabelV7, formatTransferBytesV7, mergeActiveHistoryProjectionV7, reconcileInterruptedClaimsV7 } from "../../src/lib/sync/sync-v7-orchestrator-model";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import {
-  SYNC_V7_ASSET_PREFIX,
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_HEAD_PATH,
-  SYNC_V7_MAX_HOT_BYTES,
-  SYNC_V7_OBJECT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  appendSyncV7Segments,
-  assertSyncV7Path,
-  createSyncV7AppendPublicationPlan,
-  createSyncV7CompactionPlan,
-  createSyncV7ObjectRef,
-  createSyncV7PublicationPlan,
-  encodeSyncV7Event,
-  orderSyncV7Segments,
-  paginateSyncV7Events,
-  planSyncV7Compaction,
-  replaySyncV7Segments,
-  validateSyncHeadV7,
-  validateSyncV7Descriptor,
-} from "../../src/lib/sync/sync-v7-head";
-import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_HEAD_PATH, SYNC_V7_MAX_HOT_BYTES, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import { assertSyncV7Path, validateSyncHeadV7, validateSyncV7Descriptor } from "../../src/lib/sync/sync-v7-head-validation";
+import { appendSyncV7Segments, createSyncV7AppendPublicationPlan, createSyncV7CompactionPlan, createSyncV7ObjectRef, createSyncV7PublicationPlan, encodeSyncV7Event, orderSyncV7Segments, paginateSyncV7Events, planSyncV7Compaction, replaySyncV7Segments } from "../../src/lib/sync/sync-v7-head-operations";
+import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../../src/lib/sync/sync-v7-head-types";
 
 const digest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const sha1 = (digit: string) => digit.repeat(40);

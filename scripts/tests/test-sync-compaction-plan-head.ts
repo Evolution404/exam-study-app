@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { planSyncV7Compaction } from "../../src/lib/sync/sync-v7-head";
+import { planSyncV7Compaction } from "../../src/lib/sync/sync-v7-head-operations";
 
 const head = {
   formatVersion: 9 as const,

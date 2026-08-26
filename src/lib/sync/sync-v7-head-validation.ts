@@ -145,7 +145,6 @@ export function compareSyncV7SegmentOrder(left: Pick<SyncV7SegmentDescriptor, "g
   return left.generation - right.generation || left.ordinal - right.ordinal;
 }
 
-export const compareV7SegmentOrder = compareSyncV7SegmentOrder;
 
 export function validateSegment(value: unknown, index: number, vaultId: string): asserts value is SyncV7SegmentDescriptor {
   if (!isRecord(value)) fail(`segments[${index}] must be an object`);
@@ -200,11 +199,8 @@ export function isSyncHeadV7(value: unknown): value is SyncHeadV7 {
   try { validateSyncHeadV7(value); return true; } catch { return false; }
 }
 
-export const isSyncV7Head = isSyncHeadV7;
-export const validateSyncV7Head = validateSyncHeadV7;
 
 export function validateSyncV7Descriptor(value: unknown, kind: SyncV7DescriptorKind): asserts value is SyncV7Descriptor | SyncV7SegmentDescriptor {
   if (kind === "segment") validateSegment(value, 0, isRecord(value) && isRecord(value.metadata) && typeof value.metadata.vaultId === "string" ? value.metadata.vaultId : "");
   else validateDescriptor(value, kind);
 }
-

@@ -2,7 +2,7 @@ import { dbV7 } from "../db/db-v7";
 import type { GitHubSettings } from "../../types/types";
 import type { SyncV7HeadCache } from "./github-v7-remote";
 import { cacheKey } from "./sync-v7-context";
-import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import { historySyncStartFor } from "./history-sync-range";
 
 export type RemoteCacheV7 = { cachedAt: string; checkpoint: SyncCheckpointV7; head: SyncV7HeadCache; historySyncStart?: string };

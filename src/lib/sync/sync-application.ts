@@ -28,11 +28,8 @@ import {
 } from "./github-credentials";
 import { getGitHubTransport } from "../../platform/github-transport";
 import type { ImageCacheDownloadProgressCallback } from "./image-asset-cache";
-import {
-  dependentChangeSetIdsV7,
-  type ChangeSetMutationV7,
-  type ChangeSetV7,
-} from "./change-set-v7";
+import { type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7-types";
+import { dependentChangeSetIdsV7 } from "./change-set-v7-planning";
 import {
   discardManagedChangeSetV7,
   ensureChangeSetQueueBaseV7,

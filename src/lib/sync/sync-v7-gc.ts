@@ -1,9 +1,5 @@
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
-import {
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  type SyncHeadV7,
-} from "./sync-v7-head";
+import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_SEGMENT_PREFIX, type SyncHeadV7 } from "./sync-v7-head-types";
 
 export interface SyncV7GcResult {
   checkpointsDeleted: number;

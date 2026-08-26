@@ -12,7 +12,7 @@ import {
   saveNoteV7,
   saveQuestionGroupV7,
 } from "../../src/lib/db/db-v7";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
 
 // G6 — checkpoint round-trip fidelity. A checkpoint must survive encode → parse
 // without dropping any entity field. We seed a representative slice of every

@@ -12,7 +12,7 @@ import {
   resetV7Database,
   restoreV7Checkpoint,
 } from "../../src/lib/db/db-v7";
-import { createSyncCheckpointV7, createSyncCheckpointV7Snapshot } from "../../src/lib/sync/sync-v7-checkpoint";
+import { createSyncCheckpointV7, createSyncCheckpointV7Snapshot } from "../../src/lib/sync/sync-v7-checkpoint-store";
 import { nextV7Sequence } from "../../src/lib/db/db-v7-core";
 
 const memoryLocalStorage = new Map<string, string>();

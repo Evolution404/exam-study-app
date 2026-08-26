@@ -15,7 +15,8 @@ const packageJson = JSON.parse(await readFile(new URL("../../package.json", impo
 const syncApplication = await readFile(new URL("../../src/lib/sync/sync-application.ts", import.meta.url), "utf8");
 
 assert.match(manager, /ChangeSetMutationV7,[\s\S]*ChangeSetV7,[\s\S]*from "@\/lib\/sync\/sync-application"/, "UI consumes change-set types only through the public sync application contract");
-assert.match(syncApplication, /from "\.\/change-set-v7"/, "sync application owns the v7 change-set implementation dependency");
+assert.match(syncApplication, /from "\.\/change-set-v7-planning"/, "sync application owns change-set planning through the direct implementation owner");
+assert.match(syncApplication, /from "\.\/change-set-v7-types"/, "sync application owns change-set types through the direct implementation owner");
 for (const state of ["pending", "claimed", "blocked", "committed"]) {
   assert.match(manager, new RegExp(`${state}:`), `manager presents ${state} state`);
 }

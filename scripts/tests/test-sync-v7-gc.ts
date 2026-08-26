@@ -4,14 +4,8 @@ import { createHash } from "node:crypto";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { checkpointFromProjection } from "../../src/lib/sync/sync-v7-checkpoint-bridge";
 import { gcSyncV7Remote } from "../../src/lib/sync/sync-v7-gc";
-import {
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  encodeSyncV7Segment,
-  type SyncHeadV7,
-  type SyncV7Descriptor,
-  type SyncV7SegmentDescriptor,
-} from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_SEGMENT_PREFIX, type SyncHeadV7, type SyncV7Descriptor, type SyncV7SegmentDescriptor } from "../../src/lib/sync/sync-v7-head-types";
+import { encodeSyncV7Segment } from "../../src/lib/sync/sync-v7-head-operations";
 import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 

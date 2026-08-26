@@ -116,20 +116,8 @@ export function parseSyncCheckpointV7(bytes: Uint8Array | string): SyncCheckpoin
   return checkpoint;
 }
 
-export const decodeSyncCheckpointV7 = parseSyncCheckpointV7;
-export const validateV7Checkpoint = validateSyncCheckpointV7;
-
-/** Compatibility helper mirroring the v5 prepared-checkpoint naming. */
-export function prepareSyncCheckpointV7(checkpoint: SyncCheckpointV7): SyncCheckpointV7 {
-  validateSyncCheckpointV7(checkpoint);
-  return normalizeSyncCheckpointV7(checkpoint);
-}
-
 /** Restore the complete checkpoint projection in one DB transaction. */
 export async function applySyncCheckpointV7(checkpoint: SyncCheckpointV7): Promise<void> {
   validateSyncCheckpointV7(checkpoint);
   await restoreV7Checkpoint(checkpoint.state);
 }
-
-export const restoreSyncCheckpointV7 = applySyncCheckpointV7;
-export const applyPreparedSyncCheckpointV7 = applySyncCheckpointV7;

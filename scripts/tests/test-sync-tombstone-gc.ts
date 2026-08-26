@@ -159,7 +159,7 @@ await freshClient("device-c");
 await sync();
 // C 本地对被删题做一次「编辑」（先恢复旧状态再入队 pending）：
 // 直接注入一条 pending 的 question.upsert（模拟离线编辑）。
-const { createChangeSetV7 } = await import("../../src/lib/sync/change-set-v7");
+const { createChangeSetV7 } = await import("../../src/lib/sync/change-set-v7-codec");
 const staleEdit = await createChangeSetV7({
   deviceId: "device-c",
   localSequence: 1,

@@ -5,11 +5,8 @@
  * before the new projection is returned, so a change-set is atomic even when
  * it contains many mutations.
  */
-import {
-  assertChangeSetV7,
-  type ChangeSetMutationV7,
-  type ChangeSetV7,
-} from "./change-set-v7";
+import { type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7-types";
+import { assertChangeSetV7 } from "./change-set-v7-codec";
 import {
   byId,
   clone,

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
 import { replayRemoteResilient } from "../../src/lib/sync/github-sync-v7";
-import { planSyncV7Compaction, replaySyncV7Segments } from "../../src/lib/sync/sync-v7-head";
+import { planSyncV7Compaction, replaySyncV7Segments } from "../../src/lib/sync/sync-v7-head-operations";
 import type { BankQuestionMembership, BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 
 const at = "2026-08-13T00:00:00.000Z";

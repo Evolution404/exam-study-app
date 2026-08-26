@@ -3,8 +3,8 @@ import { sha256DigestHex } from "../crypto/sha256";
 import type { ImageAsset } from "../db/v7-types";
 import { sha256Blob } from "../io/image-assets";
 import type { GitHubV7Remote } from "./github-v7-remote";
-import type { SyncV7Descriptor } from "./sync-v7-head";
-import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head";
+import type { SyncV7Descriptor } from "./sync-v7-head-types";
+import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head-types";
 
 const IMAGE_ASSET_PACK_FORMAT = 1 as const;
 const IMAGE_ASSET_INDEX_FORMAT = 1 as const;

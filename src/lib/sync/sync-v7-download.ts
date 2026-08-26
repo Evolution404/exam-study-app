@@ -1,11 +1,13 @@
-import { verifyChangeSetDigestV7, type ChangeSetV7 } from "./change-set-v7";
+import { type ChangeSetV7 } from "./change-set-v7-types";
+import { verifyChangeSetDigestV7 } from "./change-set-v7-codec";
 import type { GitHubV7Remote } from "./github-v7-remote";
 import { SYNC_V7_DOWNLOAD_CONCURRENCY, descriptorEqual, mapWithConcurrency } from "./sync-v7-context";
 import type { RemoteCacheV7 } from "./sync-v7-cache";
-import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import { decodeRemoteCheckpoint } from "./sync-v8-history";
 import { normalizeHistorySyncStart } from "./history-sync-range";
-import { decodeSyncV7Segment, type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head";
+import { type SyncHeadV7, type SyncV7SegmentDescriptor } from "./sync-v7-head-types";
+import { decodeSyncV7Segment } from "./sync-v7-head-operations";
 import { hydrateSyncV7Events } from "./sync-v7-payload";
 
 /** Exported for the install-fingerprint suite: drives the tiered cache-reuse

@@ -3,7 +3,7 @@ import type { GitHubSettings } from "../../types/types";
 import type { TombstoneV7 } from "../db/v7-types";
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
 import { saveHeadCache } from "./sync-v7-cache";
-import type { SyncHeadV7, SyncV7DeviceWatermark } from "./sync-v7-head";
+import type { SyncHeadV7, SyncV7DeviceWatermark } from "./sync-v7-head-types";
 
 /** A device that has not reported a watermark for this long stops blocking
  *  tombstone GC (Riak-style reaping): a phone lost for 90+ days must not pin

@@ -1,23 +1,6 @@
-import {
-  SYNC_V7_ASSET_PREFIX,
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_MAX_DESCRIPTOR_BYTES,
-  SYNC_V7_MAX_SEGMENT_BYTES,
-  SYNC_V7_OBJECT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  SYNC_V9_HISTORY_PREFIX,
-  SYNC_V7_HEAD_PATH,
-  assertSyncV7Path,
-  validateSyncHeadV7,
-} from "./sync-v7-head";
-import type {
-  SyncHeadV7,
-  SyncV7Bytes,
-  SyncV7Descriptor,
-  SyncV7DescriptorKind,
-  SyncV7PublicationFile,
-  SyncV7PublicationPlan,
-} from "./sync-v7-head";
+import { SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_MAX_DESCRIPTOR_BYTES, SYNC_V7_MAX_SEGMENT_BYTES, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX, SYNC_V9_HISTORY_PREFIX, SYNC_V7_HEAD_PATH } from "./sync-v7-head-types";
+import { assertSyncV7Path, validateSyncHeadV7 } from "./sync-v7-head-validation";
+import type { SyncHeadV7, SyncV7Bytes, SyncV7Descriptor, SyncV7DescriptorKind, SyncV7PublicationFile, SyncV7PublicationPlan } from "./sync-v7-head-types";
 import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
 import { sha256DigestHex } from "../crypto/sha256";
 

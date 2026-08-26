@@ -8,7 +8,7 @@ import {
   resetV7Database,
 } from "../../src/lib/db/db-v7";
 import { syncWithGitHub, restoreFullHistoryFromGitHub } from "../../src/lib/sync/github-sync-v7";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Sync fault-tolerance tests: CAS retry, interrupted-claim recovery, partial

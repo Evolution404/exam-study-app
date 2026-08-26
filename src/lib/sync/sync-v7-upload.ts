@@ -2,7 +2,7 @@ import { dbV7, enqueueChangeSetV7, listChangeSetsV7 } from "../db/db-v7";
 import { rewriteChangeSetMutationsV7, type ChangeSetQueueRecordV7 } from "../db/db-v7-change-sets";
 import type { ImageAsset } from "../db/v7-types";
 import type { GitHubV7Remote } from "./github-v7-remote";
-import type { SyncV7Descriptor } from "./sync-v7-head";
+import type { SyncV7Descriptor } from "./sync-v7-head-types";
 import { publishImageAssetsAsPacks } from "./image-asset-pack";
 
 /** Legacy public constant retained as the CPU/download hydration lane count. */

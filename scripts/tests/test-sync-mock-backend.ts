@@ -4,7 +4,7 @@ import "fake-indexeddb/auto";
 import { createBankV7, createQuestionV7, dbV7, importQuestionBankV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
-import { SYNC_V7_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V7_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
 import { downloadImageAssetV7 } from "../../src/lib/sync/image-asset-cache";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 

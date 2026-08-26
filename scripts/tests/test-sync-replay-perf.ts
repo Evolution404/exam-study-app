@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import type { AttemptV7, BankV7, PracticeRunV7, QuestionV7 } from "../../src/lib/db/v7-types";
-import { createChangeSetV7, type ChangeSetV7 } from "../../src/lib/sync/change-set-v7";
+import { type ChangeSetV7 } from "../../src/lib/sync/change-set-v7-types";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import {
   applyChangeSetToOwnedProjectionV7,
   finalizeRebasedProjectionV7,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7";
-import { encodeSyncV7Event, SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../src/lib/sync/sync-v7-head";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
+import { SYNC_V7_MAX_EVENT_BYTES, SYNC_V7_OBJECT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import { encodeSyncV7Event } from "../../src/lib/sync/sync-v7-head-operations";
 import { hydrateSyncV7Events, offloadedRefOf, offloadSyncV7Events, SYNC_V7_INLINE_EVENT_BUDGET } from "../../src/lib/sync/sync-v7-payload";
 import type { BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
 

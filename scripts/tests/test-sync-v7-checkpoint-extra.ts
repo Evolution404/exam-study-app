@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBankV7, createQuestionV7, dbV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
-import {
-  createSyncCheckpointV7,
-  encodeSyncCheckpointV7,
-  isSyncCheckpointV7,
-  parseSyncCheckpointV7,
-  validateSyncCheckpointV7,
-} from "../../src/lib/sync/sync-v7-checkpoint";
-import type { SyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
+import { isSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
+import type { SyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-types";
 
 await resetV7Database();
 await putImageAssetV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });

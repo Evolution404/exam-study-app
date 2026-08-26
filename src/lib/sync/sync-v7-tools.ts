@@ -7,7 +7,7 @@ import { installFingerprint } from "./sync-v7-watermark";
 import { withSyncLock } from "./sync-lock";
 import { filterProjectionHistoryV7, historySyncStartFor } from "./history-sync-range";
 import { getGitHubTransport, resolveGitHubApiBaseUrl } from "../../platform/github-transport";
-import { SYNC_V7_MAX_HOT_BYTES } from "./sync-v7-head";
+import { SYNC_V7_MAX_HOT_BYTES } from "./sync-v7-head-types";
 
 export async function getGitHubLogin(token: string, apiBaseUrl?: string, options?: SyncWithGitHubOptions): Promise<string> {
   const transport = options?.transport ?? getGitHubTransport();

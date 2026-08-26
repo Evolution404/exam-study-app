@@ -1,4 +1,6 @@
-import { createChangeSetV7, dependentChangeSetIdsV7, type ChangeSetMutationV7 } from "./change-set-v7";
+import { type ChangeSetMutationV7 } from "./change-set-v7-types";
+import { createChangeSetV7 } from "./change-set-v7-codec";
+import { dependentChangeSetIdsV7 } from "./change-set-v7-planning";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7 } from "../db/db-v7";
 

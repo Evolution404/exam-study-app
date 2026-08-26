@@ -4,7 +4,7 @@ import { bandPercent, monotonicProgress, remote, report, type SyncProgressCallba
 import { saveHeadCache, saveInstalledCursors, saveInstalledHead, saveRemoteCache } from "./sync-v7-cache";
 import { downloadRemoteV7 } from "./sync-v7-download";
 import { installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7 } from "./sync-v7-checkpoint";
+import { createSyncCheckpointV7 } from "./sync-v7-checkpoint-store";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-v7-watermark";
 

@@ -44,21 +44,11 @@ import {
   replayRemoteResilient,
   saveQueueBase,
 } from "./sync-v7-checkpoint-bridge";
-import type { SyncCheckpointV7 } from "./sync-v7-checkpoint";
+import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import { withSyncLock } from "./sync-lock";
 import { createRemoteCheckpointV8, encodeSyncCheckpointV8, gcSyncV8HistoryRemote } from "./sync-v8-history";
-import {
-  SYNC_V7_CHECKPOINT_PREFIX,
-  SYNC_V7_SEGMENT_PREFIX,
-  createSyncV7PublicationPlan,
-  encodeSyncV7Segment,
-  mergeSyncV7Segments,
-  paginateSyncV7Events,
-  planSyncV7Compaction,
-  type SyncHeadV7,
-  type SyncV7PublicationFile,
-  type SyncV7SegmentDescriptor,
-} from "./sync-v7-head";
+import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_SEGMENT_PREFIX, type SyncHeadV7, type SyncV7PublicationFile, type SyncV7SegmentDescriptor } from "./sync-v7-head-types";
+import { createSyncV7PublicationPlan, encodeSyncV7Segment, mergeSyncV7Segments, paginateSyncV7Events, planSyncV7Compaction } from "./sync-v7-head-operations";
 import { offloadSyncV7Events } from "./sync-v7-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-v7-watermark";
 import { SYNC_V7_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssetsV7 } from "./sync-v7-upload";

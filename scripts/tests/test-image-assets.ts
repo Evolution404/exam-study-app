@@ -17,7 +17,7 @@ import {
   imageAssetIndexShardKey,
   parseImageAssetPack,
 } from "../../src/lib/sync/image-asset-pack";
-import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head";
+import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
 import { sha256HexBytes } from "../../src/lib/crypto/sha256";
 import { mapWithConcurrency } from "../../src/lib/async/bounded-concurrency";
 import type { ImageAsset } from "../../src/lib/db/v7-types";

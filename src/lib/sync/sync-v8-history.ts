@@ -5,17 +5,9 @@ import { filterProjectionHistoryV7, historyTimestampIncluded, normalizeHistorySy
 import type { GitHubV7Remote, SyncV7HeadCache } from "./github-v7-remote";
 import { descriptorPath, sha256 } from "./sync-v7-context";
 import { checkpointFromProjection } from "./sync-v7-checkpoint-bridge";
-import {
-  validateSyncCheckpointV7,
-  type SyncCheckpointV7,
-  type SyncCheckpointV7Counts,
-  type SyncCheckpointV7State,
-} from "./sync-v7-checkpoint";
-import {
-  SYNC_V9_HISTORY_PREFIX,
-  type SyncHeadV7,
-  type SyncV7Descriptor,
-} from "./sync-v7-head";
+import { type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
+import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
+import { SYNC_V9_HISTORY_PREFIX, type SyncHeadV7, type SyncV7Descriptor } from "./sync-v7-head-types";
 
 export const SYNC_V9_CHECKPOINT_FORMAT = 9 as const;
 export const SYNC_V8_RECENT_ATTEMPT_LIMIT = 5_000;

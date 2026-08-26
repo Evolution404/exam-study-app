@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
-import { createChangeSetV7, type ChangeSetMutationV7 } from "../../src/lib/sync/change-set-v7";
+import { type ChangeSetMutationV7 } from "../../src/lib/sync/change-set-v7-types";
+import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import type { BankV7, QuestionV7, PracticeRunV7, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/v7-types";
 
 const AT = "2026-08-13T00:00:00.000Z";

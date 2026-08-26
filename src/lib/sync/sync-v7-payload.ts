@@ -16,12 +16,8 @@
  * (pull), so the domain reducer (reduceChangeSetV7) never observes a stub.
  */
 import { sha256DigestHex } from "../crypto/sha256";
-import {
-  SYNC_V7_OBJECT_PREFIX,
-  createSyncV7ObjectRef,
-  type SyncV7ImmutableRef,
-  type SyncV7PublicationFile,
-} from "./sync-v7-head";
+import { SYNC_V7_OBJECT_PREFIX, type SyncV7ImmutableRef, type SyncV7PublicationFile } from "./sync-v7-head-types";
+import { createSyncV7ObjectRef } from "./sync-v7-head-operations";
 
 /**
  * Change-sets at or below this many UTF-8 bytes travel inline in their segment.

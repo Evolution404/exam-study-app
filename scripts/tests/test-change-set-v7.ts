@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
 import type { PracticeAnswerV7 } from "../../src/lib/db/db-v7";
 import type { AttemptV7, BankFolderV7, BankQuestionMembership, BankV7, PracticeRunV7, QuestionV7, ReviewRound } from "../../src/lib/db/v7-types";
-import {
-  assertClaimedBatchDigestV7,
-  createChangeSetV7,
-  createClaimedBatchV7,
-  digestChangeSetV7,
-  planChangeSetQueueV7,
-  summarizeChangeSetV7,
-  validateChangeSetV7,
-  verifyChangeSetDigestV7,
-  type ChangeSetV7,
-} from "../../src/lib/sync/change-set-v7";
+import { type ChangeSetV7 } from "../../src/lib/sync/change-set-v7-types";
+import { createChangeSetV7, digestChangeSetV7, validateChangeSetV7, verifyChangeSetDigestV7 } from "../../src/lib/sync/change-set-v7-codec";
+import { assertClaimedBatchDigestV7, createClaimedBatchV7, planChangeSetQueueV7, summarizeChangeSetV7 } from "../../src/lib/sync/change-set-v7-planning";
 import {
   reduceChangeSetV7,
   recomputeChangeSetProjectionV7,

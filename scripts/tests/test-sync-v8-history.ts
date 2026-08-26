@@ -5,8 +5,9 @@ import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src
 import type { AttemptV7, PracticeRunV7 } from "../../src/lib/db/v7-types";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-v7-context";
-import { createSyncCheckpointV7, encodeSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint";
-import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head";
+import { validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
+import { createSyncCheckpointV7, encodeSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
+import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 import {
   createRemoteCheckpointV8,
   encodeSyncCheckpointV8,
