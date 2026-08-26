@@ -37,6 +37,7 @@ export const testGroups = {
     "test:browser-launch-config",
     "test:pwa",
     "test:release-workflow",
+    "test:deploy-helpers",
     "test:ios-release",
     "test:relay",
     "test:modal",

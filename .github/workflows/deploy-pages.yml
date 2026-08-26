@@ -27,13 +27,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Production build (current)
         run: npm run build
       - name: Configure Pages
@@ -89,15 +84,9 @@ jobs:
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v6
-      - name: Setup Node
+      - name: Setup Node dependencies
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
-        run: npm ci
+        uses: ./.github/actions/node-deps
       - name: Record current production deployment
         id: record-production
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
@@ -123,26 +112,9 @@ jobs:
       # 规则被缓存一年；清理残留，防止旧资源继续污染线上页面。
       - name: Purge Cloudflare edge cache
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
-        shell: bash
-        run: |
-          set -u
-          ZONE_NAME="980923.xyz"
-          ZONE_ID=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" | jq -r '.result[0].id // empty')
-          if [ -z "$ZONE_ID" ]; then
-            echo "::warning::无法解析 zone ${ZONE_NAME} 的 id，跳过边缘缓存清理"
-            exit 0
-          fi
-          BODY=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data '{"purge_everything": true}' \
-            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache")
-          if jq -e '.success' <<<"$BODY" >/dev/null; then
-            echo "已清除 Cloudflare 边缘缓存（zone ${ZONE_NAME}，purge_everything）"
-          else
-            MSG=$(jq -r '.errors[0].message // "未知错误"' <<<"$BODY")
-            echo "::warning::缓存清理未生效：${MSG}"
-          fi
+        env:
+          CLOUDFLARE_ZONE_NAME: 980923.xyz
+        run: bash scripts/tools/purge-cloudflare-cache.sh
 
   # The native release shares only the common build gate with both web deploys.
   # All three production targets therefore publish concurrently.
@@ -164,13 +136,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Resolve deterministic iOS version
         id: version
         shell: bash
@@ -235,34 +202,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-draft" 2>/dev/null; then
-            if [ "$(cat "$RUNNER_TEMP/release-draft")" = "true" ]; then
-              gh release upload "$RELEASE_TAG" \
-                artifacts/ios/shijuan.ipa \
-                artifacts/ios/sidestore-source.json \
-                --clobber
-              gh release edit "$RELEASE_TAG" \
-                --title "拾卷 iOS ${RELEASE_VERSION}" \
-                --notes-file artifacts/ios/release-notes.md \
-                --draft=false \
-                --latest
-            else
-              echo "Release ${RELEASE_TAG} 已发布；保持资产不可变并重新设为 latest。"
-              gh release edit "$RELEASE_TAG" --latest
-            fi
-          else
-            gh release create "$RELEASE_TAG" \
-              --target "$GITHUB_SHA" \
-              --title "拾卷 iOS ${RELEASE_VERSION}" \
-              --notes-file artifacts/ios/release-notes.md \
-              --draft
-            gh release upload "$RELEASE_TAG" \
-              artifacts/ios/shijuan.ipa \
-              artifacts/ios/sidestore-source.json
-            gh release edit "$RELEASE_TAG" --draft=false --latest
-          fi
+        run: bash scripts/tools/publish-sidestore-release.sh
 
   # These checks intentionally share the same three dependencies and therefore
   # run concurrently only after GitHub Pages, Cloudflare Pages and IPA publish.
@@ -273,13 +213,8 @@ jobs:
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v6
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Fast checks
         run: npm run test:fast
 
@@ -290,13 +225,8 @@ jobs:
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v6
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Install Playwright Chromium
         run: npm exec -- playwright-core install --with-deps chromium
       - name: PWA preview smoke
@@ -309,13 +239,8 @@ jobs:
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v6
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Verify Cloudflare SideStore endpoints
         run: node scripts/tools/verify-sidestore-release.mjs --version "${{ needs.ios_release.outputs.version }}"
 
@@ -336,13 +261,8 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.rollback_sha }}
           fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Setup Node dependencies
+        uses: ./.github/actions/node-deps
       - name: Build rollback artifact
         env:
           GITHUB_SHA: ${{ needs.build.outputs.rollback_sha }}
@@ -374,39 +294,11 @@ jobs:
       PREVIOUS_DEPLOYMENT_ID: ${{ needs.deploy_cloudflare.outputs.previous_deployment_id }}
     steps:
       - name: Restore previous Cloudflare production deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CLOUDFLARE_PROJECT_NAME}/deployments/${PREVIOUS_DEPLOYMENT_ID}/rollback"
-          response=$(curl -sS -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" "$endpoint")
-          if ! jq -e '.success == true' <<<"$response" >/dev/null; then
-            echo "$response" >&2
-            echo "Cloudflare deployment rollback failed" >&2
-            exit 1
-          fi
-          echo "已通过 Cloudflare 官方 rollback API 恢复 deployment ${PREVIOUS_DEPLOYMENT_ID}"
+        run: bash scripts/tools/rollback-cloudflare-pages.sh
       - name: Purge Cloudflare edge cache after rollback
-        shell: bash
-        run: |
-          set -u
-          ZONE_NAME="980923.xyz"
-          ZONE_ID=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" | jq -r '.result[0].id // empty')
-          if [ -z "$ZONE_ID" ]; then
-            echo "::warning::无法解析 zone ${ZONE_NAME} 的 id，跳过回退后的边缘缓存清理"
-            exit 0
-          fi
-          BODY=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data '{"purge_everything": true}' \
-            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache")
-          if jq -e '.success' <<<"$BODY" >/dev/null; then
-            echo "已清除 Cloudflare 回退后的边缘缓存"
-          else
-            MSG=$(jq -r '.errors[0].message // "未知错误"' <<<"$BODY")
-            echo "::warning::回退后的缓存清理未生效：${MSG}"
-          fi
+        env:
+          CLOUDFLARE_ZONE_NAME: 980923.xyz
+        run: bash scripts/tools/purge-cloudflare-cache.sh
 
   # Release assets remain immutable. A failed version is rolled back by moving
   # GitHub's latest pointer to the previously published tag, which immediately
@@ -423,13 +315,4 @@ jobs:
       PREVIOUS_RELEASE_TAG: ${{ needs.ios_release.outputs.previous_release_tag }}
     steps:
       - name: Restore previous SideStore latest release
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release edit "$PREVIOUS_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest
-          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')"
-          if [[ "$latest_tag" != "$PREVIOUS_RELEASE_TAG" ]]; then
-            echo "SideStore latest 回退失败：期望 ${PREVIOUS_RELEASE_TAG}，实际 ${latest_tag}" >&2
-            exit 1
-          fi
-          echo "SideStore latest 已恢复到 ${PREVIOUS_RELEASE_TAG}；失败版本资产保留用于诊断"
+        run: bash scripts/tools/rollback-sidestore-latest.sh
