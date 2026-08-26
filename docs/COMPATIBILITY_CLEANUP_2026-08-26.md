@@ -54,4 +54,19 @@ The three post-review side-effect fixes were verified together before commit by:
 - dead-code, architecture, export-surface, and workflow-hygiene gates;
 - `git diff --check`.
 
-The resulting verified code commit is `71ae4f3ebaf566616355285c2959477c69aeb322` (`fix: remove cleanup side effects [latest-only-verified]`). A normal user-authored documentation commit follows it so the final exact head is independently validated by the repository's normal PR workflows. Exact-head run identifiers are recorded in PR #32 after those workflows complete.
+The verified code commit is `71ae4f3ebaf566616355285c2959477c69aeb322` (`fix: remove cleanup side effects [latest-only-verified]`).
+
+Final exact-head formal CI also completed successfully after the normal user-authored verification commit:
+
+- Sync storage CI — run `32980335173` — success
+- Governance Audit — run `32980335105` — success
+- PR Preview — run `32980335098` — success
+- Pull request CI — run `32980335123` — success
+  - Production build — success
+  - Fast checks — success
+  - Chromium browser smoke — success
+  - strict search-pin geometry — success
+  - Chromium PWA preview smoke — success
+  - WebKit browser smoke — success
+
+The final exact head after this documentation update must be checked again in PR #32 before merge because this commit changes the head SHA but not runtime code.
