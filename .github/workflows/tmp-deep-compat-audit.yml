@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify-commit:
-    if: contains(github.event.head_commit.message, '[latest-only-stage7]')
+    if: contains(github.event.head_commit.message, '[latest-only-stage8]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -30,7 +30,8 @@ jobs:
           python3 scripts/tmp-latest-only-fixes2.py
           python3 scripts/tmp-latest-only-fixes3.py
           python3 scripts/tmp-latest-only-fixes4.py
-          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py scripts/tmp-latest-only-fixes.py scripts/tmp-latest-only-fixes2.py scripts/tmp-latest-only-fixes3.py scripts/tmp-latest-only-fixes4.py
+          python3 scripts/tmp-latest-only-fixes5.py
+          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py scripts/tmp-latest-only-fixes.py scripts/tmp-latest-only-fixes2.py scripts/tmp-latest-only-fixes3.py scripts/tmp-latest-only-fixes4.py scripts/tmp-latest-only-fixes5.py
           git diff --check
       - name: Focused current-format checks
         run: |
