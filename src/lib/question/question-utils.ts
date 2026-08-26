@@ -1,11 +1,9 @@
-import type { ContentBlock, QuestionSolution, QuestionV7 } from "../db/v7-types";
+import type { ContentBlock, QuestionSolution, QuestionTypeV7, QuestionV7 } from "../db/v7-types";
 
 export const MAX_CALCULATION_BLANKS = 12;
 export const CALCULATION_BLANK_PATTERN = /【空([1-9][0-9]*)】/g;
 
-/** Internal storage stays a string so the v7 question/sync schema remains
- * stable. One answer per line is unambiguous and round-trips to Excel's
- * 答案1、答案2… columns without guessing punctuation. */
+/** Parse current human/file input: one calculation answer per line. */
 export function calculationAnswers(value: string | readonly string[]): string[] {
   const source = Array.isArray(value) ? [...value] : String(value).split(/\r?\n/);
   return source.map((answer) => String(answer).trim());
@@ -24,8 +22,6 @@ export function calculationBlankIndexes(text: string): number[] {
   return [...text.matchAll(CALCULATION_BLANK_PATTERN)].map((match) => Number(match[1]));
 }
 
-/** New calculation questions must declare every answer position explicitly.
- * Repeated, skipped or out-of-order placeholders would make the UI ambiguous. */
 export function validateCalculationBlankLayout(text: string, answer: string | readonly string[]) {
   const answers = calculationAnswers(answer);
   const indexes = calculationBlankIndexes(text);
@@ -56,14 +52,9 @@ export function areCalculationAnswersCorrect(input: readonly string[], expected:
     && input.every((answer, index) => isCalculationAnswerCorrect(answer, expectedAnswers[index], tolerancePercent));
 }
 
-// ---------------------------------------------------------------------------
-// Structured question answers
-// ---------------------------------------------------------------------------
-
 export const MAX_FILL_BLANKS = 12;
 const FILL_ACCEPTED_ANSWER_SEPARATOR = "||";
 
-/** Normalize a human-entered text answer without changing its display form. */
 function normalizeFillAnswer(value: string): string {
   return String(value).normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("zh-CN");
 }
@@ -75,8 +66,7 @@ function splitAcceptedText(value: string): string[] {
     .filter(Boolean))];
 }
 
-/** Parse one legacy answer string into positional fill blanks.  Each line is
- * one blank and `||` separates accepted answers for the same blank. */
+/** Parse current text-import/editor syntax into positional fill answers. */
 export function fillBlankAnswers(value: string | readonly string[]): string[][] {
   const cells = Array.isArray(value) ? value.map(String) : String(value).split(/\r?\n/);
   return cells.map(splitAcceptedText).filter((answers) => answers.length > 0);
@@ -107,8 +97,6 @@ export function fillAnswersAreCorrect(input: readonly string[], expected: Extrac
 }
 
 function hashToken(value: string): string {
-  // FNV-1a is sufficient here: this is an opaque stable UI identity, not a
-  // security hash. Keeping it local avoids async crypto in draft normalizing.
   let hash = 0x811c9dc5;
   for (const char of value) {
     hash ^= char.codePointAt(0) ?? 0;
@@ -121,7 +109,6 @@ function contentIdentity(blocks: readonly ContentBlock[]): string {
   return blocks.map((block) => block.type === "text" ? `t:${normalizeFillAnswer(block.text)}` : `i:${block.assetId}`).join("|");
 }
 
-/** Generate IDs from option content rather than its rendered A/B/C letter. */
 export function stableQuestionOptionIds(question: Pick<QuestionV7, "options" | "optionIds">): string[] {
   if (question.optionIds?.length === question.options.length && new Set(question.optionIds).size === question.optionIds.length && question.optionIds.every(Boolean)) {
     return [...question.optionIds];
@@ -133,7 +120,7 @@ export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string
   return `option-${hashToken(contentIdentity(blocks))}`;
 }
 
-function calculationSolutionFromAnswer(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
+export function calculationSolutionFromInput(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
   const answers = calculationAnswers(value);
   if (!answers.length || answers.length > MAX_CALCULATION_BLANKS || answers.some((answer) => !Number.isFinite(Number(answer)))) {
     throw new Error(`计算题必须包含 1-${MAX_CALCULATION_BLANKS} 个有效数字答案。`);
@@ -141,22 +128,28 @@ function calculationSolutionFromAnswer(value: string | readonly string[]): Extra
   return { kind: "calculation", blanks: answers.map((answer, index) => ({ id: `blank-${index + 1}`, expected: Number(answer) })) };
 }
 
-/** Single adapter from the legacy `answer` projection to structured data. */
-export function questionSolution(question: Pick<QuestionV7, "type" | "answer" | "options" | "optionIds" | "solution">): QuestionSolution {
-  if (question.solution) return question.solution;
-  if (question.type === "计算") return calculationSolutionFromAnswer(question.answer);
-  if (question.type === "填空") return normalizeFillSolution(question.answer);
-  if (question.type === "简答") return { kind: "short", referenceText: String(question.answer ?? "") };
-  const optionIds = stableQuestionOptionIds(question);
+/** Convert current editor/import text input into the canonical solution shape. */
+export function solutionFromInput(
+  type: QuestionTypeV7,
+  answer: string | readonly string[],
+  options: readonly ContentBlock[][],
+  optionIds?: readonly string[],
+): QuestionSolution {
+  if (type === "计算") return calculationSolutionFromInput(answer);
+  if (type === "填空") return normalizeFillSolution(answer);
+  if (type === "简答") return shortAnswerSolution(Array.isArray(answer) ? answer.join("\n") : String(answer));
+  const ids = optionIds?.length === options.length ? [...optionIds] : options.map((option) => stableOptionIdForBlocks(option));
+  const letters = (Array.isArray(answer) ? answer.join("") : String(answer)).toUpperCase().replace(/[^A-Z]/g, "");
   return {
     kind: "choice",
-    correctOptionIds: [...new Set(String(question.answer).toUpperCase().replace(/[^A-Z]/g, "").split("")
-      .map((letter) => optionIds[letter.charCodeAt(0) - 65])
+    correctOptionIds: [...new Set([...letters]
+      .map((letter) => ids[letter.charCodeAt(0) - 65])
       .filter((id): id is string => Boolean(id)))],
   };
 }
 
-export function legacyAnswerForSolution(solution: QuestionSolution, optionIds: readonly string[] = []): string {
+/** Format a canonical solution for UI/export text only; this value is never persisted. */
+export function solutionAnswerText(solution: QuestionSolution, optionIds: readonly string[] = []): string {
   if (solution.kind === "choice") {
     return solution.correctOptionIds.map((id) => {
       const index = optionIds.indexOf(id);
