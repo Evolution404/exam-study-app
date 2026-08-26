@@ -12,3 +12,11 @@ for old, new in replacements.items():
         raise RuntimeError(f'test-sync-v7-head fixture not found: {old}')
     text = text.replace(old, new)
 p.write_text(text, encoding='utf-8')
+
+p = Path('scripts/tests/test-github-v7-remote.ts')
+text = p.read_text(encoding='utf-8')
+old = 'checkpoint: { path: checkpointPath, blobSha: sha1("a"), sha256: digest(checkpointBytes), size: checkpointBytes.byteLength },'
+new = 'checkpoint: { path: checkpointPath, blobSha: sha1("a"), sha256: digest(checkpointBytes), size: checkpointBytes.byteLength, storedSize: checkpointBytes.byteLength },'
+if old not in text:
+    raise RuntimeError('test-github-v7-remote checkpoint fixture not found')
+p.write_text(text.replace(old, new), encoding='utf-8')
