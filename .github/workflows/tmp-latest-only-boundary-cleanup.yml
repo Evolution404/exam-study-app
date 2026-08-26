@@ -93,8 +93,12 @@ jobs:
           s, converted = pattern.subn(canonical_draft, s)
           if converted < 1:
             raise SystemExit('no createQuestionV7 answer fixtures converted')
-          if re.search(r'createQuestionV7\([^\n]*\banswer:', s):
-            raise SystemExit('direct createQuestionV7 answer fixture remains')
+          old = '  const calculationQuestion = await createQuestionV7(calculationBank.id, {\n    type: "计算",\n    stem: "两个结果分别为【空1】和【空2】",\n    options: [],\n    answer: ["1", "1"],\n  });\n  assert.equal(calculationQuestion.answer, "1\\n1");'
+          new = '  const calculationQuestion = await createQuestionV7(calculationBank.id, {\n    type: "计算",\n    stem: "两个结果分别为【空1】和【空2】",\n    options: [],\n    solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }, { id: "blank-2", expected: 1 }] },\n  });\n  assert.deepEqual(calculationQuestion.solution, { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }, { id: "blank-2", expected: 1 }] });'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          if re.search(r'createQuestionV7\([^\n]*\banswer:', s) or 'calculationQuestion.answer' in s:
+            raise SystemExit('direct Question answer fixture remains')
           if re.search(r'\{\s*q:', s) or re.search(r',\s*a:', s) or re.search(r',\s*ans:', s):
             raise SystemExit('q/a/ans import fixture remains in test-db-v7.ts')
           p.write_text(s)
