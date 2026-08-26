@@ -8,7 +8,7 @@ def read(path: str) -> str:
 def write(path: str, text: str) -> None:
     (ROOT / path).write_text(text, encoding='utf-8')
 
-# 1) Boundary tests: current round rows always contain their evidence.
+# 1) Boundary tests: current round/scoped rows always contain their evidence.
 path = 'scripts/tests/test-progress-metrics-boundaries.ts'
 text = read(path)
 text = text.replace('''  // 窗口口径应携带作答序列（含作答时间）供难度 v2 使用；round 口径保持缺省走回退。
@@ -23,6 +23,30 @@ text = text.replace(old, '''  assert.equal(buildScopedQuestionStats(["q1"], { ty
 text = text.replace('''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
 ''', '''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "统计转换应透传窗口内序列");
 ''')
+old_scoped_fixture = '''  const legacy = scopedStatsToLegacyAttemptStats({
+    questionId: "q1", total: 3, correct: 1, wrong: 2, giveUps: 1, totalElapsedMs: 30,
+    firstAttemptAt: at(-2), firstAttemptCorrect: false, latestAttemptAt: at(0),
+    hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0,
+  });
+  assert.equal(legacy.total, 3);
+  assert.deepEqual(legacy.recentOutcomes, []);
+'''
+new_scoped_fixture = '''  const converted = scopedStatsToAttemptStats({
+    questionId: "q1", total: 3, correct: 1, wrong: 2, giveUps: 1, totalElapsedMs: 30,
+    firstAttemptAt: at(-2), firstAttemptCorrect: false, latestAttemptAt: at(0),
+    hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0,
+    recentOutcomes: [
+      { id: "q1:0", createdAt: at(-2), correct: false, elapsedMs: 10 },
+      { id: "q1:1", createdAt: at(-1), correct: false, elapsedMs: 10 },
+      { id: "q1:2", createdAt: at(0), correct: true, elapsedMs: 10 },
+    ],
+  });
+  assert.equal(converted.total, 3);
+  assert.equal(converted.recentOutcomes.length, 3);
+'''
+if old_scoped_fixture not in text:
+    raise RuntimeError('old scoped stats fixture without evidence not found')
+text = text.replace(old_scoped_fixture, new_scoped_fixture)
 write(path, text)
 
 # 2) The current attempt statistics shape always records elapsedMs in evidence.
