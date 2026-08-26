@@ -60,7 +60,7 @@ jobs:
               'choice solution structural validation');
             return replaceOne(text,
               '  if (!solution || !solutionMatchesType(type, solution)) return undefined;\n',
-              '  if (!solution || !solutionMatchesType(type, solution)) return undefined;\n  if (optionIds && new Set(optionIds).size !== optionIds.length) return undefined;\n  if (solution.kind === "choice") {\n    if (!optionIds?.length) return undefined;\n    const validOptionIds = new Set(optionIds);\n    if (new Set(solution.correctOptionIds).size !== solution.correctOptionIds.length || solution.correctOptionIds.some((id) => !validOptionIds.has(id))) return undefined;\n  }\n',
+              '  if (!solution || !solutionMatchesType(type, solution)) return undefined;\n  if (optionIds && new Set(optionIds).size !== optionIds.length) return undefined;\n  if (solution.kind === "choice") {\n    if (!optionIds?.length || !solution.correctOptionIds.length) return undefined;\n    const validOptionIds = new Set(optionIds);\n    if (new Set(solution.correctOptionIds).size !== solution.correctOptionIds.length || solution.correctOptionIds.some((id) => !validOptionIds.has(id))) return undefined;\n  }\n',
               'choice solution option membership validation');
           });
 
