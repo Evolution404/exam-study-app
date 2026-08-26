@@ -1,11 +1,7 @@
 export const QUESTION_TYPE_ORDER = ["单选", "多选", "判断", "计算", "填空", "简答"] as const;
 export type QuestionType = (typeof QUESTION_TYPE_ORDER)[number];
 
-/**
- * Structured answer data.  The legacy `answer` string remains on the public
- * row for one release so old projections can still be displayed, but all new
- * editors/importers/practice code should prefer this discriminated union.
- */
+/** Canonical structured answer data. */
 export type QuestionSolution =
   | { kind: "choice"; correctOptionIds: string[] }
   | { kind: "calculation"; blanks: Array<{ id: string; expected: number; tolerancePercent?: number }> }
@@ -53,11 +49,10 @@ export interface Question {
   sortOrder: number;
   stem: string;
   normalizedStem: string;
-  answer: string;
   options: string[];
   /** Stable option identities; display letters are derived at render time. */
   optionIds?: string[];
-  solution?: QuestionSolution;
+  solution: QuestionSolution;
   type: QuestionType;
   imageUrl?: string;
   tags: string[];
@@ -80,11 +75,9 @@ export interface PracticeAnswerState {
   eventId?: string;
 }
 
-/**
- * Transient view state for the practice screen. PracticeRun is the only
+/** Transient view state for the practice screen. PracticeRun is the only
  * persisted source of truth; this shape only adds the question currently
- * visible in React.
- */
+ * visible in React. */
 export interface ActivePractice {
   id: "active";
   runId: string;
