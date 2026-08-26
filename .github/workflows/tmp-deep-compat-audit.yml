@@ -1,0 +1,34 @@
+name: Temporary Deep Compatibility Audit
+
+on:
+  push:
+    branches:
+      - refactor/remove-obsolete-compat
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Deep compatibility inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== compatibility markers ==='
+          grep -RInEi --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' --include='*.json' \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude='tmp-*' \
+            'legacy|compatib|migration|migrat(ed|ion|e)|fallback|deprecated|obsolete|retired|one-shot|old (db|database|format|client|version)|previous version|旧版|旧数据|兼容|迁移|退役' src scripts package.json || true
+          echo '=== historical wire/db path literals ==='
+          grep -RInE --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' \
+            --exclude-dir=node_modules --exclude-dir=dist \
+            'sync/v[1-8]/|formatVersion[^0-9]+[1-8]|version\([1-6]\)|shijuan-study-v[1-6]|migratedFrom|LEGACY_|legacy[A-Z_]|V[1-6][A-Z_]' src scripts || true
+          echo '=== v7/v8 aliases layered over v9 ==='
+          grep -RInE --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' \
+            --exclude-dir=node_modules --exclude-dir=dist \
+            'SYNC_V7_[A-Z0-9_]+|SyncV7[A-Z]|SyncHeadV7|github-sync-v7|sync-v8-history' src scripts | head -n 1200 || true
+          echo '=== current test scripts with compat/migration intent ==='
+          find scripts/tests -maxdepth 1 -type f | grep -Ei 'compat|migration|legacy|v8|v7' | sort || true
