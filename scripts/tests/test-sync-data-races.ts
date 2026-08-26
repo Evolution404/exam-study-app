@@ -46,8 +46,21 @@ await resetV7Database();
 {
   await resetV7Database();
   const bank = await createBankV7("并发作答题库");
-  const firstQuestion = await createQuestionV7(bank.id, { type: "单选", stem: "并发题一", options: ["甲", "乙"], answer: "A" });
-  const secondQuestion = await createQuestionV7(bank.id, { type: "单选", stem: "并发题二", options: ["甲", "乙"], answer: "B" });
+  const optionIds = ["opt-0", "opt-1"];
+  const firstQuestion = await createQuestionV7(bank.id, {
+    type: "单选",
+    stem: "并发题一",
+    options: ["甲", "乙"],
+    optionIds,
+    solution: { kind: "choice", correctOptionIds: [optionIds[0]!] },
+  });
+  const secondQuestion = await createQuestionV7(bank.id, {
+    type: "单选",
+    stem: "并发题二",
+    options: ["甲", "乙"],
+    optionIds,
+    solution: { kind: "choice", correctOptionIds: [optionIds[1]!] },
+  });
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [firstQuestion.id, secondQuestion.id] });
   await Promise.all([
     recordPracticeAnswerV7({ runId: run.id, questionId: firstQuestion.id, selected: ["A"], correct: true, createdAt: "2026-01-01T00:00:00.001Z" }),
@@ -75,8 +88,8 @@ await resetV7Database();
   assert.ok((await listChangeSetsV7(["pending"])).length >= 1, "新编辑的队列不得被清空");
 }
 
-// The fallback path (without navigator.locks) still reserves unique values
-// through the IndexedDB syncMeta transaction across concurrent callers.
+// The navigator.locks-free path still reserves unique values through the
+// IndexedDB syncMeta transaction across concurrent callers.
 {
   await resetV7Database();
   const values = await Promise.all(Array.from({ length: 64 }, () => nextV7Sequence("race-sequence-device")));
