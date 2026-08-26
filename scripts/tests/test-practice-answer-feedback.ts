@@ -97,7 +97,7 @@ const derived = read("src/lib/sync/change-set-v7-derived.ts");
 assert.match(derived, /recentOutcomes: ordered\.slice\(-32\)\.map\(\(attempt\) => \(\{ id: attempt\.id, createdAt: attempt\.createdAt, correct: attempt\.correct, elapsedMs:/, "同步派生链必须把作答时间写进 outcomes");
 const checkpoint = read("src/lib/sync/sync-v7-checkpoint-validation.ts");
 assert.match(checkpoint, /assertSafeInt\(outcome\.elapsedMs/, "current checkpoint 必须要求 elapsedMs");
-assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs \|\| 0\) \}/, "作答写入链必须记录每次的作答时间");
+assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs\) \}/, "作答写入链必须记录每次的作答时间且不得补缺省值");
 assert.match(practiceView, /document\.hidden \|\| editing \|\| overviewOpen \|\| submitted/, "后台、编辑、题目总览和已提交状态必须暂停有效计时");
 assert.match(practiceView, /activeTimer\.current\?\.reset\((?:window\.)?performance\.now\(\)/, "立即重答必须重置有效计时器");
 assert.doesNotMatch(practiceView, /Date\.now\(\) - startedAt/, "作答耗时不得恢复为包含后台停留的墙钟时间");
