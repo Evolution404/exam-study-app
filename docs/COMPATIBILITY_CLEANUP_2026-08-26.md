@@ -38,4 +38,4 @@ Only behavior needed by current supported environments remains, including Safari
 
 ## Verification
 
-The current-only cleanup is verified by the full Sync suite, fast checks, production build, structural dead-code gate, architecture check, export-surface ratchet, workflow hygiene, Sync storage CI, governance audit, PR preview, and Chromium/WebKit browser smoke gates. Exact-head run identifiers are recorded in PR #32 after the final head completes.
+The current-only cleanup is verified by the full Sync suite, fast checks, production build, structural dead-code gate, architecture check, export-surface ratchet, workflow hygiene, Sync storage CI, governance audit, PR preview, and Chromium/WebKit browser smoke gates. The pre-head verifier must pass the full local-equivalent suite before producing its cleanup commit; the final user-authored head is then validated independently by the repository's normal PR workflows. Exact-head run identifiers are recorded in PR #32 after the final head completes.
