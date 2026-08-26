@@ -50,17 +50,21 @@ jobs:
           from pathlib import Path
           path = Path('scripts/tests/test-progress-metrics-boundaries.ts')
           text = path.read_text(encoding='utf-8')
-          old = '''  assert.equal(summarizeAttemptStats({
-            questionId: "q", bankId: "", total: 8, correct: 8, wrong: 0, giveUps: 0, totalElapsedMs: 0,
-            firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
-            correctStreakAfterWrong: 0, currentCorrectStreak: 8,
-            recentOutcomes: [],
-          }).difficulty, calculateDifficulty(8, 0), "outcomes 为空时回退终身错误率公式");
-
-          '''
-          if old not in text:
-              raise RuntimeError('empty-evidence difficulty fallback fixture not found')
-          text = text.replace(old, '', 1)
+          marker = '"outcomes 为空时回退终身错误率公式");'
+          marker_index = text.find(marker)
+          if marker_index < 0:
+              raise RuntimeError('empty-evidence difficulty fallback marker not found')
+          start = text.rfind('  assert.equal(summarizeAttemptStats({', 0, marker_index)
+          if start < 0:
+              raise RuntimeError('empty-evidence difficulty fallback assertion start not found')
+          end = text.find('\n', marker_index)
+          if end < 0:
+              end = len(text)
+          else:
+              end += 1
+          if end < len(text) and text[end:end + 1] == '\n':
+              end += 1
+          text = text[:start] + text[end:]
           text = text.replace('  // 写入链把作答时间记进 recentOutcomes（legacy 链；V7 链由静态断言覆盖）。\n', '  // 写入链把作答时间记进 recentOutcomes。\n')
           path.write_text(text, encoding='utf-8')
           PY
