@@ -21,12 +21,12 @@ export type PracticeRun = PracticeRunV7;
 export type PracticeAnswerState = PracticeRunV7["answers"][string];
 export type AttemptStats = AttemptStatsV7 & { bankId: string };
 
-export function toLegacyAttemptStats(stats?: AttemptStatsV7, bankId = ""): AttemptStats | undefined {
+export function withBankAttemptStats(stats?: AttemptStatsV7, bankId = ""): AttemptStats | undefined {
   return stats ? { ...stats, bankId } : undefined;
 }
 
 export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
-  return summarizeAttemptStats(toLegacyAttemptStats(stats));
+  return summarizeAttemptStats(withBankAttemptStats(stats));
 }
 
 export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
@@ -112,7 +112,7 @@ export const DEFAULT_PREFERENCES: PracticePreferences = {
 export function loadPreferences(): PracticePreferences {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
-    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}") } as PracticePreferences;
+    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}") } as PracticePreferences;
     return {
       ...saved,
       groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))),
@@ -131,8 +131,6 @@ export function loadPreferences(): PracticePreferences {
   }
 }
 
-// 字母映射的唯一实现收敛在 lib/question/question-copy（复制题目功能共用），
-// 这里按原签名委托 re-export，消费方 import 不变。
 export { displayedAnswer, answerText } from "@/lib/question/question-copy";
 
 export function formatDate(value?: string) {
