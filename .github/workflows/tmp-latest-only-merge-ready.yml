@@ -48,6 +48,7 @@ jobs:
           r('src/app/styles/bank-controls.css', 'variants migrated out of the global entrypoint', 'variants moved out of the global entrypoint')
           r('src/lib/question/question-bank-export.ts', 'WPS cell-image compatibility', 'WPS cell-image support')
           r('src/lib/db/db-v7-core.ts', '  elapsedMs?: number;\n  /** Optional source bank for history display; statistics remain global. */', '  elapsedMs: number;\n  /** Optional source bank for history display; statistics remain global. */')
+          r('src/app/shell/helpers.ts', 'correct: boolean; elapsedMs?: number; reviewRoundId?: string;', 'correct: boolean; elapsedMs: number; reviewRoundId?: string;')
           r('src/lib/db/db-v7-practice.ts', '  const timestamp = input.createdAt ?? nowIso();\n  const selectedAnswer = selected.join("");', '  const timestamp = input.createdAt ?? nowIso();\n  if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw new Error("当前作答必须提供有效 elapsedMs。");\n  const selectedAnswer = selected.join("");')
           r('src/lib/db/db-v7-practice.ts', '      elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),', '      elapsedMs: input.elapsedMs,')
           ra('src/lib/db/db-v7-practice.ts', 'Math.max(0, attempt.elapsedMs || 0)', 'Math.max(0, attempt.elapsedMs)')
