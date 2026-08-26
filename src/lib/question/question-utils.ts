@@ -148,6 +148,11 @@ export function solutionFromInput(
   };
 }
 
+/** Strict accessor for the current canonical question format. */
+export function questionSolution(question: Pick<QuestionV7, "solution">): QuestionSolution {
+  return question.solution;
+}
+
 /** Format a canonical solution for UI/export text only; this value is never persisted. */
 export function solutionAnswerText(solution: QuestionSolution, optionIds: readonly string[] = []): string {
   if (solution.kind === "choice") {
