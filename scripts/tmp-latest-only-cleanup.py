@@ -185,7 +185,7 @@ exact(cpval, 'import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";\n')
 # v9 asset prefix import was only needed by the removed per-image remote validator.
 text = read(cpval)
 text = re.sub(r'import \{ SYNC_V9_ASSET_PREFIX \} from "\.\/sync-v7-head-types";\n', '', text)
-text, n = re.subn(r'''  if \(asset\.remote !== undefined\) \{.*?\n  \}\n  assets\.set''', '  assets.set', text, count=1, flags=re.S)
+text, n = re.subn(r'''  if \(asset\.remote !== undefined\) \{.*?\n  \}\n  assets\.set''', '  if ("remote" in asset) fail(`state.imageAssets[${index}] must not contain retired remote metadata`);\n  assets.set', text, count=1, flags=re.S)
 if n != 1:
     raise RuntimeError('checkpoint-validation: old image remote validator not found')
 write(cpval, text)
