@@ -124,7 +124,8 @@ const question: QuestionV7 = {
   type: "单选",
   content: [shared],
   options: [[shared], [{ id: "option-2", type: "text", text: "other" }]],
-  answer: "A",
+  optionIds: ["option-a", "option-b"],
+  solution: { kind: "choice", correctOptionIds: ["option-a"] },
   tags: ["tag"],
   favorite: false,
   contentFingerprint: "",
@@ -145,7 +146,7 @@ assert.equal(
   }),
   "fingerprint ignores adjacent text block splitting",
 );
-assert.notEqual(questionContentFingerprint(question), questionContentFingerprint({ ...question, answer: "B" }));
+assert.notEqual(questionContentFingerprint(question), questionContentFingerprint({ ...question, solution: { kind: "choice", correctOptionIds: ["option-b"] } }));
 assert.notEqual(questionContentFingerprint(question), questionContentFingerprint({ ...question, type: "多选" }));
 assert.notEqual(
   questionContentFingerprint(question),
