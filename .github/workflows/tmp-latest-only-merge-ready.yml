@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           def r(path, old, new, n=1):
               p = Path(path)
               s = p.read_text()
@@ -86,6 +87,17 @@ jobs:
           if s.count(old) != 1:
               raise SystemExit('updatedAt strict test mismatch')
           p.write_text(s.replace(old, new))
+          pattern = re.compile(r'recordPracticeAnswerV7\(\{([^{}\n]*)\}\)')
+          for test in Path('scripts/tests').rglob('*.ts'):
+              text = test.read_text()
+              def add_elapsed(match):
+                  body = match.group(1)
+                  if 'elapsedMs:' in body:
+                      return match.group(0)
+                  return 'recordPracticeAnswerV7({' + body.rstrip() + ', elapsedMs: 10 })'
+              updated = pattern.sub(add_elapsed, text)
+              if updated != text:
+                  test.write_text(updated)
           PY
           git rm .github/workflows/tmp-latest-only-merge-ready.yml
           git diff --check
