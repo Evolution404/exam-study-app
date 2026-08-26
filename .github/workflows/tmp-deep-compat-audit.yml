@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify-commit:
-    if: contains(github.event.head_commit.message, '[latest-only-stage12]')
+    if: contains(github.event.head_commit.message, '[latest-only-stage13]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -34,8 +34,10 @@ jobs:
           python3 scripts/tmp-latest-only-fixes6.py
           python3 scripts/tmp-latest-only-fixes7.py
           python3 scripts/tmp-latest-only-fixes8.py
+          python3 scripts/tmp-latest-only-fixes9.py
           python3 scripts/tmp-latest-only-diagnostic.py
-          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py scripts/tmp-latest-only-fixes.py scripts/tmp-latest-only-fixes2.py scripts/tmp-latest-only-fixes3.py scripts/tmp-latest-only-fixes4.py scripts/tmp-latest-only-fixes5.py scripts/tmp-latest-only-fixes6.py scripts/tmp-latest-only-fixes7.py scripts/tmp-latest-only-fixes8.py scripts/tmp-latest-only-diagnostic.py
+          python3 scripts/tmp-latest-only-semantic-scan.py
+          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py scripts/tmp-latest-only-fixes.py scripts/tmp-latest-only-fixes2.py scripts/tmp-latest-only-fixes3.py scripts/tmp-latest-only-fixes4.py scripts/tmp-latest-only-fixes5.py scripts/tmp-latest-only-fixes6.py scripts/tmp-latest-only-fixes7.py scripts/tmp-latest-only-fixes8.py scripts/tmp-latest-only-fixes9.py scripts/tmp-latest-only-diagnostic.py scripts/tmp-latest-only-semantic-scan.py
           git diff --check
       - name: Focused current-format checks
         run: |
