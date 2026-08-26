@@ -413,10 +413,9 @@ export async function decodeRemoteCheckpoint(client: GitHubV7Remote, bytes: Uint
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
-  // v9-only: older checkpoints exist solely in unmigrated vaults, which the
-  // client rejects at the head; the one-time migration decodes them itself.
+  // Current clients accept only the v9 checkpoint envelope.
   if (!isRecord(header) || header.formatVersion !== SYNC_V9_CHECKPOINT_FORMAT) {
-    throw new Error("远程检查点格式不是 v9，请先执行 v8→v9 数据仓库迁移。");
+    throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");
   }
   const checkpoint = parseSyncCheckpointV8(bytes);
   return hydrateSyncCheckpointV8WithStats(client, checkpoint, options);

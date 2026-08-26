@@ -80,8 +80,8 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   let receivedSnapshot: SyncCheckpointV7["counts"] | undefined;
   // Band layout is decided once per run from whether there is anything to push,
   // so the bar spans 0–100 over the phases this run will actually enter.
-  // Legacy image-only writes can still add one fallback change-set during
-  // upload, so the variable must be able to switch to the push layout below.
+  // Image uploads can add a pending change-set during upload, so the
+  // variable must be able to switch to the push layout below.
   let bands = syncBands((await listChangeSetsV7(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);

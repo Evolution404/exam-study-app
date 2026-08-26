@@ -65,7 +65,7 @@ export const platformRuntime = {
     if (!initialized) {
       const environment = getPlatformEnvironment();
       initialized = (async () => {
-        // Keep this order stable: synchronous legacy getters read mirrors after
+        // Keep this order stable: synchronous config getters read mirrors after
         // Preferences/Keychain hydration, and lifecycle timers must not start
         // until both credential and config bootstraps have completed.
         await hydratePersistentConfig(environment);

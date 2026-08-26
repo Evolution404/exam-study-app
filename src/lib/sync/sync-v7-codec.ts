@@ -6,9 +6,8 @@
  * readers sniff the zlib header and inflate, else treat the bytes as plain
  * JSON.  Content addressing is unchanged: paths and descriptors keep the
  * sha256/size of the LOGICAL JSON bytes, so compressed and plain objects of
- * the same content share one identity, and legacy plain-JSON objects written
- * before this codec stay readable forever.  Browsers without
- * CompressionStream simply keep writing plain JSON (the fallback format), so
+ * the same content share one identity. Browsers without CompressionStream
+ * use plain JSON as the current wire format, so
  * a vault can always be written to — never a hard failure.
  */
 
@@ -48,15 +47,14 @@ export function syncV7CompressionEnabled(): boolean {
 }
 
 /** Encode logical JSON bytes for upload/storage: DEFLATE when possible, else
- *  the bytes unchanged (identical to the pre-codec wire format). */
+ *  keep the logical JSON bytes unchanged. */
 export async function encodeSyncV7JsonBytes(bytes: Uint8Array): Promise<Uint8Array> {
   if (!compressionAvailable()) return bytes;
   return pipeThrough(bytes, "deflate");
 }
 
-/** Decode stored/uploaded sync bytes back to the logical JSON bytes.  The zlib
- *  sniff makes this format-autodetecting: compressed and legacy plain objects
- *  decode through the same call. */
+/** Decode stored/uploaded sync bytes back to the logical JSON bytes. The zlib
+ *  sniff lets compressed and current plain-JSON objects use the same call. */
 export async function decodeSyncV7JsonBytes(bytes: Uint8Array): Promise<Uint8Array> {
   if (!isZlibEnvelope(bytes)) return bytes;
   return inflate(bytes);

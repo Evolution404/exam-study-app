@@ -87,15 +87,18 @@ export interface SyncV7RemoteEntry {
   blobSha: string;
 }
 
-export interface SyncV7BlobExpectation {
+export interface SyncV7ContentExpectation {
   size: number;
   sha256: string;
   /** Path of the object, when known: JSON-kind objects travel through the
    *  DEFLATE envelope and are inflated before the integrity check; assets and
    *  unknown paths are verified as raw bytes. */
   path?: string;
-  /** Actual compressed wire size when known. */
-  storedSize?: number;
+}
+
+export interface SyncV7BlobExpectation extends SyncV7ContentExpectation {
+  /** Required actual stored/wire size for descriptor-addressed blob reads. */
+  storedSize: number;
 }
 
 export interface SyncV7BlobReadOptions {
@@ -456,7 +459,7 @@ export class GitHubV7Remote {
     try { existingSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`)); } catch { /* 422 body is often not JSON */ }
     if (!existingSha) existingSha = await this.readContentsMetadata(input.path);
     assertSha1(existingSha, "existing immutable blobSha");
-    const existing = await this.readBlob(existingSha, { size, sha256, path: input.path });
+    const existing = await this.readBlob(existingSha, { size, storedSize: stored.byteLength, sha256, path: input.path });
     if (!bytesEqual(existing, content)) throw new SyncV7ImmutableConflictError(input.path);
     return { path: input.path, blobSha: existingSha, sha256, size, storedSize: stored.byteLength, created: false, idempotent: true, status: 422 };
   }
@@ -469,71 +472,72 @@ export class GitHubV7Remote {
 
   uploadImmutable = this.putImmutable.bind(this);
 
-  async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
-  async readBlob(descriptor: SyncV7Descriptor, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
-  async readBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expectedOrOptions?: SyncV7BlobExpectation | SyncV7BlobReadOptions, options?: SyncV7BlobReadOptions): Promise<Uint8Array> {
-    const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
-    const expectation = typeof blobShaOrDescriptor === "string" ? expectedOrOptions as SyncV7BlobExpectation | undefined : blobShaOrDescriptor;
-    const readOptions = typeof blobShaOrDescriptor === "string" ? options : expectedOrOptions as SyncV7BlobReadOptions | undefined;
-    if (!blobSha || !expectation) throw new TypeError("blob SHA, size and sha256 are required");
-    const path = typeof blobShaOrDescriptor === "string" ? expectation.path : blobShaOrDescriptor.path;
-    if (typeof blobShaOrDescriptor !== "string") {
-      const kind = inferKind(blobShaOrDescriptor.path);
-      assertSyncV7Path(blobShaOrDescriptor.path, kind);
-      if (/\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(blobShaOrDescriptor.path)?.[1] !== blobShaOrDescriptor.sha256) throw new SyncV7BlobIntegrityError("sha256", blobShaOrDescriptor.sha256, "path digest mismatch");
+  private async readBlobContent(blobSha: string, expectation: SyncV7ContentExpectation, readOptions?: SyncV7BlobReadOptions, wireSizeHint?: number): Promise<Uint8Array> {
+  assertSha1(blobSha, "blobSha");
+  assertSize(expectation.size, "blob size");
+  assertSha256(expectation.sha256, "blob sha256");
+  const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
+  this.requireOk(response, `read blob ${blobSha}`);
+  const contentLength = Number(response.headers.get("content-length"));
+  const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+    ? contentLength
+    : wireSizeHint === undefined ? expectation.size : wireSizeHint;
+  let raw: Uint8Array;
+  if (!response.body) {
+    raw = new Uint8Array(await response.arrayBuffer());
+    readOptions?.onProgress?.(raw.byteLength, totalBytes);
+  } else {
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loadedBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      chunks.push(value);
+      loadedBytes += value.byteLength;
+      readOptions?.onProgress?.(loadedBytes, totalBytes);
     }
-    assertSha1(blobSha, "blobSha");
-    assertSize(expectation.size, "blob size");
-    assertSha256(expectation.sha256, "blob sha256");
-    const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
-    this.requireOk(response, `read blob ${blobSha}`);
-    // Inflate the DEFLATE envelope (when the object carries one) BEFORE the
-    // integrity check: size and sha256 always describe the logical JSON bytes.
-    const contentLength = Number(response.headers.get("content-length"));
-    const totalBytes = Number.isFinite(contentLength) && contentLength > 0
-      ? contentLength
-      : expectation.storedSize ?? expectation.size;
-    let raw: Uint8Array;
-    if (!response.body) {
-      raw = new Uint8Array(await response.arrayBuffer());
-      readOptions?.onProgress?.(raw.byteLength, totalBytes);
-    } else {
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let loadedBytes = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value?.byteLength) continue;
-        chunks.push(value);
-        loadedBytes += value.byteLength;
-        readOptions?.onProgress?.(loadedBytes, totalBytes);
-      }
-      raw = new Uint8Array(loadedBytes);
-      let offset = 0;
-      for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
-      if (!loadedBytes) readOptions?.onProgress?.(0, totalBytes);
-    }
-    let content: Uint8Array;
-    try {
-      content = isJsonSyncPath(path) ? await decodeSyncV7JsonBytes(raw) : raw;
-    } catch {
-      // A corrupt envelope fails inflation before digests can be compared.
-      throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, "unreadable deflate envelope");
-    }
-    if (content.byteLength !== expectation.size) throw new SyncV7BlobIntegrityError("size", expectation.size, content.byteLength);
-    const sha256 = await digestHex(content);
-    if (sha256 !== expectation.sha256) throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, sha256);
-    return content;
+    raw = new Uint8Array(loadedBytes);
+    let offset = 0;
+    for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
+    if (!loadedBytes) readOptions?.onProgress?.(0, totalBytes);
   }
+  let content: Uint8Array;
+  try {
+    content = isJsonSyncPath(expectation.path) ? await decodeSyncV7JsonBytes(raw) : raw;
+  } catch {
+    throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, "unreadable deflate envelope");
+  }
+  if (content.byteLength !== expectation.size) throw new SyncV7BlobIntegrityError("size", expectation.size, content.byteLength);
+  const sha256 = await digestHex(content);
+  if (sha256 !== expectation.sha256) throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, sha256);
+  return content;
+}
+
+async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+async readBlob(descriptor: SyncV7Descriptor, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+async readBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expectedOrOptions?: SyncV7BlobExpectation | SyncV7BlobReadOptions, options?: SyncV7BlobReadOptions): Promise<Uint8Array> {
+  const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
+  const expectation = typeof blobShaOrDescriptor === "string" ? expectedOrOptions as SyncV7BlobExpectation | undefined : blobShaOrDescriptor;
+  const readOptions = typeof blobShaOrDescriptor === "string" ? options : expectedOrOptions as SyncV7BlobReadOptions | undefined;
+  if (!blobSha || !expectation) throw new TypeError("blob SHA, size, storedSize and sha256 are required");
+  const path = typeof blobShaOrDescriptor === "string" ? expectation.path : blobShaOrDescriptor.path;
+  if (typeof blobShaOrDescriptor !== "string") {
+    const kind = inferKind(blobShaOrDescriptor.path);
+    assertSyncV7Path(blobShaOrDescriptor.path, kind);
+    if (/\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(blobShaOrDescriptor.path)?.[1] !== blobShaOrDescriptor.sha256) throw new SyncV7BlobIntegrityError("sha256", blobShaOrDescriptor.sha256, "path digest mismatch");
+  }
+  return this.readBlobContent(blobSha, { size: expectation.size, sha256: expectation.sha256, path }, readOptions, expectation.storedSize);
+}
 
   readImmutableBlob(blobSha: string, expected: SyncV7BlobExpectation): Promise<Uint8Array>;
   readImmutableBlob(descriptor: SyncV7Descriptor): Promise<Uint8Array>;
   readImmutableBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expected?: SyncV7BlobExpectation): Promise<Uint8Array> { return typeof blobShaOrDescriptor === "string" ? this.readBlob(blobShaOrDescriptor, expected as SyncV7BlobExpectation) : this.readBlob(blobShaOrDescriptor); }
 
-  async readImmutableContents(path: string, expected: SyncV7BlobExpectation): Promise<Uint8Array> {
+  async readImmutableContents(path: string, expected: SyncV7ContentExpectation): Promise<Uint8Array> {
     assertSyncV7Path(path, inferKind(path));
-    return this.readBlob(await this.readContentsMetadata(path), { ...expected, path });
+    return this.readBlobContent(await this.readContentsMetadata(path), { ...expected, path });
   }
 
   readAsset(descriptor: SyncV7Descriptor): Promise<Uint8Array> { assertSyncV7Path(descriptor.path, "asset"); return this.readBlob(descriptor); }

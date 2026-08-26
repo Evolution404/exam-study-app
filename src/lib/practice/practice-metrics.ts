@@ -296,7 +296,7 @@ export function difficultyTone(score: number): "easy" | "medium" | "hard" {
 
 // ===== 练习记录的活动时间口径（列表排序与卡片时间戳共用）=====
 // 已完成按完成时间；进行中/已放弃按最后一道作答题的时间（answer.updatedAt），
-// 未作答回退 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。
+// 未作答时依次采用 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。
 
 export interface RunActivitySource {
   status: "in_progress" | "completed" | "abandoned";

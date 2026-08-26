@@ -42,10 +42,10 @@ await createQuestionV7(typeBank.id, {
 // 2) 退役的 v6 检查点格式必须被拒绝，公开恢复只接受当前格式
 {
   const current = await createSyncCheckpointV7();
-  const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
-  legacy.formatVersion = 6;
-  assert.throws(() => validateSyncCheckpointV7(legacy), /formatVersion/, "v6 checkpoint must be rejected after compatibility retirement");
-  const bytes = new TextEncoder().encode(JSON.stringify(legacy));
+  const unsupported = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };
+  unsupported.formatVersion = 6;
+  assert.throws(() => validateSyncCheckpointV7(unsupported), /formatVersion/, "v6 checkpoint must be rejected by the current-only validator");
+  const bytes = new TextEncoder().encode(JSON.stringify(unsupported));
   assert.throws(() => parseSyncCheckpointV7(bytes), /formatVersion/, "parser must reject retired v6 checkpoint bytes");
 }
 

@@ -127,9 +127,9 @@ const retry = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes
 assert.equal(retry.idempotent, true);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("different"), kind: "segment" }), SyncV7BlobIntegrityError);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("v7 segment payload"), kind: "segment", sha256: digest("different") }), SyncV7BlobIntegrityError);
-const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, sha256: digest(segmentBytes), path: segmentPath });
+const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath });
 assert.deepEqual([...loaded], [...segmentBytes]);
-await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
+await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
 
 // Streamed blob reads must expose intermediate wire-byte progress instead of
 // jumping only after response.arrayBuffer() has consumed the entire payload.

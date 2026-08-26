@@ -42,7 +42,8 @@ const cloudflareTransport = createGitHubTransport({ environment: web, hostname: 
 assert.equal(nativeTransport.defaultApiBaseUrl, GITHUB_RELAY_URL);
 assert.equal(webTransport.defaultApiBaseUrl, GITHUB_RELAY_URL);
 assert.equal(cloudflareTransport.defaultApiBaseUrl, GITHUB_WEB_RELAY_PATH);
-assert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_RELAY_URL);
+assert.equal(resolveGitHubApiBaseUrl(undefined, nativeTransport), GITHUB_RELAY_URL);
+assert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_WEB_RELAY_PATH);
 assert.equal(resolveGitHubApiBaseUrl("https://custom.example", nativeTransport), "https://custom.example");
 
 assert.equal(await getGitHubLogin("test-token", undefined, { transport: nativeTransport }), "owner");

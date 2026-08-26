@@ -1,20 +1,20 @@
 import type {
-  Bank as LegacyBank,
-  BankFolder as LegacyBankFolder,
-  Note as LegacyNote,
+  Bank as BaseBank,
+  BankFolder as BaseBankFolder,
+  Note as BaseNote,
   PracticeRun,
   AttemptOutcome,
-  QuestionGroup as LegacyQuestionGroup,
+  QuestionGroup as BaseQuestionGroup,
   QuestionSolution,
   PracticeResponse,
   QuestionType,
-  SyncFile as LegacySyncFile,
-  SyncMeta as LegacySyncMeta,
-  SyncTombstone as LegacySyncTombstone,
+  SyncFile as BaseSyncFile,
+  SyncMeta as BaseSyncMeta,
+  SyncTombstone as BaseSyncTombstone,
 } from "../../types/types";
 
 /** Current local-domain records used by the v9 sync wire. */
-export interface BankV7 extends Omit<LegacyBank, "questionCount"> {
+export interface BankV7 extends Omit<BaseBank, "questionCount"> {
   sortOrder: number;
   questionCount: number;
   /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
@@ -25,13 +25,13 @@ export function isBankEnabled(bank: Pick<BankV7, "enabled">): boolean {
   return bank.enabled !== false;
 }
 
-export type BankFolderV7 = LegacyBankFolder;
-export type NoteV7 = LegacyNote;
-export type QuestionGroupV7 = LegacyQuestionGroup;
-export type SyncFileV7 = LegacySyncFile;
-export type SyncMetaV7 = LegacySyncMeta;
-export interface TombstoneV7 extends Omit<LegacySyncTombstone, "entityType"> {
-  entityType: LegacySyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
+export type BankFolderV7 = BaseBankFolder;
+export type NoteV7 = BaseNote;
+export type QuestionGroupV7 = BaseQuestionGroup;
+export type SyncFileV7 = BaseSyncFile;
+export type SyncMetaV7 = BaseSyncMeta;
+export interface TombstoneV7 extends Omit<BaseSyncTombstone, "entityType"> {
+  entityType: BaseSyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
   /**
    * Causal-stability anchor: the deleting device's localSequence for the
    * deletion event. A tombstone is reclaimable once every known device's
