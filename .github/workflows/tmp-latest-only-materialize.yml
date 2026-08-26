@@ -1,0 +1,41 @@
+name: Temporary materialize verified current-only cleanup
+on:
+  push:
+    branches: [refactor/remove-obsolete-compat]
+permissions:
+  contents: write
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - name: Apply already-verified cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/tmp-latest-only-boundary-cleanup.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          source = textwrap.dedent(workflow[start:end])
+          exec(compile(source, '<current-only-cleanup>', 'exec'), {})
+
+          path = Path('src/lib/db/db-v7-question-import.ts')
+          path.write_text(path.read_text().rstrip() + '\n')
+          PY
+      - name: Commit verified tree and remove temporary workflows
+        run: |
+          rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          rm .github/workflows/tmp-latest-only-materialize.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor: enforce current-only question and import boundaries [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
