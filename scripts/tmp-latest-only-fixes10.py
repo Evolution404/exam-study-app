@@ -71,7 +71,6 @@ text = text.replace('''  // The storage key keeps its historical name so an upgr
 ''', '  // This is the current durable sync-device identity key.\n')
 write(path, text)
 
-# Current-only runtime identifiers must not retain versioned historical names.
 for root_name in ['src', 'scripts']:
     for file in (ROOT / root_name).rglob('*'):
         if file.suffix not in {'.ts', '.tsx', '.mjs'}:
@@ -90,8 +89,7 @@ text = text.replace('const totalRows = Math.max(1, restoreRowCount(state, member
 text = text.replace('dbV7.bankQuestionMemberships.bulkPut(memberships)', 'dbV7.bankQuestionMemberships.bulkPut(state.memberships)')
 write(path, text)
 
-# 4) Remove stale historical-DB commentary from the public DB barrel; no code path
-# is reintroduced by these comments.
+# 4) Remove stale historical-DB commentary from the public DB barrel.
 path = 'src/lib/db/db-v7.ts'
 text = read(path)
 text = text.replace(''' * never imports the legacy database (doing so would construct the old
@@ -133,7 +131,16 @@ write(path, text)
 
 path = 'src/lib/sync/sync-v7-checkpoint-store.ts'
 text = read(path)
-text = text.replace('  memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((row) => ({ ...row })),', '  memberships: state.memberships.map((row) => ({ ...row })),' )
+text = text.replace('import type { AttemptDailyStatsV7, BankQuestionMembership, ImageAsset } from "../db/v7-types";', 'import type { AttemptDailyStatsV7, ImageAsset } from "../db/v7-types";')
+text = text.replace('import { normalizeSyncCheckpointV7, validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";', 'import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";')
+text = text.replace('function cloneState(state: V7RestoreState & { memberships?: BankQuestionMembership[]; imageAssets: ImageAsset[] }): SyncCheckpointV7State {', 'function cloneState(state: V7RestoreState & { imageAssets: ImageAsset[] }): SyncCheckpointV7State {')
+text = text.replace('memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((item) => ({ ...item })),', 'memberships: state.memberships.map((item) => ({ ...item })),' )
+text = text.replace('''  validateSyncCheckpointV7(parsed);
+  const checkpoint = normalizeSyncCheckpointV7(parsed);
+  return checkpoint;
+''', '''  validateSyncCheckpointV7(parsed);
+  return parsed;
+''')
 write(path, text)
 
 path = 'src/lib/sync/image-asset-pack.ts'
@@ -162,9 +169,22 @@ text = text.replace('''  if (value.storedSize !== undefined) assertSafeInt(value
 ''')
 write(path, text)
 
-# 7) Remove imports/declarations made obsolete by current-only validation.
+# 7) Strict checkpoint validation: no old-shape mutation or missing-key repair.
 path = 'src/lib/sync/sync-v7-checkpoint-validation.ts'
-text = read(path).replace('  SHA1,\n', '')
+text = read(path)
+start = text.find('function normalizeStateAliases(state: Record<string, unknown>): void {')
+if start >= 0:
+    end = text.find('\nfunction assertImageAsset', start)
+    if end < 0:
+        raise RuntimeError('normalizeStateAliases end marker not found')
+    text = text[:start] + text[end + 1:]
+text = text.replace('  normalizeStateAliases(value.state);\n', '')
+text = text.replace('const SHA1 = /^[a-f0-9]{40}$/;\n', '')
+text = text.replace('''  state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); if (stats.key !== undefined) assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`);''', '''  state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`);''')
+marker = '/** Convert the locked migration shape (`recent*` fields) to canonical v7 names. */\nexport function normalizeSyncCheckpointV7'
+idx = text.find(marker)
+if idx >= 0:
+    text = text[:idx].rstrip() + '\n'
 write(path, text)
 
 path = 'scripts/tests/test-persistent-config.ts'
