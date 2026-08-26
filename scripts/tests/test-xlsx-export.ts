@@ -3,10 +3,10 @@ import { buildQuestionBankXlsx, questionExportJson, questionExportRows, sanitize
 import { parseQuestionBankWorkbook } from "../../src/lib/io/xlsx-import";
 
 const questions: ExportQuestionInput[] = [
-  { id: "q1", type: "单选", stem: "单选题", options: ["选项一", "选项二", "选项三", "选项四"], answer: "B", tags: ["基础", "示例"] },
-  { id: "q2", type: "多选", stem: "多选题", options: ["甲", "乙", "丙", "丁"], answer: "AC", tags: [] },
-  { id: "q3", type: "判断", stem: "判断题", options: ["正确", "错误"], answer: "A", tags: ["判断"] },
-  { id: "q4", type: "计算", stem: "电流为【空1】A，功率为【空2】W", options: [], answer: "11\n968", tags: ["计算"] },
+  { id: "q1", type: "单选", stem: "单选题", options: ["选项一", "选项二", "选项三", "选项四"], solution: { kind: "choice", correctOptionIds: ["option-tw8kv7"] }, tags: ["基础", "示例"] },
+  { id: "q2", type: "多选", stem: "多选题", options: ["甲", "乙", "丙", "丁"], solution: { kind: "choice", correctOptionIds: ["option-1v3sh57", "option-1kdlld2"] }, tags: [] },
+  { id: "q3", type: "判断", stem: "判断题", options: ["正确", "错误"], solution: { kind: "choice", correctOptionIds: ["option-17od1v6"] }, tags: ["判断"] },
+  { id: "q4", type: "计算", stem: "电流为【空1】A，功率为【空2】W", options: [], solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 11 }, { id: "blank-2", expected: 968 }] }, tags: ["计算"] },
 ];
 const notes = new Map<string, string>([
   ["q1", "单选题解析"],
@@ -32,32 +32,34 @@ assert.deepEqual(parsed.rows[2], { q: "判断题", ans: "A", a: ["正确", "错�
 assert.deepEqual(parsed.rows[3], { q: "电流为【空1】A，功率为【空2】W", ans: "11\n968", a: [], type: "计算", tags: ["计算"], note: "计算题解析" });
 
 const structuredQuestions: ExportQuestionInput[] = [
-  { id: "q5", type: "填空", stem: "填空题【空1】、【空2】", options: [], answer: "", solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["电流", "电流强度"] }, { id: "blank-2", acceptedAnswers: ["功率"] }] }, tags: ["结构化"] },
-  { id: "q6", type: "简答", stem: "简答题", options: [], answer: "", solution: { kind: "short", referenceText: "参考答案" }, tags: ["结构化"] },
+  { id: "q5", type: "填空", stem: "填空题【空1】、【空2】", options: [], solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["电流", "电流强度"] }, { id: "blank-2", acceptedAnswers: ["功率"] }] }, tags: ["结构化"] },
+  { id: "q6", type: "简答", stem: "简答题", options: [], solution: { kind: "short", referenceText: "参考答案" }, tags: ["结构化"] },
 ];
 const structuredRows = questionExportRows(structuredQuestions, new Map());
 assert.deepEqual(structuredRows[1], ["填空题【空1】、【空2】", "填空", "结构化", "", "电流||电流强度", "功率", "", ""]);
 assert.deepEqual(structuredRows[2], ["简答题", "简答", "结构化", "", "参考答案", "", "", ""]);
 const structuredJson = JSON.parse(questionExportJson("结构化题库", structuredQuestions, new Map()));
-assert.deepEqual(structuredJson.questions[0].answer, ["电流||电流强度", "功率"]);
+assert.equal("answer" in structuredJson.questions[0], false, "canonical JSON export must not emit answer projection");
 assert.deepEqual(structuredJson.questions[0].solution, structuredQuestions[0].solution);
-assert.equal(structuredJson.questions[1].answer, "参考答案");
+assert.equal("answer" in structuredJson.questions[1], false, "canonical JSON export must not emit short-answer projection");
+assert.deepEqual(structuredJson.questions[1].solution, structuredQuestions[1].solution);
 
-// JSON 导出结构：无解析的题不带 note 字段
+// JSON 导出结构：无解析的题不带 note 字段且只输出 canonical solution
 const json = JSON.parse(questionExportJson("测试题库", questions, notes));
 assert.equal(json.name, "测试题库");
 assert.equal(json.questions.length, 4);
 assert.equal(json.questions[0].note, "单选题解析");
 assert.equal(json.questions[0].stem, "单选题");
 assert.equal(json.questions[1].note, undefined);
-assert.deepEqual(json.questions[3].answer, ["11", "968"]);
+assert.equal("answer" in json.questions[3], false);
+assert.deepEqual(json.questions[3].solution, questions[3].solution);
 
 // 文件名清理
 assert.equal(sanitizeFileName("送电线路工/技师:题库"), "送电线路工_技师_题库");
 assert.equal(sanitizeFileName("   "), "题库");
 
 // 全计算题题库也要能导出：至少保留 A、B 两个空选项列以满足导入
-const calcOnly = questionExportRows([{ id: "c1", type: "计算", stem: "计算结果为【空1】", options: [], answer: "1", tags: [] }], new Map());
+const calcOnly = questionExportRows([{ id: "c1", type: "计算", stem: "计算结果为【空1】", options: [], solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }] }, tags: [] }], new Map());
 assert.deepEqual(calcOnly[0], ["题干", "题型", "标签", "解析", "答案1", "A", "B"]);
 
 console.log("题库导出专项测试通过");
