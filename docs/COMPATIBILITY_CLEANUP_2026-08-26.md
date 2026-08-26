@@ -1,38 +1,41 @@
-# Compatibility cleanup audit — 2026-08-26
+# Current-format cleanup audit — 2026-08-26
 
 ## Result
 
-This cleanup removes compatibility-only source surfaces introduced to bridge old module ownership. It deliberately does **not** remove compatibility that still protects persisted user data or the current Sync v9 protocol.
+The application now treats the latest persisted and Sync v9 shapes as the only supported data contract. Historical aliases, shape normalization, repair/backfill paths, and question-answer projections are not used to read or reconstruct older data.
 
-## Removed
+## Current-only question contract
 
-- `src/lib/sync/change-set-v7.ts` — pure re-export facade; callers now import `change-set-v7-types`, `change-set-v7-codec`, or `change-set-v7-planning` directly.
-- `src/lib/sync/sync-v7-head.ts` — pure re-export facade; callers now import the v9 head `types`, `validation`, or `operations` owner directly.
-- `src/lib/sync/sync-v7-checkpoint.ts` — pure re-export facade; callers now import checkpoint `types`, `validation`, or `store` directly.
-- Zero-call checkpoint aliases: `decodeSyncCheckpointV7`, `validateV7Checkpoint`, `prepareSyncCheckpointV7`, `restoreSyncCheckpointV7`, `applyPreparedSyncCheckpointV7`.
-- Zero-call head aliases: `compareV7SegmentOrder`, `isSyncV7Head`, `validateSyncV7Head`.
+- `QuestionV7.solution` is required and is the single canonical persisted/synchronized answer representation.
+- Persisted `Question.answer`, `legacyAnswerForSolution`, and answer-to-solution reconstruction paths are removed.
+- JSON/bundle export writes structured `solution`; spreadsheet answer cells remain an explicit current import/export boundary representation rather than stored question state.
+- Fingerprints, sync mutations, practice grading, copy, editor, and display paths consume the canonical solution.
 
-The repository-wide audit measured every removed alias at zero call sites outside its definition before removal.
+## Current-only checkpoint and projection contract
 
-## Intentionally retained
+- Checkpoint validation accepts the current v9 shape directly; historical shape normalizers and aliases are removed.
+- Projection membership state uses the canonical `memberships` key; there is no projection alias for the local `bankQuestionMemberships` table name.
+- Practice-run statistics are not repaired by adding missing historical keys.
+- Review-round progress rows are created with complete attempt/evidence fields on the first attempt; no zero-attempt or missing-field repair skeleton is used.
+- Current practice metrics reject missing or invalid elapsed time and missing submitted/status timestamps instead of reconstructing them from older fields.
 
-The following are active compatibility or migration mechanisms and are not obsolete:
+## Descriptor size contract
 
-- `sync-v8-history.ts`: current history archive implementation despite its historical internal name.
-- Exact v7/v8 `migratedFrom` source pins used only as migration diagnostics.
-- Legacy plain-JSON sync decoding required to read existing remote data.
-- Asset Pack / per-image one-shot migration logic required for existing vaults.
-- Old local database cleanup performed only after a successful v9 install.
-- IndexedDB/Safari compatibility paths and persisted elapsed-time fallbacks.
-- Legacy question answer projection used for stored/exported question compatibility.
-- SideStore compatibility fields required by older installed builds.
+- `SyncV7Descriptor.storedSize` is required.
+- Descriptor reads consume the recorded wire size directly; `readBlobWireSize` and descriptor size backfill are removed.
+- Offloaded payload references intentionally use a separate logical-content expectation (`size` + digest), because they are content references rather than wire descriptors. This keeps the descriptor contract strict without inventing a stored size for payload refs.
 
-PAT/CSP credential policy remains outside this PR by scope.
+## Removed retired surfaces
 
-## Safety criteria
+- Pure re-export sync facades and zero-call aliases were removed; callers import canonical owners directly.
+- Retired endpoint conversion and historical rebuild paths were removed.
+- Obsolete type aliases and misleading historical naming were removed where they no longer describe current behavior.
+- Temporary `tmp-latest-only-*` scripts/workflows are not part of the final tree.
 
-A compatibility path was removed only if it had no runtime behavior, all callers could target an existing canonical owner, no persisted-data migration depended on it, and Sync/Fast/build/governance gates remained intact.
+## Intentionally retained current-environment resilience
 
-## Protocol red lines
+Only behavior needed by current supported environments remains, including Safari/IndexedDB lifecycle handling, WebCrypto-independent digest execution when the native primitive is unavailable, Worker-to-main-thread execution paths, CompressionStream/plain-JSON current wire support, and browser capability handling such as clipboard/image rendering. These paths do not migrate or reinterpret historical persisted data.
 
-Sync v9 wire format, fixed head/CAS, content addressing, checkpoint/history/tombstone/GC/replay semantics, Asset Pack layout, IndexedDB v7 schema, full-history restore semantics, six official question types, DB transaction atomicity, Practice behavior, strict search-pin geometry, and existing governance ratchets are unchanged.
+## Verification
+
+The current-only cleanup is verified by the full Sync suite, fast checks, production build, structural dead-code gate, architecture check, export-surface ratchet, workflow hygiene, Sync storage CI, governance audit, PR preview, and Chromium/WebKit browser smoke gates. Exact-head run identifiers are recorded in PR #32 after the final head completes.
