@@ -28,13 +28,13 @@ function question(id: string, stem: string): QuestionV7 {
   };
 }
 
-function projection(questions: QuestionV7[]): ChangeSetProjectionV7 {
+function projection(questions: QuestionV7[], imageAssets: ChangeSetProjectionV7["imageAssets"] = []): ChangeSetProjectionV7 {
   return {
     banks: [],
     bankFolders: [],
     questions,
     memberships: [],
-    imageAssets: [],
+    imageAssets,
     attempts: [],
     attemptStats: [],
     attemptDailyStats: [],
@@ -95,6 +95,48 @@ try {
   });
   assert.equal(noOp, true, "semantically identical projection should complete");
   assert.equal(finalProgressLabel, "本机数据无需改写", "property-order-only differences must not create needless IndexedDB writes");
+
+  const imageDescriptor = { id: "a".repeat(64), mimeType: "image/webp" as const, size: 4, width: 1, height: 1 };
+  await dbV7.imageAssets.put({ ...imageDescriptor, blob: new Blob(["img"], { type: "image/webp" }) });
+  let imageBulkUpdateRows = 0;
+  const originalImageBulkUpdate = dbV7.imageAssets.bulkUpdate.bind(dbV7.imageAssets);
+  dbV7.imageAssets.bulkUpdate = ((updates) => {
+    imageBulkUpdateRows += updates.length;
+    return originalImageBulkUpdate(updates);
+  }) as typeof dbV7.imageAssets.bulkUpdate;
+  try {
+    let imageNoOpLabel = "";
+    const imageNoOp = await installProjection(projection([reorderedFirst], [imageDescriptor]), {
+      onProgress: (progress) => { imageNoOpLabel = progress.label; },
+    });
+    assert.equal(imageNoOp, true);
+    assert.equal(imageBulkUpdateRows, 0, "unchanged image descriptors must not generate IndexedDB writes");
+    assert.equal(imageNoOpLabel, "本机数据无需改写", "unchanged image descriptors must remain a true no-op");
+    assert.ok((await dbV7.imageAssets.get(imageDescriptor.id))?.blob instanceof Blob, "no-op reconcile must preserve the cached Blob");
+
+    const changedDescriptor = { ...imageDescriptor, width: 2 };
+    await installProjection(projection([reorderedFirst], [changedDescriptor]));
+    assert.equal(imageBulkUpdateRows, 1, "a genuinely changed image descriptor must update exactly once");
+    const changedImage = await dbV7.imageAssets.get(imageDescriptor.id);
+    assert.equal(changedImage?.width, 2);
+    assert.ok(changedImage?.blob instanceof Blob, "descriptor updates must preserve the cached Blob bytes");
+  } finally {
+    dbV7.imageAssets.bulkUpdate = originalImageBulkUpdate;
+  }
+
+  const manyQuestions = Array.from({ length: 501 }, (_, index) => question(`bulk-${index}`, `分块比较 ${index}`));
+  let questionBulkGetCalls = 0;
+  const originalQuestionBulkGet = dbV7.questions.bulkGet.bind(dbV7.questions);
+  dbV7.questions.bulkGet = ((keys) => {
+    questionBulkGetCalls += 1;
+    return originalQuestionBulkGet(keys);
+  }) as typeof dbV7.questions.bulkGet;
+  try {
+    await installProjection(projection(manyQuestions));
+  } finally {
+    dbV7.questions.bulkGet = originalQuestionBulkGet;
+  }
+  assert.ok(questionBulkGetCalls >= 2, "large projection planning must compare rows in bounded bulkGet chunks rather than materializing the whole table");
 } finally {
   dbV7.questions.clear = originalQuestionClear;
   await resetV7Database();

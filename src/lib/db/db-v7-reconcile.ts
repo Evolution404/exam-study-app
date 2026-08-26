@@ -21,6 +21,7 @@ interface ReconcilePlan<T> {
 }
 
 const RECONCILE_BATCH_SIZE = 150;
+const RECONCILE_PLAN_READ_BATCH_SIZE = 500;
 const RECONCILE_STALL_TIMEOUT_MS = 30_000;
 
 function queueRow(record: V7ChangeSetQueueGuard): string {
@@ -59,26 +60,81 @@ function equivalent(left: unknown, right: unknown): boolean {
 }
 
 async function planTable<T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string | undefined): Promise<ReconcilePlan<T>> {
-  const current = await table.toArray();
-  const currentByKey = new Map<string, T>();
-  for (const row of current) {
-    const key = keyOf(row);
-    if (key === undefined) throw new Error(`本机 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
-    currentByKey.set(key, row);
-  }
+  // Read only primary keys up front, then compare incoming rows in bounded chunks.
+  // This keeps WKWebView from materializing an entire large object store (notably
+  // attempts) in JS merely to discover that nearly every row is unchanged.
+  const rawCurrentKeys = await table.toCollection().primaryKeys();
+  const currentKeys = rawCurrentKeys.map((key) => {
+    if (typeof key !== "string") throw new Error(`本机 ${table.name} 存在非字符串主键，无法安全增量同步。`);
+    return key;
+  });
   const incomingKeys = new Set<string>();
   const puts: T[] = [];
 
-  for (const row of incoming) {
-    const key = keyOf(row);
-    if (key === undefined) throw new Error(`远端 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
-    incomingKeys.add(key);
-    const old = currentByKey.get(key);
-    if (old === undefined || !equivalent(old, row)) puts.push(row);
+  for (let index = 0; index < incoming.length; index += RECONCILE_PLAN_READ_BATCH_SIZE) {
+    const rows = incoming.slice(index, index + RECONCILE_PLAN_READ_BATCH_SIZE);
+    const keys = rows.map((row) => {
+      const key = keyOf(row);
+      if (key === undefined) throw new Error(`远端 ${table.name} 存在缺少主键的记录，无法安全增量同步。`);
+      if (incomingKeys.has(key)) throw new Error(`远端 ${table.name} 存在重复主键 ${key}，无法安全增量同步。`);
+      incomingKeys.add(key);
+      return key;
+    });
+    const current = await table.bulkGet(keys);
+    for (let offset = 0; offset < rows.length; offset += 1) {
+      const old = current[offset];
+      if (old === undefined || !equivalent(old, rows[offset])) puts.push(rows[offset]);
+    }
   }
 
-  const deletes = [...currentByKey.keys()].filter((key) => !incomingKeys.has(key));
+  const deletes = currentKeys.filter((key) => !incomingKeys.has(key));
   return { puts, deletes };
+}
+
+function canonicalImageDescriptor(asset: {
+  id: string; mimeType: string; size: number; width: number; height: number; remote?: unknown;
+}): Record<string, unknown> {
+  return {
+    id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height,
+    ...(asset.remote !== undefined ? { remote: asset.remote } : {}),
+  };
+}
+
+async function planImageAssets(incoming: V7RestoreState["imageAssets"]): Promise<{
+  updates: V7RestoreState["imageAssets"]; inserts: V7RestoreState["imageAssets"]; deletes: string[];
+}> {
+  const rawCurrentKeys = await dbV7.imageAssets.toCollection().primaryKeys();
+  const currentKeys = rawCurrentKeys.map((key) => {
+    if (typeof key !== "string") throw new Error("本机 imageAssets 存在非字符串主键，无法安全增量同步。");
+    return key;
+  });
+  const currentIds = new Set(currentKeys);
+  const incomingIds = new Set<string>();
+  const updates: V7RestoreState["imageAssets"] = [];
+  const inserts: V7RestoreState["imageAssets"] = [];
+  const existing: V7RestoreState["imageAssets"] = [];
+
+  for (const asset of incoming) {
+    if (incomingIds.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全增量同步。`);
+    incomingIds.add(asset.id);
+    if (currentIds.has(asset.id)) existing.push(asset);
+    else inserts.push(asset);
+  }
+
+  // Blob bytes remain local cache data. Compare only the small descriptor and
+  // do so in bounded chunks, so unchanged images produce zero IndexedDB writes
+  // without materializing every cached Blob at once.
+  for (let index = 0; index < existing.length; index += RECONCILE_PLAN_READ_BATCH_SIZE) {
+    const rows = existing.slice(index, index + RECONCILE_PLAN_READ_BATCH_SIZE);
+    const current = await dbV7.imageAssets.bulkGet(rows.map((asset) => asset.id));
+    for (let offset = 0; offset < rows.length; offset += 1) {
+      const old = current[offset];
+      if (!old) inserts.push(rows[offset]);
+      else if (!equivalent(canonicalImageDescriptor(old), canonicalImageDescriptor(rows[offset]))) updates.push(rows[offset]);
+    }
+  }
+
+  return { updates, inserts, deletes: currentKeys.filter((id) => !incomingIds.has(id)) };
 }
 
 async function applyPlan<T>(
@@ -134,14 +190,7 @@ export async function reconcileV7Projection(
   const roundProgressPlan = await planTable(dbV7.reviewRoundProgress, state.reviewRoundProgress, (row) => row.key);
   const tombstonePlan = await planTable(dbV7.tombstones, state.tombstones, (row) => row.key);
 
-  // Images keep cached Blob bytes. Inspect only keys while planning; descriptor
-  // updates below use bulkUpdate and never round-trip every Blob through JS.
-  const existingAssetKeys = await dbV7.imageAssets.toCollection().primaryKeys();
-  const existingAssetIds = new Set(existingAssetKeys.filter((key): key is string => typeof key === "string"));
-  const incomingAssetIds = new Set(state.imageAssets.map((asset) => asset.id));
-  const removedAssetIds = [...existingAssetIds].filter((id) => !incomingAssetIds.has(id));
-  const existingDescriptors = state.imageAssets.filter((asset) => existingAssetIds.has(asset.id));
-  const newDescriptors = state.imageAssets.filter((asset) => !existingAssetIds.has(asset.id));
+  const imagePlan = await planImageAssets(state.imageAssets);
 
   const rowOps =
     bankPlan.puts.length + bankPlan.deletes.length
@@ -158,7 +207,7 @@ export async function reconcileV7Projection(
     + roundPlan.puts.length + roundPlan.deletes.length
     + roundProgressPlan.puts.length + roundProgressPlan.deletes.length
     + tombstonePlan.puts.length + tombstonePlan.deletes.length
-    + removedAssetIds.length + existingDescriptors.length + newDescriptors.length;
+    + imagePlan.deletes.length + imagePlan.updates.length + imagePlan.inserts.length;
   const totalOps = Math.max(1, rowOps);
 
   const transactionTables = [
@@ -214,13 +263,13 @@ export async function reconcileV7Projection(
       await applyPlan(dbV7.reviewRoundProgress, roundProgressPlan, { put: "更新轮次进度", remove: "清理轮次进度" }, progress);
       await applyPlan(dbV7.tombstones, tombstonePlan, { put: "更新删除标记", remove: "清理删除标记" }, progress);
 
-      for (let index = 0; index < removedAssetIds.length; index += RECONCILE_BATCH_SIZE) {
-        const chunk = removedAssetIds.slice(index, index + RECONCILE_BATCH_SIZE);
+      for (let index = 0; index < imagePlan.deletes.length; index += RECONCILE_BATCH_SIZE) {
+        const chunk = imagePlan.deletes.slice(index, index + RECONCILE_BATCH_SIZE);
         await dbV7.imageAssets.bulkDelete(chunk);
         progress(chunk.length, "清理图片索引");
       }
-      for (let index = 0; index < existingDescriptors.length; index += RECONCILE_BATCH_SIZE) {
-        const chunk = existingDescriptors.slice(index, index + RECONCILE_BATCH_SIZE);
+      for (let index = 0; index < imagePlan.updates.length; index += RECONCILE_BATCH_SIZE) {
+        const chunk = imagePlan.updates.slice(index, index + RECONCILE_BATCH_SIZE);
         await dbV7.imageAssets.bulkUpdate(chunk.map((asset) => ({
           key: asset.id,
           changes: {
@@ -229,13 +278,12 @@ export async function reconcileV7Projection(
             width: asset.width,
             height: asset.height,
             remote: asset.remote,
-            ...(asset.blob ? { blob: asset.blob } : {}),
           },
         })));
         progress(chunk.length, "更新图片索引");
       }
-      for (let index = 0; index < newDescriptors.length; index += RECONCILE_BATCH_SIZE) {
-        const chunk = newDescriptors.slice(index, index + RECONCILE_BATCH_SIZE);
+      for (let index = 0; index < imagePlan.inserts.length; index += RECONCILE_BATCH_SIZE) {
+        const chunk = imagePlan.inserts.slice(index, index + RECONCILE_BATCH_SIZE);
         await dbV7.imageAssets.bulkPut(chunk);
         progress(chunk.length, "写入图片索引");
       }
