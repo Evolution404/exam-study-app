@@ -36,6 +36,16 @@ jobs:
           python3 scripts/tmp-latest-only-fixes8.py
           python3 scripts/tmp-latest-only-fixes9.py
           python3 scripts/tmp-latest-only-fixes10.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/lib/db/db-v7-restore.ts')
+          text = path.read_text(encoding='utf-8')
+          old = 'await writeChunks(memberships, (chunk) => dbV7.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");'
+          new = 'await writeChunks(state.memberships, (chunk) => dbV7.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");'
+          if old not in text:
+              raise RuntimeError('db-v7-restore memberships cutoff target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python3 scripts/tmp-latest-only-diagnostic.py
           python3 scripts/tmp-latest-only-semantic-scan.py
           python3 scripts/tmp-latest-only-target-scan.py
