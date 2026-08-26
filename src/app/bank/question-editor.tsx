@@ -15,13 +15,13 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockEditor } from "@/app/bank/content-block-editor";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer } from "@/app/practice/calculation-content-renderer";
-import { calculationAnswers, fillBlankAnswers, legacyAnswerForSolution, MAX_CALCULATION_BLANKS, MAX_FILL_BLANKS, normalizeCalculationAnswer, normalizeFillSolution, questionSolution, stableQuestionOptionIds, shortAnswerSolution, validateCalculationBlankLayout } from "@/lib/question/question-utils";
+import { calculationAnswers, MAX_CALCULATION_BLANKS, MAX_FILL_BLANKS, normalizeCalculationAnswer, normalizeFillSolution, solutionAnswerText, stableQuestionOptionIds, shortAnswerSolution, validateCalculationBlankLayout } from "@/lib/question/question-utils";
 import { cleanVisualWrapQuestion } from "@/lib/question/imported-text-cleanup";
 
-/** Changes accepted by v7 question update/create callers. */
-export type QuestionChanges = QuestionDraftV7 & { solution?: QuestionSolution; optionIds?: string[] };
+/** Canonical changes accepted by v7 question update/create callers. */
+export type QuestionChanges = Omit<QuestionDraftV7, "answer"> & { solution: QuestionSolution; optionIds?: string[] };
 
-/** Presentation-only join used by legacy-shaped layouts. Canonical content remains `canonical`. */
+/** Presentation-only join. Canonical content and solution remain in `canonical`. */
 export interface QuestionViewModel {
   canonical: QuestionV7;
   id: string;
@@ -30,12 +30,11 @@ export interface QuestionViewModel {
   sortOrder: number;
   stem: string;
   normalizedStem: string;
-  answer: string;
   options: string[];
   type: QuestionTypeV7;
   tags: string[];
   favorite?: boolean;
-  solution?: QuestionSolution;
+  solution: QuestionSolution;
   optionIds?: string[];
 }
 
@@ -50,7 +49,6 @@ export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName 
     sortOrder,
     stem,
     normalizedStem: stem.normalize("NFKC").toLocaleLowerCase("zh-CN"),
-    answer: canonical.answer,
     options: canonical.options.map((blocks) => deriveContentText(blocks)),
     type: canonical.type,
     tags: [...canonical.tags],
@@ -72,9 +70,8 @@ function defaultOptions(type: QuestionTypeV7): ContentBlock[][] {
   return Array.from({ length: 4 }, (_, index) => textBlocks("", `option-${index}`));
 }
 
-function normalizeAnswer(type: QuestionTypeV7, answer: string): string {
-  if (type === "计算") return normalizeCalculationAnswer(answer);
-  if (type === "填空" || type === "简答") return answer.trim();
+function normalizeChoiceAnswer(type: QuestionTypeV7, answer: string): string {
+  if (type === "填空" || type === "简答" || type === "计算") return answer.trim();
   return [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, "").split(""))].sort().join("");
 }
 
@@ -105,36 +102,24 @@ export async function loadImageAssetV7(assetId: string): Promise<Blob | undefine
   }
 }
 
-export function QuestionEditor({
-  question,
-  onSave,
-  onCancel,
-  title = "编辑题目",
-  eyebrow = "使用 v7 富内容模型",
-  submitLabel = "保存修改",
-  initialNote = "",
-}: {
+export function QuestionEditor({ question, onSave, onCancel, title = "编辑题目", eyebrow = "使用 v7 富内容模型", submitLabel = "保存修改", initialNote = "" }: {
   question: QuestionV7;
   onSave: (changes: QuestionChanges, note?: string) => Promise<void>;
   onCancel: () => void;
   title?: string;
   eyebrow?: string;
   submitLabel?: string;
-  /** Current personal note; the editor saves it back only when it changes. */
   initialNote?: string;
 }) {
   const [content, setContent] = useState<ContentBlock[]>(question.content.map((block) => ({ ...block })));
   const [options, setOptions] = useState<ContentBlock[][]>(question.options.map((blocks) => blocks.map((block) => ({ ...block }))));
-  const [answer, setAnswer] = useState(question.answer);
+  const initialOptionIds = stableQuestionOptionIds(question);
+  const [answer, setAnswer] = useState(() => solutionAnswerText(question.solution, initialOptionIds));
   const [type, setType] = useState<QuestionTypeV7>(question.type);
-  const initialStructuredSolution = questionSolution(question);
-  const [fillBlanks, setFillBlanks] = useState<string[][]>(() => initialStructuredSolution.kind === "fill" ? initialStructuredSolution.blanks.map((blank) => [...blank.acceptedAnswers]) : fillBlankAnswers(question.answer));
-  const [shortReference, setShortReference] = useState(() => initialStructuredSolution.kind === "short" ? initialStructuredSolution.referenceText : "");
+  const [fillBlanks, setFillBlanks] = useState<string[][]>(() => question.solution.kind === "fill" ? question.solution.blanks.map((blank) => [...blank.acceptedAnswers]) : [[]]);
+  const [shortReference, setShortReference] = useState(() => question.solution.kind === "short" ? question.solution.referenceText : "");
   const [tags, setTags] = useState(question.tags.join("，"));
   const [note, setNote] = useState(initialNote);
-  // The existing note is loaded asynchronously by the shared editor (useLiveQuery),
-  // so `initialNote` arrives after mount; sync it into the field until the user
-  // starts editing, so a question that already has a note shows its content.
   const noteLoadedRef = useRef(false);
   useEffect(() => {
     if (!noteLoadedRef.current && initialNote) { setNote(initialNote); noteLoadedRef.current = true; }
@@ -142,7 +127,7 @@ export function QuestionEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const answerText = useMemo(() => type === "计算" ? "" : normalizeAnswer(type, answer), [answer, type]);
+  const answerText = useMemo(() => type === "计算" ? "" : normalizeChoiceAnswer(type, answer), [answer, type]);
   const calculationAnswerValues = useMemo(() => type === "计算" ? calculationAnswers(answer) : [], [answer, type]);
 
   function updateCalculationAnswer(index: number, value: string) {
@@ -165,7 +150,7 @@ export function QuestionEditor({
       setOptions([]);
       setAnswer("");
       setShortReference("");
-    } else if (type === "计算" || type === "判断") {
+    } else if (type === "计算" || type === "判断" || type === "填空" || type === "简答") {
       setOptions(defaultOptions(value));
       setAnswer("A");
     } else if (value === "单选" && answer.length > 1) {
@@ -175,7 +160,7 @@ export function QuestionEditor({
 
   function toggleAnswer(letter: string) {
     if (type === "多选") {
-      setAnswer(normalizeAnswer(type, answer.includes(letter) ? answer.replace(letter, "") : `${answer}${letter}`));
+      setAnswer(normalizeChoiceAnswer(type, answer.includes(letter) ? answer.replace(letter, "") : `${answer}${letter}`));
     } else setAnswer(letter);
   }
 
@@ -191,7 +176,7 @@ export function QuestionEditor({
   function removeOption(index: number) {
     const next = options.filter((_, optionIndex) => optionIndex !== index);
     setOptions(next);
-    setAnswer(normalizeAnswer(type, answer.replace(String.fromCharCode(65 + index), "")));
+    setAnswer(normalizeChoiceAnswer(type, answer.replace(String.fromCharCode(65 + index), "")));
   }
 
   function updateFillBlank(index: number, value: string) {
@@ -203,41 +188,37 @@ export function QuestionEditor({
       setSaving(true);
       setError("");
       const normalizedOptions = type === "计算" || type === "填空" || type === "简答" ? [] : options;
-      let normalizedAnswer = "";
       let solution: QuestionSolution;
+      let calculationAnswer = "";
       if (type === "计算") {
-        normalizedAnswer = normalizeCalculationAnswer(calculationAnswerValues);
-        solution = questionSolution({ type, answer: normalizedAnswer, options: normalizedOptions });
+        calculationAnswer = normalizeCalculationAnswer(calculationAnswerValues);
+        solution = {
+          kind: "calculation",
+          blanks: calculationAnswers(calculationAnswer).map((value, index) => ({ id: `blank-${index + 1}`, expected: Number(value) })),
+        };
       } else if (type === "填空") {
         solution = normalizeFillSolution(fillBlanks);
-        normalizedAnswer = legacyAnswerForSolution(solution);
       } else if (type === "简答") {
         solution = shortAnswerSolution(shortReference);
-        normalizedAnswer = solution.referenceText;
       } else {
-        normalizedAnswer = normalizeAnswer(type, answer);
+        const normalizedAnswer = normalizeChoiceAnswer(type, answer);
+        if (!normalizedAnswer) throw new Error("请填写正确答案。");
         const optionIds = stableQuestionOptionIds({ options: normalizedOptions, optionIds: question.optionIds });
         solution = { kind: "choice", correctOptionIds: [...normalizedAnswer].map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id)) };
       }
       if (!deriveContentText(content).trim() && !content.some((block) => block.type === "image")) throw new Error("题干不能为空。");
       if (!["计算", "填空", "简答"].includes(type) && normalizedOptions.length < 2) throw new Error("至少需要两个选项。");
-      if (!normalizedAnswer) throw new Error("请填写正确答案。");
-      if (type === "计算") validateCalculationBlankLayout(deriveContentText(content), normalizedAnswer);
+      if (type === "计算") validateCalculationBlankLayout(deriveContentText(content), calculationAnswer);
       if (type === "简答" && !shortReference.trim()) throw new Error("请填写参考答案。");
-      // Forward the personal note only when it changed; callers persist it to
-      // the resolved question id (which may differ in a shared-question split).
       const notePayload = note !== initialNote ? note : undefined;
       await onSave({
         type,
         content,
         options: normalizedOptions,
-        answer: normalizedAnswer,
         solution,
         ...(type === "单选" || type === "多选" || type === "判断" ? { optionIds: stableQuestionOptionIds({ options: normalizedOptions, optionIds: question.optionIds }) } : {}),
         tags: tags.split(/[，,、\n]+/).map((tag) => tag.trim()).filter(Boolean),
       }, notePayload);
-      // Shared-question editing may open a decision dialog without unmounting
-      // this editor; keep the form usable if that decision is cancelled.
       setSaving(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "保存失败");
@@ -262,18 +243,8 @@ export function QuestionEditor({
   </section></div></ModalPortal>;
 }
 
-/**
- * Shared-question editing guard. A canonical question can be a member of
- * several banks, so saving must explicitly choose synchronized editing or a
- * split clone before touching the v7 row.
- */
-export function SharedQuestionEditor({
-  question,
-  preferredBankId,
-  onCancel,
-  onSaved,
-  title = "编辑题目",
-}: {
+/** Shared-question editing guard. */
+export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSaved, title = "编辑题目" }: {
   question: QuestionV7;
   preferredBankId?: string;
   onCancel: () => void;
@@ -340,8 +311,6 @@ export function SharedQuestionEditor({
         await updateQuestionV7(clone.id, changes);
         targetId = clone.id;
       }
-      // Persist the personal note to the resolved question (the clone on a
-      // split); an undefined note means the editor left it unchanged.
       if (note !== undefined) await saveNoteV7(targetId, note);
       onSaved();
       return true;
@@ -354,8 +323,6 @@ export function SharedQuestionEditor({
   }
 
   async function save(changes: QuestionChanges, note?: string) {
-    // Do not treat the initial empty state as an unfiled/single-membership
-    // question. A fast save must wait for the authoritative membership join.
     if (membershipLoadFailed) throw new Error(membershipLoadError?.message || error || "无法读取题库归属，请稍后重试。");
     let rows = memberships;
     if (!membershipsReady) {
