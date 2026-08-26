@@ -26,6 +26,14 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          importer = Path('src/lib/db/db-v7-question-import.ts')
+          text = importer.read_text()
+          old = '      bankId,\n      questionId: question.id,'
+          new = '      bankId: bank.id,\n      questionId: question.id,'
+          if text.count(old) != 1:
+            raise SystemExit('import membership bankId scope match failed')
+          importer.write_text(text.replace(old, new))
+
           path = Path('scripts/tests/test-question-images.ts')
           text = path.read_text()
           replacements = {
@@ -71,7 +79,7 @@ jobs:
           rm .github/workflows/tmp-latest-only-fixture-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/tests/test-question-images.ts scripts/tests/browser/fixtures.mjs .github/workflows/tmp-latest-only-fixture-cleanup.yml
+          git add src/lib/db/db-v7-question-import.ts scripts/tests/test-question-images.ts scripts/tests/browser/fixtures.mjs .github/workflows/tmp-latest-only-fixture-cleanup.yml
           git diff --cached --check
-          git commit -m "test: use canonical question solutions [latest-only-verified]"
+          git commit -m "refactor: fix canonical question import fixtures [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
