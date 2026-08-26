@@ -147,6 +147,14 @@ jobs:
           shared_membership = '    await createQuestionV7(bankY.id, singleChoice("X与Y共享题", "A", ["对", "错"])); // 显式复用 qShared，建立 Y 关系'
           s = replace_once(s, shared_import, shared_membership, 'explicit shared membership')
           p.write_text(s)
+
+          p = Path('scripts/tests/test-sync-coalescing.ts')
+          s = p.read_text()
+          for tag in ['合并测试', '混合合并', '压缩触发']:
+              old = f'    answer: "A",\n    tags: ["{tag}"],'
+              new = f'    optionIds: ["opt-0", "opt-1", "opt-2", "opt-3"],\n    solution: {{ kind: "choice", correctOptionIds: ["opt-0"] }},\n    tags: ["{tag}"],'
+              s = replace_once(s, old, new, f'coalescing {tag}')
+          p.write_text(s)
           PY
       - run: npm ci
       - run: npm run test:xlsx
@@ -162,7 +170,7 @@ jobs:
           rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts scripts/tests/test-sync-coalescing.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git diff --cached --check
           git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
