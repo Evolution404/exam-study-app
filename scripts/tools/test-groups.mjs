@@ -5,6 +5,7 @@ export const testGroups = {
     "test:active-elapsed",
     "test:history-sync-range",
     "test:notice-tone",
+    "test:shell-controllers",
     "test:shortcuts",
     "test:xlsx",
     "test:note-markdown",
