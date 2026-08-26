@@ -271,8 +271,14 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const firstProjectionInstall = !installedHead;
     const needsInstall = !downloaded.reusedCache || projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
     if (needsInstall) {
-      report(progress, "merge", `正在写入 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题与 ${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
-      const installed = await installProjection(rebasedProjection, { queueGuard: queueSnapshot });
+      report(progress, "merge", `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`, bandPercent(bands.install, 0.02), bands.install[1]);
+      const installed = await installProjection(rebasedProjection, {
+        queueGuard: queueSnapshot,
+        onProgress: ({ completed, total, label }) => {
+          const fraction = total ? completed / total : 1;
+          report(progress, "merge", `${label}（${completed.toLocaleString("zh-CN")}/${total.toLocaleString("zh-CN")}）`, bandPercent(bands.install, fraction), bands.install[1]);
+        },
+      });
       if (!installed) continue;
       report(progress, "merge", "本机数据已更新", bandPercent(bands.install, 1), bands.install[1]);
       installedHead = installFingerprint(read.cache);
@@ -447,10 +453,10 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
 }
 
-// B5: serialize all in-realm callers of syncWithGitHub. Manual sync, auto-sync,
-// quick-sync and loadAttemptHistory all funnel here; a module-level mutex makes
-// concurrent calls share the single in-flight run instead of racing the claim /
-// install / head-CAS steps. (Cross-tab remains a Web Locks follow-up.)
+// B5: coalesce all in-realm callers of syncWithGitHub. Manual sync, auto-sync,
+// quick-sync and loadAttemptHistory all funnel here; withSyncLock additionally
+// serializes pull/restore and extends the critical section across tabs/workers
+// whenever Web Locks are available.
 let syncInFlight: ReturnType<typeof syncWithGitHubInternal> | null = null;
 export async function syncWithGitHub(settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) {
   if (syncInFlight) return syncInFlight;
@@ -478,17 +484,26 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
     const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
     const progress = monotonicProgress(callback);
     report(progress, "download", "正在从远端抓取完整 v9 数据", bandPercent(bands.download, 0.02), bands.download[1]);
-    const historySyncStart = historySyncStartFor(settings);
-    const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]), { historySyncStart });
-    const projection = filterProjectionHistoryV7(replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1])), historySyncStart);
-    report(progress, "merge", `正在写入 ${projection.questions.length.toLocaleString("zh-CN")} 道题到本机`, bandPercent(bands.install, 0.3), bands.install[1]);
-    const installed = await installProjection(projection, { queueGuard: queueSnapshot, clearChangeSets: true });
+    // Explicit "remote full restore" deliberately ignores the device-local history
+    // window. Ordinary sync continues to honor historySyncStart, but a recovery
+    // action must restore every remote attempt/run exactly as its UI promises.
+    const downloaded = await downloadRemoteV7(client, read.head, undefined, (fraction, label) => report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]), {});
+    const projection = replayInWireOrder(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]));
+    report(progress, "merge", `正在比较本机数据（远端 ${projection.questions.length.toLocaleString("zh-CN")} 道题、${projection.attempts.length.toLocaleString("zh-CN")} 条作答）`, bandPercent(bands.install, 0.02), bands.install[1]);
+    const installed = await installProjection(projection, {
+      queueGuard: queueSnapshot,
+      clearChangeSets: true,
+      onProgress: ({ completed, total, label }) => {
+        const fraction = total ? completed / total : 1;
+        report(progress, "merge", `${label}（${completed.toLocaleString("zh-CN")}/${total.toLocaleString("zh-CN")}）`, bandPercent(bands.install, fraction), bands.install[1]);
+      },
+    });
     if (!installed) throw new Error("恢复期间检测到新的本地更改，请先同步或处理后再重试。");
     report(progress, "cache", "正在重建本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
     await dbV7.changeSets.bulkPut(downloaded.changes.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
     await saveHeadCache(settings, read.cache);
     const checkpoint = await createSyncCheckpointV7();
-    await saveRemoteCache(settings, checkpoint, read.cache);
+    await saveRemoteCache({ ...settings, historySyncStart: undefined }, checkpoint, read.cache);
     await saveQueueBase(projection);
     await saveInstalledHead(settings, installFingerprint(read.cache));
     await saveInstalledCursors(settings, read.head.cursors);
@@ -497,7 +512,7 @@ export async function restoreFullHistoryFromGitHub(settings: GitHubSettings, tok
     // superseded pre-upgrade local namespaces can now be released.
     await dropLegacyLocalDatabases();
     report(callback, "complete", "v9 远端恢复完成", 100);
-    return { pulled: downloaded.changes.length, formatVersion: 9 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns, skippedArchivedAttempts: downloaded.skippedArchivedAttempts, skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart };
+    return { pulled: downloaded.changes.length, formatVersion: 9 as const, counts: checkpoint.counts, deferred: 0, cachedAt: new Date().toISOString(), archivedAttempts: downloaded.archivedAttempts, archivedPracticeRuns: downloaded.archivedPracticeRuns, skippedArchivedAttempts: downloaded.skippedArchivedAttempts, skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart: undefined };
   });
 }
 

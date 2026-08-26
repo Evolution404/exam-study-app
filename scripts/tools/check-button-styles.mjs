@@ -9,7 +9,7 @@ const styleFiles = fs.readdirSync(stylesDir).filter((file) => file.endsWith(".cs
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const fail = (message) => { throw new Error(`按钮样式守卫失败：${message}`); };
 
-let buttonHexBudget = 135;
+let buttonHexBudget = 0;
 let bareButtonBudget = {
   "src/app/bank/bank-library/bank-dashboard-widgets.tsx": 0,
   "src/app/bank/bank-library/bank-delete-dialog.tsx": 2,
