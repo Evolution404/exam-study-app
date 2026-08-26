@@ -121,7 +121,9 @@
     "test:sync-data-races": "tsx scripts/tests/test-sync-data-races.ts",
     "test:sync-bank-reorder-folder": "tsx scripts/tests/test-sync-bank-reorder-folder.ts",
     "test:sync-v7-gc": "tsx scripts/tests/test-sync-v7-gc.ts",
-    "test:sync-v8-history": "tsx scripts/tests/test-sync-v8-history.ts"
+    "test:sync-v8-history": "tsx scripts/tests/test-sync-v8-history.ts",
+    "test:shell-controllers": "tsx scripts/tests/test-shell-controllers.ts",
+    "test:deploy-helpers": "tsx scripts/tests/test-deploy-helpers.ts"
   },
   "dependencies": {
     "@capacitor/app": "8.1.1",

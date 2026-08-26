@@ -5,6 +5,7 @@ const manager = await readFile(new URL("../../src/app/sync/sync-event-manager.ts
 const drawer = await readFile(new URL("../../src/app/sync/sync-event-drawer.tsx", import.meta.url), "utf8");
 const syncView = await readFile(new URL("../../src/app/sync/sync-view.tsx", import.meta.url), "utf8");
 const studyApp = await readFile(new URL("../../src/app/shell/app-shell.tsx", import.meta.url), "utf8");
+const quickSyncController = await readFile(new URL("../../src/app/shell/use-quick-sync-controller.ts", import.meta.url), "utf8");
 const hotWindowPanel = await readFile(new URL("../../src/app/sync/sync-hot-window.tsx", import.meta.url), "utf8");
 const styles = (await Promise.all(["sync-events-1.css", "sync-events-2.css"].map((file) => readFile(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")))).join("\n");
 const siteReset = await readFile(new URL("../../src/lib/sync/site-data-reset.ts", import.meta.url), "utf8");
@@ -81,7 +82,7 @@ assert.match(hotWindowPanel, /<dt>热窗口<\/dt><dd><span>[\s\S]*?<\/span><i ar
 assert.match(manager, /statusPanel\?: ReactNode;/, "manager offers a status panel slot below the toolbar");
 assert.match(drawer, /statusPanel=\{<SyncHotWindowPanel hotWindow=\{hotWindow\} syncedAt=\{syncedAt\} \/>/, "drawer feeds the shared panel through the status slot");
 assert.match(studyApp, /hotWindow=\{drawerHotWindow\} syncedAt=\{drawerSyncedAt\}/, "study-app passes hot window state to the drawer");
-assert.match(studyApp, /syncApplication\.getHotWindow\(settings\)/, "drawer hot window state is loaded through the sync application boundary");
+assert.match(quickSyncController, /syncApplication\.getHotWindow\(settings\)/, "drawer hot window state is loaded through the sync application boundary owned by the quick-sync controller");
 const splitStyleNames = (await readdir(new URL("../../src/app/styles/", import.meta.url))).filter((file) => file.endsWith(".css")).sort();
 const componentsCss = (await Promise.all(splitStyleNames.map((file) => readFile(new URL(`../../src/app/styles/${file}`, import.meta.url), "utf8")))).join("\n");
 assert.match(componentsCss, /\.sync-hot-window\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/, "hot window base layout is 3 columns");

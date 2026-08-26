@@ -10,9 +10,6 @@
     "scripts/**/*.{mjs,mts,ts}",
     "proxy/*.js"
   ],
-  "ignore": [
-    "scripts/tests/test-browser-visible.mjs"
-  ],
   "ignoreDependencies": [
     "@fontsource/noto-serif-sc"
   ]

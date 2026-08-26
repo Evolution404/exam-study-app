@@ -5,6 +5,11 @@ const read = (file: string) => fs.readFileSync(new URL(`../../${file}`, import.m
 const makefile = read("Makefile");
 const release = read("scripts/tools/release.mjs");
 const deployWorkflow = read(".github/workflows/deploy-pages.yml");
+const nodeDepsAction = read(".github/actions/node-deps/action.yml");
+const purgeCloudflare = read("scripts/tools/purge-cloudflare-cache.sh");
+const rollbackCloudflare = read("scripts/tools/rollback-cloudflare-pages.sh");
+const publishSideStore = read("scripts/tools/publish-sidestore-release.sh");
+const rollbackSideStore = read("scripts/tools/rollback-sidestore-latest.sh");
 
 for (const target of ["doctor", "status", "verify", "release-check", "release", "publish"]) {
   assert.match(makefile, new RegExp(`^${target}:`, "m"), `Makefile 应提供 ${target} 入口`);
@@ -62,6 +67,12 @@ assert.doesNotMatch(deployWorkflow, /actions\/(?:configure-pages@v5|upload-pages
 assert.match(deployWorkflow, / {2}deploy:[\s\S]*?needs: build/, "GitHub Pages 必须只等待公共构建");
 assert.match(deployWorkflow, / {2}deploy_cloudflare:[\s\S]*?needs: build/, "Cloudflare Pages 必须只等待公共构建");
 assert.match(iosReleaseJob, /needs: build\n/, "IPA 必须只等待公共构建，不能等待网页或测试");
+assert.equal((deployWorkflow.match(/uses: \.\/\.github\/actions\/node-deps/g) ?? []).length, 7, "七个 Node/npm 重复安装点必须复用 composite action");
+assert.match(nodeDepsAction, /actions\/setup-node@v6/, "Node composite 必须继续固定 setup-node v6");
+assert.match(nodeDepsAction, /run: npm ci/, "Node composite 必须保持 lockfile 安装语义");
+assert.match(iosReleaseJob, /scripts\/tools\/publish-sidestore-release\.sh/, "SideStore publish job 必须委托独立 helper");
+assert.match(publishSideStore, /Release \${RELEASE_TAG} 已发布；保持资产不可变/, "已发布 SideStore Release 必须保持资产不可变");
+assert.match(publishSideStore, /gh release upload "\$RELEASE_TAG" "\$IPA_PATH" "\$SOURCE_PATH"\n/, "新 Release 资产上传不得使用 clobber");
 for (const [name, job] of [["fast-check", fastCheckJob], ["PWA smoke", pwaSmokeJob], ["SideStore smoke", sideStoreSmokeJob]] as const) {
   assert.match(job, /needs: \[deploy, deploy_cloudflare, ios_release\]/, `${name} 必须等待三端发布完成`);
   assert.doesNotMatch(job, /needs: \[[^\]]*(?:fast_check|pwa_smoke|sidestore_smoke)/, `${name} 不得串行依赖其他发布后测试`);
@@ -75,10 +86,13 @@ assert.match(deployWorkflow, /name: Build rollback artifact[\s\S]*?GITHUB_SHA: \
 assert.match(deployWorkflow, /name: Deploy rollback artifact[\s\S]*?artifact_name: rollback/, "回退 Pages 部署必须使用 rollback 产物");
 assert.match(deployWorkflow, /rollback_github_pages:[\s\S]*?if: \$\{\{ always\(\) && needs\.deploy\.result == 'success' && \(needs\.fast_check\.result == 'failure' \|\| needs\.pwa_smoke\.result == 'failure' \|\| needs\.sidestore_smoke\.result == 'failure'\) \}\}/, "三项验证任一失败时必须回退 Pages");
 assert.match(deployWorkflow, /previous_deployment_id: \$\{\{ steps\.record-production\.outputs\.deployment_id \}\}/, "Cloudflare 部署必须输出此前 production deployment ID");
-assert.match(deployWorkflow, /\/accounts\/\$\{CLOUDFLARE_ACCOUNT_ID\}\/pages\/projects\/\$\{CLOUDFLARE_PROJECT_NAME\}\/deployments\/\$\{PREVIOUS_DEPLOYMENT_ID\}\/rollback/, "Cloudflare 回退必须调用官方 rollback API");
-assert.match(deployWorkflow, /purge_cache/, "Cloudflare 当前部署和回退后都必须清理边缘缓存");
+assert.match(deployWorkflow, /scripts\/tools\/rollback-cloudflare-pages\.sh/, "Cloudflare 回退 job 必须委托独立 helper");
+assert.match(rollbackCloudflare, /\/accounts\/\$\{CLOUDFLARE_ACCOUNT_ID\}\/pages\/projects\/\$\{CLOUDFLARE_PROJECT_NAME\}\/deployments\/\$\{PREVIOUS_DEPLOYMENT_ID\}\/rollback/, "Cloudflare helper 必须调用官方 rollback API");
+assert.equal((deployWorkflow.match(/scripts\/tools\/purge-cloudflare-cache\.sh/g) ?? []).length, 2, "Cloudflare 当前部署和回退后都必须调用同一 purge helper");
+assert.match(purgeCloudflare, /purge_cache/, "Cloudflare purge helper 必须调用官方 purge_cache API");
 assert.match(deployWorkflow, /CLOUDFLARE_API_TOKEN != '' && env\.CLOUDFLARE_ACCOUNT_ID != ''/, "Cloudflare 凭据缺失时必须安全跳过 API 步骤");
-assert.match(deployWorkflow, /rollback_ios_release:[\s\S]*?gh release edit "\$PREVIOUS_RELEASE_TAG"[\s\S]*?--latest/, "测试失败时必须恢复此前 SideStore latest");
+assert.match(deployWorkflow, /rollback_ios_release:[\s\S]*?scripts\/tools\/rollback-sidestore-latest\.sh/, "SideStore rollback job 必须委托独立 helper");
+assert.match(rollbackSideStore, /gh release edit "\$PREVIOUS_RELEASE_TAG"[\s\S]*?--latest/, "测试失败时 helper 必须恢复此前 SideStore latest");
 assert.match(deployWorkflow, /previous_release_tag: \$\{\{ steps\.previous-release\.outputs\.tag \}\}/, "IPA 发布必须输出此前 Release 标签供回退");
 
 console.log("release workflow assertions passed: bounded staging, three-target parallel publish, post-deploy verification and rollback");
