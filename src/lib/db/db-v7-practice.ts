@@ -270,17 +270,17 @@ function addAttemptToStatsV7(current: AttemptStatsV7 | undefined, attempt: Attem
       correct: attempt.correct ? 1 : 0,
       wrong: attempt.correct ? 0 : 1,
       giveUps: attempt.selected ? 0 : 1,
-      totalElapsedMs: Math.max(0, attempt.elapsedMs || 0),
+      totalElapsedMs: Math.max(0, attempt.elapsedMs),
       firstAttemptAt: attempt.createdAt,
       firstAttemptCorrect: attempt.correct,
       latestAttemptAt: attempt.createdAt,
       hasBeenWrong: !attempt.correct,
       correctStreakAfterWrong: 0,
       currentCorrectStreak: attempt.correct ? 1 : 0,
-      recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }],
+      recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }],
     };
   }
-  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
+  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
   let currentCorrectStreak = 0;
@@ -292,7 +292,7 @@ function addAttemptToStatsV7(current: AttemptStatsV7 | undefined, attempt: Attem
     correct: current.correct + (attempt.correct ? 1 : 0),
     wrong: current.wrong + (attempt.correct ? 0 : 1),
     giveUps: current.giveUps + (attempt.selected ? 0 : 1),
-    totalElapsedMs: current.totalElapsedMs + Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: current.totalElapsedMs + Math.max(0, attempt.elapsedMs),
     firstAttemptAt: first ? attempt.createdAt : current.firstAttemptAt,
     firstAttemptCorrect: first ? attempt.correct : current.firstAttemptCorrect,
     latestAttemptAt: attempt.createdAt > current.latestAttemptAt ? attempt.createdAt : current.latestAttemptAt,
@@ -312,14 +312,14 @@ function addDailyStatsV7(current: AttemptDailyStatsV7 | undefined, attempt: Atte
     correct: (current?.correct ?? 0) + (attempt.correct ? 1 : 0),
     wrong: (current?.wrong ?? 0) + (attempt.correct ? 0 : 1),
     giveUps: (current?.giveUps ?? 0) + (attempt.selected ? 0 : 1),
-    totalElapsedMs: (current?.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: (current?.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs),
   };
 }
 
 async function progressForAnswerInTx(roundId: string, questionId: string, attempt: AttemptV7): Promise<void> {
   const key = `${roundId}:${questionId}`;
   const current = await dbV7.reviewRoundProgress.get(key);
-  const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
+  const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
   let currentCorrectStreak = 0;
@@ -336,7 +336,7 @@ async function progressForAnswerInTx(roundId: string, questionId: string, attemp
     firstAttemptAt: first ? attempt.createdAt : current.firstAttemptAt,
     latestAttemptAt: current && current.latestAttemptAt > attempt.createdAt ? current.latestAttemptAt : attempt.createdAt,
     giveUps: (current ? current.giveUps : 0) + (attempt.selected ? 0 : 1),
-    totalElapsedMs: (current ? current.totalElapsedMs : 0) + Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: (current ? current.totalElapsedMs : 0) + Math.max(0, attempt.elapsedMs),
     firstAttemptCorrect: first ? attempt.correct : current.firstAttemptCorrect,
     hasBeenWrong,
     currentCorrectStreak,
@@ -355,6 +355,7 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
   // value more than once, so answer state must preserve order and duplicates.
   const selected = (Array.isArray(input.selected) ? [...input.selected] : [input.selected]).map(String);
   const timestamp = input.createdAt ?? nowIso();
+  if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw new Error("当前作答必须提供有效 elapsedMs。");
   const selectedAnswer = selected.join("");
   return dbV7.transaction("rw", [
     dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.practiceRuns,
@@ -399,7 +400,7 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
       questionId: input.questionId,
       selected: selectedAnswer,
       correct: Boolean(input.correct),
-      elapsedMs: Math.max(0, Number(input.elapsedMs) || 0),
+      elapsedMs: input.elapsedMs,
       createdAt: timestamp,
       deviceId,
       ...(sourceBankId ? { sourceBankId } : {}),

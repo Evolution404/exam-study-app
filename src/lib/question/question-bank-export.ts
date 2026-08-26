@@ -399,7 +399,7 @@ async function browserWebpToPng(blob: Blob): Promise<Blob> {
 }
 
 /** Gather exportable image bytes through a bounded pool. Excel converts WebP
- *  to PNG for WPS cell-image compatibility; bundles preserve original bytes
+ *  to PNG for WPS cell-image support; bundles preserve original bytes
  *  and MIME types so content-addressed asset ids remain valid. */
 export async function collectExportImages(
   questions: readonly ExportQuestionInput[],

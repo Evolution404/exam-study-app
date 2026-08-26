@@ -52,7 +52,7 @@ try {
   const q2 = await createQuestionV7(bank.id, singleChoice("往返题二", "A"));
   await saveNoteV7(q1.id, "往返解析笔记");
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q1.id] });
-  await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true });
+  await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true, elapsedMs: 10 });
   await saveQuestionGroupV7({ name: "往返题组", type: "自定义", description: "组说明", items: [{ questionId: q1.id, note: "组内提示" }] });
   await createReviewRoundV7({ name: "往返复习轮", bankIds: [bank.id] });
   await putImageAssetDescriptorV7({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });

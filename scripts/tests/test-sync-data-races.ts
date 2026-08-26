@@ -63,8 +63,8 @@ await resetV7Database();
   });
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [firstQuestion.id, secondQuestion.id] });
   await Promise.all([
-    recordPracticeAnswerV7({ runId: run.id, questionId: firstQuestion.id, selected: ["A"], correct: true, createdAt: "2026-01-01T00:00:00.001Z" }),
-    recordPracticeAnswerV7({ runId: run.id, questionId: secondQuestion.id, selected: ["B"], correct: true, createdAt: "2026-01-01T00:00:00.002Z" }),
+    recordPracticeAnswerV7({ runId: run.id, questionId: firstQuestion.id, selected: ["A"], correct: true, createdAt: "2026-01-01T00:00:00.001Z", elapsedMs: 10 }),
+    recordPracticeAnswerV7({ runId: run.id, questionId: secondQuestion.id, selected: ["B"], correct: true, createdAt: "2026-01-01T00:00:00.002Z", elapsedMs: 10 }),
   ]);
   const stored = await dbV7.practiceRuns.get(run.id);
   assert.ok(stored?.answers[firstQuestion.id]?.submitted, "第一道并发作答应保留");

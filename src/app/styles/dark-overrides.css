@@ -1,4 +1,4 @@
-/* Centralized legacy dark-theme overrides; semantic tokens remain preferred for new code. */
+/* Centralized dark-theme overrides; semantic tokens remain preferred for new code. */
 html[data-theme="dark"] body,
 html[data-theme="dark"] .app-shell,
 html[data-theme="dark"] .workspace{background:var(--p-101612);color:var(--color-text)}

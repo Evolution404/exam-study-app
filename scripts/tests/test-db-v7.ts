@@ -74,7 +74,7 @@ assert.equal((await getBankQuestionsV7(importedB.id)).length, 1);
 // Split copies editable content and note but not historical projections.
 await saveNoteV7(shared.id, "解析");
 const run = await createPracticeRunV7({ bankIds: [importedA.id], questionIds: [shared.id] });
-await recordPracticeAnswerV7({ runId: run.id, questionId: shared.id, selected: ["A"], correct: false });
+await recordPracticeAnswerV7({ runId: run.id, questionId: shared.id, selected: ["A"], correct: false, elapsedMs: 10 });
 const split = await splitQuestionV7(shared.id, [importedA.id, importedB.id]);
 assert.equal(split.clones.length, 1);
 assert.equal((await getBankQuestionsV7(importedA.id)).find((item) => item.id === split.clones[0].id)?.id, split.clones[0].id);
@@ -98,7 +98,7 @@ const parallelRound = await createReviewRoundV7({ name: "parallel", bankIds: [im
 const dynamicTargets = await getReviewRoundQuestionIdsV7(round.id);
 const reviewRun = await createPracticeRunV7({ bankIds: [importedA.id], questionIds: dynamicTargets, reviewRoundId: round.id });
 for (const questionId of dynamicTargets) {
-  await recordPracticeAnswerV7({ runId: reviewRun.id, questionId, selected: ["A"], correct: true, reviewRoundId: round.id });
+  await recordPracticeAnswerV7({ runId: reviewRun.id, questionId, selected: ["A"], correct: true, reviewRoundId: round.id, elapsedMs: 10 });
 }
 const roundEvidence = await dbV7.reviewRoundProgress.get(`${round.id}:${dynamicTargets[0]}`);
 assert.equal(roundEvidence?.recentOutcomes?.length, 1, "轮次进度应保存个人难度所需的作答证据");
@@ -117,10 +117,10 @@ assert.deepEqual(await getReviewRoundQuestionIdsV7(round.id), stableTarget);
 // does not advance a parallel review round.
 const cloneRun = await createPracticeRunV7({ bankIds: [importedA.id], questionIds: [split.clones[0].id] });
 await assert.rejects(
-  () => recordPracticeAnswerV7({ runId: cloneRun.id, questionId: split.clones[0].id, selected: ["A"], correct: true, reviewRoundId: parallelRound.id }),
+  () => recordPracticeAnswerV7({ runId: cloneRun.id, questionId: split.clones[0].id, selected: ["A"], correct: true, reviewRoundId: parallelRound.id, elapsedMs: 10 }),
   /reviewRoundId/,
 );
-await recordPracticeAnswerV7({ runId: cloneRun.id, questionId: split.clones[0].id, selected: ["A"], correct: true });
+await recordPracticeAnswerV7({ runId: cloneRun.id, questionId: split.clones[0].id, selected: ["A"], correct: true, elapsedMs: 10 });
 assert.equal((await dbV7.reviewRoundProgress.get(`${parallelRound.id}:${split.clones[0].id}`)), undefined, "ordinary run does not advance a round");
 const changeSetsAfterAnswer = await dbV7.changeSets.count();
 const progressedRun = (await dbV7.practiceRuns.get(cloneRun.id))!;
@@ -193,7 +193,7 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   const r4q1 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题一", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const r4q2 = await createQuestionV7(r4Bank.id, { type: "单选", stem: "R4题二", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const r4Run = await createPracticeRunV7({ bankId: r4Bank.id, questionIds: [r4q1.id, r4q2.id] });
-  await recordPracticeAnswerV7({ runId: r4Run.id, questionId: r4q1.id, selected: "A", correct: true });
+  await recordPracticeAnswerV7({ runId: r4Run.id, questionId: r4q1.id, selected: "A", correct: true, elapsedMs: 10 });
   // 模拟 study-app 保存前读到的陈旧快照（含 q1、q1 的答案）
   const staleSnapshot = await dbV7.practiceRuns.get(r4Run.id);
   assert.ok(staleSnapshot && staleSnapshot.questionIds.includes(r4q1.id));
@@ -218,8 +218,8 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   const e5q2 = await createQuestionV7(e5Bank.id, { type: "单选", stem: "E5陪跑题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
   const runA = await createPracticeRunV7({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
   const runB = await createPracticeRunV7({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
-  await recordPracticeAnswerV7({ runId: runA.id, questionId: e5q1.id, selected: "A", correct: true });
-  await recordPracticeAnswerV7({ runId: runB.id, questionId: e5q1.id, selected: "B", correct: false });
+  await recordPracticeAnswerV7({ runId: runA.id, questionId: e5q1.id, selected: "A", correct: true, elapsedMs: 10 });
+  await recordPracticeAnswerV7({ runId: runB.id, questionId: e5q1.id, selected: "B", correct: false, elapsedMs: 10 });
   assert.ok((await dbV7.attemptStats.get(e5q1.id))?.total, "删前应有全局统计");
   assert.equal(await dbV7.attempts.where("questionId").equals(e5q1.id).count(), 2, "删前两条 run 各有一条作答");
   await deleteQuestionV7(e5q1.id);
@@ -244,7 +244,7 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   const e4Run = await createPracticeRunV7({ bankIds: [e4Bank.id], questionIds: await getReviewRoundQuestionIdsV7(e4Round.id), reviewRoundId: e4Round.id });
   await deleteQuestionV7(e4q1.id);
   assert.ok(!(await getReviewRoundQuestionIdsV7(e4Round.id)).includes(e4q1.id), "删后 q1 不再属于轮次目标集");
-  await assert.rejects(() => recordPracticeAnswerV7({ runId: e4Run.id, questionId: e4q1.id, selected: "A", correct: true, reviewRoundId: e4Round.id }), /复习轮次|不属于|练习记录不包含当前题目/, "已删题的 in-flight 作答应被拒（删题已裁剪 run，作答无法落地）");
+  await assert.rejects(() => recordPracticeAnswerV7({ runId: e4Run.id, questionId: e4q1.id, selected: "A", correct: true, reviewRoundId: e4Round.id, elapsedMs: 10 }), /复习轮次|不属于|练习记录不包含当前题目/, "已删题的 in-flight 作答应被拒（删题已裁剪 run，作答无法落地）");
   console.log("S2.5 passed: 删活动复习轮次中的题后该题作答被拒（E4 特征化）");
 }
 
@@ -312,7 +312,7 @@ await oldCheck.close();
   });
   assert.deepEqual(calculationQuestion.solution, { kind: "calculation", blanks: [{ id: "blank-1", expected: 1 }, { id: "blank-2", expected: 1 }] });
   const calculationRun = await createPracticeRunV7({ bankId: calculationBank.id, questionIds: [calculationQuestion.id] });
-  const submitted = await recordPracticeAnswerV7({ runId: calculationRun.id, questionId: calculationQuestion.id, selected: ["1", "1"], correct: true });
+  const submitted = await recordPracticeAnswerV7({ runId: calculationRun.id, questionId: calculationQuestion.id, selected: ["1", "1"], correct: true, elapsedMs: 10 });
   assert.deepEqual(submitted.answer.selected, ["1", "1"], "重复数值必须保留为两个位置答案");
   assert.deepEqual((await dbV7.practiceRuns.get(calculationRun.id))?.answers[calculationQuestion.id]?.selected, ["1", "1"]);
 }

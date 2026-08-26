@@ -154,7 +154,7 @@ await resetV7Database();
   const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q.id], reviewRoundId: round.id });
   await deleteQuestionV7(q.id);
   await assert.rejects(
-    () => recordPracticeAnswerV7({ runId: run.id, questionId: q.id, selected: ["A"], correct: true, reviewRoundId: round.id }),
+    () => recordPracticeAnswerV7({ runId: run.id, questionId: q.id, selected: ["A"], correct: true, reviewRoundId: round.id, elapsedMs: 10 }),
     /不属于 active 复习轮次|不存在|不包含/,
   );
 }

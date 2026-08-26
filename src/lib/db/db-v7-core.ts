@@ -46,7 +46,7 @@ export interface PracticeAnswerInputV7 {
   questionId: string;
   selected: string | readonly string[];
   correct: boolean;
-  elapsedMs?: number;
+  elapsedMs: number;
   /** Optional source bank for history display; statistics remain global. */
   sourceBankId?: string;
   bankId?: string;

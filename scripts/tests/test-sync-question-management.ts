@@ -126,7 +126,7 @@ try {
     const bank = await createBankV7("删除统计题库");
     const question = await createQuestionV7(bank.id, singleChoice("将被删除且已作答", "A", ["对", "错"]));
     const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id] });
-    await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true });
+    await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true, elapsedMs: 10 });
     assert.ok(await dbV7.attemptStats.get(question.id), "作答应产生全局统计");
 
     await deleteQuestionV7(question.id);
@@ -151,7 +151,7 @@ try {
     const bank = await createBankV7("独占删库");
     const question = await createQuestionV7(bank.id, singleChoice("独占题", "A", ["对", "错"]));
     const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id] });
-    await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true });
+    await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true, elapsedMs: 10 });
 
     await deleteBankWithExclusiveQuestionsV7(bank.id);
     await sync();
@@ -243,7 +243,7 @@ try {
     const q2 = await createQuestionV7(bank.id, singleChoice("练习题二", "A", ["对", "错"]));
     const q3 = await createQuestionV7(bank.id, singleChoice("练习题三", "A", ["对", "错"]));
     const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [q1.id, q2.id, q3.id] });
-    await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true });
+    await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true, elapsedMs: 10 });
     // Establish the questions on the remote first, so the delete below is its
     // own change-set rather than collapsing create+delete into one batch.
     await sync();
@@ -450,7 +450,7 @@ try {
     // device-b 拉取，B 端正在练习（写一答案模拟 in_progress）
     await freshClient("device-b");
     await sync();
-    await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true });
+    await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true, elapsedMs: 10 });
     assert.deepEqual((await dbV7.practiceRuns.get(run.id))?.questionIds, [q1.id, q2.id], "B 拉取后 run 完整");
 
     // device-a 删 q1 并推送

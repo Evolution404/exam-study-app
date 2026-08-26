@@ -38,8 +38,8 @@ try {
   const recentRun = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id], startedAt: recentAt });
   await setPracticeRunStatusV7(recentRun.id, "completed");
   await syncWithGitHub(baseSettings, "token");
-  await recordPracticeAnswerV7({ runId: oldRun.id, questionId: question.id, selected: "A", correct: true, createdAt: oldAt });
-  await recordPracticeAnswerV7({ runId: recentRun.id, questionId: question.id, selected: "B", correct: false, createdAt: recentAt });
+  await recordPracticeAnswerV7({ runId: oldRun.id, questionId: question.id, selected: "A", correct: true, createdAt: oldAt, elapsedMs: 10 });
+  await recordPracticeAnswerV7({ runId: recentRun.id, questionId: question.id, selected: "B", correct: false, createdAt: recentAt, elapsedMs: 10 });
   await syncWithGitHub(baseSettings, "token");
   const remotePaths = new Set(server.contentPaths());
 

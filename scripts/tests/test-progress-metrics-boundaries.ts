@@ -261,10 +261,10 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
 {
   const HOUR = 3_600_000;
   const T1 = "2026-08-01T00:00:00.000Z";
-  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs?: number) => ({
+  const outcome = (hoursFromStart: number, correct: boolean, elapsedMs: number) => ({
     correct,
     createdAt: new Date(Date.parse(T1) + hoursFromStart * HOUR).toISOString(),
-    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    elapsedMs,
   });
   // 逐步轨迹：对前缀序列逐个求难度，观察演化路径。
   const trajectory = (...outcomes: ReturnType<typeof outcome>[]) =>
@@ -323,8 +323,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     "错误和不会的耗时不得改变后续正确作答的速度基线",
   );
 
-  // 旧数据缺 elapsedMs：中性 q=0.85 + 满间隔权重，温和下降。
-  assert.deepEqual(trajectory(outcome(0, true), outcome(13, true), outcome(26, true)), [36, 27, 21], "缺作答时间的旧数据走中性回退");
+  assert.throws(() => difficultyFromOutcomes([{ correct: true, createdAt: T1, elapsedMs: Number.NaN }]), /elapsedMs/, "current outcomes reject invalid elapsedMs");
 
   // 有 12 条以上本机历史时用 walk-forward Brier score 在有界候选中校准学习率；
   // 短历史保持默认参数，未作答仍固定为 50。
@@ -344,7 +343,7 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     outcome(26, true, 8_000),
   ).at(-1), 28, "单次超长作答不应击穿速度基准");
 
-  // 聚合行读取路径：recentOutcomes 非空走 EMA；为空（round 口径/旧本地行）回退终身错误率。
+  // 聚合行读取路径：recentOutcomes 直接驱动 EMA 难度。
   assert.equal(summarizeAttemptStats({
     questionId: "q", bankId: "", total: 2, correct: 2, wrong: 0, giveUps: 0, totalElapsedMs: 28_000,
     firstAttemptAt: at(0), firstAttemptCorrect: true, latestAttemptAt: at(0), hasBeenWrong: false,
@@ -374,15 +373,11 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
     "2026-08-15T08:00:00.000Z",
     "已完成按完成时间排序（不是开始时间，也不是最后一题时间）",
   );
-  assert.equal(
-    runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })),
-    "2026-08-14T22:00:00.000Z",
-    "缺 completedAt 的旧数据回退最后一道作答题的时间",
-  );
+  assert.throws(() => runActivityAt(run({ status: "completed", answers: answers(["2026-08-14T22:00:00.000Z", true]) })), /completedAt/, "completed current runs require completedAt");
   assert.equal(
     runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: answers(["2026-08-16T09:00:00.000Z", true], ["2026-08-16T10:30:00.000Z", true], ["2026-08-16T10:00:00.000Z", true]) })),
     "2026-08-16T10:30:00.000Z",
-    "进行中取多道作答里最新的 updatedAt（恢复旧练习后应排到最前）",
+    "进行中取多道作答里最新的 updatedAt",
   );
   assert.equal(
     runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: false, updatedAt: "2026-08-16T12:00:00.000Z" }, q2: { submitted: true, updatedAt: "2026-08-16T09:00:00.000Z" } } })),
@@ -397,13 +392,9 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(
     runActivityAt(run({ status: "abandoned", abandonedAt: "2026-08-16T12:00:00.000Z" })),
     "2026-08-16T12:00:00.000Z",
-    "未作答的已放弃记录回退放弃时间",
+    "未作答的已放弃记录使用 abandonedAt",
   );
-  assert.equal(
-    runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })),
-    "2026-08-01T00:00:00.000Z",
-    "旧数据 answer.updatedAt 缺失时回退开始时间",
-  );
+  assert.throws(() => runActivityAt(run({ startedAt: "2026-08-01T00:00:00.000Z", answers: { q1: { submitted: true } as Answer } })), /updatedAt/, "submitted current answers require updatedAt");
 }
 
 // ===== 错题口径：scoped（进度口径）与 lifetime（终身）的区分性用例 =====

@@ -31,7 +31,7 @@ export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
 
 export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
 export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV7(questionId); }
-export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs?: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
+export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
 export async function savePracticeProgress(session: ActivePractice) { const current = await dbV7.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
 export async function setPracticeRunStatus(runId: string, status: PracticeRunV7["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV7(runId, status, answers); }
 export async function deletePracticeRun(runId: string) { return deletePracticeRunV7(runId); }

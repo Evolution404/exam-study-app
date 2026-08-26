@@ -65,6 +65,7 @@ export function attemptGapFactor(gapSeconds: number) {
 }
 
 function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {
+  if (!Number.isFinite(outcome.elapsedMs) || outcome.elapsedMs < 0) throw new Error("current difficulty outcomes require elapsedMs");
   if (!outcome.correct) return 0;
   if (baselineMs == null) return QUALITY_FIRST_CORRECT;
   if (!validBaselineElapsed(outcome.elapsedMs)) throw new Error("current difficulty outcomes require elapsedMs");
@@ -74,7 +75,7 @@ function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {
 }
 
 function validBaselineElapsed(elapsedMs: number): boolean {
-  return elapsedMs !== undefined && Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;
+  return Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;
 }
 
 function modelDifficultyFromOutcomes(outcomes: readonly DifficultyOutcome[], learningRate: number) {
@@ -172,20 +173,20 @@ export function createAttemptStats(attempt: Attempt): AttemptStats {
     correct: attempt.correct ? 1 : 0,
     wrong: attempt.correct ? 0 : 1,
     giveUps: attempt.selected ? 0 : 1,
-    totalElapsedMs: Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: Math.max(0, attempt.elapsedMs),
     firstAttemptAt: attempt.createdAt,
     firstAttemptCorrect: attempt.correct,
     latestAttemptAt: attempt.createdAt,
     hasBeenWrong: !attempt.correct,
     correctStreakAfterWrong: 0,
     currentCorrectStreak: attempt.correct ? 1 : 0,
-    recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }],
+    recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }],
   };
 }
 
 export function addAttemptToStats(current: AttemptStats | undefined, attempt: Attempt): AttemptStats {
   if (!current) return createAttemptStats(attempt);
-  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
+  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     .slice(-32);
   let currentCorrectStreak = 0;
@@ -199,7 +200,7 @@ export function addAttemptToStats(current: AttemptStats | undefined, attempt: At
     correct: current.correct + (attempt.correct ? 1 : 0),
     wrong: current.wrong + (attempt.correct ? 0 : 1),
     giveUps: current.giveUps + (attempt.selected ? 0 : 1),
-    totalElapsedMs: current.totalElapsedMs + Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: current.totalElapsedMs + Math.max(0, attempt.elapsedMs),
     firstAttemptAt: isEarlier ? attempt.createdAt : current.firstAttemptAt,
     firstAttemptCorrect: isEarlier ? attempt.correct : current.firstAttemptCorrect,
     latestAttemptAt: isLater ? attempt.createdAt : current.latestAttemptAt,
@@ -263,7 +264,7 @@ export function addAttemptToDailyStats(current: AttemptDailyStats | undefined, a
     correct: (current?.correct ?? 0) + (attempt.correct ? 1 : 0),
     wrong: (current?.wrong ?? 0) + (attempt.correct ? 0 : 1),
     giveUps: (current?.giveUps ?? 0) + (attempt.selected ? 0 : 1),
-    totalElapsedMs: (current?.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs || 0),
+    totalElapsedMs: (current?.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs),
   };
 }
 
@@ -307,10 +308,20 @@ export interface RunActivitySource {
 }
 
 export function runActivityAt(run: RunActivitySource): string {
-  if (run.status === "completed" && run.completedAt) return run.completedAt;
+  if (run.status === "completed") {
+    if (!run.completedAt) throw new Error("completed practice runs require completedAt");
+    return run.completedAt;
+  }
   let latest: string | undefined;
   for (const answer of Object.values(run.answers)) {
-    if (answer.submitted && answer.updatedAt && (!latest || answer.updatedAt > latest)) latest = answer.updatedAt;
+    if (!answer.submitted) continue;
+    if (!answer.updatedAt) throw new Error("submitted practice answers require updatedAt");
+    if (!latest || answer.updatedAt > latest) latest = answer.updatedAt;
   }
-  return latest ?? run.abandonedAt ?? run.startedAt;
+  if (latest) return latest;
+  if (run.status === "abandoned") {
+    if (!run.abandonedAt) throw new Error("abandoned practice runs require abandonedAt");
+    return run.abandonedAt;
+  }
+  return run.startedAt;
 }
