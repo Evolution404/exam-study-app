@@ -36,7 +36,7 @@ try {
     type: "单选",
     stem: "历史归档是否保持完整恢复？",
     options: ["是", "否"],
-    solution: { kind: "choice", correctOptionIds: ["option-1fm55n"] },
+    solution: { kind: "choice", correctOptionIds: ["option-1y6l9uk"] },
   });
   const deviceId = "history-device";
   memoryLocalStorage.set("shijuan-study-device-id", deviceId);
