@@ -6,7 +6,7 @@ import { QUESTION_TYPE_ORDER } from "../../src/types/types";
 import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, questionSolution, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
-const studyApp = read("src/app/shell/app-shell.tsx");
+const practiceController = read("src/app/shell/use-practice-session-controller.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
 const history = read("src/app/practice/practice-history.tsx");
 const editor = read("src/app/bank/question-editor.tsx");
@@ -74,7 +74,7 @@ assert.doesNotMatch(practiceView, /依次填写题干中的/, "inline calculatio
 assert.match(practiceView, /question\.type === "计算" \? \(!hasInlineCalculationBlanks && <div className=\{`calculation-answer fallback-grid/, "only legacy calculations without inline blanks should render the fallback answer card");
 assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");
 assert.match(practiceView, /if \(noteDirty\.current\) void saveNote\(question\.id, draftRef\.current\)/, "leaving a question must flush a dirty note");
-assert.match(studyApp, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");
+assert.match(practiceController, /randomOptionOrder\(question, avoidOptionOrders\?\.\[question\.id\]\)/, "repeating a run must avoid its previous option order");
 assert.match(history, /setDetailQuestion\(question\)/, "completed result rows must open question details");
 assert.doesNotMatch(history, /disabled=\{!canContinue\}/, "completed result rows must remain interactive");
 assert.match(vite, /__APP_COMMIT_SHA__/, "build must inject its commit hash");

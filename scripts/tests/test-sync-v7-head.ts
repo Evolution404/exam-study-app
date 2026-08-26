@@ -1,3 +1,6 @@
+import type { ChangeSetQueueRecordV7 } from "../../src/lib/db/db-v7";
+import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
+import { assetUploadProgressLabelV7, formatTransferBytesV7, mergeActiveHistoryProjectionV7, reconcileInterruptedClaimsV7 } from "../../src/lib/sync/sync-v7-orchestrator-model";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
@@ -123,5 +126,58 @@ assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
   try { validateSyncV7Descriptor({ ...base, storedSize: -1 }, "checkpoint"); } catch { rejected = true; }
   assert.equal(rejected, true, "负 storedSize 必须被拒");
 }
+
+
+// Orchestrator structure helpers are behavior contracts: extracting them must
+// not change upload labels, interrupted-claim recovery, or history preservation.
+assert.equal(formatTransferBytesV7(1023), "1023 B");
+assert.equal(formatTransferBytesV7(1024), "1.0 KB");
+assert.equal(formatTransferBytesV7(1024 * 1024), "1.0 MB");
+assert.equal(assetUploadProgressLabelV7({ completed: 0, total: 8, uploadedBytes: 0, totalBytes: 4096, concurrency: 4 }), "准备并发上传 8 张图片（4 路）");
+assert.equal(assetUploadProgressLabelV7({ completed: 2, total: 8, uploadedBytes: 2048, totalBytes: 4096, concurrency: 4 }), "正在上传图片（2/8，2.0 KB / 4.0 KB）");
+
+const claimed = (id: string, digestValue: string, sequence: number, deviceId = "device-a") => ({
+  id,
+  digest: digestValue,
+  deviceId,
+  localSequence: sequence,
+  state: "claimed",
+  claimId: "claim-1",
+  claimedAt: "2026-08-26T00:00:00.000Z",
+} as ChangeSetQueueRecordV7);
+const claimedInput = [claimed("conflict", "local-a", 10), claimed("remote", "same-b", 11), claimed("cursor", "local-c", 12), claimed("pending", "local-d", 13)];
+const claimedSnapshot = structuredClone(claimedInput);
+const reconciled = reconcileInterruptedClaimsV7(
+  claimedInput,
+  [{ id: "conflict", digest: "remote-a" }, { id: "remote", digest: "same-b" }],
+  { "device-a": 12 },
+  () => "2026-08-26T01:00:00.000Z",
+);
+assert.equal(reconciled[0].state, "blocked");
+assert.match(reconciled[0].blockedReason ?? "", /内容不同/);
+assert.equal(reconciled[0].claimId, undefined);
+assert.equal(reconciled[1].state, "committed");
+assert.equal(reconciled[1].committedAt, "2026-08-26T01:00:00.000Z");
+assert.equal(reconciled[2].state, "committed", "cursor coverage must recover an interrupted claim even when its id was GC'd remotely");
+assert.equal(reconciled[3].state, "pending", "uncovered interrupted claims must return to the pending queue");
+assert.deepEqual(claimedInput, claimedSnapshot, "claim reconciliation must not mutate the queue snapshot");
+
+const projection = {
+  banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [],
+  attempts: [{ id: "attempt-remote" } as never], attemptStats: [], attemptDailyStats: [], notes: [],
+  practiceRuns: [{ id: "run-remote" } as never], practiceRunStats: [], questionGroups: [],
+  reviewRounds: [], reviewRoundProgress: [], tombstones: [],
+} satisfies ChangeSetProjectionV7;
+const mergedHistory = mergeActiveHistoryProjectionV7(
+  projection,
+  [{ id: "run-remote", marker: "local" } as never, { id: "run-local" } as never],
+  [{ id: "attempt-remote", marker: "local" } as never, { id: "attempt-local" } as never],
+);
+assert.deepEqual(mergedHistory.practiceRuns.map((run) => run.id), ["run-remote", "run-local"]);
+assert.deepEqual(mergedHistory.attempts.map((attempt) => attempt.id), ["attempt-remote", "attempt-local"]);
+assert.equal((mergedHistory.practiceRuns[0] as unknown as { marker?: string }).marker, "local", "active local run must override the remote row with the same id");
+assert.equal((mergedHistory.attempts[0] as unknown as { marker?: string }).marker, "local", "active local attempt must override the remote row with the same id");
+assert.equal(mergedHistory.questions, projection.questions, "history merge must leave unrelated projection tables untouched");
+assert.notEqual(mergedHistory.practiceRuns, projection.practiceRuns, "history merge must return a fresh run collection");
 
 console.log("sync v7 head tests passed: vault identity, explicit byte compaction, append-only publication, replay ordering, refs and limits");

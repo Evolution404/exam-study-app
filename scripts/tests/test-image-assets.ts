@@ -46,7 +46,9 @@ assert.doesNotMatch(imagePackSource, /const pending = await mapWithConcurrency\(
 
 // The shared pool must preserve order, cap active work and stop claiming new
 // items after the first worker error. This protects import/export/image-cache
-// callers from turning one bad asset into an unbounded queue.
+// callers from turning one bad asset into an unbounded queue. The failure is
+// immediate so CI scheduler load cannot reorder millisecond timers and make
+// this contract test flaky.
 {
   let active = 0;
   let maximum = 0;
@@ -56,9 +58,12 @@ assert.doesNotMatch(imagePackSource, /const pending = await mapWithConcurrency\(
       started += 1;
       active += 1;
       maximum = Math.max(maximum, active);
-      await new Promise((resolve) => setTimeout(resolve, item === 1 ? 2 : 5));
+      if (item === 1) {
+        active -= 1;
+        throw new Error("first worker failure");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
       active -= 1;
-      if (item === 1) throw new Error("first worker failure");
       return item;
     }),
     /first worker failure/,

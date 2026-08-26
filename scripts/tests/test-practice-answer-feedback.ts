@@ -9,6 +9,9 @@ const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
   .map((file) => readFileSync(new URL(file, appStylesRoot), "utf8"))
   .join("\n");
 const studyApp = read("src/app/shell/app-shell.tsx");
+const dashboardController = read("src/app/shell/use-dashboard-data.ts");
+const practiceController = read("src/app/shell/use-practice-session-controller.ts");
+const quickSyncController = read("src/app/shell/use-quick-sync-controller.ts");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
@@ -34,9 +37,9 @@ assert.match(practiceView, /await recordPracticeAnswer\(/, "answer submission mu
 assert.doesNotMatch(practiceView, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
 assert.match(practiceDatabase, /export async function recordPracticeAnswerV7/, "answer submission must remain the single domain writer");
 assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
-assert.match(studyApp, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
-assert.match(studyApp, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
-assert.match(studyApp, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
+assert.match(dashboardController, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
+assert.match(practiceController, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
+assert.match(practiceController, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
 assert.match(dashboardView, /<span><b>\{answeredInRun\}<\/b> \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/span>/, "home must use the same answered/total metric as practice history");
 assert.doesNotMatch(dashboardView, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
 assert.ok(dashboardView.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < dashboardView.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
@@ -72,14 +75,14 @@ assert.match(styles, /\.result-group-toggle\{[^}]*cursor:pointer\}/, "题型分�
 assert.match(styles, /\.result-question-groups>section\.collapsed \.result-group-toggle>svg\{transform:rotate\(-90deg\)\}/, "折叠态分组箭头应旋转指示");
 assert.match(styles, /\.result-filters \.result-overview-trigger\{margin-left:auto/, "题目总览入口应停在筛选行右端");
 
-assert.match(studyApp, /syncRuntime\.scheduleAutomaticSync\(\{/, "automatic sync must be delegated to the runtime scheduler");
+assert.match(quickSyncController, /syncRuntime\.scheduleAutomaticSync\(\{/, "automatic sync must be delegated to the runtime scheduler");
 assert.match(syncRuntime, /void this\.sync\(\)\.catch\(\(error\) => options\.onError\?\.\(error\)\)/, "automatic runtime sync must remain silent by omitting the UI progress callback");
 assert.doesNotMatch(syncRuntime, /setQuickSyncing|setQuickSyncProgress|setNotice/, "sync runtime must not own visible React feedback state");
-assert.match(studyApp, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSync/, "quick sync must refresh the visible practice session after a pull");
-assert.doesNotMatch(studyApp, /pullResult/, "periodic pull must not replace the visible practice session");
-assert.doesNotMatch(studyApp, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
-assert.match(studyApp, /activePracticeFromRun\(run, session\.currentIndex\)/, "no new answers: keep the current question");
-assert.match(studyApp, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
+assert.match(quickSyncController, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSync/, "quick sync must refresh the visible practice session after a pull");
+assert.doesNotMatch(quickSyncController, /pullResult/, "periodic pull must not replace the visible practice session");
+assert.doesNotMatch(practiceController, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
+assert.match(practiceController, /activePracticeFromRun\(run, session\.currentIndex\)/, "no new answers: keep the current question");
+assert.match(practiceController, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
 assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
 assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 
@@ -99,6 +102,6 @@ assert.match(practiceView, /document\.hidden \|\| editing \|\| overviewOpen \|\|
 assert.match(practiceView, /activeTimer\.current\?\.reset\((?:window\.)?performance\.now\(\)/, "立即重答必须重置有效计时器");
 assert.doesNotMatch(practiceView, /Date\.now\(\) - startedAt/, "作答耗时不得恢复为包含后台停留的墙钟时间");
 assert.match(practiceView, /个人难度按有效作答时间与作答间隔动态估计/, "练习页个人难度 chip 应说明有效时间与间隔估计口径");
-assert.match(studyApp, /right\?\.reviewPriority \?\? 50/, "复习优先排序必须使用独立优先级并保持未作答默认 50");
+assert.match(practiceController, /right\?\.reviewPriority \?\? 50/, "复习优先排序必须使用独立优先级并保持未作答默认 50");
 
 console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, runtime-silent sync and one-source resume cards");
