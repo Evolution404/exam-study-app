@@ -136,17 +136,102 @@ jobs:
 
           p = Path('src/lib/sync/github-v7-remote.ts')
           text = p.read_text()
-          old = '  /** Actual compressed wire size when known. */\n  storedSize?: number;'
-          new = '  /** Actual stored/wire size. */\n  storedSize: number;'
-          if text.count(old) != 1: raise SystemExit('blob expectation storedSize type mismatch')
-          text = text.replace(old, new)
+          old_interface = '''export interface SyncV7BlobExpectation {
+            size: number;
+            sha256: string;
+            /** Path of the object, when known: JSON-kind objects travel through the
+             *  DEFLATE envelope and are inflated before the integrity check; assets and
+             *  unknown paths are verified as raw bytes. */
+            path?: string;
+            /** Actual compressed wire size when known. */
+            storedSize?: number;
+          }'''
+          new_interface = '''export interface SyncV7ContentExpectation {
+            size: number;
+            sha256: string;
+            /** Path of the object, when known: JSON-kind objects travel through the
+             *  DEFLATE envelope and are inflated before the integrity check; assets and
+             *  unknown paths are verified as raw bytes. */
+            path?: string;
+          }
+
+          export interface SyncV7BlobExpectation extends SyncV7ContentExpectation {
+            /** Required actual stored/wire size for descriptor-addressed blob reads. */
+            storedSize: number;
+          }'''
+          if text.count(old_interface) != 1: raise SystemExit('blob expectation interface mismatch')
+          text = text.replace(old_interface, new_interface)
           old = '    const existing = await this.readBlob(existingSha, { size, sha256, path: input.path });'
           new = '    const existing = await this.readBlob(existingSha, { size, storedSize: stored.byteLength, sha256, path: input.path });'
           if text.count(old) != 1: raise SystemExit('idempotent blob read expectation mismatch')
           text = text.replace(old, new)
-          old = '      : expectation.storedSize ?? expectation.size;'
-          new = '      : expectation.storedSize;'
-          if text.count(old) != 1: raise SystemExit('storedSize fallback mismatch')
+
+          start = text.index('  async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;')
+          end = text.index('  readImmutableBlob(', start)
+          new_read_block = '''  private async readBlobContent(blobSha: string, expectation: SyncV7ContentExpectation, readOptions?: SyncV7BlobReadOptions, wireSizeHint?: number): Promise<Uint8Array> {
+            assertSha1(blobSha, "blobSha");
+            assertSize(expectation.size, "blob size");
+            assertSha256(expectation.sha256, "blob sha256");
+            const response = await this.request(blobPath(this.owner, this.repo, blobSha), { method: "GET" }, GITHUB_V7_RAW_MEDIA_TYPE);
+            this.requireOk(response, `read blob ${blobSha}`);
+            const contentLength = Number(response.headers.get("content-length"));
+            const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+              ? contentLength
+              : wireSizeHint === undefined ? expectation.size : wireSizeHint;
+            let raw: Uint8Array;
+            if (!response.body) {
+              raw = new Uint8Array(await response.arrayBuffer());
+              readOptions?.onProgress?.(raw.byteLength, totalBytes);
+            } else {
+              const reader = response.body.getReader();
+              const chunks: Uint8Array[] = [];
+              let loadedBytes = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (!value?.byteLength) continue;
+                chunks.push(value);
+                loadedBytes += value.byteLength;
+                readOptions?.onProgress?.(loadedBytes, totalBytes);
+              }
+              raw = new Uint8Array(loadedBytes);
+              let offset = 0;
+              for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
+              if (!loadedBytes) readOptions?.onProgress?.(0, totalBytes);
+            }
+            let content: Uint8Array;
+            try {
+              content = isJsonSyncPath(expectation.path) ? await decodeSyncV7JsonBytes(raw) : raw;
+            } catch {
+              throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, "unreadable deflate envelope");
+            }
+            if (content.byteLength !== expectation.size) throw new SyncV7BlobIntegrityError("size", expectation.size, content.byteLength);
+            const sha256 = await digestHex(content);
+            if (sha256 !== expectation.sha256) throw new SyncV7BlobIntegrityError("sha256", expectation.sha256, sha256);
+            return content;
+          }
+
+          async readBlob(blobSha: string, expected: SyncV7BlobExpectation, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+          async readBlob(descriptor: SyncV7Descriptor, options?: SyncV7BlobReadOptions): Promise<Uint8Array>;
+          async readBlob(blobShaOrDescriptor: string | SyncV7Descriptor, expectedOrOptions?: SyncV7BlobExpectation | SyncV7BlobReadOptions, options?: SyncV7BlobReadOptions): Promise<Uint8Array> {
+            const blobSha = typeof blobShaOrDescriptor === "string" ? blobShaOrDescriptor : blobShaOrDescriptor.blobSha;
+            const expectation = typeof blobShaOrDescriptor === "string" ? expectedOrOptions as SyncV7BlobExpectation | undefined : blobShaOrDescriptor;
+            const readOptions = typeof blobShaOrDescriptor === "string" ? options : expectedOrOptions as SyncV7BlobReadOptions | undefined;
+            if (!blobSha || !expectation) throw new TypeError("blob SHA, size, storedSize and sha256 are required");
+            const path = typeof blobShaOrDescriptor === "string" ? expectation.path : blobShaOrDescriptor.path;
+            if (typeof blobShaOrDescriptor !== "string") {
+              const kind = inferKind(blobShaOrDescriptor.path);
+              assertSyncV7Path(blobShaOrDescriptor.path, kind);
+              if (/\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(blobShaOrDescriptor.path)?.[1] !== blobShaOrDescriptor.sha256) throw new SyncV7BlobIntegrityError("sha256", blobShaOrDescriptor.sha256, "path digest mismatch");
+            }
+            return this.readBlobContent(blobSha, { size: expectation.size, sha256: expectation.sha256, path }, readOptions, expectation.storedSize);
+          }
+
+          '''
+          text = text[:start] + new_read_block + text[end:]
+          old = '  async readImmutableContents(path: string, expected: SyncV7BlobExpectation): Promise<Uint8Array> {\n    assertSyncV7Path(path, inferKind(path));\n    return this.readBlob(await this.readContentsMetadata(path), { ...expected, path });\n  }'
+          new = '  async readImmutableContents(path: string, expected: SyncV7ContentExpectation): Promise<Uint8Array> {\n    assertSyncV7Path(path, inferKind(path));\n    return this.readBlobContent(await this.readContentsMetadata(path), { ...expected, path });\n  }'
+          if text.count(old) != 1: raise SystemExit('readImmutableContents contract mismatch')
           text = text.replace(old, new)
           p.write_text(text)
 
@@ -157,19 +242,6 @@ jobs:
           if text.count(old) != 1: raise SystemExit('remote test storedSize mismatch')
           p.write_text(text.replace(old, new))
 
-          # Remove misleading style-debt wording without changing CSS behavior.
-          comment_replacements = [
-              ('src/app/practice/practice-main-2.css', '/* Practice owns history control colors while legacy structure remains shared. */', '/* Practice owns history control colors while shared structure remains centralized. */'),
-              ('src/app/search/search-tokens.css', ' * migrate without expanding the core token layer. */', ' * move without expanding the core token layer. */'),
-              ('src/app/styles/palette-tokens.css', '/* Deduplicated exact-value palette for legacy surfaces. */', '/* Deduplicated exact-value palette for existing surfaces. */'),
-              ('src/app/styles/dark-overrides.css', '/* Centralized legacy dark-theme overrides; semantic tokens remain preferred for new code. */', '/* Centralized dark-theme overrides; semantic tokens remain preferred for new code. */'),
-              ('src/app/styles/bank-controls.css', '/* Question-bank control variants migrated out of the global entrypoint. */', '/* Question-bank control variants moved out of the global entrypoint. */'),
-          ]
-          for path, old, new in comment_replacements:
-              replace_once(path, old, new, path)
-
-          # Optional timestamps are part of the current run contract; describe
-          # their resolution without implying historical-data repair.
           replace_once(
               'src/lib/practice/practice-metrics.ts',
               '// 未作答回退 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。',
@@ -177,7 +249,6 @@ jobs:
               'practice activity comment',
           )
 
-          # Current format rejection test: preserve the guard, remove the old-data label.
           p = Path('scripts/tests/test-sync-v7-checkpoint-extra.ts')
           text = p.read_text()
           text = text.replace('const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };', 'const unsupported = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };')
