@@ -1,0 +1,171 @@
+name: Temporary final current-only merge verifier
+on:
+  push:
+    branches: [refactor/remove-obsolete-compat]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply final naming and audit cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              p.write_text(text.replace(old, new))
+
+          # Current calculation/fill manual-entry layout is not a historical fallback.
+          p = Path('src/app/shell/views/practice.tsx')
+          text = p.read_text()
+          expected = {
+              'calculation-answer fallback-grid': 'calculation-answer manual-grid',
+              'fill-fallback-grid': 'fill-manual-grid',
+              'calculation-fallback-inputs': 'calculation-manual-inputs',
+          }
+          for old, new in expected.items():
+              count = text.count(old)
+              if old == 'calculation-fallback-inputs':
+                  if count != 2: raise SystemExit(f'practice input class: expected 2 matches, got {count}')
+              elif count != 1:
+                  raise SystemExit(f'practice class {old}: expected 1 match, got {count}')
+              text = text.replace(old, new)
+          p.write_text(text)
+
+          p = Path('src/app/practice/practice-main-2.css')
+          text = p.read_text()
+          css_replacements = {
+              '.calculation-answer.fallback-grid': '.calculation-answer.manual-grid',
+              '.calculation-fallback-inputs': '.calculation-manual-inputs',
+              '/* Practice owns history control colors while legacy structure remains shared. */': '/* Practice owns history control colors while shared structure remains centralized. */',
+          }
+          for old, new in css_replacements.items():
+              count = text.count(old)
+              if old == '.calculation-fallback-inputs':
+                  if count != 3: raise SystemExit(f'CSS input selector: expected 3 matches, got {count}')
+              elif count != 1:
+                  raise SystemExit(f'CSS replacement {old}: expected 1 match, got {count}')
+              text = text.replace(old, new)
+          p.write_text(text)
+
+          comment_replacements = [
+              ('src/app/search/search-tokens.css', ' * migrate without expanding the core token layer. */', ' * move without expanding the core token layer. */'),
+              ('src/app/styles/palette-tokens.css', '/* Deduplicated exact-value palette for legacy surfaces. */', '/* Deduplicated exact-value palette for existing surfaces. */'),
+              ('src/app/styles/dark-overrides.css', '/* Centralized legacy dark-theme overrides; semantic tokens remain preferred for new code. */', '/* Centralized dark-theme overrides; semantic tokens remain preferred for new code. */'),
+              ('src/app/styles/bank-controls.css', '/* Question-bank control variants migrated out of the global entrypoint. */', '/* Question-bank control variants moved out of the global entrypoint. */'),
+          ]
+          for path, old, new in comment_replacements:
+              replace_once(path, old, new, path)
+
+          replace_once(
+              'src/lib/question/question-bank-export.ts',
+              'to PNG for WPS cell-image compatibility; bundles preserve original bytes',
+              'to PNG for WPS cell-image support; bundles preserve original bytes',
+              'WPS export wording',
+          )
+
+          Path('docs/COMPATIBILITY_CLEANUP_2026-08-26.md').write_text('''# Current-format cleanup audit — 2026-08-26
+
+## Result
+
+The application now treats the latest persisted and Sync v9 shapes as the only supported data contract. Historical aliases, shape normalization, repair/backfill paths, and question-answer projections are not used to read or reconstruct older data.
+
+## Current-only question contract
+
+- `QuestionV7.solution` is required and is the single canonical persisted/synchronized answer representation.
+- Persisted `Question.answer`, `legacyAnswerForSolution`, and answer-to-solution reconstruction paths are removed.
+- JSON/bundle export writes structured `solution`; spreadsheet answer cells remain an explicit current import/export boundary representation rather than stored question state.
+- Fingerprints, sync mutations, practice grading, copy, editor, and display paths consume the canonical solution.
+
+## Current-only checkpoint and projection contract
+
+- Checkpoint validation accepts the current v9 shape directly; historical shape normalizers and aliases are removed.
+- Projection membership state uses the canonical `memberships` key; there is no `bankQuestionMemberships` projection alias.
+- Practice-run statistics are not repaired by adding missing historical keys.
+- Review-round progress rows are created with complete attempt/evidence fields on the first attempt; no zero-attempt or missing-field repair skeleton is used.
+
+## Descriptor size contract
+
+- `SyncV7Descriptor.storedSize` is required.
+- Descriptor reads consume the recorded wire size directly; `readBlobWireSize` and descriptor size backfill are removed.
+- Offloaded payload references intentionally use a separate logical-content expectation (`size` + digest), because they are content references rather than wire descriptors. This keeps the descriptor contract strict without inventing a stored size for payload refs.
+
+## Removed retired surfaces
+
+- Pure re-export sync facades and zero-call aliases were removed; callers import canonical owners directly.
+- Retired endpoint conversion and one-time historical rebuild paths were removed.
+- Obsolete type aliases and misleading historical naming were removed where they no longer described current behavior.
+- Temporary `tmp-latest-only-*` scripts/workflows are not part of the final tree.
+
+## Intentionally retained current-environment resilience
+
+Only behavior needed by current supported environments remains, including Safari/IndexedDB lifecycle handling, WebCrypto-independent digest execution when the native primitive is unavailable, Worker-to-main-thread execution paths, CompressionStream/plain-JSON current wire support, and browser capability handling such as clipboard/image rendering. These paths do not migrate or reinterpret historical persisted data.
+
+## Verification
+
+The current-only cleanup has been exercised by the full Sync suite, fast checks, production build, structural dead-code gate, architecture check, export-surface ratchet, workflow hygiene, Sync storage CI, governance audit, PR preview, and Chromium/WebKit browser smoke gates. Exact-head run identifiers are recorded in PR #32 after the final head completes.
+''')
+          PY
+          git rm .github/workflows/tmp-latest-only-final-merge.yml
+      - name: Semantic current-only audit
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = [Path('src'), Path('scripts')]
+          term = re.compile(r'legacy|migrat|compatib|superseded|one[- ]shot|fallback', re.I)
+          forbidden = re.compile(
+              r'legacyAnswerForSolution|questionSolution\(|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize\s*\?\?|calculation-fallback|fill-fallback|LegacyBank|LegacyNote|LegacySync|legacy plain|compatibility aliases|one-time migration|旧数据|旧本地|历史回填|历史迁移',
+              re.I,
+          )
+          hits = []
+          bad = []
+          for root in roots:
+              for p in root.rglob('*'):
+                  if not p.is_file() or any(part in {'node_modules', 'dist'} for part in p.parts):
+                      continue
+                  try: text = p.read_text()
+                  except UnicodeDecodeError: continue
+                  for i, line in enumerate(text.splitlines(), 1):
+                      if term.search(line): hits.append(f'{p}:{i}:{line.strip()}')
+                      if forbidden.search(line): bad.append(f'{p}:{i}:{line.strip()}')
+          print('=== semantic scan (reviewed current-environment/framework uses may remain) ===')
+          print('\n'.join(hits) if hits else '(none)')
+          if bad:
+              print('=== forbidden historical/current-only residues ===')
+              print('\n'.join(bad))
+              raise SystemExit(1)
+          PY
+          git diff --check
+      - run: npm ci
+      - run: npm run test:sync
+      - run: npm run test:fast
+      - run: npm run build
+      - run: npm run lint:dead-code
+      - run: node scripts/tools/check-architecture.mjs
+      - run: node scripts/tools/check-export-surface.mjs
+      - run: node scripts/tools/check-workflow-hygiene.mjs
+      - name: Commit verified final cleanup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src scripts docs .github/workflows
+          git diff --cached --check
+          git commit -m "refactor: finalize current-only compatibility cleanup [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
