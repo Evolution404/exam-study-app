@@ -1,0 +1,89 @@
+name: Temporary current-only boundary verifier
+on:
+  push:
+    branches: [refactor/remove-obsolete-compat]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply strict current-only boundary cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/question/question-bank-file-import.ts')
+          s = p.read_text()
+          old = '      const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });'
+          new = '      const canonicalRows = rows.map((row) => ({ stem: row.q, type: row.type, options: row.a, answer: row.ans, tags: row.tags, ...(row.note ? { note: row.note } : {}), ...(row.images?.length ? { images: row.images } : {}) }));\n      const bank = await importQuestionBankV7(importFileName(file.name), canonicalRows, { ...options, imageAssets: assets });'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          start = s.index('  const raw: unknown = parsedJson.raw;')
+          end = s.index('  const bank = await importQuestionBankV7(file.name, raw, options);', start) + len('  const bank = await importQuestionBankV7(file.name, raw, options);')
+          new = '  const raw = parsedJson.raw;\n  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray((raw as Record<string, unknown>).questions)) throw new Error("JSON 题库必须使用当前 { name?, questions: [] } 格式。");\n  const questionRows = (raw as { questions: unknown[] }).questions;\n  if (questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);\n  const bank = await importQuestionBankV7(file.name, raw, options);'
+          p.write_text(s[:start] + new + s[end:])
+
+          p = Path('src/lib/db/db-v7-question-import.ts')
+          s = p.read_text()
+          start = s.index('function rawQuestionRows(')
+          end = s.index('const ASSET_ID_PATTERN', start)
+          new = 'function rawQuestionRows(raw: unknown): { name?: string; rows: ImportedQuestionRowV7[] } {\n  if (Array.isArray(raw)) return { rows: raw as ImportedQuestionRowV7[] };\n  if (!raw || typeof raw !== "object") throw new Error("未找到当前 questions 题目数组。");\n  const record = raw as Record<string, unknown>;\n  if (!Array.isArray(record.questions)) throw new Error("未找到当前 questions 题目数组。");\n  return { name: typeof record.name === "string" ? record.name : undefined, rows: record.questions as ImportedQuestionRowV7[] };\n}\n\n'
+          s = s[:start] + new + s[end:]
+          pairs = [
+            ('const rawStem = normalizeContentText(rowString(record, "stem", "question", "q", "题干"));', 'const rawStem = normalizeContentText(typeof record.stem === "string" ? record.stem : "");'),
+            ('const rawOptions = rowOptions(record);', 'const rawOptions = record.options;'),
+            ('  const optionTexts = optionBlocks.map((option) => deriveContentText(option));\n', ''),
+            ('const rawType = rowString(record, "type", "questionType", "题型").trim();', 'const rawType = typeof record.type === "string" ? record.type.trim() : "";'),
+            ('const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";', 'const rawAnswer = record.answer ?? "";'),
+            ('  const rawTags = record.tags ?? record["标签"];', '  const rawTags = record.tags;'),
+            ('  const note = rowString(record, "note", "analysis", "解析").trim();', '  const note = typeof record.note === "string" ? record.note.trim() : "";'),
+            ('\nexport const importTextJsonBankV7 = importQuestionBankV7;\nexport const importBankV7 = importQuestionBankV7;\n', '\n'),
+          ]
+          for old, new in pairs:
+            assert s.count(old) == 1, old
+            s = s.replace(old, new)
+          old = '  const type: QuestionTypeV7 = rawType === "判断" || rawType === "单选" || rawType === "多选" || rawType === "计算" || rawType === "填空" || rawType === "简答"\n    ? rawType\n    : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"\n      ? "判断"\n      : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";'
+          new = '  if (rawType !== "判断" && rawType !== "单选" && rawType !== "多选" && rawType !== "计算" && rawType !== "填空" && rawType !== "简答") return undefined;\n  const type: QuestionTypeV7 = rawType;'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          for token in ['record.items', 'record.data', 'record.ans', 'record.correctAnswer', 'record["答案"]', 'record["标签"]', 'rowString(', 'rowOptions(', 'questionType']:
+            assert token not in s, token
+          p.write_text(s)
+
+          p = Path('src/lib/sync/github-v7-remote.ts')
+          s = p.read_text()
+          start = s.index('  /** Actual wire size of a stored blob')
+          end = s.index('  readImmutableBlob(', start)
+          removed = s[start:end]
+          assert 'readBlobWireSize' in removed and 'legacy descriptors' in removed
+          s = s[:start] + s[end:]
+          assert 'readBlobWireSize' not in s
+          p.write_text(s)
+          PY
+      - run: npm ci
+      - run: npm run test:xlsx
+      - run: npm run test:sync
+      - run: npm run test:fast
+      - run: npm run build
+      - name: Report semantic residue
+        run: |
+          rg -n -i 'legacy|migrat|compatibil|superseded|one[- ]shot|一次性|迁移|兼容' src scripts || true
+          rg -n -i 'fallback|回退' src scripts || true
+      - name: Commit verified cleanup
+        run: |
+          rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git diff --cached --check
+          git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
