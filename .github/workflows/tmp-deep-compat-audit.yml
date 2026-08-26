@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify-commit:
-    if: contains(github.event.head_commit.message, '[latest-only-stage1]')
+    if: contains(github.event.head_commit.message, '[latest-only-stage2]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -26,7 +26,8 @@ jobs:
       - name: Apply latest-only cutoff
         run: |
           python3 scripts/tmp-latest-only-cleanup.py
-          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py
+          python3 scripts/tmp-latest-only-fixes.py
+          rm -f .github/workflows/tmp-deep-compat-audit.yml scripts/tmp-latest-only-cleanup.py scripts/tmp-latest-only-fixes.py
           git diff --check
       - name: Focused current-format checks
         run: |
