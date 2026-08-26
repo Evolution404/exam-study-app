@@ -53,6 +53,24 @@ jobs:
           )
           text = text.replace('historySyncStart: "2026-01-01"', 'historySyncStart: "2027-01-01"', 1)
           p.write_text(text)
+
+          # Full restore now deliberately ignores the configured history range,
+          # but keep the result field for the UI contract; undefined means the
+          # restore actually loaded all history.
+          p = Path('src/lib/sync/sync-v7-orchestrator.ts')
+          text = p.read_text()
+          old_result = ', skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns };'
+          new_result = ', skippedArchivedPracticeRuns: downloaded.skippedArchivedPracticeRuns, historySyncStart: undefined };'
+          if old_result not in text:
+              raise SystemExit('full-restore result contract target missing')
+          text = text.replace(old_result, new_result, 1)
+
+          old_comment = '''// B5: serialize all in-realm callers of syncWithGitHub. Manual sync, auto-sync,\n// quick-sync and loadAttemptHistory all funnel here; a module-level mutex makes\n// concurrent calls share the single in-flight run instead of racing the claim /\n// install / head-CAS steps. (Cross-tab remains a Web Locks follow-up.)'''
+          new_comment = '''// B5: coalesce all in-realm callers of syncWithGitHub. Manual sync, auto-sync,\n// quick-sync and loadAttemptHistory all funnel here; withSyncLock additionally\n// serializes pull/restore and extends the critical section across tabs/workers\n// whenever Web Locks are available.'''
+          if old_comment not in text:
+              raise SystemExit('cross-tab comment target missing')
+          text = text.replace(old_comment, new_comment, 1)
+          p.write_text(text)
           PY
       - run: npm ci
       - name: Incremental reconcile regression
