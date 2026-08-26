@@ -26,12 +26,9 @@ export function checkpointFromProjection(
     const gc = reclaimableTombstonesV7(tombstones, options.tombstoneGc);
     tombstones = gc.keep;
   }
-  // Serialize the explicit wire schema instead of spreading the internal
-  // projection object. ChangeSetProjectionV7 intentionally carries aliases
-  // such as bankQuestionMemberships (and reducer-only metadata such as
-  // attemptRoundIds); leaking those into checkpoint JSON duplicates data and
-  // makes a hydrate/rebuild produce a structurally different checkpoint even
-  // when every persisted entity is identical.
+  // Serialize the explicit wire schema instead of spreading the reducer
+  // projection. Reducer-only metadata such as attemptRoundIds is intentionally
+  // not part of checkpoint JSON.
   const checkpoint: SyncCheckpointV7 = {
     formatVersion: 7,
     generatedAt: new Date().toISOString(),
