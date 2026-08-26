@@ -7,20 +7,19 @@ import type { SyncHeadV7, SyncV7DeviceWatermark } from "./sync-v7-head-types";
 
 /** A device that has not reported a watermark for this long stops blocking
  *  tombstone GC (Riak-style reaping): a phone lost for 90+ days must not pin
- *  every tombstone forever.  Its un-pulled deletions simply win — the same
+ *  every tombstone forever. Its un-pulled deletions simply win — the same
  *  resolution rule the compareClock tie-break already applies elsewhere. */
 export const SYNC_V7_DEVICE_RETIRE_DAYS = 90;
 
 /** Causally-stable tombstone GC (Yorkie minVersionVector / Riak reaping):
  *  a tombstone is reclaimable once every non-retired known device has reported
  *  a watermark for the deleting device at or beyond the tombstone's deletion
- *  sequence.  Key soundness insight: a pending change-set referencing entity X
- *  can only be created while X exists locally — i.e. BEFORE that device pulled
- *  the deletion — so once its watermark passes the deletion sequence it can no
- *  longer produce a resurrection.  Devices that never reported stay
- *  conservative (block reclamation); the self device just performed the
- *  install and counts as confirmed.  Tombstones without a sequence anchor
- *  (legacy data predating H1) are always kept. */
+ *  sequence. A pending change-set referencing entity X can only be created
+ *  while X exists locally — before that device pulled the deletion — so once
+ *  its watermark passes the deletion sequence it can no longer produce a
+ *  resurrection. Devices that never reported stay conservative and block
+ *  reclamation; the self device just performed the install and counts as
+ *  confirmed. */
 export function reclaimableTombstonesV7(
   tombstones: readonly TombstoneV7[],
   input: { devices: Record<string, SyncV7DeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string },
@@ -37,7 +36,6 @@ export function reclaimableTombstonesV7(
   const keep: TombstoneV7[] = [];
   let dropped = 0;
   for (const tombstone of tombstones) {
-    if (typeof tombstone.sequence !== "number" || !Number.isFinite(tombstone.sequence)) { keep.push(tombstone); continue; }
     const confirmed = decisionSet.every((device) => (input.devices[device]?.cursors[tombstone.deviceId] ?? -1) >= tombstone.sequence);
     if (confirmed) dropped += 1;
     else keep.push(tombstone);
@@ -46,7 +44,7 @@ export function reclaimableTombstonesV7(
 }
 
 /** Best-effort device watermark publish (H2): report this device's installed
- *  cursors on the head so tombstone GC can prove causal stability.  Writes
+ *  cursors on the head so tombstone GC can prove causal stability. Writes
  *  only when the watermark actually advanced (idle syncs stay zero-write); a
  *  CAS conflict skips silently — the next sync republishes. */
 export async function publishDeviceWatermark(client: GitHubV7Remote, settings: GitHubSettings, deviceId: string, cursors: Record<string, number>): Promise<void> {
@@ -61,10 +59,10 @@ export async function publishDeviceWatermark(client: GitHubV7Remote, settings: G
 }
 
 /** Content fingerprint of what the installed projection covers: the checkpoint
- *  identity plus the per-device cursor watermark at install time.  Deliberately
+ *  identity plus the per-device cursor watermark at install time. Deliberately
  *  excludes head.generatedAt and segment digests — a coalesce re-pack or a peer's
  *  timestamp bump does not change the installed tables, so it must not trigger a
- *  full re-install (the old headVersion did exactly that). */
+ *  full re-install. */
 export function installFingerprint(cache: SyncV7HeadCache): string {
   const head = cache.head;
   const cursors = Object.keys(head.cursors).sort().map((device) => `${device}=${head.cursors[device]}`).join(",");
