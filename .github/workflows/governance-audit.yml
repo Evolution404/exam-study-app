@@ -8,7 +8,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - "knip.json"
-      - ".github/workflows/governance-audit.yml"
+      - ".github/workflows/**"
+      - ".preview/**"
   workflow_dispatch:
 
 permissions:
@@ -28,6 +29,10 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
+      - name: Workflow hygiene gate
+        run: node scripts/tools/check-workflow-hygiene.mjs
+      - name: Project health size report
+        run: node scripts/tools/report-project-health.mjs
       - name: Dependency vulnerability gate
         run: npm audit --audit-level=moderate
       - name: Structural dead-code gate
