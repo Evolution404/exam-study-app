@@ -14,6 +14,7 @@ import {
   plainTextToContentBlocks,
   stripImagePlaceholders,
 } from "../question/question-content";
+import { solutionFromInput, stableOptionIdForBlocks } from "../question/question-utils";
 import {
   findQuestionByFingerprint,
   questionFromDraft,
@@ -35,6 +36,7 @@ interface ImportedQuestionRowV7 {
   type?: string;
   options?: unknown;
   answer?: unknown;
+  solution?: unknown;
   tags?: unknown;
 }
 
@@ -71,8 +73,8 @@ const ASSET_ID_PATTERN = /^[0-9a-f]{64}$/;
 const PLACEHOLDER_TEST = /【图[0-9]+】/;
 
 /** Sanitise semi-trusted imported blocks: text blocks keep their text, image
- *  blocks must reference a materialised 64-hex asset id.  Anything else is
- *  dropped rather than trusted. */
+ * blocks must reference a materialised 64-hex asset id. Anything else is
+ * dropped rather than trusted. */
 function importedBlocks(value: unknown): ContentBlock[] | undefined {
   if (!Array.isArray(value) || !value.length) return undefined;
   const blocks: ContentBlock[] = [];
@@ -88,14 +90,36 @@ function importedBlocks(value: unknown): ContentBlock[] | undefined {
   return blocks;
 }
 
+function isQuestionSolution(value: unknown): value is QuestionSolution {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.kind === "choice") return Array.isArray(record.correctOptionIds) && record.correctOptionIds.every((id) => typeof id === "string" && id.length > 0);
+  if (record.kind === "calculation") return Array.isArray(record.blanks) && record.blanks.length > 0 && record.blanks.every((blank) => {
+    if (!blank || typeof blank !== "object" || Array.isArray(blank)) return false;
+    const item = blank as Record<string, unknown>;
+    return typeof item.id === "string" && typeof item.expected === "number" && Number.isFinite(item.expected);
+  });
+  if (record.kind === "fill") return Array.isArray(record.blanks) && record.blanks.length > 0 && record.blanks.every((blank) => {
+    if (!blank || typeof blank !== "object" || Array.isArray(blank)) return false;
+    const item = blank as Record<string, unknown>;
+    return typeof item.id === "string" && Array.isArray(item.acceptedAnswers) && item.acceptedAnswers.length > 0 && item.acceptedAnswers.every((answer) => typeof answer === "string" && answer.trim().length > 0);
+  });
+  return record.kind === "short" && typeof record.referenceText === "string" && record.referenceText.trim().length > 0;
+}
+
+function solutionMatchesType(type: QuestionTypeV7, solution: QuestionSolution): boolean {
+  if (type === "计算") return solution.kind === "calculation";
+  if (type === "填空") return solution.kind === "fill";
+  if (type === "简答") return solution.kind === "short";
+  return solution.kind === "choice";
+}
+
 function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | undefined {
   if (!row || typeof row !== "object") return undefined;
   const record = row as unknown as Record<string, unknown>;
   const imageIds = Array.isArray(record.images)
     ? record.images.map(String).filter((id) => ASSET_ID_PATTERN.test(id))
     : [];
-  // Structured content (zip bundle) wins; otherwise placeholder text (Excel
-  // image columns) is split back into blocks, and plain stems stay plain.
   const structuredContent = importedBlocks(record.content);
   const rawStem = normalizeContentText(rowString(record, "stem", "question", "q", "题干"));
   const stem = rawStem || (structuredContent ? deriveContentText(structuredContent) : "");
@@ -106,14 +130,13 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
   const blockOptions = Array.isArray(rawOptions) && rawOptions.length > 0 && rawOptions.every((item) => Array.isArray(item))
     ? rawOptions.map((item, index) => importedBlocks(item) ?? plainTextToContentBlocks("", `option-${index}-0`))
     : undefined;
-  // Excel image columns ship option text with 【图N】 markers; those options
-  // split into block arrays so the images land inside the option itself.
   const placeholderOption = (value: unknown, index: number) => {
     const optionText = String(value ?? "").trim();
     return imageIds.length && PLACEHOLDER_TEST.test(optionText) ? blocksFromPlaceholderText(optionText, imageIds, `option-${index}`) : optionText;
   };
   const options = blockOptions ?? (Array.isArray(rawOptions) ? rawOptions.map(placeholderOption) : []);
-  const optionTexts = options.map((option) => typeof option === "string" ? option : deriveContentText(option));
+  const optionBlocks = options.map((option, index) => typeof option === "string" ? plainTextToContentBlocks(option, `option-${index}-0`) : option);
+  const optionTexts = optionBlocks.map((option) => deriveContentText(option));
   const rawType = rowString(record, "type", "questionType", "题型").trim();
   const rawAnswer = record.answer ?? record.ans ?? record.correctAnswer ?? record["答案"] ?? "";
   const answer = Array.isArray(rawAnswer)
@@ -126,7 +149,14 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
     : optionTexts.length === 2 && optionTexts[0] === "正确" && optionTexts[1] === "错误"
       ? "判断"
       : answer.replace(/[^A-Z]/gi, "").length > 1 ? "多选" : "单选";
-  if (!answer.trim() || (!["计算", "填空", "简答"].includes(type) && options.length < 2)) return undefined;
+  if (!["计算", "填空", "简答"].includes(type) && options.length < 2) return undefined;
+  const suppliedOptionIds = Array.isArray(record.optionIds) && record.optionIds.length === options.length
+    ? record.optionIds.map(String)
+    : undefined;
+  const optionIds = suppliedOptionIds ?? (type === "单选" || type === "多选" || type === "判断" ? optionBlocks.map(stableOptionIdForBlocks) : undefined);
+  const suppliedSolution = isQuestionSolution(record.solution) ? structuredClone(record.solution) : undefined;
+  const solution = suppliedSolution ?? (answer.trim() ? solutionFromInput(type, answer, optionBlocks, optionIds) : undefined);
+  if (!solution || !solutionMatchesType(type, solution)) return undefined;
   const rawTags = record.tags ?? record["标签"];
   const tags = Array.isArray(rawTags) ? rawTags.map(String) : String(rawTags ?? "").split(/[，,、\n]+/);
   const note = rowString(record, "note", "analysis", "解析").trim();
@@ -134,24 +164,16 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
     type,
     ...(content ? { content } : { stem: cleanStem ?? stem }),
     options,
-    answer,
-    ...(Array.isArray(record.optionIds) && record.optionIds.length === options.length ? { optionIds: record.optionIds.map(String) } : {}),
-    ...(record.solution && typeof record.solution === "object" ? { solution: record.solution as QuestionSolution } : {}),
+    solution,
+    ...(optionIds ? { optionIds } : {}),
     tags: uniqueStrings(tags),
     ...(note ? { note } : {}),
   };
 }
 
-/**
- * Import a plain JSON question list.  The bank id is deterministic for a
- * filename/name, while question identity is content-addressed globally.  Pass
- * `options.targetBankId` to append into an EXISTING bank instead of deriving
- * one from the file name (dedupe / sortOrder append / note ownership all keep
- * the same semantics).  The import is published as one atomic change-set; when
- * its body exceeds the v7 inline-event budget the sync layer offloads it to a
- * content-addressed immutable object, so imports of any size stay within the
- * protocol limits.
- */
+/** Import a current question list. Human/Excel answer columns are converted to
+ * canonical solution objects at this boundary; persisted questions never store
+ * a parallel answer string. */
 export async function importQuestionBankV7(fileName: string, raw: unknown, options?: { targetBankId?: string; imageAssets?: readonly ImageAsset[] }): Promise<BankV7 & { importedCount: number }> {
   const parsed = rawQuestionRows(raw);
   const rows = parsed.rows.map(importDraft).filter((row): row is StructuredQuestionDraftV7 => Boolean(row));
@@ -197,7 +219,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
     const existingMembership = await dbV7.bankQuestionMemberships.get(membershipKey(bank.id, question.id));
     const membership: BankQuestionMembership = existingMembership ?? {
       key: membershipKey(bank.id, question.id),
-      bankId: bank.id,
+      bankId,
       questionId: question.id,
       sortOrder: sortOrder++,
       addedAt: timestamp,
@@ -205,8 +227,6 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       deviceId,
     };
     materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId }, isNewMembership: !existingMembership });
-    // Imported 解析 becomes a personal note only when the question has none yet;
-    // an existing note is user-owned and must not be overwritten by re-import.
     if (draft.note?.trim() && !(await dbV7.notes.get(question.id))) {
       materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
     }
@@ -223,8 +243,6 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
   await dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes, dbV7.syncMeta], async () => {
     await dbV7.banks.put(bank);
     for (const item of materialised) {
-      // Existing content is user-owned and already semantically identical;
-      // preserving it avoids a second device overwriting tags/favourites.
       if (!(await dbV7.questions.get(item.question.id))) await dbV7.questions.put(item.question);
       await saveMembershipInTx(item.membership);
     }
@@ -232,10 +250,6 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
     const refreshed = await refreshBankQuestionCountInTx(bank.id);
     if (refreshed) await dbV7.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
     const bankSnapshot = (await dbV7.banks.get(bank.id))!;
-    // A single atomic import change-set. The sync layer offloads any body that
-    // exceeds the v7 inline-event budget to a content-addressed immutable
-    // object, so a large import no longer needs to be split into byte-bounded
-    // chunks here; the whole import applies atomically on every device.
     await enqueueChangeSetV7([{
       kind: "question.import",
       bank: bankSnapshot,
@@ -244,8 +258,6 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       ...(importImages.length ? { images: importImages } : {}),
     }], timestamp);
     if (materialisedNotes.length) {
-      // Imported notes publish as a follow-up batch; the queue planner orders
-      // them after question.import because each note depends on its question.
       await enqueueChangeSetV7(materialisedNotes.map((note) => ({ kind: "note.upserted" as const, note })), timestamp);
     }
   });
