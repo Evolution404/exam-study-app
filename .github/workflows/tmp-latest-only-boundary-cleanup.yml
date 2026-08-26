@@ -117,6 +117,33 @@ jobs:
           }'''
           s = replace_once(s, old, new, 'stats singleChoice')
           p.write_text(s)
+
+          p = Path('scripts/tests/test-sync-question-management.ts')
+          s = p.read_text()
+          old = '''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+            return {
+              type: "单选",
+              content: [{ id: "stem-0", type: "text", text: stem }],
+              options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
+              answer,
+              tags: ["试题管理"],
+            };
+          }'''
+          new = '''function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+            const optionIds = options.map((_, index) => `opt-${index}`);
+            const correctOptionIds = answer.split("").map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));
+            return {
+              type: "单选",
+              content: [{ id: "stem-0", type: "text", text: stem }],
+              options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
+              optionIds,
+              solution: { kind: "choice", correctOptionIds },
+              tags: ["试题管理"],
+            };
+          }'''
+          s = replace_once(s, old, new, 'question management singleChoice')
+          s = s.replace('{ q:', '{ stem:').replace(', a:', ', type: "单选", options:').replace(', ans:', ', answer:')
+          p.write_text(s)
           PY
       - run: npm ci
       - run: npm run test:xlsx
@@ -132,7 +159,7 @@ jobs:
           rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts scripts/tests/test-db-v7-extra.ts scripts/tests/test-sync-stats-integration.ts scripts/tests/test-sync-question-management.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git diff --cached --check
           git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
