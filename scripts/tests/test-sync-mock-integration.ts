@@ -41,11 +41,17 @@ async function freshClient(deviceId: string): Promise<void> {
 }
 
 function singleChoice(stem: string, answer: string, options: string[]): Parameters<typeof createQuestionV7>[1] {
+  const optionIds = options.map((_, index) => `opt-${index}`);
+  const correctOptionIds = answer
+    .split("")
+    .map((letter) => optionIds[letter.charCodeAt(0) - 65])
+    .filter((id): id is string => Boolean(id));
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
     options: options.map((text, index) => [{ id: `opt-${index}`, type: "text", text }]),
-    answer,
+    optionIds,
+    solution: { kind: "choice", correctOptionIds },
     tags: ["集成测试"],
   };
 }
@@ -58,9 +64,10 @@ try {
     await sync(); // initialise an empty vault on the mock
 
     const rows = Array.from({ length: 2000 }, (_, index) => ({
-      q: `大规模同步测试第 ${index + 1} 题：关于考点 ${index} 的描述，下列哪项正确？`,
-      a: ["选项甲", "选项乙", "选项丙", "选项丁"],
-      ans: "A",
+      stem: `大规模同步测试第 ${index + 1} 题：关于考点 ${index} 的描述，下列哪项正确？`,
+      type: "单选",
+      options: ["选项甲", "选项乙", "选项丙", "选项丁"],
+      answer: "A",
     }));
     const bank = await importQuestionBankV7("大规模导入测试题库.json", rows);
     const localQuestionCount = await dbV7.questions.count();
@@ -179,7 +186,12 @@ try {
     await freshClient("device-a");
     await sync();
 
-    const rows = Array.from({ length: 1800 }, (_, index) => ({ q: `大练习第 ${index + 1} 题：考点 ${index} 描述，下列哪项正确？`, a: ["甲", "乙", "丙", "丁"], ans: "A" }));
+    const rows = Array.from({ length: 1800 }, (_, index) => ({
+      stem: `大练习第 ${index + 1} 题：考点 ${index} 描述，下列哪项正确？`,
+      type: "单选",
+      options: ["甲", "乙", "丙", "丁"],
+      answer: "A",
+    }));
     const bank = await importQuestionBankV7("大练习题库.json", rows);
     const questionIds = (await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).map((membership) => membership.questionId);
     assert.equal(questionIds.length, 1800, "练习应覆盖全部题目");
