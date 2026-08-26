@@ -70,6 +70,17 @@ jobs:
           s = s[:start] + s[end:]
           assert 'readBlobWireSize' not in s
           p.write_text(s)
+
+          p = Path('scripts/tests/test-db-v7.ts')
+          s = p.read_text()
+          old = 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });'
+          new = 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], optionIds: ["queue-a", "queue-b"], solution: { kind: "choice", correctOptionIds: ["queue-a"] } });'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '  { q: "  Shared   stem\\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },\n  { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },'
+          new = '  { stem: "  Shared   stem\\n", type: "单选", options: ["甲", "乙"], answer: "a", tags: ["共享"] },\n  { stem: "Only A", type: "判断", options: ["正确", "错误"], answer: "A" },'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new))
           PY
       - run: npm ci
       - run: npm run test:xlsx
@@ -85,7 +96,7 @@ jobs:
           rm .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
+          git add src/lib/question/question-bank-file-import.ts src/lib/db/db-v7-question-import.ts src/lib/sync/github-v7-remote.ts scripts/tests/test-db-v7.ts .github/workflows/tmp-latest-only-boundary-cleanup.yml
           git diff --cached --check
           git commit -m "refactor: enforce current-only import boundaries [latest-only-verified]"
           git push origin HEAD:refactor/remove-obsolete-compat
