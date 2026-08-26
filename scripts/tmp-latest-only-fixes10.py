@@ -145,28 +145,20 @@ write(path, text)
 
 path = 'src/lib/sync/image-asset-pack.ts'
 text = read(path)
-text = text.replace('''  if (record.storedSize !== undefined) {
-    assertSafeInteger(record.storedSize, `${label}.storedSize`);
-  }
-''', '''  assertSafeInteger(record.storedSize, `${label}.storedSize`);
-''')
-text = text.replace('''    ...(record.storedSize === undefined ? {} : { storedSize: record.storedSize }),
-''', '''    storedSize: record.storedSize,
-''')
+text = text.replace('if (record.storedSize !== undefined) assertSafeInteger(record.storedSize, `${field}.storedSize`);', 'assertSafeInteger(record.storedSize, `${field}.storedSize`);')
+text = text.replace('if (record.storedSize !== undefined) assertSafeInteger(record.storedSize, `${label}.storedSize`);', 'assertSafeInteger(record.storedSize, `${label}.storedSize`);')
+text = text.replace('...(record.storedSize !== undefined ? { storedSize: record.storedSize } : {}),', 'storedSize: record.storedSize,')
 write(path, text)
 
 path = 'src/lib/sync/sync-v7-head-operations.ts'
 text = read(path)
-text = text.replace('''    ...(value.storedSize === undefined ? {} : { storedSize: value.storedSize }),
-''', '''    storedSize: value.storedSize,
-''')
+text = text.replace('...(value.storedSize !== undefined ? { storedSize: value.storedSize } : {}),', 'storedSize: value.storedSize,')
 write(path, text)
 
 path = 'src/lib/sync/sync-v8-history.ts'
 text = read(path)
-text = text.replace('''  if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${label}.storedSize`);
-''', '''  assertSafeInt(value.storedSize, `${label}.storedSize`);
-''')
+text = text.replace('if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${field}.storedSize`);', 'assertSafeInt(value.storedSize, `${field}.storedSize`);')
+text = text.replace('if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${label}.storedSize`);', 'assertSafeInt(value.storedSize, `${label}.storedSize`);')
 write(path, text)
 
 # 7) Strict checkpoint validation: no old-shape mutation or missing-key repair.
@@ -204,6 +196,10 @@ for old, new in [
     ('current.hasBeenWrong as boolean', 'current.hasBeenWrong'),
     ('current.currentCorrectStreak as number', 'current.currentCorrectStreak'),
     ('current.correctStreakAfterWrong as number', 'current.correctStreakAfterWrong'),
+    ('current!.firstAttemptCorrect', 'current.firstAttemptCorrect'),
+    ('current!.hasBeenWrong', 'current.hasBeenWrong'),
+    ('current!.currentCorrectStreak', 'current.currentCorrectStreak'),
+    ('current!.correctStreakAfterWrong', 'current.correctStreakAfterWrong'),
 ]:
     text = text.replace(old, new)
 write(path, text)
