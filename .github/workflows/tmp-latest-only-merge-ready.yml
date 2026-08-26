@@ -29,7 +29,7 @@ jobs:
               if count != expected:
                   raise SystemExit(f'{path}: {old!r}: expected {expected}, got {count}')
               p.write_text(s.replace(old, new))
-          rep('src/app/shell/views/practice.tsx', 'calculation-answer fallback-grid', 'calculation-answer manual-grid')
+          rep('src/app/shell/views/practice.tsx', 'calculation-answer fallback-grid', 'calculation-answer manual-grid', 2)
           rep('src/app/shell/views/practice.tsx', 'fill-fallback-grid', 'fill-manual-grid')
           rep('src/app/shell/views/practice.tsx', 'calculation-fallback-inputs', 'calculation-manual-inputs', 2)
           rep('src/app/practice/practice-main-2.css', '.calculation-answer.fallback-grid', '.calculation-answer.manual-grid')
