@@ -1,11 +1,24 @@
 import * as XLSX from "xlsx";
 
+const choice = (stem, options, correctOptionIds, type = "单选") => ({
+  stem,
+  type,
+  options,
+  optionIds: options.map((_, index) => `option-${index + 1}`),
+  solution: { kind: "choice", correctOptionIds },
+});
+
 const fixture = [
-  { q: "导线的主要作用是什么？", a: ["传输电能", "装饰线路", "储存电能", "测量温度"], ans: "A" },
-  { q: "哪些做法有助于安全巡视？", a: ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], ans: ["A", "B"] },
-  { q: "巡视前应确认天气和现场风险。", a: ["正确", "错误"], ans: "A" },
-  { q: "发现异常后，最合适的第一步是什么？", a: ["立即离开并隐瞒", "按流程记录并报告", "自行拆除设备", "等待下次巡视"], ans: "B" },
-  { q: "图片所示数值允许 1% 误差时，计算结果是【空1】，其两倍是【空2】。", type: "计算", a: [], ans: ["10", "20"] },
+  choice("导线的主要作用是什么？", ["传输电能", "装饰线路", "储存电能", "测量温度"], ["option-1"]),
+  choice("哪些做法有助于安全巡视？", ["按规程佩戴防护用品", "核对线路和杆塔编号", "跨越警戒区域", "跳过危险点记录"], ["option-1", "option-2"], "多选"),
+  choice("巡视前应确认天气和现场风险。", ["正确", "错误"], ["option-1"], "判断"),
+  choice("发现异常后，最合适的第一步是什么？", ["立即离开并隐瞒", "按流程记录并报告", "自行拆除设备", "等待下次巡视"], ["option-2"]),
+  {
+    stem: "图片所示数值允许 1% 误差时，计算结果是【空1】，其两倍是【空2】。",
+    type: "计算",
+    options: [],
+    solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 10 }, { id: "blank-2", expected: 20 }] },
+  },
 ];
 export const fixtureFile = {
   name: "送电线路工-初级工.json",
@@ -18,7 +31,11 @@ export const bigFixtureFile = {
   name: "吸附测试加长题库.json",
   mimeType: "application/json",
   buffer: Buffer.from(JSON.stringify(
-    Array.from({ length: 30 }, (_, index) => ({ q: `加长题库第 ${index + 1} 题：设备巡检记录的归档要求是？`, a: ["按月装订成册", "随意存放", "口头交接", "无需归档"], ans: "A" })),
+    Array.from({ length: 30 }, (_, index) => choice(
+      `加长题库第 ${index + 1} 题：设备巡检记录的归档要求是？`,
+      ["按月装订成册", "随意存放", "口头交接", "无需归档"],
+      ["option-1"],
+    )),
   ), "utf8"),
 };
 export const excelFixtureFile = {
