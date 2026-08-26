@@ -93,6 +93,15 @@ jobs:
               raise RuntimeError('platform transport checkpoint size fixture not found')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/tools/check-architecture.mjs')
+          text = path.read_text(encoding='utf-8')
+          impossible = '  || !/SYNC_V9_ASSET_PREFIX\\s*=\\s*SYNC_V9_ASSET_PREFIX/.test(syncV7HeadTypes)'
+          if impossible not in text:
+              raise RuntimeError('architecture self-alias artifact not found')
+          path.write_text(text.replace(impossible, '', 1), encoding='utf-8')
+          PY
           python3 scripts/tmp-latest-only-diagnostic.py
           python3 scripts/tmp-latest-only-semantic-scan.py
           python3 scripts/tmp-latest-only-target-scan.py
