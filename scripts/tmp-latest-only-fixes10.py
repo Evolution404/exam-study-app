@@ -11,18 +11,12 @@ def write(path: str, text: str) -> None:
 # 1) Boundary tests: current round/scoped rows always contain their evidence.
 path = 'scripts/tests/test-progress-metrics-boundaries.ts'
 text = read(path)
-text = text.replace('''  // 窗口口径应携带作答序列（含作答时间）供难度 v2 使用；round 口径保持缺省走回退。
-''', '''  // 窗口和轮次口径都携带完整作答证据，供当前个人难度模型使用。
-''')
-old = '''  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes, undefined);
-'''
+text = text.replace('''  // 窗口口径应携带作答序列（含作答时间）供难度 v2 使用；round 口径保持缺省走回退。\n''', '''  // 窗口和轮次口径都携带完整作答证据，供当前个人难度模型使用。\n''')
+old = '''  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes, undefined);\n'''
 if old not in text:
     raise RuntimeError('old round-evidence undefined assertion not found')
-text = text.replace(old, '''  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes.length, 5);
-''')
-text = text.replace('''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
-''', '''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "统计转换应透传窗口内序列");
-''')
+text = text.replace(old, '''  assert.equal(buildScopedQuestionStats(["q1"], { type: "round", roundId: "r1" }, [], [round("r1", "q1", 5, 4, 1)], T0).get("q1")!.recentOutcomes.length, 5);\n''')
+text = text.replace('''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");\n''', '''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "统计转换应透传窗口内序列");\n''')
 old_scoped_fixture = '''  const legacy = scopedStatsToAttemptStats({
     questionId: "q1", total: 3, correct: 1, wrong: 2, giveUps: 1, totalElapsedMs: 30,
     firstAttemptAt: at(-2), firstAttemptCorrect: false, latestAttemptAt: at(0),
@@ -91,8 +85,7 @@ path = 'src/lib/db/db-v7-restore.ts'
 text = read(path)
 text = text.replace('function restoreRowCount(state: V7RestoreState, memberships: V7RestoreState["memberships"]): number {', 'function restoreRowCount(state: V7RestoreState): number {')
 text = text.replace('    memberships ?? [],', '    state.memberships,')
-text = text.replace('''  const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];
-''', '')
+text = text.replace('''  const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];\n''', '')
 text = text.replace('const totalRows = Math.max(1, restoreRowCount(state, memberships));', 'const totalRows = Math.max(1, restoreRowCount(state));')
 text = text.replace('dbV7.bankQuestionMemberships.bulkPut(memberships)', 'dbV7.bankQuestionMemberships.bulkPut(state.memberships)')
 write(path, text)
@@ -125,4 +118,72 @@ text = text.replace(''' * `recentOutcomes` window for the time-aware personal di
 ''', ''' * `recentOutcomes` window for the time-aware personal difficulty. Round
  * projections carry the same evidence.
 ''')
+write(path, text)
+
+# 6) Strict current-only shapes: remove aliases and make required descriptor fields flow end-to-end.
+path = 'src/app/bank/bank-library/question-manager.tsx'
+text = read(path)
+text = text.replace('import type { QuestionV7 } from "@/lib/db/v7-types";', 'import type { QuestionV7, ReviewRoundProgress } from "@/lib/db/v7-types";')
+text = text.replace('roundProgress?: Array<{ key: string; roundId: string; questionId: string; attempts: number; correct: number; wrong: number; firstAttemptAt: string; latestAttemptAt: string }>', 'roundProgress?: ReviewRoundProgress[]')
+write(path, text)
+
+path = 'src/lib/db/db-v7-reconcile.ts'
+text = read(path).replace('const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];', 'const memberships = state.memberships;')
+write(path, text)
+
+path = 'src/lib/sync/sync-v7-checkpoint-store.ts'
+text = read(path)
+text = text.replace('  memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((row) => ({ ...row })),', '  memberships: state.memberships.map((row) => ({ ...row })),' )
+write(path, text)
+
+path = 'src/lib/sync/image-asset-pack.ts'
+text = read(path)
+text = text.replace('''  if (record.storedSize !== undefined) {
+    assertSafeInteger(record.storedSize, `${label}.storedSize`);
+  }
+''', '''  assertSafeInteger(record.storedSize, `${label}.storedSize`);
+''')
+text = text.replace('''    ...(record.storedSize === undefined ? {} : { storedSize: record.storedSize }),
+''', '''    storedSize: record.storedSize,
+''')
+write(path, text)
+
+path = 'src/lib/sync/sync-v7-head-operations.ts'
+text = read(path)
+text = text.replace('''    ...(value.storedSize === undefined ? {} : { storedSize: value.storedSize }),
+''', '''    storedSize: value.storedSize,
+''')
+write(path, text)
+
+path = 'src/lib/sync/sync-v8-history.ts'
+text = read(path)
+text = text.replace('''  if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${label}.storedSize`);
+''', '''  assertSafeInt(value.storedSize, `${label}.storedSize`);
+''')
+write(path, text)
+
+# 7) Remove imports/declarations made obsolete by current-only validation.
+path = 'src/lib/sync/sync-v7-checkpoint-validation.ts'
+text = read(path).replace('  SHA1,\n', '')
+write(path, text)
+
+path = 'scripts/tests/test-persistent-config.ts'
+text = read(path).replace('  GITHUB_RELAY_URL,\n', '')
+write(path, text)
+
+path = 'scripts/tools/check-architecture.mjs'
+text = read(path)
+text = text.replace('const syncV7HeadValidation = read("src/lib/sync/sync-v7-head-validation.ts");\n', '')
+write(path, text)
+
+# 8) Required ReviewRoundProgress fields no longer need assertions after existence checks.
+path = 'src/lib/db/db-v7-practice.ts'
+text = read(path)
+for old, new in [
+    ('current.firstAttemptCorrect as boolean', 'current.firstAttemptCorrect'),
+    ('current.hasBeenWrong as boolean', 'current.hasBeenWrong'),
+    ('current.currentCorrectStreak as number', 'current.currentCorrectStreak'),
+    ('current.correctStreakAfterWrong as number', 'current.correctStreakAfterWrong'),
+]:
+    text = text.replace(old, new)
 write(path, text)
