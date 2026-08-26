@@ -1,0 +1,105 @@
+name: Verify merge-ready current-only cleanup
+on:
+  push:
+    branches:
+      - refactor/remove-obsolete-compat
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply naming cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def rep(path, old, new, expected=1):
+              p = Path(path)
+              s = p.read_text()
+              count = s.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: {old!r}: expected {expected}, got {count}')
+              p.write_text(s.replace(old, new))
+          rep('src/app/shell/views/practice.tsx', 'calculation-answer fallback-grid', 'calculation-answer manual-grid')
+          rep('src/app/shell/views/practice.tsx', 'fill-fallback-grid', 'fill-manual-grid')
+          rep('src/app/shell/views/practice.tsx', 'calculation-fallback-inputs', 'calculation-manual-inputs', 2)
+          rep('src/app/practice/practice-main-2.css', '.calculation-answer.fallback-grid', '.calculation-answer.manual-grid')
+          rep('src/app/practice/practice-main-2.css', '.calculation-fallback-inputs', '.calculation-manual-inputs', 3)
+          rep('src/app/practice/practice-main-2.css', 'legacy structure remains shared', 'shared structure remains centralized')
+          rep('src/app/search/search-tokens.css', 'migrate without expanding the core token layer', 'move without expanding the core token layer')
+          rep('src/app/styles/palette-tokens.css', 'palette for legacy surfaces', 'palette for existing surfaces')
+          rep('src/app/styles/dark-overrides.css', 'Centralized legacy dark-theme overrides', 'Centralized dark-theme overrides')
+          rep('src/app/styles/bank-controls.css', 'variants migrated out of the global entrypoint', 'variants moved out of the global entrypoint')
+          rep('src/lib/question/question-bank-export.ts', 'WPS cell-image compatibility', 'WPS cell-image support')
+          PY
+          cat > docs/COMPATIBILITY_CLEANUP_2026-08-26.md <<'EOF'
+          # Current-format cleanup audit — 2026-08-26
+
+          ## Result
+
+          The application now treats the latest persisted and Sync v9 shapes as the only supported data contract. Historical aliases, shape normalization, repair/backfill paths, and question-answer projections are not used to read or reconstruct older data.
+
+          ## Current-only question contract
+
+          - `QuestionV7.solution` is required and is the single canonical persisted/synchronized answer representation.
+          - Persisted `Question.answer`, `legacyAnswerForSolution`, and answer-to-solution reconstruction paths are removed.
+          - JSON/bundle export writes structured `solution`; spreadsheet answer cells remain an explicit current import/export boundary representation rather than stored question state.
+          - Fingerprints, sync mutations, practice grading, copy, editor, and display paths consume the canonical solution.
+
+          ## Current-only checkpoint and projection contract
+
+          - Checkpoint validation accepts the current v9 shape directly; historical shape normalizers and aliases are removed.
+          - Projection membership state uses the canonical `memberships` key; there is no projection alias for the local `bankQuestionMemberships` table name.
+          - Practice-run statistics are not repaired by adding missing historical keys.
+          - Review-round progress rows are created with complete attempt/evidence fields on the first attempt; no zero-attempt or missing-field repair skeleton is used.
+
+          ## Descriptor size contract
+
+          - `SyncV7Descriptor.storedSize` is required.
+          - Descriptor reads consume the recorded wire size directly; `readBlobWireSize` and descriptor size backfill are removed.
+          - Offloaded payload references intentionally use a separate logical-content expectation (`size` + digest), because they are content references rather than wire descriptors. This keeps the descriptor contract strict without inventing a stored size for payload refs.
+
+          ## Removed retired surfaces
+
+          - Pure re-export sync facades and zero-call aliases were removed; callers import canonical owners directly.
+          - Retired endpoint conversion and historical rebuild paths were removed.
+          - Obsolete type aliases and misleading historical naming were removed where they no longer describe current behavior.
+          - Temporary `tmp-latest-only-*` scripts/workflows are not part of the final tree.
+
+          ## Intentionally retained current-environment resilience
+
+          Only behavior needed by current supported environments remains, including Safari/IndexedDB lifecycle handling, WebCrypto-independent digest execution when the native primitive is unavailable, Worker-to-main-thread execution paths, CompressionStream/plain-JSON current wire support, and browser capability handling such as clipboard/image rendering. These paths do not migrate or reinterpret historical persisted data.
+
+          ## Verification
+
+          The current-only cleanup is verified by the full Sync suite, fast checks, production build, structural dead-code gate, architecture check, export-surface ratchet, workflow hygiene, Sync storage CI, governance audit, PR preview, and Chromium/WebKit browser smoke gates. Exact-head run identifiers are recorded in PR #32 after the final head completes.
+          EOF
+          sed -i 's/^          //' docs/COMPATIBILITY_CLEANUP_2026-08-26.md
+          git rm .github/workflows/tmp-latest-only-merge-ready.yml
+          git diff --check
+          ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'legacyAnswerForSolution|questionSolution\(|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?|calculation-fallback|fill-fallback|LegacyBank|LegacyNote|LegacySync|one-time migration|旧数据|旧本地|历史回填|历史迁移' src scripts
+      - run: npm ci
+      - run: npm run test:sync
+      - run: npm run test:fast
+      - run: npm run build
+      - run: npm run lint:dead-code
+      - run: node scripts/tools/check-architecture.mjs
+      - run: node scripts/tools/check-export-surface.mjs
+      - run: node scripts/tools/check-workflow-hygiene.mjs
+      - name: Commit verified final tree
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src scripts docs .github/workflows
+          git diff --cached --check
+          git commit -m "refactor: finalize current-only cleanup [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
