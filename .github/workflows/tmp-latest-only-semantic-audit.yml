@@ -13,13 +13,13 @@ jobs:
           fetch-depth: 0
       - name: Semantic compatibility terms
         run: |
-          echo '=== legacy/migrate/compatibility/superseded/one-shot ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'legacy|migrat|compatibil|superseded|one[- ]shot|一次性|迁移|兼容' src scripts || true
-          echo '=== fallback/backfill ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'fallback|backfill|回退|兜底|补齐' src scripts || true
           echo '=== priority exact residues ==='
           grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'questionSolution\(|legacyAnswerForSolution|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?|practiceRunStats.*\?\?' src scripts || true
+          echo '=== readBlob callsites ==='
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist 'readBlob(' src scripts || true
+          echo '=== SyncV7BlobExpectation callsites ==='
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist 'SyncV7BlobExpectation' src scripts || true
+          echo '=== old-data wording in production ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'legacy|migrat|compatibil|one[- ]shot|旧数据|旧本地|历史回填|历史迁移' src || true
           echo '=== persisted Question answer references ==='
           grep -RInE --exclude-dir=node_modules --exclude-dir=dist '\b(question|canonical|mutation\.question)\.answer\b|QuestionV7[^\n]*answer' src scripts || true
-          echo '=== temporary paths ==='
-          find . -type f \( -name 'tmp-latest-only-*' -o -path './.github/workflows/tmp-*' \) -print
