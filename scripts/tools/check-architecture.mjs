@@ -47,9 +47,10 @@ if (/migrateLegacy|indexedDB\.open/.test(dbV7Core)) {
 
 const sync = read("src/lib/sync/github-sync.ts");
 const syncV7 = read("src/lib/sync/github-sync-v7.ts");
-const syncV7Head = read("src/lib/sync/sync-v7-head.ts");
+const syncV7HeadTypes = read("src/lib/sync/sync-v7-head-types.ts");
+const syncV7HeadValidation = read("src/lib/sync/sync-v7-head-validation.ts");
 const syncV7Remote = read("src/lib/sync/github-v7-remote.ts");
-const syncV7Checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+const syncV7CheckpointTypes = read("src/lib/sync/sync-v7-checkpoint-types.ts");
 const syncV8History = read("src/lib/sync/sync-v8-history.ts");
 if (fs.existsSync(path.join(root, "src/lib/sync/sync-v6-head.ts")) || fs.existsSync(path.join(root, "src/lib/sync/sync-v6-checkpoint.ts"))) {
   fail("sync-v6 head/checkpoint 文件必须删除，统一使用 sync-v7-checkpoint");
@@ -71,26 +72,36 @@ if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-v7["']/.test(sync
 if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
   fail("公开恢复入口必须委托 v7");
 }
-if (!/SYNC_V9_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncV7Head)
-  || !/SYNC_V9_CHECKPOINT_PREFIX\s*=\s*["']sync\/v9\/checkpoints\/["']/.test(syncV7Head)
-  || !/SYNC_V9_SEGMENT_PREFIX\s*=\s*["']sync\/v9\/segments\/["']/.test(syncV7Head)
-  || !/SYNC_V9_OBJECT_PREFIX\s*=\s*["']sync\/v9\/objects\/["']/.test(syncV7Head)
-  || !/SYNC_V9_ASSET_PREFIX\s*=\s*["']sync\/v9\/assets\/["']/.test(syncV7Head)
-  || !/SYNC_V9_FORMAT_VERSION\s*=\s*9\s+as\s+const/.test(syncV7Head)
+if (!/SYNC_V9_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncV7HeadTypes)
+  || !/SYNC_V9_CHECKPOINT_PREFIX\s*=\s*["']sync\/v9\/checkpoints\/["']/.test(syncV7HeadTypes)
+  || !/SYNC_V9_SEGMENT_PREFIX\s*=\s*["']sync\/v9\/segments\/["']/.test(syncV7HeadTypes)
+  || !/SYNC_V9_OBJECT_PREFIX\s*=\s*["']sync\/v9\/objects\/["']/.test(syncV7HeadTypes)
+  || !/SYNC_V9_ASSET_PREFIX\s*=\s*["']sync\/v9\/assets\/["']/.test(syncV7HeadTypes)
+  || !/SYNC_V9_FORMAT_VERSION\s*=\s*9\s+as\s+const/.test(syncV7HeadTypes)
   || !/GitHubV7Remote/.test(syncV7Remote) || !/syncWithGitHub/.test(syncV7)
-  || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7Head)
-  || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7Checkpoint)
+  || !/SYNC_V7_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncV7HeadTypes)
+  || !/SYNC_V7_CHECKPOINT_FORMAT\s*=\s*7/.test(syncV7CheckpointTypes)
   || !/SYNC_V9_CHECKPOINT_FORMAT\s*=\s*9/.test(syncV8History)
   || !/createRemoteCheckpointV8/.test(syncV8History)
-  || !/SYNC_V7_ASSET_PREFIX/.test(syncV7Checkpoint)) {
+  || !/SYNC_V7_ASSET_PREFIX\s*=\s*SYNC_V9_ASSET_PREFIX/.test(syncV7HeadTypes)) {
   fail("公开同步入口必须仅使用 v9 固定 head/热窗口 transport，并以 format 9 bounded checkpoint + history archive 写远端");
 }
 
+const legacyMigrationHeadPin = 'path: "sync/v7/head.json" | "sync/v8/head.json";';
+const legacyMigrationValidation = 'value.migratedFrom.path !== "sync/v7/head.json" && value.migratedFrom.path !== "sync/v8/head.json"';
+if (!syncV7HeadTypes.includes(legacyMigrationHeadPin) || !syncV7HeadValidation.includes(legacyMigrationValidation)) {
+  fail("v9 head 类型与校验必须只保留精确的 v7/v8 migratedFrom 来源 pin，用于迁移诊断而非远端访问");
+}
 const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
   .filter((file) => typeof file === "string" && file.endsWith(".ts"))
   .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
 for (const { file, source } of activeSyncSources) {
-  if (/sync\/v[78]\//.test(source) && file !== "sync-v7-head.ts") {
+  const inspectedSource = file === "sync-v7-head-types.ts"
+    ? source.replace(legacyMigrationHeadPin, "")
+    : file === "sync-v7-head-validation.ts"
+      ? source.replace(legacyMigrationValidation, "")
+      : source;
+  if (/sync\/v[78]\//.test(inspectedSource)) {
     fail(`${file} 不得访问已退役的 v7/v8 远端 namespace；生产同步只允许 v9`);
   }
 }

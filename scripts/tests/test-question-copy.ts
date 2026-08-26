@@ -81,18 +81,20 @@ assert.match(copyAction, /status === "error" \? "复制失败"/, "复制失败�
 assert.match(copyAction, /aria-label=\{ariaLabel\}/, "共享按钮必须保留无障碍名称");
 
 const practiceView = await readFile("src/app/shell/views/practice.tsx", "utf8");
-assert.match(practiceView, /<QuestionCopyAction status=\{copyStatusOf\("question"\)\}/, "练习页应始终提供复制题目动作");
-assert.match(practiceView, /\{submitted && <QuestionCopyAction includeAnswer status=\{copyStatusOf\("questionWithAnswer"\)\}/, "作答后应同时出现第二个复制含答案动作");
+const practicePresentation = await readFile("src/app/shell/views/practice-presentation.tsx", "utf8");
+const practiceSurface = `${practiceView}\n${practicePresentation}`;
+assert.match(practicePresentation, /<QuestionCopyAction status=\{copyQuestionStatus\}/, "练习页应始终通过 presentation 提供复制题目动作");
+assert.match(practicePresentation, /\{submitted && <QuestionCopyAction includeAnswer status=\{copyAnswerStatus\}/, "作答后应同时通过 presentation 出现第二个复制含答案动作");
 assert.match(practiceView, /target === "questionWithAnswer"/, "含答案版应由 target 区分 includeAnswer");
 assert.match(practiceView, /submitted && !correct \? selected : undefined/, "做错时两个按钮都应附我的选择");
-assert.match(practiceView, /className="question-tools"/, "复制、收藏、编辑应进入独立操作区而非混入标签行");
-assert.match(practiceView, /className=\{`question-tool favorite/, "收藏应使用统一轻量工具动作");
-assert.match(practiceView, /className="question-tool edit"/, "编辑应使用统一轻量工具动作");
-assert.match(practiceView, /\{question\.tags\.map\(\(tag\) => <em key=\{tag\}>\{tag\}<\/em>\)\}/, "所有用户标签都应按同一标签样式渲染");
-assert.doesNotMatch(practiceView, /contextTags|categoryTags|question-contexts|tag\.replace/, "考点/公式等用户标签不得被特殊拆分或改写");
-assert.doesNotMatch(practiceView, /question-meta-copy/, "旧复制图标容器应清除");
-assert.doesNotMatch(practiceView, /className=\{`icon-button copy-question/, "练习页不应恢复孤立方形复制图标");
-assert.doesNotMatch(practiceView, /复制题目、选项和答案|复制题目和选项/, "旧的单按钮文案应清除");
+assert.match(practicePresentation, /className="question-tools"/, "复制、收藏、编辑应进入独立操作区而非混入标签行");
+assert.match(practicePresentation, /className=\{`question-tool favorite/, "收藏应使用统一轻量工具动作");
+assert.match(practicePresentation, /className="question-tool edit"/, "编辑应使用统一轻量工具动作");
+assert.match(practicePresentation, /\{question\.tags\.map\(\(tag\) => <em key=\{tag\}>\{tag\}<\/em>\)\}/, "所有用户标签都应按同一标签样式渲染");
+assert.doesNotMatch(practiceSurface, /contextTags|categoryTags|question-contexts|tag\.replace/, "考点/公式等用户标签不得被特殊拆分或改写");
+assert.doesNotMatch(practiceSurface, /question-meta-copy/, "旧复制图标容器应清除");
+assert.doesNotMatch(practiceSurface, /className=\{`icon-button copy-question/, "练习页不应恢复孤立方形复制图标");
+assert.doesNotMatch(practiceSurface, /复制题目、选项和答案|复制题目和选项/, "旧的单按钮文案应清除");
 
 // ===== 静态断言：所有复用 QuestionDetail 的查看界面 =====
 

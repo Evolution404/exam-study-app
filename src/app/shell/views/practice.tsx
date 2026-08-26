@@ -1,23 +1,20 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
+import { Check, CheckCheck, X } from "lucide-react";
 import { dbV7 } from "@/lib/db/db-v7";
-import { difficultyLabel, difficultyTone } from "@/lib/practice/practice-metrics";
 import { SharedQuestionEditor, loadImageAssetV7 } from "@/app/bank/question-editor";
-import { NoteMarkdown } from "@/app/ui/note-markdown";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer, FillContentRenderer } from "@/app/practice/calculation-content-renderer";
-import { formatKeyboardShortcut, resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
+import { resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
 import { areCalculationAnswersCorrect, calculationAnswers, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, questionSolution, stableQuestionOptionIds } from "@/lib/question/question-utils";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
 import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
-import { Hint } from "@/app/ui/hint";
-import { QuestionCopyAction } from "@/app/ui/question-copy-action";
 import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
 import { ActiveElapsedTimer } from "@/lib/practice/active-elapsed-time";
 import { QuestionOverview } from "./question-overview";
+import { PracticeActionBar, PracticeHeader, PracticeNavigationHints, PracticeNotePanel, PracticeQuestionHeading, PracticeResultSummary } from "./practice-presentation";
 
 export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
@@ -331,36 +328,67 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   return <>
     <div className="practice-layout">
       <section ref={questionCardRef} className="question-card" data-no-pull-refresh>
-        <div className="practice-head">
-          <button className="icon-button" aria-label="暂停并返回首页" onClick={onExit}><X size={19} /></button>
-          <div className="practice-progress"><span>{index + 1} / {total} · {modeLabel}</span><i><b style={{ width: `${(index + 1) / total * 100}%` }} /></i></div>
-          <div className="practice-head-actions"><button className="icon-button overview-trigger" aria-label="打开题目总览" onClick={() => setOverviewOpen(true)}><Grid3X3 size={18} /></button></div>
-        </div>
+        <PracticeHeader index={index} total={total} modeLabel={modeLabel} onExit={onExit} onOpenOverview={() => setOverviewOpen(true)} />
         <div className="question-body">
-          <div className="question-heading">
-            <div className="question-source">{question.bankName}</div>
-            <div className="question-meta">
-              <em className="question-type-chip">{question.type}</em>
-              <Hint label="个人难度按有效作答时间与作答间隔动态估计：明显快于自己常态、且间隔够久（约半天以上）的做对才显著降低难度；做错会立即推高难度。"><em className={`difficulty-chip difficulty-${difficultyTone(attemptSummary.difficulty)}`}>个人难度 {attemptSummary.difficulty} · {difficultyLabel(attemptSummary.difficulty)}</em></Hint>
-              {question.tags.map((tag) => <em key={tag}>{tag}</em>)}
-            </div>
-            <div className="question-tools">
-              <QuestionCopyAction status={copyStatusOf("question")} onClick={() => void handleCopyQuestion("question")} />
-              {submitted && <QuestionCopyAction includeAnswer status={copyStatusOf("questionWithAnswer")} onClick={() => void handleCopyQuestion("questionWithAnswer")} />}
-              <button type="button" className={`question-tool favorite ${question.favorite ? "active" : ""}`} aria-label={question.favorite ? "取消收藏" : "收藏题目"} aria-pressed={Boolean(question.favorite)} onClick={() => void onFavorite()}><Star size={14} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button>
-              <button type="button" className="question-tool edit" onClick={() => setEditing(true)}><Pencil size={14} />编辑题目</button>
-            </div>
-          </div>
+          <PracticeQuestionHeading
+            question={question}
+            attemptSummary={attemptSummary}
+            submitted={submitted}
+            copyQuestionStatus={copyStatusOf("question")}
+            copyAnswerStatus={copyStatusOf("questionWithAnswer")}
+            onCopyQuestion={() => void handleCopyQuestion("question")}
+            onCopyQuestionWithAnswer={() => void handleCopyQuestion("questionWithAnswer")}
+            onFavorite={() => void onFavorite()}
+            onEdit={() => setEditing(true)}
+          />
           {question.type === "计算" && hasInlineCalculationBlanks ? <CalculationContentRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem calculation-practice-stem" answerCount={expectedCalculationAnswers.length} values={submitted ? selected : calculationDrafts} expected={expectedCalculationAnswers} tolerancePercent={preferences.calculationTolerancePercent} disabled={submitted} idPrefix={`calculation-answer-${question.id}`} onChange={(blankIndex, value) => setCalculationDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? value : item))} onLastEnter={() => void submit()} /> : question.type === "填空" && hasInlineFillBlanks ? <FillContentRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem fill-practice-stem" blankCount={expectedFillSolution?.blanks.length ?? 0} values={submitted ? selected : fillDrafts} expected={expectedFillSolution} disabled={submitted} idPrefix={`fill-answer-${question.id}`} onChange={(blankIndex, value) => setFillDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? value : item))} onLastEnter={() => void submit()} /> : <ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem" />}
           {question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}
           {question.type === "计算" ? (!hasInlineCalculationBlanks && <div className={`calculation-answer fallback-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>输入计算结果</strong><small>每个空分别按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定，全部正确才算答对。</small></div><div className="calculation-fallback-inputs">{calculationDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`calculation-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="number" inputMode="decimal" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setCalculationDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "填空" ? (!hasInlineFillBlanks && <div className={`calculation-answer fallback-grid fill-fallback-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>填写答案</strong><small>每个空按标准文本答案规范化后逐空判定，全部正确才算答对。</small></div><div className="calculation-fallback-inputs">{fillDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`fill-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="text" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setFillDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "简答" ? <div className="short-answer-card"><label><span>我的回答</span><textarea aria-label="简答题回答" value={selected[0] ?? ""} disabled={submitted} onChange={(event) => { const next = [event.currentTarget.value]; setSelected(next); onStateChange({ selected: next, submitted: false }); }} placeholder="先回忆要点，再参考答案自评。" rows={6} /></label>{submitted && shortSolution && <div className="short-reference"><strong>参考答案</strong><p>{shortSolution.referenceText}</p></div>}</div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const originalOptionId = optionIds[originalIndex]; const isAnswer = revealAnswer && correctOptionIds.has(originalOptionId ?? ""); const isWrong = submitted && selected.includes(originalLetter) && !correctOptionIds.has(originalOptionId ?? ""); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
-          {submitted && <><div className={`result-box ${correct ? "success" : "error"}`}>{question.type === "简答" ? <><strong>{shortOutcome === "correct" ? (autoAdvancing ? "已标记正确，即将进入下一题" : "已标记正确") : shortOutcome === "skipped" ? "已跳过，并计入错题" : "已标记错误"}</strong><p>本题按自评记录，参考答案见上方。</p></> : <><strong>{correct ? (autoAdvancing ? "回答正确，即将进入下一题" : "回答正确") : gaveUp ? "已标记为不会，并计入错题" : "这次没有答对"}</strong>{correct ? <p>正确答案：{displayAnswer}</p> : preferences.showAnswerOnWrong ? <p>正确答案：{displayAnswer}｜你的选择：{selectedAnswer || "不会"}</p> : <p>正确答案已按配置隐藏｜你的选择：{selectedAnswer || "不会"}</p>}</>}</div><div className="attempt-summary"><span><strong>{attemptSummary.total}</strong>总作答</span><span className="correct"><strong>{attemptSummary.correct}</strong>正确</span><span className="wrong"><strong>{attemptSummary.wrong}</strong>错误</span><span className={`difficulty difficulty-${difficultyTone(attemptSummary.difficulty)}`}><strong>{attemptSummary.difficulty}</strong>个人难度 · {difficultyLabel(attemptSummary.difficulty)}</span></div></>}
-          {preferences.keyboardShortcuts.enabled && <div className="keyboard-hint">快捷键：确认 <kbd>{preferences.keyboardShortcuts.bindings.confirm.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 上一题 <kbd>{preferences.keyboardShortcuts.bindings.previous.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd> · 下一题 <kbd>{preferences.keyboardShortcuts.bindings.next.map(formatKeyboardShortcut).join(" / ") || "未设置"}</kbd></div>}
-          {preferences.swipeNavigation && <div className="swipe-hint"><ChevronLeft size={15} />右滑上一题 · 左滑下一题<ChevronRight size={15} /></div>}
+          <PracticeResultSummary
+            submitted={submitted}
+            correct={correct}
+            questionType={question.type}
+            shortOutcome={shortOutcome}
+            autoAdvancing={autoAdvancing}
+            gaveUp={gaveUp}
+            displayAnswer={displayAnswer}
+            selectedAnswer={selectedAnswer}
+            showAnswerOnWrong={preferences.showAnswerOnWrong}
+            attemptSummary={attemptSummary}
+          />
+          <PracticeNavigationHints preferences={preferences} />
         </div>
-        <div className={`practice-actions ${submitted ? "submitted" : ""} ${submitted && !correct && preferences.wrongReappearance === "immediate" ? "with-retry" : ""}`}><button className="secondary practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button><div>{!submitted && <button className="dont-know-action" onClick={() => void giveUp()}><CircleHelp size={17} />不会</button>}{!submitted && question.type !== "多选" && question.type !== "计算" && question.type !== "填空" && question.type !== "简答" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}{!submitted && (question.type === "计算" || question.type === "多选" || question.type === "填空" || (!preferences.submitOnSelect && question.type !== "简答")) && <button className="primary practice-submit" disabled={question.type === "计算" ? !calculationInputValid : question.type === "填空" ? !fillInputValid : !selected.length} onClick={() => void submit()}>确认答案</button>}{!submitted && question.type === "简答" && <div className="short-grade-actions"><button className="secondary" disabled={!selected[0]?.trim()} onClick={() => void submit(selected, "correct")}>标记正确</button><button className="secondary" disabled={!selected[0]?.trim()} onClick={() => void submit(selected, "incorrect")}>标记错误</button><button className="secondary" disabled={!selected[0]?.trim()} onClick={() => void submit(selected, "skipped")}>跳过</button></div>}{submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary retry-question" onClick={retryQuestion}><RefreshCw size={16} />立即重答</button>}{autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>}</div></div>
+        <PracticeActionBar
+          submitted={submitted}
+          correct={correct}
+          questionType={question.type}
+          preferences={preferences}
+          selectedCount={selected.length}
+          shortHasAnswer={Boolean(selected[0]?.trim())}
+          calculationInputValid={calculationInputValid}
+          fillInputValid={fillInputValid}
+          autoAdvancing={autoAdvancing}
+          index={index}
+          isLast={isLast}
+          onPrevious={onPrevious}
+          onGiveUp={() => void giveUp()}
+          onSubmit={() => void submit()}
+          onGrade={(outcome) => void submit(selected, outcome)}
+          onRetry={retryQuestion}
+          onFinish={onFinish}
+          onNext={onNext}
+        />
       </section>
-      {submitted && <aside className="note-panel"><div><NotebookPen size={18} /><strong>我的解析</strong></div>{!noteEditing && effectiveDraft.trim() ? <div className="note-panel-view" role="button" tabIndex={0} aria-label="编辑解析，支持 Markdown 与 LaTeX" onClick={() => setNoteEditing(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setNoteEditing(true); } }}><NoteMarkdown text={effectiveDraft} /></div> : <textarea value={effectiveDraft} onChange={(event) => changeNoteDraft(event.target.value)} onFocus={() => setNoteEditing(true)} onBlur={() => { if (effectiveDraft.trim()) setNoteEditing(false); }} placeholder="写下错因、口诀或区分条件…（支持 Markdown 与 LaTeX）" />}<span className={`note-save-status ${noteSaveStatus}`}>{noteSaveStatus === "saving" ? "正在自动保存…" : noteSaveStatus === "saved" ? "已自动保存" : "输入后自动保存"}</span><button className="edit-question-button" onClick={() => setEditing(true)}><Pencil size={15} />编辑题目与标签</button><small>切换题目或离开页面前会自动保存解析。</small></aside>}
+      <PracticeNotePanel
+        submitted={submitted}
+        editing={noteEditing}
+        draft={effectiveDraft}
+        saveStatus={noteSaveStatus}
+        onStartEditing={() => setNoteEditing(true)}
+        onStopEditing={() => setNoteEditing(false)}
+        onChange={changeNoteDraft}
+        onEditQuestion={() => setEditing(true)}
+      />
     </div>
     {overviewOpen && <QuestionOverview questionIds={questionIds} questionTypes={questionTypes} answers={answers} currentIndex={index} onClose={() => setOverviewOpen(false)} onJump={(target) => { window.clearTimeout(autoNextTimer.current); onJump(target); setOverviewOpen(false); }} />}
     {editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => setEditing(false)} />}

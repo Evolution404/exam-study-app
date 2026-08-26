@@ -14,6 +14,7 @@ const practiceController = read("src/app/shell/use-practice-session-controller.t
 const quickSyncController = read("src/app/shell/use-quick-sync-controller.ts");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
+const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const practiceHistory = read("src/app/practice/practice-history.tsx");
@@ -26,10 +27,10 @@ assert.match(practiceView, /className="option-status option-status-wrong"/, "wro
 assert.match(styles, /\.options button \{ position:relative;/, "option cards must anchor their status overlay");
 assert.match(styles, /\.option-status \{ position:absolute;/, "answer icons must not participate in option text layout");
 assert.match(styles, /padding:10px 50px 10px 15px/, "every option must reserve the same stable status gutter before and after submission");
-assert.match(practiceView, /correct \? <p>正确答案：\{displayAnswer\}<\/p> : preferences\.showAnswerOnWrong/, "correct feedback must show only answer letters");
-assert.match(practiceView, /正确答案：\{displayAnswer\}｜你的选择：\{selectedAnswer \|\| "不会"\}/, "wrong feedback must show the correct answer before the selected answer");
-assert.doesNotMatch(practiceView, /你的选择[^\n]*<MathText/, "answer feedback must never duplicate full option text");
-assert.doesNotMatch(practiceView, /\(correct \|\| preferences\.showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
+assert.match(practicePresentation, /correct \? <p>正确答案：\{displayAnswer\}<\/p> : showAnswerOnWrong/, "correct feedback must show only answer letters");
+assert.match(practicePresentation, /正确答案：\{displayAnswer\}｜你的选择：\{selectedAnswer \|\| "不会"\}/, "wrong feedback must show the correct answer before the selected answer");
+assert.doesNotMatch(practicePresentation, /你的选择[^\n]*<MathText/, "answer feedback must never duplicate full option text");
+assert.doesNotMatch(practicePresentation, /\(correct \|\| showAnswerOnWrong\) \? <p>正确答案/, "correct feedback must not reuse the verbose wrong-answer explanation");
 
 assert.doesNotMatch(database, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
 assert.doesNotMatch(practiceDatabase, /db\.sessions|savePracticeSession|clearPracticeSession/, "practiceRun must be the only persisted progress source");
@@ -94,14 +95,14 @@ assert.match(metrics, /if \(latest === null\) return 50;/, "未作答复习优�
 assert.match(metrics, /stats\.recentOutcomes\?\.length\s*\?\s*difficultyFromOutcomes\(stats\.recentOutcomes\)\s*:\s*calculateDifficulty/, "聚合读取必须有 outcomes 优先 + 终身错误率回退");
 const derived = read("src/lib/sync/change-set-v7-derived.ts");
 assert.match(derived, /recentOutcomes: ordered\.slice\(-32\)\.map\(\(attempt\) => \(\{ id: attempt\.id, createdAt: attempt\.createdAt, correct: attempt\.correct, elapsedMs:/, "同步派生链必须把作答时间写进 outcomes");
-const checkpoint = read("src/lib/sync/sync-v7-checkpoint.ts");
+const checkpoint = read("src/lib/sync/sync-v7-checkpoint-validation.ts");
 assert.match(checkpoint, /outcome\.elapsedMs !== undefined\) assertSafeInt\(outcome\.elapsedMs/, "checkpoint 校验必须接受可选 elapsedMs（新旧互通）");
 assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs \|\| 0\) \}/, "作答写入链必须记录每次的作答时间");
 assert.match(studyApp, /rebuildAttemptStatsFromAttemptsV7\(\)/, "启动时必须执行一次性 attemptStats 重建（为旧数据补作答时间）");
 assert.match(practiceView, /document\.hidden \|\| editing \|\| overviewOpen \|\| submitted/, "后台、编辑、题目总览和已提交状态必须暂停有效计时");
 assert.match(practiceView, /activeTimer\.current\?\.reset\((?:window\.)?performance\.now\(\)/, "立即重答必须重置有效计时器");
 assert.doesNotMatch(practiceView, /Date\.now\(\) - startedAt/, "作答耗时不得恢复为包含后台停留的墙钟时间");
-assert.match(practiceView, /个人难度按有效作答时间与作答间隔动态估计/, "练习页个人难度 chip 应说明有效时间与间隔估计口径");
+assert.match(practicePresentation, /个人难度按有效作答时间与作答间隔动态估计/, "练习页个人难度 chip 应说明有效时间与间隔估计口径");
 assert.match(practiceController, /right\?\.reviewPriority \?\? 50/, "复习优先排序必须使用独立优先级并保持未作答默认 50");
 
 console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, runtime-silent sync and one-source resume cards");

@@ -40,6 +40,7 @@ const practiceSetupSource = fs.readFileSync(new URL("../../src/app/practice/prac
 const questionManagerSource = fs.readFileSync(new URL("../../src/app/bank/bank-library/question-manager.tsx", import.meta.url), "utf8");
 const questionDetailSource = fs.readFileSync(new URL("../../src/app/bank/question-detail.tsx", import.meta.url), "utf8");
 const practiceViewSource = fs.readFileSync(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
+const practicePresentationSource = fs.readFileSync(new URL("../../src/app/shell/views/practice-presentation.tsx", import.meta.url), "utf8");
 const searchWorkerSource = fs.readFileSync(new URL("../../src/app/search/search-worker.ts", import.meta.url), "utf8");
 
 const banks = [
@@ -104,8 +105,9 @@ assert.match(componentStyles, /\.short-answer-card>label\{display:grid;gap:8px\}
 assert.match(componentStyles, /\.short-answer-card textarea\{[^}]*width:100%[^}]*min-height:168px/, "简答题文本框必须占满回答区并具有稳定可用高度");
 assert.match(componentStyles, /\.short-reference\{[^}]*background:var\(--color-primary-soft\)/, "简答参考答案必须使用独立的轻量参考卡片");
 assert.match(componentStyles, /\.short-grade-actions\{[^}]*display:flex[^}]*flex-wrap:wrap/, "简答自评按钮必须有稳定布局而不是浏览器默认堆叠");
-assert.match(practiceViewSource, /question\.type === "简答" \? <><strong>\{shortOutcome === "correct"/, "简答提交结果必须走自评专用摘要");
-assert.match(practiceViewSource, /本题按自评记录，参考答案见上方。/, "简答结果框不得重复整段参考答案");
+assert.match(practicePresentationSource, /questionType === "简答" \? <><strong>\{shortOutcome === "correct"/, "简答提交结果 presentation 必须走自评专用摘要");
+assert.match(practiceViewSource, /const \[shortOutcome, setShortOutcome\] = useState<AttemptOutcome \| undefined>/, "Practice 必须继续持有简答自评状态");
+assert.match(practicePresentationSource, /本题按自评记录，参考答案见上方。/, "简答结果框 presentation 不得重复整段参考答案");
 assert.doesNotMatch(questionDetailSource, /<strong>正确答案：\{answerText\(question\)\}<\/strong>/, "题目详情不得把正确答案正文同时塞进标题和正文");
 assert.match(questionDetailSource, /detailSolution\.kind !== "short" && <section className="search-answer-card"><strong>正确答案<\/strong><p><MathText text=\{answerText\(question\)\}/, "非简答题详情必须只用一个正确答案标题和一份正文");
 assert.match(questionDetailSource, /detailSolution\.kind === "short" && <section className="search-answer-card"><strong>参考答案<\/strong><p>\{detailSolution\.referenceText\}<\/p>/, "简答题详情必须只保留一个参考答案卡片");
