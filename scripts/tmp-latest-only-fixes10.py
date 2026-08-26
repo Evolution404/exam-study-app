@@ -134,7 +134,7 @@ text = read(path)
 text = text.replace('import type { AttemptDailyStatsV7, BankQuestionMembership, ImageAsset } from "../db/v7-types";', 'import type { AttemptDailyStatsV7, ImageAsset } from "../db/v7-types";')
 text = text.replace('import { normalizeSyncCheckpointV7, validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";', 'import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";')
 text = text.replace('function cloneState(state: V7RestoreState & { memberships?: BankQuestionMembership[]; imageAssets: ImageAsset[] }): SyncCheckpointV7State {', 'function cloneState(state: V7RestoreState & { imageAssets: ImageAsset[] }): SyncCheckpointV7State {')
-text = text.replace('memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((item) => ({ ...item })),', 'memberships: state.memberships.map((item) => ({ ...item })),' )
+text = text.replace('memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((item) => ({ ...item })),' , 'memberships: state.memberships.map((item) => ({ ...item })),' )
 text = text.replace('''  validateSyncCheckpointV7(parsed);
   const checkpoint = normalizeSyncCheckpointV7(parsed);
   return checkpoint;
@@ -180,7 +180,7 @@ if idx >= 0:
 write(path, text)
 
 path = 'scripts/tests/test-persistent-config.ts'
-text = read(path).replace('  GITHUB_RELAY_URL,\n', '')
+text = read(path).replace('import { GITHUB_RELAY_URL } from "../../src/platform/github-transport";\n', '')
 write(path, text)
 
 path = 'scripts/tools/check-architecture.mjs'
