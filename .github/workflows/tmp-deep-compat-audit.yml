@@ -48,6 +48,21 @@ jobs:
           PY
           python3 - <<'PY'
           from pathlib import Path
+          path = Path('src/lib/db/db-v7-core.ts')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('Web Locks additionally serialize the localStorage compatibility mirror.', 'Web Locks additionally serialize the localStorage mirror.')
+          text = text.replace('''/**
+           * Startup health gate: the app awaits this before render so a namespace that
+           * cannot open fails fast instead of mid-interaction. There is no local schema
+           * migration — content arrives through the v9 remote restore.
+           */''', '''/**
+           * Startup health gate: the app awaits this before render so namespace-open
+           * failures surface before interaction.
+           */''')
+          path.write_text(text, encoding='utf-8')
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
           path = Path('scripts/tests/test-progress-metrics-boundaries.ts')
           text = path.read_text(encoding='utf-8')
           marker = '"outcomes 为空时回退终身错误率公式");'
