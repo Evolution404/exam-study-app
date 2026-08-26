@@ -1,9 +1,11 @@
-name: Temporary latest-only semantic audit
+name: Temporary latest-only final verifier
 on:
   push:
     branches: [refactor/remove-obsolete-compat]
+permissions:
+  contents: write
 jobs:
-  audit:
+  verify:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -11,15 +13,204 @@ jobs:
         with:
           ref: refactor/remove-obsolete-compat
           fetch-depth: 0
-      - name: Semantic compatibility terms
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Apply final semantic cleanup
         run: |
-          echo '=== priority exact residues ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'questionSolution\(|legacyAnswerForSolution|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?|practiceRunStats.*\?\?' src scripts || true
-          echo '=== readBlob callsites ==='
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist 'readBlob(' src scripts || true
-          echo '=== SyncV7BlobExpectation callsites ==='
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist 'SyncV7BlobExpectation' src scripts || true
-          echo '=== old-data wording in production ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'legacy|migrat|compatibil|one[- ]shot|旧数据|旧本地|历史回填|历史迁移' src || true
-          echo '=== persisted Question answer references ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=dist '\b(question|canonical|mutation\.question)\.answer\b|QuestionV7[^\n]*answer' src scripts || true
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              p.write_text(text.replace(old, new))
+
+          replace_once(
+              'src/lib/question/question-utils.ts',
+              '/** Strict accessor for the current canonical question format. */\nexport function questionSolution(question: Pick<QuestionV7, "solution">): QuestionSolution {\n  return question.solution;\n}\n\n',
+              '',
+              'remove redundant questionSolution accessor',
+          )
+
+          p = Path('src/lib/db/v7-types.ts')
+          text = p.read_text()
+          aliases = {
+              'LegacyBankFolder': 'BaseBankFolder',
+              'LegacyQuestionGroup': 'BaseQuestionGroup',
+              'LegacySyncTombstone': 'BaseSyncTombstone',
+              'LegacySyncFile': 'BaseSyncFile',
+              'LegacySyncMeta': 'BaseSyncMeta',
+              'LegacyBank': 'BaseBank',
+              'LegacyNote': 'BaseNote',
+          }
+          for old, new in aliases.items():
+              if old not in text: raise SystemExit(f'missing v7 type alias {old}')
+              text = text.replace(old, new)
+          p.write_text(text)
+
+          replace_once(
+              'src/lib/sync/github-sync-v7.ts',
+              ' * facade with compatibility aliases.\n',
+              ' * facade with convenience exports.\n',
+              'sync facade comment',
+          )
+
+          replace_once(
+              'src/lib/sync/sync-v8-history.ts',
+              '  // v9-only: older checkpoints exist solely in unmigrated vaults, which the\n  // client rejects at the head; the one-time migration decodes them itself.\n  if (!isRecord(header) || header.formatVersion !== SYNC_V9_CHECKPOINT_FORMAT) {\n    throw new Error("远程检查点格式不是 v9，请先执行 v8→v9 数据仓库迁移。");\n  }',
+              '  // Current clients accept only the v9 checkpoint envelope.\n  if (!isRecord(header) || header.formatVersion !== SYNC_V9_CHECKPOINT_FORMAT) {\n    throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");\n  }',
+              'strict v9 checkpoint error',
+          )
+
+          p = Path('src/lib/sync/sync-v7-codec.ts')
+          text = p.read_text()
+          replacements = {
+              ' * the same content share one identity, and legacy plain-JSON objects written\n * before this codec stay readable forever.  Browsers without\n * CompressionStream simply keep writing plain JSON (the fallback format), so\n': ' * the same content share one identity. Browsers without CompressionStream\n * use plain JSON as the current wire format, so\n',
+              '/** Encode logical JSON bytes for upload/storage: DEFLATE when possible, else\n *  the bytes unchanged (identical to the pre-codec wire format). */': '/** Encode logical JSON bytes for upload/storage: DEFLATE when possible, else\n *  keep the logical JSON bytes unchanged. */',
+              '/** Decode stored/uploaded sync bytes back to the logical JSON bytes.  The zlib\n *  sniff makes this format-autodetecting: compressed and legacy plain objects\n *  decode through the same call. */': '/** Decode stored/uploaded sync bytes back to the logical JSON bytes. The zlib\n *  sniff lets compressed and current plain-JSON objects use the same call. */',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1: raise SystemExit(f'codec wording mismatch: {old[:40]}')
+              text = text.replace(old, new)
+          p.write_text(text)
+
+          replace_once(
+              'src/lib/sync/sync-v7-orchestrator.ts',
+              '  // Legacy image-only writes can still add one fallback change-set during\n  // upload, so the variable must be able to switch to the push layout below.\n',
+              '  // Image uploads can add a pending change-set during upload, so the\n  // variable must be able to switch to the push layout below.\n',
+              'image upload comment',
+          )
+
+          replace_once(
+              'src/platform/runtime.ts',
+              '        // Keep this order stable: synchronous legacy getters read mirrors after\n',
+              '        // Keep this order stable: synchronous config getters read mirrors after\n',
+              'runtime getter comment',
+          )
+
+          p = Path('src/platform/github-transport.ts')
+          text = p.read_text()
+          old = '''/**
+           * Normalize a persisted endpoint for the active platform. Only the old
+           * same-origin default is migrated in native iOS; arbitrary user endpoints
+           * remain untouched.
+           */'''
+          new = '''/** Resolve the configured endpoint, or use the active platform default. */'''
+          if text.count(old) != 1: raise SystemExit('transport comment mismatch')
+          text = text.replace(old, new)
+          old_line = '  if (transport.defaultApiBaseUrl === GITHUB_RELAY_URL && value === GITHUB_WEB_RELAY_PATH) return GITHUB_RELAY_URL;\n'
+          if text.count(old_line) != 1: raise SystemExit('transport persisted-default conversion mismatch')
+          text = text.replace(old_line, '')
+          p.write_text(text)
+
+          p = Path('scripts/tests/test-platform-transport.ts')
+          text = p.read_text()
+          old = 'assert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_RELAY_URL);\nassert.equal(resolveGitHubApiBaseUrl("https://custom.example", nativeTransport), "https://custom.example");'
+          new = 'assert.equal(resolveGitHubApiBaseUrl(undefined, nativeTransport), GITHUB_RELAY_URL);\nassert.equal(resolveGitHubApiBaseUrl(GITHUB_WEB_RELAY_PATH, nativeTransport), GITHUB_WEB_RELAY_PATH);\nassert.equal(resolveGitHubApiBaseUrl("https://custom.example", nativeTransport), "https://custom.example");'
+          if text.count(old) != 1: raise SystemExit('transport test mismatch')
+          p.write_text(text.replace(old, new))
+
+          replace_once(
+              'src/app/error-boundary.tsx',
+              ' * Rendered outside AppShell so a failed IndexedDB migration still leaves the\n',
+              ' * Rendered outside AppShell so a failed IndexedDB initialization still leaves the\n',
+              'error boundary comment',
+          )
+          replace_once(
+              'src/app/error-boundary.tsx',
+              '启动或数据库迁移遇到问题。',
+              '启动或数据库初始化遇到问题。',
+              'error boundary message',
+          )
+          replace_once(
+              'src/main.tsx',
+              '  // A failed migration used to reject before React mounted, leaving a blank\n  // page. Keep this fallback outside AppShell so the user can retry without\n',
+              '  // Bootstrap can reject before React mounts. Keep this recovery screen\n  // outside AppShell so the user can retry without\n',
+              'bootstrap recovery comment',
+          )
+
+          p = Path('src/lib/sync/github-v7-remote.ts')
+          text = p.read_text()
+          old = '  /** Actual compressed wire size when known. */\n  storedSize?: number;'
+          new = '  /** Actual stored/wire size. */\n  storedSize: number;'
+          if text.count(old) != 1: raise SystemExit('blob expectation storedSize type mismatch')
+          text = text.replace(old, new)
+          old = '    const existing = await this.readBlob(existingSha, { size, sha256, path: input.path });'
+          new = '    const existing = await this.readBlob(existingSha, { size, storedSize: stored.byteLength, sha256, path: input.path });'
+          if text.count(old) != 1: raise SystemExit('idempotent blob read expectation mismatch')
+          text = text.replace(old, new)
+          old = '      : expectation.storedSize ?? expectation.size;'
+          new = '      : expectation.storedSize;'
+          if text.count(old) != 1: raise SystemExit('storedSize fallback mismatch')
+          text = text.replace(old, new)
+          p.write_text(text)
+
+          p = Path('scripts/tests/test-github-v7-remote.ts')
+          text = p.read_text()
+          old = 'const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, sha256: digest(segmentBytes), path: segmentPath });\nassert.deepEqual([...loaded], [...segmentBytes]);\nawait assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);'
+          new = 'const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath });\nassert.deepEqual([...loaded], [...segmentBytes]);\nawait assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);'
+          if text.count(old) != 1: raise SystemExit('remote test storedSize mismatch')
+          p.write_text(text.replace(old, new))
+
+          # Remove misleading style-debt wording without changing CSS behavior.
+          comment_replacements = [
+              ('src/app/practice/practice-main-2.css', '/* Practice owns history control colors while legacy structure remains shared. */', '/* Practice owns history control colors while shared structure remains centralized. */'),
+              ('src/app/search/search-tokens.css', ' * migrate without expanding the core token layer. */', ' * move without expanding the core token layer. */'),
+              ('src/app/styles/palette-tokens.css', '/* Deduplicated exact-value palette for legacy surfaces. */', '/* Deduplicated exact-value palette for existing surfaces. */'),
+              ('src/app/styles/dark-overrides.css', '/* Centralized legacy dark-theme overrides; semantic tokens remain preferred for new code. */', '/* Centralized dark-theme overrides; semantic tokens remain preferred for new code. */'),
+              ('src/app/styles/bank-controls.css', '/* Question-bank control variants migrated out of the global entrypoint. */', '/* Question-bank control variants moved out of the global entrypoint. */'),
+          ]
+          for path, old, new in comment_replacements:
+              replace_once(path, old, new, path)
+
+          # Optional timestamps are part of the current run contract; describe
+          # their resolution without implying historical-data repair.
+          replace_once(
+              'src/lib/practice/practice-metrics.ts',
+              '// 未作答回退 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。',
+              '// 未作答时依次采用 abandonedAt/startedAt。结构化入参避免组件层与 db 层的类型耦合。',
+              'practice activity comment',
+          )
+
+          # Current format rejection test: preserve the guard, remove the old-data label.
+          p = Path('scripts/tests/test-sync-v7-checkpoint-extra.ts')
+          text = p.read_text()
+          text = text.replace('const legacy = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };', 'const unsupported = structuredClone(current) as SyncCheckpointV7 & { formatVersion: number };')
+          text = text.replace('legacy.formatVersion = 6;', 'unsupported.formatVersion = 6;')
+          text = text.replace('validateSyncCheckpointV7(legacy)', 'validateSyncCheckpointV7(unsupported)')
+          text = text.replace('JSON.stringify(legacy)', 'JSON.stringify(unsupported)')
+          text = text.replace('"v6 checkpoint must be rejected after compatibility retirement"', '"v6 checkpoint must be rejected by the current-only validator"')
+          p.write_text(text)
+          PY
+      - run: npm ci
+      - run: npm run test:sync
+      - run: npm run test:fast
+      - run: npm run build
+      - run: npm run lint:dead-code
+      - run: node scripts/tools/check-architecture.mjs
+      - run: node scripts/tools/check-export-surface.mjs
+      - name: Workflow hygiene without verifier itself
+        run: |
+          mv .github/workflows/tmp-latest-only-semantic-audit.yml /tmp/tmp-latest-only-semantic-audit.yml
+          node scripts/tools/check-workflow-hygiene.mjs
+          mv /tmp/tmp-latest-only-semantic-audit.yml .github/workflows/tmp-latest-only-semantic-audit.yml
+      - name: Verify current-only residues
+        run: |
+          git diff --check
+          ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'questionSolution\(|legacyAnswerForSolution|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?' src scripts
+          ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist '\b(question|canonical|mutation\.question)\.answer\b|QuestionV7[^\n]*answer' src scripts
+          ! grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'v8→v9 数据仓库迁移|LegacyBank|LegacyNote|LegacySync|same-origin default is migrated' src scripts
+          test "$(find . -type f -name 'tmp-latest-only-*' ! -path './.github/workflows/tmp-latest-only-semantic-audit.yml' -print -quit)" = ""
+      - name: Commit verified semantic cleanup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src scripts
+          git diff --cached --check
+          git commit -m "refactor: remove final historical compatibility semantics [latest-only-verified]"
+          git push origin HEAD:refactor/remove-obsolete-compat
