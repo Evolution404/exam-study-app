@@ -68,6 +68,16 @@ jobs:
           text = text.replace('  // 写入链把作答时间记进 recentOutcomes（legacy 链；V7 链由静态断言覆盖）。\n', '  // 写入链把作答时间记进 recentOutcomes。\n')
           path.write_text(text, encoding='utf-8')
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/tests/test-platform-transport.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '    size: 0,\n'
+          new = '    size: 0,\n    storedSize: 0,\n'
+          if old not in text:
+              raise RuntimeError('platform transport checkpoint size fixture not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python3 scripts/tmp-latest-only-diagnostic.py
           python3 scripts/tmp-latest-only-semantic-scan.py
           python3 scripts/tmp-latest-only-target-scan.py
