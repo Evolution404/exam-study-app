@@ -23,7 +23,7 @@ text = text.replace(old, '''  assert.equal(buildScopedQuestionStats(["q1"], { ty
 text = text.replace('''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "legacy 桥接应透传窗口内序列");
 ''', '''  assert.equal(scopedStatsToAttemptStats(stats.get("q1")!).recentOutcomes.length, 3, "统计转换应透传窗口内序列");
 ''')
-old_scoped_fixture = '''  const legacy = scopedStatsToLegacyAttemptStats({
+old_scoped_fixture = '''  const legacy = scopedStatsToAttemptStats({
     questionId: "q1", total: 3, correct: 1, wrong: 2, giveUps: 1, totalElapsedMs: 30,
     firstAttemptAt: at(-2), firstAttemptCorrect: false, latestAttemptAt: at(0),
     hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0,
@@ -45,7 +45,7 @@ new_scoped_fixture = '''  const converted = scopedStatsToAttemptStats({
   assert.equal(converted.recentOutcomes.length, 3);
 '''
 if old_scoped_fixture not in text:
-    raise RuntimeError('old scoped stats fixture without evidence not found')
+    raise RuntimeError('current scoped stats fixture without evidence not found')
 text = text.replace(old_scoped_fixture, new_scoped_fixture)
 write(path, text)
 
