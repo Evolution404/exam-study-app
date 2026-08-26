@@ -11,30 +11,22 @@ import type { PracticeRunV7 } from "@/lib/db/v7-types";
 import { resolveKeyboardShortcut, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
 import { CalculationContentRenderer, FillContentRenderer } from "@/app/practice/calculation-content-renderer";
-import { formatCalculationAnswers, questionSolution } from "@/lib/question/question-utils";
+import { formatCalculationAnswers, stableQuestionOptionIds } from "@/lib/question/question-utils";
 
-/** Render a question's answer as "A. 选项；B. 选项" (calculation answers pass through). */
+/** Render a question's canonical solution as display text. */
 export function answerText(question: QuestionViewModel) {
-  const solution = questionSolution(question.canonical);
+  const solution = question.canonical.solution;
   if (solution.kind === "calculation") return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
   if (solution.kind === "fill") return solution.blanks.map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`).join("；");
   if (solution.kind === "short") return `参考答案：${solution.referenceText}`;
-  return question.answer.split("").map((letter) => {
-    const index = letter.charCodeAt(0) - 65;
+  const optionIds = stableQuestionOptionIds(question.canonical);
+  return solution.correctOptionIds.map((optionId) => optionIds.indexOf(optionId)).filter((index) => index >= 0).sort((a, b) => a - b).map((index) => {
+    const letter = String.fromCharCode(65 + index);
     return `${letter}. ${question.options[index] ?? ""}`;
   }).join("；");
 }
 
-/**
- * Shared read-only question detail panel. Shows the stem, options, answer,
- * scope-labelled attempt metrics and personal note. All question-level actions
- * live in the compact toolbar directly below the title; `footer` keeps its
- * legacy prop name for caller compatibility but is rendered in that toolbar.
- *
- * When `nav` is provided, the bottom area is navigation-only, matching the
- * practice surface: previous / current position / next. Desktop keyboard and
- * mobile horizontal swipe navigation keep the same behavior as before.
- */
+/** Shared read-only question detail panel. */
 export function QuestionDetail({ question, metric, scopeLabel, note, onClose, footer, nav, answer, answerLabel = "你的答案" }: {
   question: QuestionViewModel;
   metric: AttemptSummary;
@@ -62,8 +54,6 @@ export function QuestionDetail({ question, metric, scopeLabel, note, onClose, fo
 
   useEffect(() => () => window.clearTimeout(copyStatusTimer.current), []);
 
-  // 与答题页保持同一复制语义：普通复制永不带正确答案；含答案复制额外带正确答案。
-  // 若从做错的练习结果进入，两种复制都会继续附上「我的选择」。
   async function handleCopyQuestion(target: CopyTarget) {
     const wrongSelection = answer?.submitted && answer.correct === false ? answer.selected : undefined;
     const ok = await copyTextToClipboard(buildQuestionCopyText(question, {
@@ -156,7 +146,7 @@ export function QuestionDetail({ question, metric, scopeLabel, note, onClose, fo
     };
   }, [nav]);
 
-  const detailSolution = questionSolution(question.canonical);
-  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={panelRef} className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button question-detail-close" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="question-detail-toolbar" aria-label="题目操作"><QuestionCopyAction status={copyStatusOf("question")} onClick={() => void handleCopyQuestion("question")} /><QuestionCopyAction includeAnswer status={copyStatusOf("questionWithAnswer")} onClick={() => void handleCopyQuestion("questionWithAnswer")} />{footer && <div className="question-detail-actions">{footer}</div>}</div><div className="search-detail-body">{detailSolution.kind === "calculation" ? <CalculationContentRenderer blocks={question.canonical.content} answerCount={detailSolution.blanks.length} loadAsset={loadImageAssetV7} /> : detailSolution.kind === "fill" ? <FillContentRenderer blocks={question.canonical.content} blankCount={detailSolution.blanks.length} expected={detailSolution} loadAsset={loadImageAssetV7} /> : <ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} />}{detailSolution.kind === "short" && <section className="search-answer-card"><strong>参考答案</strong><p>{detailSolution.referenceText}</p>{answer && <p>{answerLabel}：{answer.submitted ? answer.selected.length ? [...answer.selected].sort().join("") : "不会" : "未作答"}</p>}</section>}{detailSolution.kind === "choice" && <ol>{question.canonical.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const isAnswer = question.answer.includes(letter); // 做错标记与做题界面一致：所选且不属于正确答案的选项红标 + X（练习结果入口传入 answer）。
-const isWrong = Boolean(answer?.submitted && answer.correct === false && answer.selected.includes(letter) && !isAnswer); return <li className={isAnswer ? "answer" : isWrong ? "wrong" : ""} key={`${question.id}-${index}`}><span>{letter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} />{isAnswer && <Check size={16} />}{isWrong && <X size={16} />}</li>; })}</ol>}{detailSolution.kind !== "short" && <section className="search-answer-card"><strong>正确答案</strong><p><MathText text={answerText(question)} languageText={question.stem} /></p>{answer && <p>{answerLabel}：{answer.submitted ? answer.selected.length ? question.type === "计算" ? formatCalculationAnswers(answer.selected) : [...answer.selected].sort().join("") : "不会" : "未作答"}</p>}</section>}<div className="search-detail-metrics"><span><strong>{metric.total}</strong>作答（{scopeLabel}）</span><span><strong>{metric.correct}</strong>正确</span><span><strong>{metric.wrong}</strong>错误</span><span><strong>{metric.difficulty}</strong>个人难度 · {difficultyLabel(metric.difficulty)}</span></div><section className="search-detail-note"><strong>个人解析</strong>{note ? <NoteMarkdown text={note} /> : <p>还没有个人解析，可以通过编辑题目或练习页面继续整理。</p>}</section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div>{nav && <footer className="question-detail-pager"><div className="search-detail-nav"><button type="button" className="secondary question-detail-previous" disabled={nav.index === 0} onClick={nav.onPrevious}><ChevronLeft size={17} />上一题</button><div className="search-detail-position">{nav.center ?? <span className="search-detail-count">{nav.index + 1} / {nav.total}</span>}</div><button type="button" className="question-detail-next" disabled={nav.index >= nav.total - 1} onClick={nav.onNext}>下一题<ChevronRight size={17} /></button></div></footer>}</aside></div></ModalPortal>;
+  const detailSolution = question.canonical.solution;
+  const detailOptionIds = stableQuestionOptionIds(question.canonical);
+  return <ModalPortal><div className="search-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={panelRef} className="search-question-detail" role="dialog" aria-modal="true" aria-label="题目详情"><header><div><span className="section-kicker">题目详情</span><h2>{question.type} · {question.bankName}</h2></div><button className="icon-button question-detail-close" aria-label="关闭题目详情" onClick={onClose}><X size={18} /></button></header><div className="question-detail-toolbar" aria-label="题目操作"><QuestionCopyAction status={copyStatusOf("question")} onClick={() => void handleCopyQuestion("question")} /><QuestionCopyAction includeAnswer status={copyStatusOf("questionWithAnswer")} onClick={() => void handleCopyQuestion("questionWithAnswer")} />{footer && <div className="question-detail-actions">{footer}</div>}</div><div className="search-detail-body">{detailSolution.kind === "calculation" ? <CalculationContentRenderer blocks={question.canonical.content} answerCount={detailSolution.blanks.length} loadAsset={loadImageAssetV7} /> : detailSolution.kind === "fill" ? <FillContentRenderer blocks={question.canonical.content} blankCount={detailSolution.blanks.length} expected={detailSolution} loadAsset={loadImageAssetV7} /> : <ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} />}{detailSolution.kind === "short" && <section className="search-answer-card"><strong>参考答案</strong><p>{detailSolution.referenceText}</p>{answer && <p>{answerLabel}：{answer.submitted ? answer.selected.length ? [...answer.selected].sort().join("") : "不会" : "未作答"}</p>}</section>}{detailSolution.kind === "choice" && <ol>{question.canonical.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const isAnswer = detailSolution.correctOptionIds.includes(detailOptionIds[index]); const isWrong = Boolean(answer?.submitted && answer.correct === false && answer.selected.includes(letter) && !isAnswer); return <li className={isAnswer ? "answer" : isWrong ? "wrong" : ""} key={`${question.id}-${index}`}><span>{letter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} />{isAnswer && <Check size={16} />}{isWrong && <X size={16} />}</li>; })}</ol>}{detailSolution.kind !== "short" && <section className="search-answer-card"><strong>正确答案</strong><p><MathText text={answerText(question)} languageText={question.stem} /></p>{answer && <p>{answerLabel}：{answer.submitted ? answer.selected.length ? question.type === "计算" ? formatCalculationAnswers(answer.selected) : [...answer.selected].sort().join("") : "不会" : "未作答"}</p>}</section>}<div className="search-detail-metrics"><span><strong>{metric.total}</strong>作答（{scopeLabel}）</span><span><strong>{metric.correct}</strong>正确</span><span><strong>{metric.wrong}</strong>错误</span><span><strong>{metric.difficulty}</strong>个人难度 · {difficultyLabel(metric.difficulty)}</span></div><section className="search-detail-note"><strong>个人解析</strong>{note ? <NoteMarkdown text={note} /> : <p>还没有个人解析，可以通过编辑题目或练习页面继续整理。</p>}</section>{question.tags.length > 0 && <div className="search-detail-tags">{question.tags.map((item) => <span key={item}>{item}</span>)}</div>}</div>{nav && <footer className="question-detail-pager"><div className="search-detail-nav"><button type="button" className="secondary question-detail-previous" disabled={nav.index === 0} onClick={nav.onPrevious}><ChevronLeft size={17} />上一题</button><div className="search-detail-position">{nav.center ?? <span className="search-detail-count">{nav.index + 1} / {nav.total}</span>}</div><button type="button" className="question-detail-next" disabled={nav.index >= nav.total - 1} onClick={nav.onNext}>下一题<ChevronRight size={17} /></button></div></footer>}</aside></div></ModalPortal>;
 }
