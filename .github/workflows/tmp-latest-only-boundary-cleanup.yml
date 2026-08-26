@@ -22,6 +22,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+
           p = Path('src/lib/question/question-bank-file-import.ts')
           s = p.read_text()
           old = '      const bank = await importQuestionBankV7(importFileName(file.name), rows, { ...options, imageAssets: assets });'
@@ -73,14 +74,29 @@ jobs:
 
           p = Path('scripts/tests/test-db-v7.ts')
           s = p.read_text()
-          replacements = [
-            ('await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], answer: "A" });', 'await createQuestionV7(queueTestBank.id, { type: "单选", stem: "队列依赖题", options: ["A", "B"], optionIds: ["queue-a", "queue-b"], solution: { kind: "choice", correctOptionIds: ["queue-a"] } });'),
-            ('  { q: "  Shared   stem\\n", type: "单选", a: ["甲", "乙"], ans: "a", tags: ["共享"] },\n  { q: "Only A", type: "判断", a: ["正确", "错误"], ans: "A" },', '  { stem: "  Shared   stem\\n", type: "单选", options: ["甲", "乙"], answer: "a", tags: ["共享"] },\n  { stem: "Only A", type: "判断", options: ["正确", "错误"], answer: "A" },'),
-            ('const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], answer: "A" });', 'const extra = await createQuestionV7(importedA.id, { type: "单选", stem: "dynamic", options: ["A", "B"], optionIds: ["dynamic-a", "dynamic-b"], solution: { kind: "choice", correctOptionIds: ["dynamic-a"] } });'),
-          ]
-          for old, new in replacements:
-            assert s.count(old) == 1, old
-            s = s.replace(old, new)
+          s = re.sub(r'\{ q: ', '{ stem: ', s)
+          s = re.sub(r', a: ', ', options: ', s)
+          s = re.sub(r', ans: ', ', answer: ', s)
+          pattern = re.compile(r'createQuestionV7\(([^,\n]+), \{ type: "(单选|判断|多选)", stem: "([^"]*)", options: \[([^\]]*)\], answer: "([A-Z]+)" \}\)')
+          def canonical_draft(match):
+            bank = match.group(1)
+            qtype = match.group(2)
+            stem = match.group(3)
+            options = match.group(4)
+            answer = match.group(5)
+            option_count = 0 if not options.strip() else len([part for part in options.split(',') if part.strip()])
+            ids = [f'opt-{index}' for index in range(option_count)]
+            correct = [ids[ord(letter) - ord('A')] for letter in answer if 0 <= ord(letter) - ord('A') < len(ids)]
+            ids_text = ', '.join(f'"{value}"' for value in ids)
+            correct_text = ', '.join(f'"{value}"' for value in correct)
+            return f'createQuestionV7({bank}, {{ type: "{qtype}", stem: "{stem}", options: [{options}], optionIds: [{ids_text}], solution: {{ kind: "choice", correctOptionIds: [{correct_text}] }} }})'
+          s, converted = pattern.subn(canonical_draft, s)
+          if converted < 1:
+            raise SystemExit('no createQuestionV7 answer fixtures converted')
+          if re.search(r'createQuestionV7\([^\n]*\banswer:', s):
+            raise SystemExit('direct createQuestionV7 answer fixture remains')
+          if re.search(r'\{\s*q:', s) or re.search(r',\s*a:', s) or re.search(r',\s*ans:', s):
+            raise SystemExit('q/a/ans import fixture remains in test-db-v7.ts')
           p.write_text(s)
           PY
       - run: npm ci
