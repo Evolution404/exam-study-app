@@ -1,11 +1,5 @@
-/**
- * 复制题目的共享纯函数：练习页与题目详情页共用一套文本构造与剪贴板兜底。
- *
- * 文本基于 QuestionViewModel 的纯文本投影（stem/options，图片块被丢弃）；
- * 选项字母由 displayOrder（练习页选项打乱）映射为用户实际看到的显示字母，
- * 不传则按原始字母输出（题目详情页与正文渲染顺序一致）。
- */
-import { formatCalculationAnswers, legacyAnswerForSolution, questionSolution, stableQuestionOptionIds } from "./question-utils";
+/** Shared pure helpers for copying question text from the current view model. */
+import { formatCalculationAnswers, solutionAnswerText, stableQuestionOptionIds } from "./question-utils";
 import type { QuestionSolution } from "../db/v7-types";
 import type { QuestionType } from "../../types/types";
 
@@ -13,33 +7,28 @@ export interface QuestionCopySource {
   type: QuestionType;
   stem: string;
   options: string[];
-  answer: string;
   optionIds?: string[];
-  solution?: QuestionSolution;
+  solution: QuestionSolution;
 }
 
 export interface QuestionCopyOptions {
-  /** 选项显示顺序（练习页打乱后）；缺省或长度不符 = 原始顺序。 */
   displayOrder?: number[];
-  /** 追加一行「正确答案：字母. 选项文本」（计算题为数值）。 */
   includeAnswer?: boolean;
-  /** 原始选项字母（计算题为 [输入值]）；空数组 = 不会。 */
   wrongSelection?: string[];
 }
 
-/** displayOrder 缺省/长度不符时回退原始顺序（与 Practice 组件同款防御）。 */
 function resolveOrder(question: QuestionCopySource, displayOrder?: number[]): number[] {
   if (displayOrder?.length === question.options.length) return displayOrder;
   return question.options.map((_, index) => index);
 }
 
 export function displayedAnswer(question: QuestionCopySource, optionOrder: number[]): string {
-  const solution = questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds, solution: question.solution });
+  const solution = question.solution;
   if (solution.kind === "calculation") return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
   if (solution.kind === "fill") return solution.blanks.map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`).join("；");
   if (solution.kind === "short") return "参考答案：" + solution.referenceText;
   const optionIds = stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds });
-  const answer = legacyAnswerForSolution(solution, optionIds);
+  const answer = solutionAnswerText(solution, optionIds);
   return answer
     .split("")
     .map((letter) => optionOrder.indexOf(letter.charCodeAt(0) - 65))
@@ -49,14 +38,13 @@ export function displayedAnswer(question: QuestionCopySource, optionOrder: numbe
     .join("");
 }
 
-/** 「字母. 选项文本」逐项格式（练习页作答反馈仍使用；复制文本已改为纯字母）。 */
 export function answerText(question: QuestionCopySource, optionOrder: number[]): string {
-  const solution = questionSolution({ ...question, options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds, solution: question.solution });
+  const solution = question.solution;
   if (solution.kind === "calculation") return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
   if (solution.kind === "fill") return solution.blanks.map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`).join("；");
   if (solution.kind === "short") return "参考答案：" + solution.referenceText;
   const optionIds = stableQuestionOptionIds({ options: question.options.map((text) => [{ id: "text", type: "text", text }]), optionIds: question.optionIds });
-  const answer = legacyAnswerForSolution(solution, optionIds);
+  const answer = solutionAnswerText(solution, optionIds);
   return answer
     .split("")
     .map((letter) => letter.charCodeAt(0) - 65)
@@ -66,8 +54,6 @@ export function answerText(question: QuestionCopySource, optionOrder: number[]):
     .join("；");
 }
 
-/** 我的选择（做错时附上）：只带显示字母（用户口径：不要选项内容），
- *  按显示位置排序拼接，与「正确答案：AB」的多选字母格式一致；计算题为输入值。 */
 function wrongSelectionText(question: QuestionCopySource, order: number[], wrongSelection: string[]): string {
   if (!wrongSelection.length) return "我的选择：不会";
   if (question.type === "计算") return `我的选择：${formatCalculationAnswers(wrongSelection)}`;
@@ -88,23 +74,16 @@ export function buildQuestionCopyText(question: QuestionCopySource, options?: Qu
     `题型：${question.type}`,
     `题目：${question.stem}`,
   ];
-  // 计算题没有选项，整段省略（旧行为会输出空「选项：」行）。
   if (question.options.length) {
     lines.push("选项：");
     lines.push(...order.map((originalIndex, displayIndex) => `${String.fromCharCode(65 + displayIndex)}. ${question.options[originalIndex] ?? ""}`));
   }
-  if (options?.includeAnswer) {
-    // 只输出「正确答案：字母」（多选字母拼接，与「我的选择」同款；用户口径：
-    // 不带选项文本、不单独列「答案内容」行）；计算题为数值。
-    lines.push(`正确答案：${displayedAnswer(question, order)}`);
-  }
-  if (options?.wrongSelection) {
-    lines.push(wrongSelectionText(question, order, options.wrongSelection));
-  }
+  if (options?.includeAnswer) lines.push(`正确答案：${displayedAnswer(question, order)}`);
+  if (options?.wrongSelection) lines.push(wrongSelectionText(question, order, options.wrongSelection));
   return lines.join("\n");
 }
 
-/** clipboard API 优先，execCommand 兜底；返回是否成功（失败由调用方展示 error 态）。 */
+/** Clipboard API first, then the synchronous browser copy path. */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
