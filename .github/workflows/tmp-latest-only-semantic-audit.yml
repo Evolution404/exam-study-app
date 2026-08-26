@@ -1,0 +1,25 @@
+name: Temporary latest-only semantic audit
+on:
+  push:
+    branches: [refactor/remove-obsolete-compat]
+jobs:
+  audit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/remove-obsolete-compat
+          fetch-depth: 0
+      - name: Semantic compatibility terms
+        run: |
+          echo '=== legacy/migrate/compatibility/superseded/one-shot ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'legacy|migrat|compatibil|superseded|one[- ]shot|一次性|迁移|兼容' src scripts || true
+          echo '=== fallback/backfill ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=dist --exclude='*.map' 'fallback|backfill|回退|兜底|补齐' src scripts || true
+          echo '=== priority exact residues ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=dist 'questionSolution\(|legacyAnswerForSolution|readBlobWireSize|normalizeSyncCheckpointV7|normalizeStateAliases|storedSize[[:space:]]*\?\?|practiceRunStats.*\?\?' src scripts || true
+          echo '=== persisted Question answer references ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=dist '\b(question|canonical|mutation\.question)\.answer\b|QuestionV7[^\n]*answer' src scripts || true
+          echo '=== temporary paths ==='
+          find . -type f \( -name 'tmp-latest-only-*' -o -path './.github/workflows/tmp-*' \) -print
