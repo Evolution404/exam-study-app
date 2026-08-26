@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
 import { dbV7, getQuestionsForBanksV7 } from "@/lib/db/db-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
@@ -143,7 +143,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const wrongCardCount = useMemo(() => {
     const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);
     let count = 0;
-    scoped.forEach((stats) => { if (statsNeedWrongReview(scopedStatsToLegacyAttemptStats(stats), wrongRemovalStreak)) count += 1; });
+    scoped.forEach((stats) => { if (statsNeedWrongReview(scopedStatsToAttemptStats(stats), wrongRemovalStreak)) count += 1; });
     return count;
   }, [dataset.questions, dataset.attempts, dataset.roundsProgress, effectiveScope, referenceTime, wrongRemovalStreak]);
   const favoriteCardCount = useMemo(() => dataset.questions.filter((question) => question.favorite).length, [dataset.questions]);

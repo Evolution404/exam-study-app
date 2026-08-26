@@ -16,7 +16,7 @@ import type {
 /**
  * v7 reuses only the bank metadata concepts (name, folder, colour and order);
  * question membership and all learning records live in v7-owned tables.  The
- * v7 namespace never reads, migrates or falls back to the legacy database.
+ * These are the current local-domain records used by the v9 sync wire.
  */
 export interface BankV7 extends Omit<LegacyBank, "questionCount"> {
   sortOrder: number;
@@ -124,7 +124,7 @@ export interface AttemptStatsV7 {
   hasBeenWrong: boolean;
   correctStreakAfterWrong: number;
   currentCorrectStreak: number;
-  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs: number }>;
 }
 
 export interface AttemptDailyStatsV7 {
@@ -172,30 +172,17 @@ export interface ReviewRoundProgress {
   wrong: number;
   firstAttemptAt: string;
   latestAttemptAt: string;
-  /** Optional on legacy rows; new/rebuilt rows carry the same evidence as global stats. */
-  giveUps?: number;
-  totalElapsedMs?: number;
-  firstAttemptCorrect?: boolean;
-  hasBeenWrong?: boolean;
-  currentCorrectStreak?: number;
-  correctStreakAfterWrong?: number;
-  recentOutcomes?: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs?: number }>;
+  giveUps: number;
+  totalElapsedMs: number;
+  firstAttemptCorrect: boolean;
+  hasBeenWrong: boolean;
+  currentCorrectStreak: number;
+  correctStreakAfterWrong: number;
+  recentOutcomes: Array<{ id: string; createdAt: string; correct: boolean; elapsedMs: number }>;
 }
 
 /** v7 only adds an optional review-round association to the existing run. */
 export type PracticeRunV7 = PracticeRun & { reviewRoundId?: string };
-
-/**
- * A remote image is an immutable blob-addressed object in the sync vault.
- * `blob` is the local browser cache and is deliberately not part of the
- * remote descriptor.
- */
-export interface ImageAssetRemoteDescriptor {
-  path: string;
-  blobSha: string;
-  sha256: string;
-  size: number;
-}
 
 export interface ImageAsset {
   id: string;
@@ -203,6 +190,5 @@ export interface ImageAsset {
   size: number;
   width: number;
   height: number;
-  remote?: ImageAssetRemoteDescriptor;
   blob?: Blob;
 }

@@ -92,7 +92,7 @@ assert.match(componentsCss, /\.sync-hot-window \.sync-hot-window-fill\{grid-colu
 assert.match(componentsCss, /\.sync-hot-window-fill dd\{flex:1;display:flex;align-items:center/, "fill row dd flexes bar and value inline");
 assert.match(componentsCss, /\.sync-hot-window-fill dd>i\{flex:1;/, "the progress bar itself flexes to fill the row");
 assert.ok(!/sync-last-sync/.test(componentsCss), "last sync stays in the 3-column grid (no full-width row)");
-assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-v7-device-id"/, "clear-data keep-config preserves the device id");
+assert.match(siteReset, /CONFIG_LOCAL_STORAGE_KEYS = \[[^\]]*"shijuan-study-device-id"/, "clear-data keep-config preserves the device id");
 assert.match(syncView, /const hotWindow = useLiveQuery\(\(\) => syncApplication\.getHotWindow\(settings\)/, "hot window panel is a live query through the application boundary");
 assert.match(syncView, /const lastCache = useLiveQuery\(\(\) => syncApplication\.getLastRemoteCache\(settings\)/, "last cache panel is a live query through the application boundary");
 assert.ok(!/setInterval/.test(syncView), "sync page refreshes reactively, not by polling");

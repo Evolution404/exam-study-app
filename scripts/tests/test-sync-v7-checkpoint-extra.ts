@@ -49,16 +49,12 @@ await createQuestionV7(typeBank.id, {
   assert.throws(() => parseSyncCheckpointV7(bytes), /formatVersion/, "parser must reject retired v6 checkpoint bytes");
 }
 
-// 3) 退役的 v6/v7/v8 资产命名空间必须被拒绝，只允许当前 v9 资产路径
+// 3) 旧单图 remote 元数据已完全退役；当前 checkpoint 出现该字段直接拒绝
 {
-  for (const version of [6, 7, 8]) {
-    const current = await createSyncCheckpointV7();
-    current.state.imageAssets[0] = {
-      ...current.state.imageAssets[0],
-      remote: { path: "sync/v" + version + "/assets/" + "a".repeat(64) + ".webp", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 },
-    };
-    assert.throws(() => validateSyncCheckpointV7(current), /remote\.path/, "sync/v" + version + " asset path must be rejected");
-  }
+  const current = await createSyncCheckpointV7();
+  const asset = current.state.imageAssets[0] as typeof current.state.imageAssets[number] & { remote?: unknown };
+  asset.remote = { path: `sync/v9/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 123 };
+  assert.throws(() => validateSyncCheckpointV7(current), /retired remote metadata/, "current checkpoint must reject retired per-image remote metadata");
 }
 
 // 4) 非法格式与坏 imageAsset 被拒绝
@@ -68,12 +64,6 @@ await createQuestionV7(typeBank.id, {
   badFormat.formatVersion = 5;
   assert.throws(() => validateSyncCheckpointV7(badFormat), /formatVersion/);
 
-  const badAsset = structuredClone(current);
-  badAsset.state.imageAssets[0] = {
-    ...badAsset.state.imageAssets[0],
-    remote: { path: `sync/v9/assets/${"a".repeat(64)}.webp`, blobSha: "b".repeat(40), sha256: "c".repeat(64), size: 123 },
-  };
-  assert.throws(() => validateSyncCheckpointV7(badAsset), /remote\.sha256 must equal id/);
 
   const badCounts = structuredClone(current);
   badCounts.counts.banks += 1;

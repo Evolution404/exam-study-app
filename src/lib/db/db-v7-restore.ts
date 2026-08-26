@@ -47,12 +47,12 @@ function queueMatches(current: readonly V7ChangeSetQueueGuard[], expected: reado
   return left.every((value, index) => value === right[index]);
 }
 
-function restoreRowCount(state: V7RestoreState, memberships: V7RestoreState["memberships"]): number {
+function restoreRowCount(state: V7RestoreState): number {
   return [
     state.banks,
     state.bankFolders,
     state.questions,
-    memberships ?? [],
+    state.memberships,
     state.imageAssets,
     state.attempts,
     state.attemptStats,
@@ -73,7 +73,6 @@ function restoreRowCount(state: V7RestoreState, memberships: V7RestoreState["mem
  * clear `changeSets` separately when a remote tail is being replayed.
  */
 export async function restoreV7Checkpoint(state: V7RestoreState, options: RestoreV7CheckpointOptions = {}): Promise<boolean> {
-  const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];
   // imageAssets is reconciled in place instead of clear+rewrite.  Cached image
   // Blobs can be large; reading every Blob into JS and writing it back on each
   // ordinary sync was the main iOS/WKWebView write-path pressure point.
@@ -83,7 +82,7 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
     dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.tombstones,
   ];
-  const totalRows = Math.max(1, restoreRowCount(state, memberships));
+  const totalRows = Math.max(1, restoreRowCount(state));
 
   return dbV7.transaction("rw", [...replaceTables, dbV7.imageAssets, dbV7.changeSets], async () => {
     const transaction = Dexie.currentTransaction;
@@ -150,7 +149,6 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
           size: asset.size,
           width: asset.width,
           height: asset.height,
-          remote: asset.remote,
           ...(asset.blob ? { blob: asset.blob } : {}),
         },
       }))), "更新图片索引");
@@ -159,7 +157,7 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
       await writeChunks(state.banks, (chunk) => dbV7.banks.bulkPut(chunk), "写入题库");
       await writeChunks(state.bankFolders, (chunk) => dbV7.bankFolders.bulkPut(chunk), "写入文件夹");
       await writeChunks(state.questions, (chunk) => dbV7.questions.bulkPut(chunk), "写入题目");
-      await writeChunks(memberships, (chunk) => dbV7.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");
+      await writeChunks(state.memberships, (chunk) => dbV7.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");
       await writeChunks(state.attempts, (chunk) => dbV7.attempts.bulkPut(chunk), "写入作答记录");
       await writeChunks(state.attemptStats, (chunk) => dbV7.attemptStats.bulkPut(chunk), "写入学习统计");
       await writeChunks(state.attemptDailyStats, (chunk) => dbV7.attemptDailyStats.bulkPut(chunk), "写入每日统计");

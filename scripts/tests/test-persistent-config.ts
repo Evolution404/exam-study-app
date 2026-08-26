@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { Preferences } from "@capacitor/preferences";
-import { GITHUB_RELAY_URL } from "../../src/platform/github-transport";
 import {
   clearPersistentConfig,
   getPersistentConfigMirror,
@@ -22,7 +21,7 @@ const native = { platform: "ios" as const, native: true, ios: true };
 const values = new Map<string, string>([
   ["github-settings", JSON.stringify({ owner: "owner", repo: "repo", branch: "main", apiBaseUrl: "/api-github" })],
   ["study-v7-preferences", JSON.stringify({ themeMode: "dark" })],
-  ["shijuan-study-v7-device-id", "device-persisted"],
+  ["shijuan-study-device-id", "device-persisted"],
 ]);
 let failSet = false;
 const bridge = {
@@ -33,9 +32,9 @@ const bridge = {
 
 setPersistentPreferencesBridge(bridge);
 await hydratePersistentConfig(native);
-assert.equal(JSON.parse(localStorage.getItem("github-settings") ?? "{}").apiBaseUrl, GITHUB_RELAY_URL, "native legacy default migrates during awaited hydration");
+assert.equal(JSON.parse(localStorage.getItem("github-settings") ?? "{}").apiBaseUrl, "/api-github", "native hydration preserves the authoritative current value");
 assert.equal(getPersistentConfigMirror("study-v7-preferences"), JSON.stringify({ themeMode: "dark" }));
-assert.equal(getPersistentConfigMirror("shijuan-study-v7-device-id"), "device-persisted");
+assert.equal(getPersistentConfigMirror("shijuan-study-device-id"), "device-persisted");
 
 await persistConfigValue("study-v7-preferences", JSON.stringify({ themeMode: "light" }));
 assert.equal(values.get("study-v7-preferences"), JSON.stringify({ themeMode: "light" }));
@@ -47,4 +46,4 @@ await clearPersistentConfig();
 assert.equal(values.size, 0);
 setPersistentPreferencesBridge(Preferences);
 
-console.log("persistent config tests passed: bootstrap hydration/migration, mirror writes, failure propagation and clear");
+console.log("persistent config tests passed: bootstrap hydration, mirror writes, failure propagation and clear");

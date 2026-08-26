@@ -1,4 +1,4 @@
-import { SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_MAX_DESCRIPTOR_BYTES, SYNC_V7_MAX_SEGMENT_BYTES, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX, SYNC_V9_HISTORY_PREFIX, SYNC_V7_HEAD_PATH } from "./sync-v7-head-types";
+import { SYNC_V9_ASSET_PREFIX, SYNC_V9_CHECKPOINT_PREFIX, SYNC_V7_MAX_DESCRIPTOR_BYTES, SYNC_V7_MAX_SEGMENT_BYTES, SYNC_V9_OBJECT_PREFIX, SYNC_V9_SEGMENT_PREFIX, SYNC_V9_HISTORY_PREFIX, SYNC_V9_HEAD_PATH } from "./sync-v7-head-types";
 import { assertSyncV7Path, validateSyncHeadV7 } from "./sync-v7-head-validation";
 import type { SyncHeadV7, SyncV7Bytes, SyncV7Descriptor, SyncV7DescriptorKind, SyncV7PublicationFile, SyncV7PublicationPlan } from "./sync-v7-head-types";
 import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
@@ -328,8 +328,8 @@ export class GitHubV7Remote {
   }
 
   /** List immutable files in a bounded v8 maintenance namespace. */
-  async listImmutableDirectory(prefix: typeof SYNC_V7_CHECKPOINT_PREFIX | typeof SYNC_V7_SEGMENT_PREFIX | typeof SYNC_V9_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
-    const kind: SyncV7DescriptorKind = prefix === SYNC_V7_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_V7_SEGMENT_PREFIX ? "segment" : "history";
+  async listImmutableDirectory(prefix: typeof SYNC_V9_CHECKPOINT_PREFIX | typeof SYNC_V9_SEGMENT_PREFIX | typeof SYNC_V9_HISTORY_PREFIX): Promise<SyncV7RemoteEntry[]> {
+    const kind: SyncV7DescriptorKind = prefix === SYNC_V9_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_V9_SEGMENT_PREFIX ? "segment" : "history";
     const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
     const response = await this.request(withRef(contentPath(this.owner, this.repo, directory), this.branch));
     if (response.status === 404) return [];
@@ -371,7 +371,7 @@ export class GitHubV7Remote {
     const previous = normalizeCache(cache);
     const headers = new Headers();
     if (previous?.etag) headers.set("If-None-Match", previous.etag);
-    const response = await this.request(withRef(contentPath(this.owner, this.repo, SYNC_V7_HEAD_PATH), this.branch), { method: "GET", headers });
+    const response = await this.request(withRef(contentPath(this.owner, this.repo, SYNC_V9_HEAD_PATH), this.branch), { method: "GET", headers });
     if (response.status === 304) {
       if (!previous) throw new GitHubV7RemoteError("read v8 head (304 without cache)", 304);
       const cached = cacheFrom(previous.head, response.headers.get("etag") ?? previous.etag, previous.blobSha);
@@ -403,7 +403,7 @@ export class GitHubV7Remote {
     if (expectedSha !== undefined) assertSha1(expectedSha, "expected head blobSha");
     const body: Record<string, unknown> = { message, content: encodeBase64(new TextEncoder().encode(JSON.stringify(head))), branch: this.branch };
     if (expectedSha) body.sha = expectedSha;
-    const response = await this.request(contentPath(this.owner, this.repo, SYNC_V7_HEAD_PATH), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await this.request(contentPath(this.owner, this.repo, SYNC_V9_HEAD_PATH), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (response.status === 409 || response.status === 422) return { ok: false, reason: "cas-conflict", status: response.status, classification: response.status === 409 ? "head-advanced" : "head-already-exists", conflict: response.status === 409 ? "changed" : "already-exists", ...(expectedSha ? { expectedSha } : {}) };
     this.requireOk(response, "put v8 head");
     const blobSha = extractBlobSha(parseJson(await response.text(), "put v8 head"));
@@ -566,11 +566,11 @@ function isJsonSyncPath(path: string | undefined): boolean {
 }
 
 function inferKind(path: string): SyncV7DescriptorKind {
-  if (path.startsWith(SYNC_V7_ASSET_PREFIX)) return "asset";
-  if (path.startsWith(SYNC_V7_CHECKPOINT_PREFIX)) return "checkpoint";
-  if (path.startsWith(SYNC_V7_OBJECT_PREFIX)) return "object";
+  if (path.startsWith(SYNC_V9_ASSET_PREFIX)) return "asset";
+  if (path.startsWith(SYNC_V9_CHECKPOINT_PREFIX)) return "checkpoint";
+  if (path.startsWith(SYNC_V9_OBJECT_PREFIX)) return "object";
   if (path.startsWith(SYNC_V9_HISTORY_PREFIX)) return "history";
-  if (path.startsWith(SYNC_V7_SEGMENT_PREFIX)) return "segment";
+  if (path.startsWith(SYNC_V9_SEGMENT_PREFIX)) return "segment";
   throw new TypeError("immutable v8 path must be in a known v8 namespace");
 }
 

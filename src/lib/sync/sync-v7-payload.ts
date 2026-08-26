@@ -16,7 +16,7 @@
  * (pull), so the domain reducer (reduceChangeSetV7) never observes a stub.
  */
 import { sha256DigestHex } from "../crypto/sha256";
-import { SYNC_V7_OBJECT_PREFIX, type SyncV7ImmutableRef, type SyncV7PublicationFile } from "./sync-v7-head-types";
+import { SYNC_V9_OBJECT_PREFIX, type SyncV7ImmutableRef, type SyncV7PublicationFile } from "./sync-v7-head-types";
 import { createSyncV7ObjectRef } from "./sync-v7-head-operations";
 
 /**
@@ -89,7 +89,7 @@ export async function offloadSyncV7Events(
       continue;
     }
     const sha256 = await sha256Hex(bytes);
-    const path = `${SYNC_V7_OBJECT_PREFIX}${sha256}.json`;
+    const path = `${SYNC_V9_OBJECT_PREFIX}${sha256}.json`;
     const ref = createSyncV7ObjectRef(path, sha256, bytes.byteLength, "object");
     objects.push({ path, bytes, kind: "object" });
     const stub: Record<string, unknown> = { payloadRef: ref };

@@ -37,19 +37,13 @@ assert.match(restoreSource, /transaction\.abort\(\)/, "a stalled Safari write tr
 const cachedImageId = "a".repeat(64);
 const cachedImageBlob = new Blob(["cached-image"], { type: "image/png" });
 await dbV7.imageAssets.put({ id: cachedImageId, mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10, blob: cachedImageBlob });
-const remoteImage = {
-  path: `v9/assets/${cachedImageId}`,
-  blobSha: "b".repeat(40),
-  sha256: cachedImageId,
-  size: cachedImageBlob.size,
-};
 const restoreProgress: string[] = [];
 const restored = await restoreV7Checkpoint({
   banks: [],
   bankFolders: [],
   questions: [],
   memberships: [],
-  imageAssets: [{ id: cachedImageId, mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10, remote: remoteImage }],
+  imageAssets: [{ id: cachedImageId, mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10 }],
   attempts: [],
   attemptStats: [],
   attemptDailyStats: [],
@@ -64,7 +58,11 @@ const restored = await restoreV7Checkpoint({
 assert.equal(restored, true);
 const restoredImage = await dbV7.imageAssets.get(cachedImageId);
 assert.equal(await restoredImage?.blob?.text(), "cached-image", "descriptor refresh must preserve the local cached Blob");
-assert.deepEqual(restoredImage?.remote, remoteImage, "descriptor metadata should still advance to the remote version");
+assert.deepEqual(
+  { mimeType: restoredImage?.mimeType, size: restoredImage?.size, width: restoredImage?.width, height: restoredImage?.height },
+  { mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10 },
+  "descriptor refresh must retain the current image metadata",
+);
 assert.ok(restoreProgress.includes("更新图片索引") && restoreProgress.includes("本机数据库写入完成"), "restore should expose granular local-write progress");
 
 await resetV7Database();

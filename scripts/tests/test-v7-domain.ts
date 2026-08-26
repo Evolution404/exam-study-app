@@ -50,8 +50,15 @@ const roundProgress = (roundId: string, questionId: string, attempts = 1): Revie
   attempts,
   correct: attempts,
   wrong: 0,
+  giveUps: 0,
+  totalElapsedMs: attempts * 100,
   firstAttemptAt: reference,
+  firstAttemptCorrect: true,
   latestAttemptAt: reference,
+  hasBeenWrong: false,
+  currentCorrectStreak: attempts,
+  correctStreakAfterWrong: 0,
+  recentOutcomes: attempts ? [{ id: `${roundId}:${questionId}:attempt`, createdAt: reference, correct: true, elapsedMs: 100 }] : [],
 });
 
 const stats = [
@@ -75,16 +82,16 @@ assert.equal(isQuestionDoneInScope("old", { type: "rolling", days: 90 }, stats, 
 assert.equal(isQuestionDoneInScope("old", { type: "lifetime" }, stats, [], reference), true);
 assert.equal(isQuestionDoneInScope("missing", { type: "lifetime" }, stats, [], reference), false, "no attempt is incomplete");
 assert.equal(isQuestionDoneInScope("round-question", { type: "round", roundId: "round-1" }, [], [roundProgress("round-1", "round-question")], reference), true);
-assert.equal(isQuestionDoneInScope("round-question", { type: "round", roundId: "round-1" }, [], [roundProgress("round-1", "round-question", 0)], reference), false);
+assert.equal(isQuestionDoneInScope("round-question", { type: "round", roundId: "round-1" }, [], [], reference), false);
 assert.deepEqual(
   calculateProgressCompletion(["recent", "recent", "old", "missing"], { type: "rolling", days: 90 }, stats, [], reference),
   { total: 3, completed: 1, percent: 33 },
   "completion deduplicates question IDs",
 );
 assert.deepEqual(
-  calculateProgressCompletion(["round-question", "round-empty"], { type: "round", roundId: "round-1" }, [], [roundProgress("round-1", "round-question"), roundProgress("round-1", "round-empty", 0)], reference),
+  calculateProgressCompletion(["round-question", "round-empty"], { type: "round", roundId: "round-1" }, [], [roundProgress("round-1", "round-question")], reference),
   { total: 2, completed: 1, percent: 50 },
-  "completion honours round progress with zero attempts",
+  "completion treats a missing current round-progress row as incomplete",
 );
 
 const scopedAttempt = (id: string, questionId: string, createdAt: string, correct: boolean, selected = "A"): AttemptV7 => ({
@@ -107,7 +114,7 @@ const selectedRoundStats = buildScopedQuestionStats(["q1"], { type: "round", rou
   ...roundProgress("round-1", "q1", 3), correct: 2, wrong: 1,
 }], reference);
 assert.equal(selectedRoundStats.get("q1")?.total, 3, "round statistics use the durable round projection");
-assert.equal(summarizeScopedQuestionStats(selectedRoundStats).giveUps, undefined, "unrecoverable round detail stays unknown instead of being fabricated");
+assert.equal(summarizeScopedQuestionStats(selectedRoundStats).giveUps, 0, "current round projection always carries complete detail");
 
 assert.equal(normalizeContentText("  A\r\n B  "), "A\nB");
 assert.deepEqual(plainTextToContentBlocks("a\r\nb"), [{ id: "text-0", type: "text", text: "a\nb" }]);

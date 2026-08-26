@@ -7,7 +7,7 @@ import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-v7-context";
 import { validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
 import { createSyncCheckpointV7, encodeSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
-import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
+import { SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_HISTORY_PREFIX, type SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
 import {
   createRemoteCheckpointV8,
   encodeSyncCheckpointV8,
@@ -39,7 +39,7 @@ try {
     answer: "A",
   });
   const deviceId = "history-device";
-  memoryLocalStorage.set("shijuan-study-v7-device-id", deviceId);
+  memoryLocalStorage.set("shijuan-study-device-id", deviceId);
   const base = Date.parse("2026-01-01T00:00:00.000Z");
 
   const attempts: AttemptV7[] = Array.from({ length: 8 }, (_, index) => ({
@@ -117,7 +117,7 @@ try {
 
   // Publish the bounded checkpoint and prove dedicated history GC preserves its
   // reachable index/chunks while removing an unrelated orphan history object.
-  const checkpointPath = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest(boundedBytes));
+  const checkpointPath = descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest(boundedBytes));
   const uploadedCheckpoint = await client.putImmutable({ path: checkpointPath, bytes: boundedBytes, kind: "checkpoint" });
   const checkpointDescriptor = {
     path: checkpointPath,

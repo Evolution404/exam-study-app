@@ -18,6 +18,7 @@ const head: SyncHeadV7 = {
     blobSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     size: 0,
+    storedSize: 0,
   },
   segments: [],
   cursors: {},

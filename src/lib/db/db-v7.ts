@@ -2,8 +2,7 @@
  * The v7 local-first database.
  *
  * This module is deliberately a separate namespace from `lib/db.ts`. It
- * never imports the legacy database (doing so would construct the old
- * Dexie instance) and it does not contain an upgrade or migration path.
+ * exposes only the current IndexedDB schema and domain operations.
  *
  * This file is a barrel over the `db-v7-*` implementation modules. Keep the
  * facade intentionally narrow: only exports used by application/runtime code
@@ -16,7 +15,6 @@ export {
   dbV7,
   dbV7Ready,
   resetV7Database,
-  dropLegacyLocalDatabases,
 } from "./db-v7-core";
 export type {
   PracticeAnswerV7,
@@ -78,7 +76,6 @@ export {
   setPracticeRunStatusV7,
   deletePracticeRunV7,
   recordPracticeAnswerV7,
-  rebuildAttemptStatsFromAttemptsV7,
 } from "./db-v7-practice";
 
 export {

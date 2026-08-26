@@ -4,11 +4,11 @@ import type { ImageAsset } from "../db/v7-types";
 import { sha256Blob } from "../io/image-assets";
 import type { GitHubV7Remote } from "./github-v7-remote";
 import type { SyncV7Descriptor } from "./sync-v7-head-types";
-import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head-types";
+import { SYNC_V9_ASSET_PREFIX } from "./sync-v7-head-types";
 
 const IMAGE_ASSET_PACK_FORMAT = 1 as const;
 const IMAGE_ASSET_INDEX_FORMAT = 1 as const;
-const IMAGE_ASSET_INDEX_PATH = `${SYNC_V7_ASSET_PREFIX}index.json`;
+const IMAGE_ASSET_INDEX_PATH = `${SYNC_V9_ASSET_PREFIX}index.json`;
 const IMAGE_ASSET_PACK_TARGET_BYTES = 8 * 1024 * 1024;
 const IMAGE_ASSET_PACK_MAX_ASSETS = 64;
 const IMAGE_ASSET_PACK_DOWNLOAD_CONCURRENCY = 4;
@@ -17,7 +17,6 @@ const PACK_HEADER_BYTES = PACK_MAGIC.byteLength + 4;
 const PACK_HEADER_RESERVE = 128 * 1024;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const LEGACY_SINGLE_ASSET_PATH = /^sync\/v9\/assets\/[a-f0-9]{64}\.(?:webp|jpg|jpeg|png)$/;
 const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg", "image/png"]);
 
 type ImageMimeType = ImageAsset["mimeType"];
@@ -170,7 +169,7 @@ export function imageAssetIndexShardKey(assetId: string): AssetShardKey {
 
 function assetPackPath(sha256: string): string {
   assertDigest(sha256, "pack sha256");
-  return `${SYNC_V7_ASSET_PREFIX}${sha256}.bin`;
+  return `${SYNC_V9_ASSET_PREFIX}${sha256}.bin`;
 }
 
 function contentPath(client: GitHubV7Remote, path: string): string {
@@ -210,17 +209,17 @@ function descriptorFromBlob(path: string, blobSha: string, sha256: string, size:
 
 function validateDescriptor(value: unknown, field: string): SyncV7Descriptor {
   const record = asRecord(value, field);
-  if (typeof record.path !== "string" || !record.path.startsWith(SYNC_V7_ASSET_PREFIX)) fail(`${field}.path 无效`);
+  if (typeof record.path !== "string" || !record.path.startsWith(SYNC_V9_ASSET_PREFIX)) fail(`${field}.path 无效`);
   assertDigest(record.blobSha, `${field}.blobSha`, SHA1);
   assertDigest(record.sha256, `${field}.sha256`);
   assertSafeInteger(record.size, `${field}.size`);
-  if (record.storedSize !== undefined) assertSafeInteger(record.storedSize, `${field}.storedSize`);
+  assertSafeInteger(record.storedSize, `${field}.storedSize`);
   return {
     path: record.path,
     blobSha: record.blobSha,
     sha256: record.sha256,
     size: record.size,
-    ...(record.storedSize !== undefined ? { storedSize: record.storedSize } : {}),
+    storedSize: record.storedSize,
   };
 }
 
@@ -450,7 +449,7 @@ export async function readImageAssetsFromPacks(client: GitHubV7Remote, assetIds:
   ids.forEach((id) => assertDigest(id, "assetId"));
   let root = await loadImageAssetPackIndex(client);
   if (!root) root = await loadImageAssetPackIndex(client, { force: true });
-  if (!root) throw new Error("远端尚未完成图片 Pack 一次性迁移，请先执行同步。");
+  if (!root) throw new Error("远端图片 Asset Pack 索引不存在。");
   let shards = await shardsForIds(client, root, ids);
   let missing = ids.filter((id) => !shards.get(imageAssetIndexShardKey(id))?.entries[id]);
   if (missing.length) {
@@ -567,16 +566,10 @@ function emptyShard(key: AssetShardKey): ImageAssetPackIndexShard {
   return { formatVersion: IMAGE_ASSET_INDEX_FORMAT, shard: key, packs: {}, entries: {} };
 }
 
-async function hydrateLegacyAsset(client: GitHubV7Remote, asset: ImageAsset): Promise<PackableImageAsset> {
-  if (asset.blob) {
-    if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地缓存校验失败。`);
-    return asset as PackableImageAsset;
-  }
-  if (!asset.remote) throw new Error(`图片 ${asset.id} 既无本地 Blob，也无一次性迁移来源，无法创建 Asset Pack。`);
-  const bytes = await client.readBlob(asset.remote.blobSha, { size: asset.remote.size, sha256: asset.remote.sha256, path: asset.remote.path });
-  const blob = new Blob([bytes as unknown as BlobPart], { type: asset.mimeType });
-  if (blob.size !== asset.size || await sha256Blob(blob) !== asset.id) throw new Error(`迁移源图片 ${asset.id} 完整性校验失败。`);
-  return { ...asset, blob };
+async function requireLocalPackAsset(asset: ImageAsset): Promise<PackableImageAsset> {
+  if (!asset.blob) throw new Error(`图片 ${asset.id} 尚未进入远端 Asset Pack 且本机没有 Blob 缓存。`);
+  if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地缓存校验失败。`);
+  return asset as PackableImageAsset;
 }
 
 async function loadExistingShardsForAssets(
@@ -631,11 +624,9 @@ async function publishAttempt(
   const packByAsset = new Map<string, { descriptor: SyncV7Descriptor; entry: ImageAssetPackEntry }>();
   const treeMutations: TreeMutation[] = [];
 
-  // Group from descriptor sizes first, then hydrate/build/upload one group at a
-  // time. This bounds migration memory to roughly one Pack plus the hydration
-  // lane instead of retaining every legacy Blob and every built Pack at once.
+  // Group from descriptor sizes first, then validate/build/upload one bounded group at a time.
   for (const group of groupImageAssetsForPacks(pendingBase)) {
-    const hydrated = await mapWithConcurrency(group, 6, async (asset) => hydrateLegacyAsset(client, asset));
+    const hydrated = await mapWithConcurrency(group, 6, requireLocalPackAsset);
     const pack = await buildImageAssetPack(hydrated);
     const path = assetPackPath(pack.sha256);
     const blobSha = await gitCreateBlob(client, pack.bytes);
@@ -689,16 +680,6 @@ async function publishAttempt(
   const rootBlobSha = await gitCreateBlob(client, utf8(root));
   treeMutations.push({ path: IMAGE_ASSET_INDEX_PATH, blobSha: rootBlobSha });
 
-  // The first publication is the one-shot migration boundary. Remove all old
-  // per-image files from the current tree in the SAME Git commit that installs
-  // packs/index. History still retains old blobs (normal Git semantics), but no
-  // current runtime or current tree path remains compatible with the old layout.
-  if (!snapshot.root) {
-    for (const asset of assets) {
-      const path = asset.remote?.path;
-      if (path && LEGACY_SINGLE_ASSET_PATH.test(path)) treeMutations.push({ path, blobSha: null });
-    }
-  }
 
   if (!await createTreeCommit(client, snapshot, treeMutations)) return null;
   const cache = resetRuntimeCache(client);
@@ -707,13 +688,10 @@ async function publishAttempt(
     const descriptor = root.shards[key];
     if (descriptor) cache.shards.set(descriptor.sha256, currentShards.get(key)!);
   }
-  // Do not retain every freshly uploaded Pack in memory. Local assets already
-  // have their Blob cache, while migrated evicted assets can lazily download a
-  // Pack later. Keeping all Pack bytes here would recreate the migration peak.
+  // Do not retain freshly uploaded Pack bytes in memory; the local Blob cache remains authoritative locally.
   return pendingBase.map((source) => {
-    const { blob: _blob, remote: _migrationSource, ...descriptor } = source;
+    const { blob: _blob, ...descriptor } = source;
     void _blob;
-    void _migrationSource;
     return { source, descriptor };
   });
 }

@@ -23,7 +23,7 @@ try {
   await createBankV7("契约测试题库");
   await syncWithGitHub(settings, token);
 
-  memoryLocalStorage.delete("shijuan-study-v7-device-id");
+  memoryLocalStorage.delete("shijuan-study-device-id");
   await resetV7Database();
   const result = await syncWithGitHub(settings, token);
   assert.ok(result.receivedSnapshot, "全新设备安装检查点后应收到快照统计");

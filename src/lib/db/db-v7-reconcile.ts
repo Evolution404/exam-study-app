@@ -92,12 +92,9 @@ async function planTable<T>(table: Table<T, string>, incoming: readonly T[], key
 }
 
 function canonicalImageDescriptor(asset: {
-  id: string; mimeType: string; size: number; width: number; height: number; remote?: unknown;
+  id: string; mimeType: string; size: number; width: number; height: number;
 }): Record<string, unknown> {
-  return {
-    id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height,
-    ...(asset.remote !== undefined ? { remote: asset.remote } : {}),
-  };
+  return { id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height };
 }
 
 async function planImageAssets(incoming: V7RestoreState["imageAssets"]): Promise<{
@@ -172,7 +169,7 @@ export async function reconcileV7Projection(
   state: V7RestoreState,
   options: ReconcileV7ProjectionOptions = {},
 ): Promise<boolean> {
-  const memberships = state.memberships ?? state.bankQuestionMemberships ?? [];
+  const memberships = state.memberships;
   options.onProgress?.({ completed: 0, total: 1, label: "正在比较本机数据" });
 
   const bankPlan = await planTable(dbV7.banks, state.banks, (row) => row.id);
@@ -277,7 +274,6 @@ export async function reconcileV7Projection(
             size: asset.size,
             width: asset.width,
             height: asset.height,
-            remote: asset.remote,
           },
         })));
         progress(chunk.length, "更新图片索引");

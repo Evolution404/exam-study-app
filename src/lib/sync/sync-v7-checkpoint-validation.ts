@@ -1,12 +1,9 @@
-import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
-import { SYNC_V7_ASSET_PREFIX } from "./sync-v7-head-types";
 import { QUESTION_TYPE_ORDER } from "../../types/types";
 import type { AttemptV7, BankQuestionMembership, BankV7, ImageAsset, PracticeRunV7, QuestionV7 } from "../db/v7-types";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const SHA1 = /^[a-f0-9]{40}$/;
 const QUESTION_TYPES = new Set<string>(QUESTION_TYPE_ORDER);
 
 function fail(message: string): never {
@@ -42,16 +39,6 @@ function assertEntityId(value: unknown, field: string): asserts value is string 
   if (value.length > 512) fail(`${field} is too long`);
 }
 
-function normalizeStateAliases(state: Record<string, unknown>): void {
-  // Practice-run statistics are keyed by bank; older rows may omit the key.
-  if (Array.isArray(state.practiceRunStats)) {
-    state.practiceRunStats = state.practiceRunStats.map((value) => {
-      if (!isRecord(value) || value.key !== undefined || typeof value.bankId !== "string") return value;
-      return { ...value, key: value.bankId };
-    });
-  }
-}
-
 function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "blob">>, index: number): asserts asset is Omit<ImageAsset, "blob"> {
   if (!isRecord(asset)) fail(`state.imageAssets[${index}] must be an object`);
   assertSha(asset.id, `state.imageAssets[${index}].id`);
@@ -62,20 +49,7 @@ function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "
   assertSafeInt(asset.width, `state.imageAssets[${index}].width`, 1);
   assertSafeInt(asset.height, `state.imageAssets[${index}].height`, 1);
   if ("blob" in asset && asset.blob !== undefined) fail(`state.imageAssets[${index}] must not contain a Blob`);
-  if (asset.remote !== undefined) {
-    if (!isRecord(asset.remote)) fail(`state.imageAssets[${index}].remote must be an object`);
-    assertString(asset.remote.path, `state.imageAssets[${index}].remote.path`);
-    assertSha(asset.remote.sha256, `state.imageAssets[${index}].remote.sha256`);
-    assertSha(asset.remote.blobSha, `state.imageAssets[${index}].remote.blobSha`, SHA1);
-    assertSafeInt(asset.remote.size, `state.imageAssets[${index}].remote.size`);
-    if (asset.remote.sha256 !== asset.id) fail(`state.imageAssets[${index}].remote.sha256 must equal id`);
-    if (asset.remote.size !== asset.size) fail(`state.imageAssets[${index}].remote.size must equal size`);
-    const extension = IMAGE_EXTENSION_BY_MIME[asset.mimeType];
-    const expectedPath = `${SYNC_V7_ASSET_PREFIX}${asset.id}.${extension}`;
-    if (asset.remote.path !== expectedPath) {
-      fail(`state.imageAssets[${index}].remote.path must be ${expectedPath}`);
-    }
-  }
+  if ("remote" in asset) fail(`state.imageAssets[${index}] must not contain retired remote metadata`);
   assets.set(asset.id, asset as Omit<ImageAsset, "blob">);
 }
 
@@ -209,8 +183,7 @@ function validateStats(state: SyncCheckpointV7State, questions: Set<string>, att
       if (!attempts.has(outcome.id)) fail(`state.attemptStats[${index}] references missing attempt ${outcome.id}`);
       assertDate(outcome.createdAt, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
       if (typeof outcome.correct !== "boolean") fail(`state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
-      // 作答时间为可选字段（难度 v2 前的旧 checkpoint 没有）；存在则必须是非负安全整数。
-      if (outcome.elapsedMs !== undefined) assertSafeInt(outcome.elapsedMs, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
+      assertSafeInt(outcome.elapsedMs, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
     });
   });
   state.attemptDailyStats.forEach((stats, index) => {
@@ -230,26 +203,19 @@ function validateStats(state: SyncCheckpointV7State, questions: Set<string>, att
     assertString(progress.questionId, `state.reviewRoundProgress[${index}].questionId`);
     if (!rounds.has(progress.roundId) || !questions.has(progress.questionId)) fail(`state.reviewRoundProgress[${index}] references missing round/question`);
     if (progress.key !== `${progress.roundId}:${progress.questionId}`) fail(`state.reviewRoundProgress[${index}].key is not canonical`);
-    ["attempts", "correct", "wrong"].forEach((field) => assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`));
+    ["attempts", "correct", "wrong", "giveUps", "totalElapsedMs", "currentCorrectStreak", "correctStreakAfterWrong"].forEach((field) => assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`));
     assertDate(progress.firstAttemptAt, `state.reviewRoundProgress[${index}].firstAttemptAt`);
     assertDate(progress.latestAttemptAt, `state.reviewRoundProgress[${index}].latestAttemptAt`);
-    for (const field of ["giveUps", "totalElapsedMs", "currentCorrectStreak", "correctStreakAfterWrong"] as const) {
-      if (progress[field] !== undefined) assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`);
-    }
-    for (const field of ["firstAttemptCorrect", "hasBeenWrong"] as const) {
-      if (progress[field] !== undefined && typeof progress[field] !== "boolean") fail(`state.reviewRoundProgress[${index}].${field} must be boolean`);
-    }
-    if (progress.recentOutcomes !== undefined) {
-      assertArray(progress.recentOutcomes, `state.reviewRoundProgress[${index}].recentOutcomes`);
-      progress.recentOutcomes.forEach((outcome, outcomeIndex) => {
-        if (!isRecord(outcome)) fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}] must be an object`);
-        assertString(outcome.id, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].id`);
-        if (!attempts.has(outcome.id)) fail(`state.reviewRoundProgress[${index}] references missing attempt ${outcome.id}`);
-        assertDate(outcome.createdAt, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
-        if (typeof outcome.correct !== "boolean") fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
-        if (outcome.elapsedMs !== undefined) assertSafeInt(outcome.elapsedMs, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
-      });
-    }
+    if (typeof progress.firstAttemptCorrect !== "boolean" || typeof progress.hasBeenWrong !== "boolean") fail(`state.reviewRoundProgress[${index}] boolean fields are invalid`);
+    assertArray(progress.recentOutcomes, `state.reviewRoundProgress[${index}].recentOutcomes`);
+    progress.recentOutcomes.forEach((outcome, outcomeIndex) => {
+      if (!isRecord(outcome)) fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}] must be an object`);
+      assertString(outcome.id, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].id`);
+      if (!attempts.has(outcome.id)) fail(`state.reviewRoundProgress[${index}] references missing attempt ${outcome.id}`);
+      assertDate(outcome.createdAt, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
+      if (typeof outcome.correct !== "boolean") fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
+      assertSafeInt(outcome.elapsedMs, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
+    });
   });
 }
 
@@ -258,7 +224,6 @@ export function validateSyncCheckpointV7(value: unknown): asserts value is SyncC
   if (!isRecord(value) || value.formatVersion !== SYNC_V7_CHECKPOINT_FORMAT) fail("formatVersion must be 7");
   assertDate(value.generatedAt, "generatedAt");
   if (!isRecord(value.state)) fail("state must be an object");
-  normalizeStateAliases(value.state);
   const state = value.state as unknown as SyncCheckpointV7State;
   const arrayFields: Array<keyof SyncCheckpointV7State> = [
     "banks", "bankFolders", "questions", "memberships", "imageAssets", "attemptStats", "attemptDailyStats", "attempts", "notes", "practiceRuns", "practiceRunStats", "questionGroups", "reviewRounds", "reviewRoundProgress", "tombstones",
@@ -317,7 +282,7 @@ export function validateSyncCheckpointV7(value: unknown): asserts value is SyncC
   validateStats(state, questions, attempts, rounds);
   state.notes.forEach((note, index) => { if (!isRecord(note)) fail(`state.notes[${index}] must be an object`); assertString(note.questionId, `state.notes[${index}].questionId`); if (!questions.has(note.questionId)) fail(`state.notes[${index}] references missing question`); assertString(note.content, `state.notes[${index}].content`, true); assertSafeInt(note.revision, `state.notes[${index}].revision`); assertDate(note.updatedAt, `state.notes[${index}].updatedAt`); assertString(note.deviceId, `state.notes[${index}].deviceId`); });
   state.questionGroups.forEach((group, index) => { if (!isRecord(group)) fail(`state.questionGroups[${index}] must be an object`); assertEntityId(group.id, `state.questionGroups[${index}].id`); assertString(group.name, `state.questionGroups[${index}].name`); assertArray(group.items, `state.questionGroups[${index}].items`); group.items.forEach((item, itemIndex) => { if (!isRecord(item)) fail(`state.questionGroups[${index}].items[${itemIndex}] must be an object`); assertString(item.questionId, `state.questionGroups[${index}].items[${itemIndex}].questionId`); if (!questions.has(item.questionId)) fail(`state.questionGroups[${index}] references missing question`); assertString(item.note, `state.questionGroups[${index}].items[${itemIndex}].note`, true); }); assertDate(group.createdAt, `state.questionGroups[${index}].createdAt`); assertDate(group.updatedAt, `state.questionGroups[${index}].updatedAt`); assertString(group.deviceId, `state.questionGroups[${index}].deviceId`); });
-  state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); if (stats.key !== undefined) assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`); if (stats.bankId !== "__all__" && !banks.has(stats.bankId)) fail(`state.practiceRunStats[${index}] references missing bank`); ["total", "completed", "inProgress", "abandoned"].forEach((field) => assertSafeInt(stats[field], `state.practiceRunStats[${index}].${field}`)); assertDate(stats.latestUpdatedAt, `state.practiceRunStats[${index}].latestUpdatedAt`); });
+  state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`); if (stats.bankId !== "__all__" && !banks.has(stats.bankId)) fail(`state.practiceRunStats[${index}] references missing bank`); ["total", "completed", "inProgress", "abandoned"].forEach((field) => assertSafeInt(stats[field], `state.practiceRunStats[${index}].${field}`)); assertDate(stats.latestUpdatedAt, `state.practiceRunStats[${index}].latestUpdatedAt`); });
   state.tombstones.forEach((tombstone, index) => { if (!isRecord(tombstone)) fail(`state.tombstones[${index}] must be an object`); assertString(tombstone.key, `state.tombstones[${index}].key`); assertString(tombstone.entityType, `state.tombstones[${index}].entityType`); if (!["bank", "bankFolder", "question", "practiceRun", "questionGroup", "membership", "imageAsset"].includes(tombstone.entityType)) fail(`state.tombstones[${index}].entityType is invalid`); assertString(tombstone.entityId, `state.tombstones[${index}].entityId`); assertDate(tombstone.deletedAt, `state.tombstones[${index}].deletedAt`); assertString(tombstone.deviceId, `state.tombstones[${index}].deviceId`); assertString(tombstone.eventId, `state.tombstones[${index}].eventId`); });
 
   if (!isRecord(value.cursors)) fail("cursors must be an object");
@@ -341,11 +306,3 @@ export function validateSyncCheckpointV7(value: unknown): asserts value is SyncC
 export function isSyncCheckpointV7(value: unknown): value is SyncCheckpointV7 {
   try { validateSyncCheckpointV7(value); return true; } catch { return false; }
 }
-
-/** Convert the locked migration shape (`recent*` fields) to canonical v7 names. */
-export function normalizeSyncCheckpointV7(value: SyncCheckpointV7): SyncCheckpointV7 {
-  const state = value.state as SyncCheckpointV7State & Record<string, unknown>;
-  normalizeStateAliases(state);
-  return value;
-}
-

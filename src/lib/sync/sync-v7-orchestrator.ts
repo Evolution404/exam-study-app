@@ -47,7 +47,7 @@ import {
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import { withSyncLock } from "./sync-lock";
 import { createRemoteCheckpointV8, encodeSyncCheckpointV8, gcSyncV8HistoryRemote } from "./sync-v8-history";
-import { SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_SEGMENT_PREFIX, type SyncHeadV7, type SyncV7PublicationFile, type SyncV7SegmentDescriptor } from "./sync-v7-head-types";
+import { SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_SEGMENT_PREFIX, type SyncHeadV7, type SyncV7PublicationFile, type SyncV7SegmentDescriptor } from "./sync-v7-head-types";
 import { createSyncV7PublicationPlan, encodeSyncV7Segment, mergeSyncV7Segments, paginateSyncV7Events, planSyncV7Compaction } from "./sync-v7-head-operations";
 import { offloadSyncV7Events } from "./sync-v7-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-v7-watermark";
@@ -74,7 +74,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initializeSyncV7Remote(settings, token, progress, options); read = await client.readHead(); }
-  if (!read.initialized) throw new Error("无法初始化 v9 远端。请先执行 v8→v9 数据仓库迁移。");
+  if (!read.initialized) throw new Error("无法初始化 v9 远端。当前客户端只支持 v9 远端数据。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpointV7["counts"] | undefined;
@@ -221,7 +221,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 此时本地 head 缓存必须已带上最新水位/代数，否则面板读到旧缓存而不过期。
       try { await publishDeviceWatermark(client, settings, getV7DeviceId(), read.head.cursors); } catch { /* best-effort */ }
       await pruneCommittedChangeSets(read.head.cursors);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 9 as const, compacted: false, coalesced: false, migrated: false, receivedSnapshot };
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 9 as const, compacted: false, coalesced: false, receivedSnapshot };
     }
     try {
       report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.24));
@@ -264,7 +264,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const pageCursors = cursorsFor(page.events as Array<{ deviceId: string; localSequence: number }>);
           const segmentBytes = encodeSyncV7Segment({ formatVersion: 9 as const, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
-          const segmentPath = descriptorPath(SYNC_V7_SEGMENT_PREFIX, segmentDigest);
+          const segmentPath = descriptorPath(SYNC_V9_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
           newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: pageCursors, metadata });
           segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
@@ -302,7 +302,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const checkpoint = await createRemoteCheckpointV8(client, fullCheckpoint);
           const bytes = encodeSyncCheckpointV8(checkpoint);
           const digest = await sha256(bytes);
-          const path = descriptorPath(SYNC_V7_CHECKPOINT_PREFIX, digest);
+          const path = descriptorPath(SYNC_V9_CHECKPOINT_PREFIX, digest);
           const uploaded = await uploadedDescriptor(client, path, bytes, "checkpoint");
           checkpointFile = { path, bytes, kind: "checkpoint", uploaded: true };
           checkpointDescriptor = { ...uploaded, generation };
@@ -354,7 +354,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await pruneCommittedChangeSets(nextHead.cursors);
       const remaining = (await listChangeSetsV7(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 9 as const, compacted: compaction.required, coalesced, migrated: false, receivedSnapshot };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 9 as const, compacted: compaction.required, coalesced, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaimV7(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");

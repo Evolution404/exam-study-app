@@ -1,6 +1,6 @@
 import {
   SYNC_V9_FORMAT_VERSION, SYNC_V9_HISTORY_PREFIX,
-  SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_HEAD_PATH, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX,
+  SYNC_V9_ASSET_PREFIX, SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_HEAD_PATH, SYNC_V9_OBJECT_PREFIX, SYNC_V9_SEGMENT_PREFIX,
   SYNC_V7_MAX_DESCRIPTOR_BYTES, SYNC_V7_MAX_DEVICE_CURSORS, SYNC_V7_MAX_DEVICE_ID_LENGTH, SYNC_V7_MAX_HOT_BYTES,
   SYNC_V7_MAX_PATH_LENGTH, SYNC_V7_MAX_SEGMENT_COUNT, SYNC_V7_MAX_SEGMENT_EVENT_COUNT, SYNC_V7_MAX_VAULT_ID_LENGTH,
   type SyncHeadV7, type SyncV7Descriptor, type SyncV7DescriptorKind, type SyncV7HeadMetadata, type SyncV7SegmentDescriptor, type SyncV7SegmentMetadata,
@@ -76,15 +76,15 @@ export function digestFromPath(path: string): string | undefined {
 export function assertSyncV7Path(value: unknown, kind: SyncV7DescriptorKind | "head"): asserts value is string {
   if (!isSafeRelativePath(value)) fail(`${kind} path is not a safe relative path`);
   if (kind === "head") {
-    if (value !== SYNC_V7_HEAD_PATH) fail(`head path must be ${SYNC_V7_HEAD_PATH}`);
+    if (value !== SYNC_V9_HEAD_PATH) fail(`head path must be ${SYNC_V9_HEAD_PATH}`);
     return;
   }
-  if (value === SYNC_V7_HEAD_PATH) fail("head.json is mutable and cannot be an immutable descriptor");
-  if (kind === "checkpoint" && !hashPath(value, SYNC_V7_CHECKPOINT_PREFIX)) fail(`checkpoint path must be ${SYNC_V7_CHECKPOINT_PREFIX}<sha256>.json`);
-  if (kind === "object" && !hashPath(value, SYNC_V7_OBJECT_PREFIX)) fail(`object path must be ${SYNC_V7_OBJECT_PREFIX}<sha256>.json`);
+  if (value === SYNC_V9_HEAD_PATH) fail("head.json is mutable and cannot be an immutable descriptor");
+  if (kind === "checkpoint" && !hashPath(value, SYNC_V9_CHECKPOINT_PREFIX)) fail(`checkpoint path must be ${SYNC_V9_CHECKPOINT_PREFIX}<sha256>.json`);
+  if (kind === "object" && !hashPath(value, SYNC_V9_OBJECT_PREFIX)) fail(`object path must be ${SYNC_V9_OBJECT_PREFIX}<sha256>.json`);
   if (kind === "history" && !hashPath(value, SYNC_V9_HISTORY_PREFIX)) fail(`history path must be ${SYNC_V9_HISTORY_PREFIX}<sha256>.json`);
-  if (kind === "segment" && !hashPath(value, SYNC_V7_SEGMENT_PREFIX)) fail(`segment path must be ${SYNC_V7_SEGMENT_PREFIX}<sha256>.json`);
-  if (kind === "asset" && !hashPath(value, SYNC_V7_ASSET_PREFIX, "webp|jpg|jpeg|png|bin")) fail(`asset path must be ${SYNC_V7_ASSET_PREFIX}<sha256>.<ext>`);
+  if (kind === "segment" && !hashPath(value, SYNC_V9_SEGMENT_PREFIX)) fail(`segment path must be ${SYNC_V9_SEGMENT_PREFIX}<sha256>.json`);
+  if (kind === "asset" && !hashPath(value, SYNC_V9_ASSET_PREFIX, "webp|jpg|jpeg|png|bin")) fail(`asset path must be ${SYNC_V9_ASSET_PREFIX}<sha256>.<ext>`);
 }
 
 export function validateCursors(value: unknown, field: string): asserts value is Record<string, number> {
@@ -104,12 +104,6 @@ export function validateMetadata(value: unknown, field: string, vaultId: string)
   if ("createdAt" in value) assertDate(value.createdAt, `${field}.createdAt`);
   if (value.deviceId !== undefined) assertDeviceId(value.deviceId, `${field}.deviceId`);
   if (value.producer !== undefined && (typeof value.producer !== "string" || value.producer.length > 128)) fail(`${field}.producer is invalid`);
-  if (value.migratedFrom !== undefined) {
-    if (!isRecord(value.migratedFrom)) fail(`${field}.migratedFrom must be an object`);
-    if (value.migratedFrom.path !== "sync/v7/head.json" && value.migratedFrom.path !== "sync/v8/head.json") fail(`${field}.migratedFrom.path is invalid`);
-    assertSha(value.migratedFrom.blobSha, `${field}.migratedFrom.blobSha`, SHA1);
-    assertSafeInteger(value.migratedFrom.generation, `${field}.migratedFrom.generation`, 0);
-  }
 }
 
 function validateDescriptor(value: unknown, kind: SyncV7DescriptorKind): asserts value is SyncV7Descriptor {
@@ -118,7 +112,7 @@ function validateDescriptor(value: unknown, kind: SyncV7DescriptorKind): asserts
   assertSha(value.blobSha, `${kind}.blobSha`, SHA1);
   assertSha(value.sha256, `${kind}.sha256`, SHA256);
   assertSize(value.size, `${kind}.size`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
-  if (value.storedSize !== undefined) assertSize(value.storedSize, `${kind}.storedSize`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
+  assertSize(value.storedSize, `${kind}.storedSize`, SYNC_V7_MAX_DESCRIPTOR_BYTES);
   if (value.generation !== undefined) assertSafeInteger(value.generation, `${kind}.generation`, 0);
   const digest = digestFromPath(value.path);
   if (digest && digest !== value.sha256) fail(`${kind} path digest must equal descriptor.sha256`);

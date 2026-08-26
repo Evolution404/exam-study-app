@@ -21,7 +21,7 @@ export async function ensureChangeSetQueueBaseV7(): Promise<void> {
   ]);
   const projection: ChangeSetProjectionV7 = {
     banks, bankFolders, questions, memberships,
-    imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height, remote: asset.remote })),
+    imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height })),
     attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats,
     questionGroups, reviewRounds, reviewRoundProgress, tombstones,
   };

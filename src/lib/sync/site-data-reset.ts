@@ -38,7 +38,7 @@ function deleteIndexedDatabase(name: string) {
  * connection (repo + token), and this browser's device identity. Runtime state
  * (selected banks, search history) is treated as data and cleared.
  */
-const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "study-v6-preferences", "github-settings", "github-token", "shijuan-study-v7-device-id", "shijuan-study-v6-device-id"] as const;
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "github-settings", "github-token", "shijuan-study-device-id"] as const;
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {
@@ -53,9 +53,7 @@ async function wipeServiceWorkersCachesDatabasesAndCookies() {
 
   dbV7.close();
   const databases = typeof indexedDB !== "undefined" && typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
-  // The reset action is deliberately broader than normal v7 startup: it is
-  // the one user-authorised path that also removes an abandoned legacy DB.
-  const names = new Set([V7_DATABASE_NAME, "memory-line-study", ...databases.map((database) => database.name).filter(Boolean) as string[]]);
+  const names = new Set([V7_DATABASE_NAME, ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
   if (!native) clearSiteCookies();

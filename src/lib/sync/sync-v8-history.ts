@@ -103,7 +103,7 @@ function assertDescriptor(value: unknown, field: string): asserts value is SyncV
   if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`invalid v9 checkpoint: ${field}.blobSha is invalid`);
   if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);
-  if (value.storedSize !== undefined) assertSafeInt(value.storedSize, `${field}.storedSize`);
+  assertSafeInt(value.storedSize, `${field}.storedSize`);
   if (!value.path.includes(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.path digest mismatch`);
 }
 
@@ -113,7 +113,7 @@ function cloneBoundedState(full: SyncCheckpointV7State, attempts: AttemptV7[], p
     bankFolders: full.bankFolders.map((item) => ({ ...item })),
     questions: full.questions.map((item) => ({ ...item, content: item.content.map((block) => ({ ...block })), options: item.options.map((option) => option.map((block) => ({ ...block }))), tags: [...item.tags] })),
     memberships: full.memberships.map((item) => ({ ...item })),
-    imageAssets: full.imageAssets.map((item) => ({ ...item, remote: item.remote ? { ...item.remote } : undefined })),
+    imageAssets: full.imageAssets.map((item) => ({ id: item.id, mimeType: item.mimeType, size: item.size, width: item.width, height: item.height })),
     attempts: attempts.map((item) => ({ ...item })),
     // These are authoritative only after history hydration. Keeping them empty
     // prevents recent-only data from masquerading as lifetime aggregates.

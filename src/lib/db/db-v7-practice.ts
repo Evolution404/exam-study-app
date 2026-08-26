@@ -303,25 +303,6 @@ function addAttemptToStatsV7(current: AttemptStatsV7 | undefined, attempt: Attem
   };
 }
 
-/** 一次性迁移：从原始 attempts 重建全部 attemptStats 行（为 recentOutcomes 补
- *  作答时间，难度 v2 需要）。attemptStats 是纯派生数据，重建幂等且无损。 */
-export async function rebuildAttemptStatsFromAttemptsV7() {
-  const attempts = await dbV7.attempts.toArray();
-  const grouped = new Map<string, AttemptV7[]>();
-  for (const attempt of attempts.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))) {
-    const bucket = grouped.get(attempt.questionId);
-    if (bucket) bucket.push(attempt);
-    else grouped.set(attempt.questionId, [attempt]);
-  }
-  const rows: AttemptStatsV7[] = [];
-  for (const bucket of grouped.values()) {
-    let row: AttemptStatsV7 | undefined;
-    for (const attempt of bucket) row = addAttemptToStatsV7(row, attempt);
-    if (row) rows.push(row);
-  }
-  if (rows.length) await dbV7.attemptStats.bulkPut(rows);
-}
-
 function addDailyStatsV7(current: AttemptDailyStatsV7 | undefined, attempt: AttemptV7): AttemptDailyStatsV7 {
   return {
     key: dailyStatsKey(attempt.createdAt, attempt.questionId),
@@ -338,24 +319,24 @@ function addDailyStatsV7(current: AttemptDailyStatsV7 | undefined, attempt: Atte
 async function progressForAnswerInTx(roundId: string, questionId: string, attempt: AttemptV7): Promise<void> {
   const key = `${roundId}:${questionId}`;
   const current = await dbV7.reviewRoundProgress.get(key);
-  const recentOutcomes = [...(current?.recentOutcomes ?? []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
+  const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
   let currentCorrectStreak = 0;
   for (let index = recentOutcomes.length - 1; index >= 0 && recentOutcomes[index].correct; index -= 1) currentCorrectStreak += 1;
   const first = !current || attempt.createdAt < current.firstAttemptAt;
-  const hasBeenWrong = Boolean(current?.hasBeenWrong ?? ((current?.wrong ?? 0) > 0)) || !attempt.correct;
+  const hasBeenWrong = (current ? current.hasBeenWrong : false) || !attempt.correct;
   const progress: ReviewRoundProgress = {
     key,
     roundId,
     questionId,
-    attempts: (current?.attempts ?? 0) + 1,
-    correct: (current?.correct ?? 0) + (attempt.correct ? 1 : 0),
-    wrong: (current?.wrong ?? 0) + (attempt.correct ? 0 : 1),
+    attempts: (current ? current.attempts : 0) + 1,
+    correct: (current ? current.correct : 0) + (attempt.correct ? 1 : 0),
+    wrong: (current ? current.wrong : 0) + (attempt.correct ? 0 : 1),
     firstAttemptAt: first ? attempt.createdAt : current.firstAttemptAt,
-    latestAttemptAt: attempt.createdAt > (current?.latestAttemptAt ?? "") ? attempt.createdAt : (current?.latestAttemptAt ?? attempt.createdAt),
-    giveUps: (current?.giveUps ?? 0) + (attempt.selected ? 0 : 1),
-    totalElapsedMs: (current?.totalElapsedMs ?? 0) + Math.max(0, attempt.elapsedMs || 0),
+    latestAttemptAt: current && current.latestAttemptAt > attempt.createdAt ? current.latestAttemptAt : attempt.createdAt,
+    giveUps: (current ? current.giveUps : 0) + (attempt.selected ? 0 : 1),
+    totalElapsedMs: (current ? current.totalElapsedMs : 0) + Math.max(0, attempt.elapsedMs || 0),
     firstAttemptCorrect: first ? attempt.correct : current.firstAttemptCorrect,
     hasBeenWrong,
     currentCorrectStreak,

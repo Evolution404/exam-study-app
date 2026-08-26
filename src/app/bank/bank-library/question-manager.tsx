@@ -7,7 +7,7 @@ import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { loadImageAssetV7, QuestionEditor, SharedQuestionEditor, type QuestionChanges } from "@/app/bank/question-editor";
 import { createQuestionV7, deleteQuestionsV7, removeMembershipsV7, saveNoteV7 } from "@/lib/db/db-v7";
-import type { QuestionV7 } from "@/lib/db/v7-types";
+import type { QuestionV7, ReviewRoundProgress } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
 import { statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
@@ -17,7 +17,7 @@ import { BankQuestionDeleteDialog } from "./bank-question-delete-dialog";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
 import { matchesTagSelection, type TagMatchMode } from "@/lib/question/tag-filter";
 
-export function QuestionManager({ bank, questions, attemptStats, notes, roundProgress = [], progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", preset, wrongRemovalStreak, referenceTime, onPresetChange, onImportQuestions, onNotice }: { bank: Bank; questions: Question[]; attemptStats: AttemptStats[]; notes: Note[]; roundProgress?: Array<{ key: string; roundId: string; questionId: string; attempts: number; correct: number; wrong: number; firstAttemptAt: string; latestAttemptAt: string }>; progressScope?: ProgressScope; progressScopeLabel?: string; preset: QuestionPreset; wrongRemovalStreak: number; referenceTime: number; onPresetChange: (preset: QuestionPreset) => void; onImportQuestions: () => void; onNotice: (message: string) => void }) {
+export function QuestionManager({ bank, questions, attemptStats, notes, roundProgress = [], progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", preset, wrongRemovalStreak, referenceTime, onPresetChange, onImportQuestions, onNotice }: { bank: Bank; questions: Question[]; attemptStats: AttemptStats[]; notes: Note[]; roundProgress?: ReviewRoundProgress[]; progressScope?: ProgressScope; progressScopeLabel?: string; preset: QuestionPreset; wrongRemovalStreak: number; referenceTime: number; onPresetChange: (preset: QuestionPreset) => void; onImportQuestions: () => void; onNotice: (message: string) => void }) {
   const [query, setQuery] = useState(""); const [type, setType] = useState<"全部" | QuestionType>("全部"); const [visible, setVisible] = useState(80); const [editing, setEditing] = useState<Question>(); const [viewing, setViewing] = useState<Question>(); const [adding, setAdding] = useState(false); const [pendingDelete, setPendingDelete] = useState<Question>(); const [deleting, setDeleting] = useState(false); const [selectedIds, setSelectedIds] = useState<string[]>([]); const [bulkAction, setBulkAction] = useState<"remove" | "delete">();
   const [activeQuestionId, setActiveQuestionId] = useState<string>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);

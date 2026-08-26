@@ -47,7 +47,6 @@ export function checkpointFromProjection(
         size: asset.size,
         width: asset.width,
         height: asset.height,
-        remote: asset.remote,
       })),
       attempts: projection.attempts,
       attemptStats: projection.attemptStats,
@@ -121,7 +120,6 @@ export async function installProjection(
       size: asset.size,
       width: asset.width,
       height: asset.height,
-      remote: asset.remote,
     })),
   }, options);
 }

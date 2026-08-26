@@ -5,7 +5,7 @@ export interface AttemptSummary {
   correct: number;
   wrong: number;
   latest: number | null;
-  /** Personal mastery risk shown to the user; kept as `difficulty` for compatibility. */
+  /** Personal mastery risk shown to the user. */
   difficulty: number;
   personalDifficulty: number;
   /** Scheduling score: personal difficulty plus time-since-review risk. */
@@ -30,7 +30,7 @@ export function calculateDifficulty(total: number, wrong: number) {
 export interface DifficultyOutcome {
   correct: boolean;
   createdAt: string;
-  elapsedMs?: number;
+  elapsedMs: number;
 }
 
 export const DIFFICULTY_LEARNING_RATE = 0.35;
@@ -43,7 +43,6 @@ const QUALITY_FAST = 1;
 const QUALITY_NORMAL = 0.75;
 const QUALITY_SLOW = 0.45;
 const QUALITY_FIRST_CORRECT = 0.9;
-const QUALITY_LEGACY_CORRECT = 0.85;
 const BASELINE_WINDOW = 8;
 const BASELINE_MIN_ELAPSED_MS = 1_000;
 const BASELINE_MAX_ELAPSED_MS = 20 * 60_000;
@@ -68,13 +67,13 @@ export function attemptGapFactor(gapSeconds: number) {
 function outcomeQuality(outcome: DifficultyOutcome, baselineMs: number | null) {
   if (!outcome.correct) return 0;
   if (baselineMs == null) return QUALITY_FIRST_CORRECT;
-  if (!validBaselineElapsed(outcome.elapsedMs)) return QUALITY_LEGACY_CORRECT;
+  if (!validBaselineElapsed(outcome.elapsedMs)) throw new Error("current difficulty outcomes require elapsedMs");
   if (outcome.elapsedMs <= FAST_BASELINE_RATIO * baselineMs) return QUALITY_FAST;
   if (outcome.elapsedMs <= SLOW_BASELINE_RATIO * baselineMs) return QUALITY_NORMAL;
   return QUALITY_SLOW;
 }
 
-function validBaselineElapsed(elapsedMs: number | undefined): elapsedMs is number {
+function validBaselineElapsed(elapsedMs: number): boolean {
   return elapsedMs !== undefined && Number.isFinite(elapsedMs) && elapsedMs >= BASELINE_MIN_ELAPSED_MS && elapsedMs <= BASELINE_MAX_ELAPSED_MS;
 }
 
@@ -94,7 +93,7 @@ function modelDifficultyFromOutcomes(outcomes: readonly DifficultyOutcome[], lea
     mastery += learningRate * factor * (quality - mastery);
     if (Number.isFinite(createdAt)) previousAt = createdAt;
     // 速度基线只吸收有效的正确作答。错误/不会仍影响掌握度，但不会污染
-    // 后续“快于自己常态”的判定；过短和超长旧记录按无计时数据处理。
+    // 后续“快于自己常态”的判定；过短和超长记录不进入速度基线。
     if (outcome.correct && validBaselineElapsed(outcome.elapsedMs)) {
       baselineTimes.push(outcome.elapsedMs);
       if (baselineTimes.length > BASELINE_WINDOW) baselineTimes.shift();
@@ -134,10 +133,7 @@ export function calibrateDifficultyLearningRate(outcomes: readonly DifficultyOut
   return best;
 }
 
-/**
- * 由作答结果序列（按时间升序处理）估计 0–100 难度。序列为空返回 50。
- * 兼容缺 elapsedMs 的旧数据：不计入基准，做对按 0.85 中性质量计。
- */
+/** 由作答结果序列（按时间升序处理）估计 0–100 难度。序列为空返回 50。 */
 export function difficultyFromOutcomes(outcomes: readonly DifficultyOutcome[]) {
   const calibration = calibrateDifficultyLearningRate(outcomes);
   return modelDifficultyFromOutcomes(outcomes, calibration.learningRate);
@@ -189,7 +185,7 @@ export function createAttemptStats(attempt: Attempt): AttemptStats {
 
 export function addAttemptToStats(current: AttemptStats | undefined, attempt: Attempt): AttemptStats {
   if (!current) return createAttemptStats(attempt);
-  const recentOutcomes = [...(current.recentOutcomes ?? []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
+  const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs || 0) }]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     .slice(-32);
   let currentCorrectStreak = 0;
@@ -225,11 +221,7 @@ export function buildAttemptStats(attempts: Attempt[]) {
 export function summarizeAttemptStats(stats?: AttemptStats, referenceTime: number | Date = Date.now()): AttemptSummary {
   if (!stats) return { total: 0, correct: 0, wrong: 0, latest: null, difficulty: 50, personalDifficulty: 50, reviewPriority: 50 };
   const latest = new Date(stats.latestAttemptAt).getTime();
-  // 新统计（含轮次）按有效时间/间隔感知 EMA 估计；尚未重建的旧聚合行
-  // 没有 recentOutcomes 时回退终身错误率，保证旧数据可读且展示不跳变。
-  const difficulty = stats.recentOutcomes?.length
-    ? difficultyFromOutcomes(stats.recentOutcomes)
-    : calculateDifficulty(stats.total, stats.wrong);
+  const difficulty = difficultyFromOutcomes(stats.recentOutcomes);
   return {
     total: stats.total,
     correct: stats.correct,

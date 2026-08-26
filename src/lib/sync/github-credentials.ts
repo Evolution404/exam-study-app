@@ -32,13 +32,7 @@ export function loadGitHubSettings(): GitHubSettings {
     const settings = { ...DEFAULT_GITHUB_SETTINGS, ...saved };
     if (settings.historySyncStart && !/^\d{4}-\d{2}-\d{2}$/.test(settings.historySyncStart)) delete settings.historySyncStart;
     const environment = getPlatformEnvironment();
-    // Migrate only the former same-origin default. A user-provided relay or
-    // diagnostic endpoint must remain untouched on native iOS.
-    if (environment.native && saved.apiBaseUrl === GITHUB_WEB_RELAY_PATH) {
-      settings.apiBaseUrl = GITHUB_PAGES_RELAY;
-    } else if (!saved.apiBaseUrl) {
-      settings.apiBaseUrl = resolveDefaultGitHubApiBaseUrl(currentHostname(), environment);
-    }
+    if (!saved.apiBaseUrl) settings.apiBaseUrl = resolveDefaultGitHubApiBaseUrl(currentHostname(), environment);
     return settings;
   } catch {
     return { ...DEFAULT_GITHUB_SETTINGS };
@@ -55,18 +49,13 @@ export function saveGitHubSettings(settings: GitHubSettings): Promise<void> {
 export function loadGitHubToken() {
   if (isSecureCredentialsNative()) return loadSecureCredential(tokenKey);
   if (typeof localStorage === "undefined") return "";
-  const persistent = localStorage.getItem(tokenKey);
-  if (persistent !== null) return persistent;
-  const previousSessionToken = sessionStorage.getItem(tokenKey) ?? "";
-  if (previousSessionToken) localStorage.setItem(tokenKey, previousSessionToken);
-  return previousSessionToken;
+  return localStorage.getItem(tokenKey) ?? "";
 }
 
 export function saveGitHubToken(token: string): Promise<void> {
   if (isSecureCredentialsNative()) return saveSecureCredential(token, tokenKey);
   if (token) localStorage.setItem(tokenKey, token);
   else localStorage.removeItem(tokenKey);
-  sessionStorage.removeItem(tokenKey);
   return Promise.resolve();
 }
 

@@ -29,12 +29,7 @@ import type {
   TombstoneV7,
 } from "./v7-types";
 
-/**
- * Fresh local namespace for this release train.  It intentionally shares no
- * schema history with `shijuan-study-v7`: content returns through the v9
- * remote restore, and the superseded local database is dropped only after
- * that first successful restore (see the sync layer).
- */
+/** Current local IndexedDB namespace. */
 export const V7_DATABASE_NAME = "shijuan-study" as const;
 
 export interface PracticeAnswerV7 {
@@ -102,9 +97,7 @@ export interface V7RestoreState {
   banks: BankV7[];
   bankFolders: BankFolderV7[];
   questions: QuestionV7[];
-  /** Wire checkpoints call this `memberships`; the alias eases internal callers. */
-  memberships?: BankQuestionMembership[];
-  bankQuestionMemberships?: BankQuestionMembership[];
+  memberships: BankQuestionMembership[];
   imageAssets: ImageAsset[];
   attempts: AttemptV7[];
   attemptStats: AttemptStatsV7[];
@@ -134,12 +127,11 @@ export function makeV7Id(prefix = "v7"): string {
   return `${prefix}_${Date.now().toString(36)}_${idCounter.toString(36)}`;
 }
 
-const V7_DEVICE_ID_KEY = "shijuan-study-v7-device-id";
+const V7_DEVICE_ID_KEY = "shijuan-study-device-id";
 
 export function getV7DeviceId(): string {
   if (typeof localStorage === "undefined") return "server-v7";
-  // The storage key keeps its historical name so an upgrading device reuses
-  // its sync identity instead of appearing as a brand-new collaborator.
+  // This is the current durable sync-device identity key.
   let value: string | null = localStorage.getItem(V7_DEVICE_ID_KEY);
   if (!value) {
     value = makeV7Id("device");
@@ -166,7 +158,7 @@ async function withSequenceLock<T>(operation: () => Promise<T>): Promise<T> {
   await previous;
   try {
     const locks = navigatorLocks();
-    if (locks) return await locks.request("shijuan-study-v7-sequence", { mode: "exclusive" }, operation);
+    if (locks) return await locks.request("shijuan-study-sequence", { mode: "exclusive" }, operation);
     return await operation();
   } finally {
     release();
@@ -176,7 +168,7 @@ async function withSequenceLock<T>(operation: () => Promise<T>): Promise<T> {
 /**
  * Allocate a per-device sequence under an async lock and an IndexedDB
  * read/write transaction. The IDB row is the cross-realm source of truth;
- * Web Locks additionally serialize the localStorage compatibility mirror.
+ * Web Locks additionally serialize the localStorage mirror.
  * Gaps are harmless when a surrounding domain transaction later aborts.
  */
 export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number> {
@@ -185,7 +177,7 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
     if (!current.storeNames.includes(dbV7.syncMeta.name)) {
       throw new Error("分配同步序号的业务事务必须包含 syncMeta，禁止在 Safari 中启动嵌套写事务。");
     }
-    const key = `shijuan-study-v7-sequence:${deviceId}`;
+    const key = `shijuan-study-sequence:${deviceId}`;
     const row = await dbV7.syncMeta.get(key);
     const persisted = Number(row?.value) || 0;
     // The localStorage mirror survives the namespace swap and keeps allocated
@@ -198,7 +190,7 @@ export async function nextV7Sequence(deviceId = getV7DeviceId()): Promise<number
     return value;
   }
   return withSequenceLock(async () => {
-    const key = `shijuan-study-v7-sequence:${deviceId}`;
+    const key = `shijuan-study-sequence:${deviceId}`;
     // Outside a domain transaction, reserve through a short independent
     // transaction. Domain transactions include syncMeta and use the branch
     // above: Safari serializes all read/write transactions at database level,
@@ -301,9 +293,8 @@ export const dbV7 = new V7StudyDatabase();
 /** Short alias used by callers that prefer `v7Db`. */
 export const v7Db = dbV7;
 /**
- * Startup health gate: the app awaits this before render so a namespace that
- * cannot open fails fast instead of mid-interaction. There is no local schema
- * migration — content arrives through the v9 remote restore.
+ * Startup health gate: the app awaits this before render so namespace-open
+ * failures surface before interaction.
  */
 export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined, () => undefined);
 /** Class is exported for tests that need a fresh, isolated namespace. */
@@ -314,16 +305,4 @@ export async function resetV7Database(): Promise<void> {
   dbV7.close();
   await Dexie.delete(V7_DATABASE_NAME);
   await dbV7.open();
-}
-
-/**
- * Superseded local namespaces, dropped only after the first successful v9
- * remote restore proves the content is safely back on this device.  Failures
- * are ignored: a leftover legacy database wastes space but harms nothing.
- */
-const LEGACY_LOCAL_DATABASE_NAMES = ["shijuan-study-v7", "shijuan-study-v6"] as const;
-
-export async function dropLegacyLocalDatabases(): Promise<void> {
-  if (typeof indexedDB === "undefined") return;
-  await Promise.all(LEGACY_LOCAL_DATABASE_NAMES.map((name) => Dexie.delete(name).catch(() => undefined)));
 }

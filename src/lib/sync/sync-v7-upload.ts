@@ -5,7 +5,7 @@ import type { GitHubV7Remote } from "./github-v7-remote";
 import type { SyncV7Descriptor } from "./sync-v7-head-types";
 import { publishImageAssetsAsPacks } from "./image-asset-pack";
 
-/** Legacy public constant retained as the CPU/download hydration lane count. */
+/** Bounded image-pack preparation concurrency. */
 export const SYNC_V7_ASSET_UPLOAD_CONCURRENCY = 6;
 
 export interface ImageAssetUploadProgress {
@@ -15,30 +15,23 @@ export interface ImageAssetUploadProgress {
   totalBytes: number;
 }
 
-function withoutBlobOrLegacyRemote(asset: ImageAsset): Omit<ImageAsset, "blob"> {
-  const { blob: _blob, remote: _legacyRemote, ...descriptor } = asset;
+function withoutBlob(asset: ImageAsset): Omit<ImageAsset, "blob"> {
+  const { blob: _blob, ...descriptor } = asset;
   void _blob;
-  void _legacyRemote;
   return descriptor;
 }
 
 /**
  * Publish every local image missing from the remote Asset Pack index.
  *
- * Sync v9 no longer publishes one Git file/commit per image. Images are packed
- * into bounded immutable blobs and the sharded index + mutable index pointer
- * are committed atomically through the Git Data API. The old per-image remote
- * descriptor is stripped after the one-shot migration; runtime reads only the
- * Asset Pack index from that point onward.
+ * Sync v9 publishes images only as bounded immutable Asset Packs with a sharded index.
  */
 export async function uploadPendingImageAssetsV7(
   client: GitHubV7Remote,
   onProgress?: (progress: ImageAssetUploadProgress) => void,
 ): Promise<Array<Omit<ImageAsset, "blob">>> {
   const assets = await dbV7.imageAssets.toArray();
-  // A brand-new device can enter sync before the remote projection has been
-  // installed locally. Do not create an empty index in that transient state;
-  // the next pass sees the installed image descriptors and performs migration.
+  // A brand-new device can enter sync before the remote projection has been installed locally.
   if (!assets.length) return [];
 
   const pendingBeforeUpload = await listChangeSetsV7(["pending"]);
@@ -47,12 +40,10 @@ export async function uploadPendingImageAssetsV7(
 
   const published = await publishImageAssetsAsPacks(client, assets, onProgress);
   const descriptorById = new Map<string, Omit<ImageAsset, "blob">>();
-  for (const asset of assets) descriptorById.set(asset.id, withoutBlobOrLegacyRemote(asset));
+  for (const asset of assets) descriptorById.set(asset.id, withoutBlob(asset));
   for (const { descriptor } of published) descriptorById.set(descriptor.id, descriptor);
 
-  // Imports already own image descriptors inside one fixed question.import
-  // change-set. Rewrite those descriptors without the retired per-image remote
-  // fields; do not create hundreds of image.asset.save events during migration.
+  // Imports already own image descriptors inside one fixed question.import change-set.
   const pendingAfterUpload = await listChangeSetsV7(["pending"]);
   const represented = new Set<string>();
   const rewritten: ChangeSetQueueRecordV7[] = [];
@@ -85,22 +76,10 @@ export async function uploadPendingImageAssetsV7(
   }
   if (rewritten.length) await dbV7.changeSets.bulkPut(rewritten);
 
-  // Only genuinely new manual image writes need a dedicated asset event. A
-  // legacy image already had an event/checkpoint before this one-shot migration,
-  // so repacking it must never manufacture a new event per image.
-  for (const { source, descriptor } of published) {
-    if (!source.remote && !represented.has(descriptor.id)) {
-      await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
-    }
+  // Only genuinely new manual image writes need a dedicated asset event.
+  for (const { descriptor } of published) {
+    if (!represented.has(descriptor.id)) await enqueueChangeSetV7([{ kind: "image.asset.save", asset: descriptor }], createdAt);
   }
-
-  // The Asset Pack index is now authoritative. Strip every old per-image remote
-  // descriptor locally while preserving cached Blob bytes.
-  await dbV7.imageAssets.bulkPut(assets.map((asset) => {
-    const { remote: _legacyRemote, ...clean } = asset;
-    void _legacyRemote;
-    return clean;
-  }));
   return published.map(({ descriptor }) => descriptor);
 }
 

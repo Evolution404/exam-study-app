@@ -22,7 +22,7 @@ import {
   type SearchFilters,
 } from "@/app/search/search-filter-drawer";
 import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
@@ -232,11 +232,11 @@ export function SearchView({
     const normalizedScope = normalizedSearchScope;
     const questions = appliedQuestions;
     const scopedStatsByQuestion = buildScopedQuestionStats(questions.map((question) => question.id), normalizedScope, data?.attempts ?? [], data?.roundProgress ?? [], referenceTime);
-    const scopedMetricByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, summarizeAttemptStats(scopedStatsToLegacyAttemptStats(stats))]));
+    const scopedMetricByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, summarizeAttemptStats(scopedStatsToAttemptStats(stats))]));
     const attemptStats = data?.attemptStats ?? [];
     const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, stats]));
     const notesByQuestion = new Map((data?.notes ?? []).map((note) => [note.questionId, note.content]));
-    const scopedLegacyByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, scopedStatsToLegacyAttemptStats(stats)]));
+    const scopedLegacyByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, scopedStatsToAttemptStats(stats)]));
     const index: SearchIndexQuestion[] = questions.map((question) => {
       const stats = statsByQuestion.get(question.id);
       const metric = scopedMetricByQuestion.get(question.id) ?? summarizeAttemptStats(stats);

@@ -1,12 +1,11 @@
 import { Preferences } from "@capacitor/preferences";
 import type { PlatformEnvironment } from "./environment";
 import { getPlatformEnvironment } from "./environment";
-import { GITHUB_RELAY_URL, GITHUB_WEB_RELAY_PATH } from "./github-transport";
 
 const PERSISTENT_CONFIG_KEYS = [
   "github-settings",
   "study-v7-preferences",
-  "shijuan-study-v7-device-id",
+  "shijuan-study-device-id",
 ] as const;
 
 export type PersistentConfigKey = (typeof PERSISTENT_CONFIG_KEYS)[number];
@@ -58,32 +57,17 @@ export async function hydratePersistentConfig(environment: PlatformEnvironment =
   for (const key of PERSISTENT_CONFIG_KEYS) {
     const native = await bridge.get({ key });
     if (native.value !== null) {
-      const value = migrateNativeConfigValue(key, native.value);
-      writeLocal(key, value);
-      if (value !== native.value) await bridge.set({ key, value });
+      writeLocal(key, native.value);
       continue;
     }
     const local = readLocal(key);
     if (local !== null) {
-      const value = migrateNativeConfigValue(key, local);
-      await bridge.set({ key, value });
-      mirrors.set(key, value);
-      if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
+      await bridge.set({ key, value: local });
+      mirrors.set(key, local);
     }
   }
 }
 
-function migrateNativeConfigValue(key: string, value: string): string {
-  if (key !== "github-settings") return value;
-  try {
-    const parsed = JSON.parse(value) as { apiBaseUrl?: unknown };
-    if (parsed.apiBaseUrl === GITHUB_WEB_RELAY_PATH) return JSON.stringify({ ...parsed, apiBaseUrl: GITHUB_RELAY_URL });
-  } catch {
-    // Preserve malformed settings for the normal settings loader to handle;
-    // hydration must not destroy user data merely because it cannot parse it.
-  }
-  return value;
-}
 
 /** Persist a critical config value while keeping existing sync getters usable. */
 export async function persistConfigValue(key: PersistentConfigKey, value: string): Promise<void> {

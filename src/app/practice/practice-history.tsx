@@ -9,7 +9,7 @@ import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } fro
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { QuestionOverview } from "@/app/shell/views/question-overview";
 import { runActivityAt, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, scopedStatsToLegacyAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
@@ -145,7 +145,7 @@ function ResultQuestionDetail({ question, answer, entries, progressScope, scopeL
   const [referenceTime] = useState(() => Date.now());
   const metric = useMemo(() => {
     const scoped = buildScopedQuestionStats([question.id], progressScope, attempts ?? [], [], referenceTime).get(question.id);
-    return scoped ? summarizeAttemptStats(scopedStatsToLegacyAttemptStats(scoped)) : summarizeAttemptStats();
+    return scoped ? summarizeAttemptStats(scopedStatsToAttemptStats(scoped)) : summarizeAttemptStats();
   }, [question.id, attempts, progressScope, referenceTime]);
   const navPrefs = useMemo(() => {
     try {

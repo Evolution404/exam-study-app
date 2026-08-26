@@ -3,7 +3,7 @@ import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-pro
 import { assetUploadProgressLabelV7, formatTransferBytesV7, mergeActiveHistoryProjectionV7, reconcileInterruptedClaimsV7 } from "../../src/lib/sync/sync-v7-orchestrator-model";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { SYNC_V7_ASSET_PREFIX, SYNC_V7_CHECKPOINT_PREFIX, SYNC_V7_HEAD_PATH, SYNC_V7_MAX_HOT_BYTES, SYNC_V7_OBJECT_PREFIX, SYNC_V7_SEGMENT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
+import { SYNC_V9_ASSET_PREFIX, SYNC_V9_CHECKPOINT_PREFIX, SYNC_V9_HEAD_PATH, SYNC_V7_MAX_HOT_BYTES, SYNC_V9_OBJECT_PREFIX, SYNC_V9_SEGMENT_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
 import { assertSyncV7Path, validateSyncHeadV7, validateSyncV7Descriptor } from "../../src/lib/sync/sync-v7-head-validation";
 import { appendSyncV7Segments, createSyncV7AppendPublicationPlan, createSyncV7CompactionPlan, createSyncV7ObjectRef, createSyncV7PublicationPlan, encodeSyncV7Event, orderSyncV7Segments, paginateSyncV7Events, planSyncV7Compaction, replaySyncV7Segments } from "../../src/lib/sync/sync-v7-head-operations";
 import type { SyncHeadV7, SyncV7Descriptor, SyncV7SegmentDescriptor } from "../../src/lib/sync/sync-v7-head-types";
@@ -13,11 +13,11 @@ const sha1 = (digit: string) => digit.repeat(40);
 const bytes = (text: string) => new TextEncoder().encode(text);
 const descriptor = (prefix: string, content: string): SyncV7Descriptor => {
   const hash = digest(content);
-  return { path: `${prefix}${hash}.json`, blobSha: sha1("a"), sha256: hash, size: bytes(content).byteLength };
+  return { path: `${prefix}${hash}.json`, blobSha: sha1("a"), sha256: hash, size: bytes(content).byteLength, storedSize: bytes(content).byteLength };
 };
 const vaultId = "vault:test-v7";
 const createdAt = "2026-08-13T00:00:00.000Z";
-const checkpoint = descriptor(SYNC_V7_CHECKPOINT_PREFIX, "initial checkpoint");
+const checkpoint = descriptor(SYNC_V9_CHECKPOINT_PREFIX, "initial checkpoint");
 const head: SyncHeadV7 = {
   formatVersion: 9,
   vaultId,
@@ -29,20 +29,20 @@ const head: SyncHeadV7 = {
   cursors: {},
 };
 validateSyncHeadV7(head);
-assertSyncV7Path(SYNC_V7_HEAD_PATH, "head");
-assertSyncV7Path(`${SYNC_V7_ASSET_PREFIX}${digest("asset")}.webp`, "asset");
-assertSyncV7Path(`${SYNC_V7_OBJECT_PREFIX}${digest("object")}.json`, "object");
-assertSyncV7Path(`${SYNC_V7_SEGMENT_PREFIX}${digest("segment")}.json`, "segment");
+assertSyncV7Path(SYNC_V9_HEAD_PATH, "head");
+assertSyncV7Path(`${SYNC_V9_ASSET_PREFIX}${digest("asset")}.webp`, "asset");
+assertSyncV7Path(`${SYNC_V9_OBJECT_PREFIX}${digest("object")}.json`, "object");
+assertSyncV7Path(`${SYNC_V9_SEGMENT_PREFIX}${digest("segment")}.json`, "segment");
 assert.throws(() => assertSyncV7Path("sync/v9/head.json", "object"), /mutable/);
 assert.throws(() => validateSyncHeadV7({ ...head, vaultId: "" }), /vault identity/);
 assert.throws(() => validateSyncHeadV7({ ...head, metadata: { ...head.metadata, vaultId: "other" } }), /does not match/);
 assert.throws(() => encodeSyncV7Event({ text: "x".repeat(300_000) }), /immutable ref/);
-assert.throws(() => validateSyncHeadV7({ ...head, segments: [{ path: `${SYNC_V7_SEGMENT_PREFIX}${"0".repeat(64)}.json`, blobSha: sha1("a"), sha256: checkpoint.sha256, size: 1, generation: 1, ordinal: 0, count: 1, cursors: {}, metadata: { vaultId, createdAt }}] }), /path digest/);
+assert.throws(() => validateSyncHeadV7({ ...head, segments: [{ path: `${SYNC_V9_SEGMENT_PREFIX}${"0".repeat(64)}.json`, blobSha: sha1("a"), sha256: checkpoint.sha256, size: 1, storedSize: 1, generation: 1, ordinal: 0, count: 1, cursors: {}, metadata: { vaultId, createdAt }}] }), /path digest/);
 
 const segment = (generation: number, ordinal: number, size = 100, pathSeed = `${generation}-${ordinal}`): SyncV7SegmentDescriptor => {
   const content = `${pathSeed}:${generation}:${ordinal}`;
   const hash = digest(content);
-  return { path: `${SYNC_V7_SEGMENT_PREFIX}${hash}.json`, blobSha: sha1("b"), sha256: hash, size, generation, ordinal, count: 1, cursors: { "device-a": generation * 100 + ordinal }, metadata: { vaultId, createdAt, deviceId: "device-a" } };
+  return { path: `${SYNC_V9_SEGMENT_PREFIX}${hash}.json`, blobSha: sha1("b"), sha256: hash, size, storedSize: size, generation, ordinal, count: 1, cursors: { "device-a": generation * 100 + ordinal }, metadata: { vaultId, createdAt, deviceId: "device-a" } };
 };
 
 // One hundred ordinary appends retain the original checkpoint and never ask
@@ -71,7 +71,7 @@ assert.equal(overflow.required, true);
 assert.equal(overflow.reason, "hot-window-overflow");
 assert.equal(overflow.segmentCount, 0);
 assert.throws(() => createSyncV7PublicationPlan({ head: appended, checkpoint: { path: checkpoint.path, bytes: "checkpoint", kind: "checkpoint" } }), /explicit initialization/);
-const compactedCheckpoint = descriptor(SYNC_V7_CHECKPOINT_PREFIX, "overflow checkpoint");
+const compactedCheckpoint = descriptor(SYNC_V9_CHECKPOINT_PREFIX, "overflow checkpoint");
 const compactedHead: SyncHeadV7 = { ...appended, checkpoint: compactedCheckpoint, segments: [], generation: appended.generation + 1 };
 const compactedPublication = createSyncV7PublicationPlan({ expectedHead: appended, head: compactedHead, checkpoint: { path: compactedCheckpoint.path, bytes: "overflow checkpoint", kind: "checkpoint" }, compaction: overflow });
 assert.equal(compactedPublication.mode, "compaction");
@@ -91,9 +91,9 @@ assert.throws(() => orderSyncV7Segments([...replayInput, { generation: 1, ordina
 // Large payloads are represented by immutable refs, not oversized inline
 // events. References themselves are typed and path/digest checked.
 const objectHash = digest("large immutable object");
-const objectRef = createSyncV7ObjectRef(`${SYNC_V7_OBJECT_PREFIX}${objectHash}.json`, objectHash, 22);
+const objectRef = createSyncV7ObjectRef(`${SYNC_V9_OBJECT_PREFIX}${objectHash}.json`, objectHash, 22);
 assert.equal(objectRef.kind, "object");
-assert.throws(() => createSyncV7ObjectRef(`${SYNC_V7_OBJECT_PREFIX}${"0".repeat(64)}.json`, objectHash, 22), /sha256/);
+assert.throws(() => createSyncV7ObjectRef(`${SYNC_V9_OBJECT_PREFIX}${"0".repeat(64)}.json`, objectHash, 22), /sha256/);
 
 const pages = paginateSyncV7Events(Array.from({ length: 100 }, (_, index) => ({ id: index, text: "tiny" })));
 assert.ok(pages.length >= 1);

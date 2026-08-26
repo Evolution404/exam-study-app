@@ -16,17 +16,6 @@ export const SYNC_V9_HISTORY_PREFIX = "sync/v9/history/";
 export const SYNC_V9_SEGMENT_PREFIX = "sync/v9/segments/";
 export const SYNC_V9_ASSET_PREFIX = "sync/v9/assets/";
 
-/** Internal compatibility aliases. New code and architecture checks use v9. */
-export const SYNC_V7_FORMAT_VERSION = SYNC_V9_FORMAT_VERSION;
-export const SYNC_V7_HEAD_PATH = SYNC_V9_HEAD_PATH;
-export const SYNC_V7_CHECKPOINT_PREFIX = SYNC_V9_CHECKPOINT_PREFIX;
-export const SYNC_V7_OBJECT_PREFIX = SYNC_V9_OBJECT_PREFIX;
-export const SYNC_V7_SEGMENT_PREFIX = SYNC_V9_SEGMENT_PREFIX;
-export const SYNC_V7_ASSET_PREFIX = SYNC_V9_ASSET_PREFIX;
-/** Naming aliases used by callers that call segments “hot segments”. */
-export const SYNC_V7_HOT_SEGMENT_PREFIX = SYNC_V7_SEGMENT_PREFIX;
-export const SYNC_V7_EVENT_SEGMENT_PREFIX = SYNC_V7_SEGMENT_PREFIX;
-
 /** The maximum encoded inline event. Larger payloads must be immutable refs. */
 export const SYNC_V7_MAX_EVENT_BYTES = 256 * 1024;
 /** A hot segment is bounded independently of the aggregate hot window. */
@@ -69,12 +58,8 @@ export interface SyncV7Descriptor {
   sha256: string;
   /** Size of the exact (uncompressed) bytes represented by this object. */
   size: number;
-  /** ACTUAL stored/wire bytes (the DEFLATE envelope).  Optional because it is
-   *  metadata added after the codec landed — legacy descriptors predate it,
-   *  and every new upload fills it so readers can show real transfer sizes
-   *  BEFORE downloading.  `size` stays the logical byte count by design
-   *  (content addressing). */
-  storedSize?: number;
+  /** ACTUAL stored/wire bytes (the DEFLATE envelope). */
+  storedSize: number;
   /** Publication generation at which this checkpoint snapshot was written. */
   generation?: number;
 }
@@ -86,12 +71,6 @@ export interface SyncV7HeadMetadata {
   deviceId?: string;
   /** Optional producer label for forward-compatible diagnostics. */
   producer?: string;
-  /** Immutable source pin recorded by the one-shot v7→v8 migration. */
-  migratedFrom?: {
-    path: "sync/v7/head.json" | "sync/v8/head.json";
-    blobSha: string;
-    generation: number;
-  };
 }
 
 export interface SyncV7SegmentMetadata {
@@ -121,7 +100,7 @@ export interface SyncV7DeviceWatermark {
 }
 
 export interface SyncHeadV7 {
-  formatVersion: typeof SYNC_V7_FORMAT_VERSION;
+  formatVersion: typeof SYNC_V9_FORMAT_VERSION;
   /** Explicit logical vault identity; never infer this from a repository name. */
   vaultId: string;
   generatedAt: string;
@@ -156,7 +135,7 @@ export interface SyncV7ImmutableRef {
 export type SyncV7BlobRef = SyncV7ImmutableRef;
 
 export interface SyncV7Segment<T = unknown> {
-  formatVersion: typeof SYNC_V7_FORMAT_VERSION;
+  formatVersion: typeof SYNC_V9_FORMAT_VERSION;
   vaultId: string;
   generation: number;
   ordinal: number;
@@ -221,4 +200,3 @@ export interface SyncV7AppendPublicationInput {
   segments?: readonly SyncV7PublicationFile[];
   expectedHeadSha?: string;
 }
-

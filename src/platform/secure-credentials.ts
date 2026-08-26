@@ -16,21 +16,6 @@ let nativeEnabled = false;
 let hydrated = false;
 let tokenCache = "";
 
-function legacyToken(): string {
-  if (typeof localStorage !== "undefined") return localStorage.getItem(SECURE_GITHUB_TOKEN_KEY) ?? "";
-  return "";
-}
-
-function legacySessionToken(): string {
-  if (typeof sessionStorage !== "undefined") return sessionStorage.getItem(SECURE_GITHUB_TOKEN_KEY) ?? "";
-  return "";
-}
-
-function removeLegacyToken(): void {
-  if (typeof localStorage !== "undefined") localStorage.removeItem(SECURE_GITHUB_TOKEN_KEY);
-  if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(SECURE_GITHUB_TOKEN_KEY);
-}
-
 export function setSecureCredentialsPlugin(next: SecureCredentialsPlugin): void {
   plugin = next;
 }
@@ -39,11 +24,7 @@ export function isSecureCredentialsNative(environment: PlatformEnvironment = get
   return nativeEnabled || (environment.native && environment.ios);
 }
 
-/**
- * Load Keychain state before the React tree is mounted. On native, a legacy
- * localStorage token is removed only after a successful Keychain write; failed
- * migration leaves the old value intact and surfaces the failure to bootstrap.
- */
+/** Load authoritative Keychain state before the React tree is mounted. */
 export async function bootstrapSecureCredentials(environment: PlatformEnvironment = getPlatformEnvironment()): Promise<void> {
   nativeEnabled = isSecureCredentialsNative(environment);
   if (!nativeEnabled) {
@@ -51,25 +32,8 @@ export async function bootstrapSecureCredentials(environment: PlatformEnvironmen
     tokenCache = "";
     return;
   }
-
   const result = await plugin.get({ key: SECURE_GITHUB_TOKEN_KEY });
-  const stored = typeof result.value === "string" ? result.value : "";
-  if (stored) {
-    tokenCache = stored;
-    // A development build may have written the token to WebKit storage before
-    // the Keychain plugin was installed. Once Keychain is authoritative, erase
-    // those stale copies as part of bootstrap.
-    removeLegacyToken();
-  } else {
-    const oldToken = legacyToken() || legacySessionToken();
-    if (oldToken) {
-      await plugin.set({ key: SECURE_GITHUB_TOKEN_KEY, value: oldToken });
-      removeLegacyToken();
-      tokenCache = oldToken;
-    } else {
-      tokenCache = "";
-    }
-  }
+  tokenCache = typeof result.value === "string" ? result.value : "";
   hydrated = true;
 }
 
@@ -87,7 +51,6 @@ export async function saveSecureCredential(value: string, key = SECURE_GITHUB_TO
   try {
     if (value) await plugin.set({ key, value });
     else await plugin.remove({ key });
-    removeLegacyToken();
   } catch (error) {
     tokenCache = previous;
     throw error;
@@ -98,7 +61,6 @@ export async function clearSecureCredentials(): Promise<void> {
   if (nativeEnabled) await plugin.remove({ key: SECURE_GITHUB_TOKEN_KEY });
   tokenCache = "";
   hydrated = nativeEnabled ? hydrated : true;
-  if (!nativeEnabled) removeLegacyToken();
 }
 
 /** Test helper; production code should use the platform bootstrap. */

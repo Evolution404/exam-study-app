@@ -1,7 +1,7 @@
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7, type V7RestoreState } from "../db/db-v7";
-import type { AttemptDailyStatsV7, BankQuestionMembership, ImageAsset } from "../db/v7-types";
+import type { AttemptDailyStatsV7, ImageAsset } from "../db/v7-types";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
-import { normalizeSyncCheckpointV7, validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
+import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
 
 function withoutBlobs(asset: ImageAsset): Omit<ImageAsset, "blob"> {
   const descriptor = { ...asset } as Omit<ImageAsset, "blob"> & { blob?: Blob };
@@ -37,12 +37,12 @@ function countsFor(state: SyncCheckpointV7State): SyncCheckpointV7Counts {
   };
 }
 
-function cloneState(state: V7RestoreState & { memberships?: BankQuestionMembership[]; imageAssets: ImageAsset[] }): SyncCheckpointV7State {
+function cloneState(state: V7RestoreState & { imageAssets: ImageAsset[] }): SyncCheckpointV7State {
   return {
     banks: state.banks.map((item) => ({ ...item })),
     bankFolders: state.bankFolders.map((item) => ({ ...item })),
     questions: state.questions.map((item) => ({ ...item, content: item.content.map((block) => ({ ...block })), options: item.options.map((option) => option.map((block) => ({ ...block }))), tags: [...item.tags] })),
-    memberships: (state.memberships ?? state.bankQuestionMemberships ?? []).map((item) => ({ ...item })),
+    memberships: state.memberships.map((item) => ({ ...item })),
     imageAssets: state.imageAssets.map(withoutBlobs),
     attempts: state.attempts.map((item) => ({ ...item })),
     attemptStats: state.attemptStats.map((item) => ({ ...item, recentOutcomes: item.recentOutcomes.map((outcome) => ({ ...outcome })) })),
@@ -112,8 +112,7 @@ export function parseSyncCheckpointV7(bytes: Uint8Array | string): SyncCheckpoin
   let parsed: unknown;
   try { parsed = JSON.parse(typeof bytes === "string" ? bytes : new TextDecoder().decode(bytes)) as unknown; } catch { throw new Error("远程 v7 检查点不是有效 JSON。"); }
   validateSyncCheckpointV7(parsed);
-  const checkpoint = normalizeSyncCheckpointV7(parsed);
-  return checkpoint;
+  return parsed;
 }
 
 /** Restore the complete checkpoint projection in one DB transaction. */
