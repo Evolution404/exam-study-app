@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTION_TYPE_ORDER } from "../../src/types/types";
 import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, solutionFromInput, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
+import { emptySearchFilterProjection, filterSearchIndex, searchIndexFingerprint, type SearchIndexQuestion } from "../../src/lib/question/search-matching";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
@@ -18,6 +19,8 @@ const questionManager = read("src/app/bank/bank-library/question-manager.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const helpers = read("src/app/shell/helpers.ts");
 const searchMatching = read("src/lib/question/search-matching.ts");
+const searchView = read("src/app/search/search-view.tsx");
+const quickSearch = read("src/app/search/quick-search.tsx");
 const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
 const questionImport = read("src/lib/db/db-v7-question-import.ts");
 const questionDraft = read("src/lib/db/db-v7-question-draft.ts");
@@ -76,6 +79,40 @@ assert.match(questionImport, /stableQuestionOptionIds\(\{ options: optionBlocks 
 assert.match(questionDraft, /stableQuestionOptionIds\(\{ options \}\)/, "question draft fallback must allocate option ids through the canonical ordered helper");
 assert.doesNotMatch(questionImport, /optionBlocks\.map\(stableOptionIdForBlocks\)/, "import must not independently hash each option into a colliding id");
 assert.doesNotMatch(questionDraft, /options\.map\([^\n]*stableOptionIdForBlocks/, "draft creation must not independently hash each option into a colliding id");
+
+const shortAnswerSearchQuestion: SearchIndexQuestion = {
+  id: "short-answer-search",
+  type: "简答",
+  stem: "说明提高输电线路耐雷水平的措施。",
+  options: [],
+  answer: "降低杆塔接地电阻，并提高线路耦合系数。",
+  tags: ["防雷"],
+  explanation: "",
+  favorite: false,
+  difficulty: 50,
+  total: 0,
+  wrong: 0,
+  latest: null,
+  done: false,
+  needsWrongReview: false,
+};
+const shortAnswerAllResult = filterSearchIndex([shortAnswerSearchQuestion], {
+  query: "降低杆塔接地电阻",
+  filters: { ...emptySearchFilterProjection("all"), keywordMode: "plain" },
+});
+assert.deepEqual(shortAnswerAllResult.ids, [shortAnswerSearchQuestion.id], "全部范围必须能通过简答参考答案命中题目");
+const shortAnswerStemResult = filterSearchIndex([shortAnswerSearchQuestion], {
+  query: "降低杆塔接地电阻",
+  filters: { ...emptySearchFilterProjection("stem"), keywordMode: "plain" },
+});
+assert.deepEqual(shortAnswerStemResult.ids, [], "简答参考答案不得泄漏进题干专用范围");
+assert.notEqual(
+  searchIndexFingerprint([shortAnswerSearchQuestion]),
+  searchIndexFingerprint([{ ...shortAnswerSearchQuestion, answer: "提高绝缘水平。" }]),
+  "修改简答参考答案必须让 Worker 索引 fingerprint 失效",
+);
+assert.match(searchView, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "搜索主页必须把 canonical 简答参考答案投影到轻量索引");
+assert.match(quickSearch, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "顶栏快速搜索必须把 canonical 简答参考答案投影到轻量索引");
 
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
