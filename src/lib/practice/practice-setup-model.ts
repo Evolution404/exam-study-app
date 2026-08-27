@@ -98,7 +98,7 @@ function advancedFieldsActive(filter: V7PracticeFilter, scopeOverridden: boolean
     || scopeOverridden;
 }
 
-export function derivePracticeMode(filter: V7PracticeFilter, groupSize: number, advancedActive: boolean): V7PracticeMode {
+function derivePracticeMode(filter: V7PracticeFilter, groupSize: number, advancedActive: boolean): V7PracticeMode {
   if (advancedActive || filter.status === "unanswered") return "advanced";
   if (filter.tags.length) return "tag";
   if (filter.status === "wrong") return "wrong";
@@ -109,7 +109,7 @@ export function derivePracticeMode(filter: V7PracticeFilter, groupSize: number, 
   return "sequential";
 }
 
-export function composePracticeModeLabel(filter: V7PracticeFilter, amount: PracticeAmountChoice, requestedRandomCount: number, groupSize: number): string {
+function composePracticeModeLabel(filter: V7PracticeFilter, amount: PracticeAmountChoice, requestedRandomCount: number, groupSize: number): string {
   const parts: string[] = [];
   if (filter.tags.length) parts.push(`标签 ${filter.tags.length} 个`);
   if (filter.status === "wrong") parts.push("错题");
