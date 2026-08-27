@@ -141,7 +141,8 @@ assert.match(searchViewSource, /readAttemptStatsForQuestionIdsV7\(questionIds\)[
 assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "顶栏结果组件不得由输入状态启停数据生命周期");
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");
 assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[\][\s\S]*?notes: new Map<string, string>\(\)[\s\S]*?\}[\s\S]*?\}, \[bankKey\]\);/, "顶栏搜索应预加载当前题库范围并只在题库范围变化时刷新订阅");
-assert.match(searchViewSource, /scopedLegacyByQuestion/, "错题筛选应使用当前进度范围统计");
+assert.match(searchViewSource, /buildSearchDerivedData\(\{/, "Search View 必须把 scope stats / note / index 派生交给纯 read-model 层");
+assert.doesNotMatch(searchViewSource, /buildScopedQuestionStats|scopedLegacyByQuestion|statsNeedWrongReview/, "Search View 不得重新内联领域派生逻辑");
 assert.match(searchViewSource, /useSearchWorkerClient/, "搜索页应通过 Worker 客户端执行大数组筛选");
 assert.match(quickSearchSource, /useSearchWorkerClient/, "顶栏搜索应通过 Worker 客户端执行大数组筛选");
 assert.match(searchWorkerSource, /type="module"|set-index|filterSearchIndex/, "搜索 Worker 必须使用纯索引协议");

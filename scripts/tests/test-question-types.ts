@@ -20,6 +20,7 @@ const questionManager = read("src/app/bank/bank-library/question-manager.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const helpers = read("src/app/shell/helpers.ts");
 const searchMatching = read("src/lib/question/search-matching.ts");
+const searchReadModel = read("src/lib/question/search-read-model.ts");
 const searchView = read("src/app/search/search-view.tsx");
 const quickSearch = read("src/app/search/quick-search.tsx");
 const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
@@ -184,7 +185,8 @@ assert.notEqual(
   searchIndexFingerprint([changedCanonicalAnswer]),
   "canonical answer 变化必须使 Worker 索引 fingerprint 失效",
 );
-assert.match(searchView, /buildSearchIndexQuestion\(question\.canonical, \{/, "搜索主页必须复用 canonical search read-model builder");
+assert.match(searchView, /buildSearchDerivedData\(\{/, "搜索主页必须复用纯 search derived read-model");
+assert.match(searchReadModel, /buildSearchIndexQuestion\(question, \{/, "Search View 的 derived read-model 必须继续复用 canonical question builder");
 assert.match(quickSearch, /buildSearchIndexQuestion\(question\.canonical, \{/, "顶栏快速搜索必须复用 canonical search read-model builder");
 assert.doesNotMatch(searchView, /answer: question\.solution/, "搜索主页不得再自行投影 canonical answer");
 assert.doesNotMatch(quickSearch, /answer: question\.solution/, "顶栏快速搜索不得再自行投影 canonical answer");

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { readAttemptsForQuestionIdsV7, readNotesForQuestionIdsV7 } from "../../src/lib/db/search-read-v7";
-import { buildSearchIndexQuestion } from "../../src/lib/question/search-read-model";
+import { buildSearchDerivedData, buildSearchIndexQuestion } from "../../src/lib/question/search-read-model";
 import { emptySearchFilterProjection, filterSearchIndex } from "../../src/lib/question/search-matching";
+import type { AttemptStats } from "../../src/types/types";
 import type { AttemptV7, NoteV7, QuestionV7 } from "../../src/lib/db/v7-types";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -32,6 +33,50 @@ const indexResult = filterSearchIndex(index, {
 });
 assert.equal(index.length, 10_000, "10,000 questions 必须完整构建 search read-model");
 assert.equal(indexResult.total, 10, "10,000 questions 查询必须返回稳定完整结果");
+
+const derivedQuestion = questions[0];
+const derivedAttempt: AttemptV7 = {
+  id: "derived-attempt",
+  runId: "derived-run",
+  questionId: derivedQuestion.id,
+  selected: "",
+  correct: false,
+  elapsedMs: 2_000,
+  createdAt: at,
+  deviceId: "perf-test",
+};
+const derivedStats: AttemptStats = {
+  questionId: derivedQuestion.id,
+  bankId: "bank-a",
+  total: 1,
+  correct: 0,
+  wrong: 1,
+  giveUps: 0,
+  totalElapsedMs: 2_000,
+  firstAttemptAt: at,
+  firstAttemptCorrect: false,
+  latestAttemptAt: at,
+  hasBeenWrong: true,
+  correctStreakAfterWrong: 0,
+  currentCorrectStreak: 0,
+  recentOutcomes: [{ id: derivedAttempt.id, createdAt: at, correct: false, elapsedMs: 2_000 }],
+};
+const derived = buildSearchDerivedData({
+  questions: [derivedQuestion],
+  attemptStats: [derivedStats],
+  attempts: [derivedAttempt],
+  notes: [{ questionId: derivedQuestion.id, content: "派生解析", revision: 1, updatedAt: at, deviceId: "perf-test" }],
+  roundProgress: [],
+  progressScope: { type: "rolling", days: 90 },
+  referenceTime: new Date(at).getTime(),
+  wrongRemovalStreak: 2,
+});
+assert.equal(derived.index[0]?.explanation, "派生解析", "Search View 派生层必须注入当前题目 note");
+assert.equal(derived.index[0]?.total, 1, "Search View 派生层必须保留 scoped total 语义");
+assert.equal(derived.index[0]?.wrong, 1, "Search View 派生层必须保留 scoped wrong 语义");
+assert.equal(derived.index[0]?.done, true, "Search View 派生层必须保留 rolling done 语义");
+assert.equal(derived.index[0]?.needsWrongReview, true, "Search View 派生层必须保留 wrong-review 语义");
+assert.equal(derived.scopedMetricByQuestion.get(derivedQuestion.id)?.total, 1, "UI metric map 必须和 search index 使用同一 scoped stats");
 
 const truncatedField = buildSearchIndexQuestion({
   id: "field-limit",
