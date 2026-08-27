@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
-import { dbV7, getQuestionsForBanksV7 } from "@/lib/db/db-v7";
+import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
@@ -10,42 +10,17 @@ import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
 import type { BankV7, QuestionTypeV7, ReviewRound } from "@/lib/db/v7-types";
-import { QUESTION_TYPE_ORDER } from "@/types/types";
-
-export type V7PracticeMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
-
-export interface V7PracticeFilter {
-  bankIds: string[];
-  mode: V7PracticeMode;
-  types: QuestionTypeV7[];
-  tags: string[];
-  tagMatch: "any" | "all";
-  status: "all" | "unanswered" | "wrong" | "favorite";
-  order: "sequential" | "random" | "difficulty";
-  limit: number | null;
-  keyword: string;
-  keywordMode: "plain" | "regex";
-  totalAttemptsMin: number | null;
-  totalAttemptsMax: number | null;
-  wrongAttemptsMin: number | null;
-  wrongAttemptsMax: number | null;
-  difficultyMin: number | null;
-  difficultyMax: number | null;
-  lastAttemptFrom: string;
-  lastAttemptTo: string;
-  progressScope: ProgressScope;
-  reviewRoundId?: string;
-  /** 调用方提供的 run 展示标签（组合式文案）；缺省时 startPractice 按 mode 推导。 */
-  modeLabel?: string;
-}
-
-type AmountChoice = "default" | "custom" | "all";
-
-interface PracticeCombo {
-  status: V7PracticeFilter["status"];
-  order: V7PracticeFilter["order"];
-  amount: AmountChoice;
-}
+import {
+  assemblePracticeFilter,
+  countAdvancedPracticeFilters,
+  PRACTICE_QUESTION_TYPES,
+  validatePracticeSetup,
+  type PracticeAmountChoice,
+  type PracticeCombo,
+  type PracticeSetupFormState,
+  type V7PracticeFilter,
+} from "@/lib/practice/practice-setup-model";
+export type { V7PracticeFilter, V7PracticeMode } from "@/lib/practice/practice-setup-model";
 
 // 快捷卡片的两种行为：start=点卡片立即以纯预设开始（不读取下方自定义区）；
 // configure=把预设填进下方自定义组合（或展开对应折叠区），由用户确认后开始。
@@ -77,11 +52,7 @@ const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
   { id: "difficulty", label: "复习优先" },
 ];
 
-const questionTypes: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
-
-function metricValue(value: string) {
-  return value === "" ? null : Math.max(0, Math.floor(Number(value)));
-}
+const questionTypes: QuestionTypeV7[] = PRACTICE_QUESTION_TYPES;
 
 export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30, defaultOrder = "sequential", progressScope = { type: "rolling", days: 90 }, wrongRemovalStreak = 3, rounds = [] }: {
   banks: BankV7[];
@@ -101,7 +72,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
   const [status, setStatus] = useState<V7PracticeFilter["status"]>("all");
   const [order, setOrder] = useState<V7PracticeFilter["order"]>(defaultOrder);
-  const [amountChoice, setAmountChoice] = useState<AmountChoice>("all");
+  const [amountChoice, setAmountChoice] = useState<PracticeAmountChoice>("all");
   const [customRandomCount, setCustomRandomCount] = useState(String(groupSize));
   const [keyword, setKeyword] = useState("");
   const [keywordMode, setKeywordMode] = useState<V7PracticeFilter["keywordMode"]>("plain");
@@ -120,17 +91,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const customCountInputRef = useRef<HTMLInputElement>(null);
   const tagSectionRef = useRef<HTMLDivElement>(null);
   const bankKey = bankIds.join("|");
-  const dataset = useLiveQuery(async () => {
-    const [questions, stats, roundsProgress] = await Promise.all([
-      getQuestionsForBanksV7(bankIds),
-      dbV7.attemptStats.toArray(),
-      dbV7.reviewRoundProgress.toArray(),
-    ]);
-    // 错题卡计数需要进度口径内的原始作答行（attemptStats 是终身聚合，重建不了
-    // 窗口内的连对序列）；按题目 id 索引取子集，避免整表载入。
-    const attempts = questions.length ? await dbV7.attempts.where("questionId").anyOf(questions.map((question) => question.id)).toArray() : [];
-    return { questions, stats, roundsProgress, attempts };
-  }, [bankKey]) ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
+  const dataset = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey])
+    ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
   const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
   const effectiveScope = normalizeProgressScope(advancedScope ?? normalizedScope);
@@ -178,80 +140,17 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
 
   const requestedRandomCount = Math.floor(Number(customRandomCount));
   const scopeOverridden = advancedScope !== null && progressScopeKey(advancedScope) !== progressScopeKey(normalizedScope);
-  const advancedFilterCount = [
-    Boolean(keyword.trim()),
-    Boolean(totalAttemptsMin || totalAttemptsMax),
-    Boolean(wrongAttemptsMin || wrongAttemptsMax),
-    Boolean(difficultyMin || difficultyMax),
-    Boolean(lastAttemptFrom || lastAttemptTo),
-    scopeOverridden,
-  ].filter(Boolean).length;
+  const setupState: PracticeSetupFormState = {
+    bankIds, types, selectedTags, tagMatch, status, order, amountChoice, requestedRandomCount,
+    keyword, keywordMode, totalAttemptsMin, totalAttemptsMax, wrongAttemptsMin, wrongAttemptsMax,
+    difficultyMin, difficultyMax, lastAttemptFrom, lastAttemptTo, reviewRoundId,
+    effectiveScope, normalizedScope, scopeOverridden,
+  };
+  const advancedFilterCount = countAdvancedPracticeFilters(setupState);
 
-  function advancedFieldsActive(filter: V7PracticeFilter) {
-    return filter.types.length < questionTypes.length
-      || Boolean(filter.keyword.trim())
-      || filter.totalAttemptsMin !== null || filter.totalAttemptsMax !== null
-      || filter.wrongAttemptsMin !== null || filter.wrongAttemptsMax !== null
-      || filter.difficultyMin !== null || filter.difficultyMax !== null
-      || Boolean(filter.lastAttemptFrom) || Boolean(filter.lastAttemptTo)
-      || scopeOverridden;
-  }
-
-  function deriveMode(filter: V7PracticeFilter, advancedActive: boolean): V7PracticeMode {
-    if (advancedActive || filter.status === "unanswered") return "advanced";
-    if (filter.tags.length) return "tag";
-    if (filter.status === "wrong") return "wrong";
-    if (filter.status === "favorite") return "favorite";
-    if (filter.order === "difficulty") return "difficult";
-    if (filter.order === "random" && filter.limit !== null) return filter.limit === groupSize ? "random30" : "randomCustom";
-    if (filter.order === "random") return "randomAll";
-    return "sequential";
-  }
-
-  function composeModeLabel(filter: V7PracticeFilter, amount: AmountChoice) {
-    const parts: string[] = [];
-    if (filter.tags.length) parts.push(`标签 ${filter.tags.length} 个`);
-    if (filter.status === "wrong") parts.push("错题");
-    else if (filter.status === "unanswered") parts.push("未做过");
-    else if (filter.status === "favorite") parts.push("收藏");
-    parts.push(filter.order === "random" ? "随机" : filter.order === "difficulty" ? "复习优先" : "题库顺序");
-    if (amount === "custom") parts.push(`${requestedRandomCount} 题`);
-    else if (amount === "default") parts.push(`${groupSize} 题`);
-    else parts.push("不限题量");
-    return parts.join(" · ");
-  }
-
-  // filter 组装的唯一出口：quick=卡片路径（纯预设：全题型、无标签、无高级字段、
-  // 不读自定义区 state）；组合路径直读正交四段 + 折叠区 state。
+  // filter 组装的唯一出口：quick 卡片不读取自定义区；组合路径使用 canonical pure model。
   function assembleFilter(combo: PracticeCombo | null, { quick = false } = {}): V7PracticeFilter {
-    const amount = quick && combo ? combo.amount : amountChoice;
-    const quickLimit = combo && combo.amount === "default" ? groupSize : null;
-    const comboLimit = amountChoice === "custom" ? requestedRandomCount : amountChoice === "default" ? groupSize : null;
-    const filter: V7PracticeFilter = {
-      bankIds,
-      mode: "sequential",
-      types: quick ? [...questionTypes] : [...types],
-      tags: quick ? [] : [...selectedTags],
-      tagMatch,
-      status: quick && combo ? combo.status : status,
-      order: quick && combo ? combo.order : order,
-      limit: quick ? quickLimit : comboLimit,
-      keyword: quick ? "" : keyword,
-      keywordMode,
-      totalAttemptsMin: quick ? null : metricValue(totalAttemptsMin),
-      totalAttemptsMax: quick ? null : metricValue(totalAttemptsMax),
-      wrongAttemptsMin: quick ? null : metricValue(wrongAttemptsMin),
-      wrongAttemptsMax: quick ? null : metricValue(wrongAttemptsMax),
-      difficultyMin: quick ? null : metricValue(difficultyMin),
-      difficultyMax: quick ? null : metricValue(difficultyMax),
-      lastAttemptFrom: quick ? "" : lastAttemptFrom,
-      lastAttemptTo: quick ? "" : lastAttemptTo,
-      progressScope: quick ? normalizedScope : effectiveScope,
-      ...(reviewRoundId ? { reviewRoundId } : {}),
-    };
-    filter.mode = deriveMode(filter, quick ? false : advancedFieldsActive(filter));
-    filter.modeLabel = composeModeLabel(filter, amount);
-    return filter;
+    return assemblePracticeFilter(setupState, { combo, quick, groupSize });
   }
 
   function start() {
@@ -272,20 +171,11 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     setAdvancedScope(null);
   }
 
-  let regexError = "";
-  if (keywordMode === "regex" && keyword.trim()) { try { new RegExp(keyword); } catch { regexError = "正则表达式格式不正确"; } }
-  const totalMin = metricValue(totalAttemptsMin); const totalMax = metricValue(totalAttemptsMax);
-  const wrongMin = metricValue(wrongAttemptsMin); const wrongMax = metricValue(wrongAttemptsMax);
-  const difficultyLow = metricValue(difficultyMin); const difficultyHigh = metricValue(difficultyMax);
-  const metricError = totalMin !== null && totalMax !== null && totalMin > totalMax ? "总作答次数的最少值不能大于最多值" : wrongMin !== null && wrongMax !== null && wrongMin > wrongMax ? "错误次数的最少值不能大于最多值" : (difficultyLow !== null && difficultyLow > 100) || (difficultyHigh !== null && difficultyHigh > 100) ? "难度值范围必须在 0–100 之间" : difficultyLow !== null && difficultyHigh !== null && difficultyLow > difficultyHigh ? "最低难度不能大于最高难度" : "";
-  const dateError = lastAttemptFrom && lastAttemptTo && lastAttemptFrom > lastAttemptTo ? "开始日期不能晚于结束日期" : "";
-  const typeError = types.length ? "" : "题型：至少选择一种题型";
-  const customRandomError = amountChoice === "custom" && (!Number.isFinite(requestedRandomCount) || requestedRandomCount < 1 || requestedRandomCount > dataset.questions.length) ? `请输入 1–${Math.max(1, dataset.questions.length)} 之间的题数` : "";
-  const disabled = !bankIds.length || Boolean(customRandomError) || Boolean(typeError) || Boolean(regexError) || Boolean(metricError) || Boolean(dateError);
+  const { regexError, metricError, dateError, typeError, customRandomError, disabled } = validatePracticeSetup(setupState, dataset.questions.length);
   // 高级筛选折叠时错误输入仍参与校验（会禁用开始按钮），错误文案需镜像到 footer 上方，
   // 否则用户看不到禁用原因。题型已移到常驻区域，错误直接就地展示。
   const collapsedErrors = advancedOpen ? [] : [regexError, metricError, dateError].filter(Boolean);
-  const amountOptions: Array<{ id: AmountChoice; label: string }> = [
+  const amountOptions: Array<{ id: PracticeAmountChoice; label: string }> = [
     { id: "default", label: `${groupSize} 题` },
     { id: "custom", label: "自定义题数" },
     { id: "all", label: "全部题目" },

@@ -11,6 +11,7 @@ const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
 const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
+const practiceAnswerState = read("src/lib/practice/practice-answer-state.ts");
 const history = read("src/app/practice/practice-history.tsx");
 const editor = read("src/app/bank/question-editor.tsx");
 const contentEditor = read("src/app/bank/content-block-editor.tsx");
@@ -18,6 +19,7 @@ const xlsx = read("src/lib/io/xlsx-import.ts");
 const vite = read("vite.config.ts");
 const questionManager = read("src/app/bank/bank-library/question-manager.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
+const practiceSetupModel = read("src/lib/practice/practice-setup-model.ts");
 const helpers = read("src/app/shell/helpers.ts");
 const searchMatching = read("src/lib/question/search-matching.ts");
 const searchReadModel = read("src/lib/question/search-read-model.ts");
@@ -193,7 +195,8 @@ assert.doesNotMatch(quickSearch, /answer: question\.solution/, "顶栏快速搜�
 
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
-assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup must use the canonical question type order");
+assert.match(practiceSetupModel, /PRACTICE_QUESTION_TYPES: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup model must use the canonical question type order");
+assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = PRACTICE_QUESTION_TYPES/, "practice setup UI must consume the canonical setup-model question type order");
 assert.match(helpers, /export const TYPE_ORDER: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice overview and balanced sampling must use the canonical order");
 assert.match(history, /const TYPE_ORDER: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice history grouping must use the canonical order");
 assert.match(searchMatching, /SEARCH_TYPE_ORDER: readonly SearchQuestionType\[\] = QUESTION_TYPE_ORDER/, "search tabs and result grouping must use the canonical order");
@@ -218,8 +221,8 @@ assert.doesNotMatch(xlsx, /图片地址/, "Excel imports must not accept public 
 assert.match(practiceView, /CalculationContentRenderer/, "practice must render positional calculation blank inputs");
 assert.match(practiceView, /FillContentRenderer/, "practice must render positional fill blank inputs");
 assert.match(practicePresentation, /short-grade-actions/, "practice presentation must expose self-grading actions for short answers");
-assert.match(practiceView, /areCalculationAnswersCorrect/, "practice must grade every calculation blank");
-assert.match(practiceView, /calculationTolerancePercent/, "calculation grading must consume the configured tolerance");
+assert.match(practiceAnswerState, /areCalculationAnswersCorrect/, "practice answer-state model must grade every calculation blank");
+assert.match(practiceView, /isPracticeAnswerCorrect\(question\.canonical, finalSelection, preferences\.calculationTolerancePercent/, "practice submit must reuse canonical grading with configured tolerance");
 assert.doesNotMatch(practiceView, /依次填写题干中的/, "inline calculation blanks must not repeat guidance in a separate card");
 assert.match(practiceView, /question\.type === "计算" \? \(!hasInlineCalculationBlanks && <div className=\{`calculation-answer manual-grid/, "calculations without inline blanks must render their dedicated answer card");
 assert.match(practiceView, /window\.setTimeout\(\(\) => void persistNoteDraft\(\), 650\)/, "notes must auto-save after a short debounce");

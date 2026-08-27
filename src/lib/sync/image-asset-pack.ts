@@ -3,6 +3,7 @@ import { sha256DigestHex } from "../crypto/sha256";
 import type { ImageAsset } from "../db/v7-types";
 import { sha256Blob } from "../io/image-assets";
 import type { GitHubV7Remote } from "./github-v7-remote";
+import type { GitHubV7BranchSnapshot, GitHubV7TreeMutation } from "./github-v7-transport";
 import type { SyncV7Descriptor } from "./sync-v7-head-types";
 import { SYNC_V9_ASSET_PREFIX } from "./sync-v7-head-types";
 
@@ -87,11 +88,6 @@ interface RuntimeCache {
   parsedPacks: Map<string, ParsedImageAssetPack>;
 }
 
-interface TreeMutation {
-  path: string;
-  blobSha: string | null;
-}
-
 const runtimeCaches = new Map<string, RuntimeCache>();
 
 function fail(message: string): never {
@@ -113,17 +109,6 @@ function assertMimeType(value: unknown, field: string): asserts value is ImageMi
 function asRecord(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${field} 必须是对象`);
   return value as Record<string, unknown>;
-}
-
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let index = 0; index < bytes.byteLength; index += 8192) binary += String.fromCharCode(...bytes.subarray(index, index + 8192));
-  return btoa(binary);
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value.replace(/\s/g, ""));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 function utf8(value: unknown): Uint8Array {
@@ -170,32 +155,6 @@ export function imageAssetIndexShardKey(assetId: string): AssetShardKey {
 function assetPackPath(sha256: string): string {
   assertDigest(sha256, "pack sha256");
   return `${SYNC_V9_ASSET_PREFIX}${sha256}.bin`;
-}
-
-function contentPath(client: GitHubV7Remote, path: string): string {
-  return `/repos/${encodeURIComponent(client.owner)}/${encodeURIComponent(client.repo)}/contents/${path.split("/").map((segment) => encodeURIComponent(segment)).join("/")}`;
-}
-
-function repoGitPath(client: GitHubV7Remote, suffix: string): string {
-  return `/repos/${encodeURIComponent(client.owner)}/${encodeURIComponent(client.repo)}/git/${suffix}`;
-}
-
-function branchPath(branch: string): string {
-  return branch.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-}
-
-function requestFrom(client: GitHubV7Remote) {
-  return client.request.bind(client);
-}
-
-async function responseJson(response: Response, operation: string): Promise<Record<string, unknown>> {
-  if (!response.ok) throw new Error(`${operation} 失败（GitHub ${response.status}）`);
-  try {
-    return asRecord(JSON.parse(await response.text()) as unknown, operation);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("图片 Pack 格式无效")) throw error;
-    throw new Error(`${operation} 返回了无效 JSON。`);
-  }
 }
 
 function descriptorFromBlob(path: string, blobSha: string, sha256: string, size: number): SyncV7Descriptor {
@@ -385,12 +344,8 @@ export async function extractImageAssetFromPack(bytes: Uint8Array, assetId: stri
 }
 
 async function loadIndexRootAtRef(client: GitHubV7Remote, ref: string): Promise<ImageAssetPackIndexRoot | null> {
-  const request = requestFrom(client);
-  const response = await request(`${contentPath(client, IMAGE_ASSET_INDEX_PATH)}?ref=${encodeURIComponent(ref)}`, { method: "GET" });
-  if (response.status === 404) return null;
-  const payload = await responseJson(response, "读取图片 Asset Index");
-  if (typeof payload.content !== "string") throw new Error("图片 Asset Index 缺少 content。");
-  return validateRoot(parseJsonBytes(decodeBase64(payload.content), "Asset Index"));
+  const bytes = await client.readContentsAtRef(IMAGE_ASSET_INDEX_PATH, ref);
+  return bytes ? validateRoot(parseJsonBytes(bytes, "Asset Index")) : null;
 }
 
 async function loadImageAssetPackIndex(client: GitHubV7Remote, options: { force?: boolean } = {}): Promise<ImageAssetPackIndexRoot | null> {
@@ -499,65 +454,9 @@ export async function readImageAssetFromPack(client: GitHubV7Remote, assetId: st
   return assets.get(assetId)!;
 }
 
-async function gitCreateBlob(client: GitHubV7Remote, bytes: Uint8Array): Promise<string> {
-  const request = requestFrom(client);
-  const response = await request(repoGitPath(client, "blobs"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: encodeBase64(bytes), encoding: "base64" }),
-  });
-  const payload = await responseJson(response, "创建 Git blob");
-  assertDigest(payload.sha, "Git blob sha", SHA1);
-  return payload.sha;
-}
-
-async function readBranchSnapshot(client: GitHubV7Remote): Promise<{ parentSha: string; treeSha: string; root: ImageAssetPackIndexRoot | null }> {
-  const request = requestFrom(client);
-  const branch = branchPath(client.branch);
-  const refPayload = await responseJson(await request(repoGitPath(client, `ref/heads/${branch}`), { method: "GET" }), "读取 Git branch ref");
-  const object = asRecord(refPayload.object, "branch ref.object");
-  assertDigest(object.sha, "branch commit sha", SHA1);
-  const parentSha = object.sha;
-  const root = await loadIndexRootAtRef(client, parentSha);
-  const commitPayload = await responseJson(await request(repoGitPath(client, `commits/${parentSha}`), { method: "GET" }), "读取 Git commit");
-  const tree = asRecord(commitPayload.tree, "git commit.tree");
-  assertDigest(tree.sha, "base tree sha", SHA1);
-  return { parentSha, treeSha: tree.sha, root };
-}
-
-async function createTreeCommit(
-  client: GitHubV7Remote,
-  base: { parentSha: string; treeSha: string },
-  mutations: readonly TreeMutation[],
-): Promise<boolean> {
-  const request = requestFrom(client);
-  const byPath = new Map<string, string | null>();
-  for (const mutation of mutations) byPath.set(mutation.path, mutation.blobSha);
-  const treeResponse = await request(repoGitPath(client, "trees"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      base_tree: base.treeSha,
-      tree: [...byPath.entries()].map(([path, blobSha]) => ({ path, mode: "100644", type: "blob", sha: blobSha })),
-    }),
-  });
-  const treePayload = await responseJson(treeResponse, "创建 Asset Pack Git tree");
-  assertDigest(treePayload.sha, "new tree sha", SHA1);
-  const commitResponse = await request(repoGitPath(client, "commits"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "sync(v9): publish image asset packs", tree: treePayload.sha, parents: [base.parentSha] }),
-  });
-  const commitPayload = await responseJson(commitResponse, "创建 Asset Pack Git commit");
-  assertDigest(commitPayload.sha, "new commit sha", SHA1);
-  const update = await request(repoGitPath(client, `refs/heads/${branchPath(client.branch)}`), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sha: commitPayload.sha, force: false }),
-  });
-  if (update.status === 409 || update.status === 422) return false;
-  if (!update.ok) throw new Error(`发布 Asset Pack Git ref 失败（GitHub ${update.status}）。`);
-  return true;
+async function readBranchSnapshot(client: GitHubV7Remote): Promise<GitHubV7BranchSnapshot & { root: ImageAssetPackIndexRoot | null }> {
+  const snapshot = await client.readGitBranchSnapshot();
+  return { ...snapshot, root: await loadIndexRootAtRef(client, snapshot.parentSha) };
 }
 
 function emptyShard(key: AssetShardKey): ImageAssetPackIndexShard {
@@ -620,14 +519,14 @@ async function publishAttempt(
   let uploadedBytes = 0;
   onProgress?.({ completed, total: pendingBase.length, uploadedBytes, totalBytes });
   const packByAsset = new Map<string, { descriptor: SyncV7Descriptor; entry: ImageAssetPackEntry }>();
-  const treeMutations: TreeMutation[] = [];
+  const treeMutations: GitHubV7TreeMutation[] = [];
 
   // Group from descriptor sizes first, then validate/build/upload one bounded group at a time.
   for (const group of groupImageAssetsForPacks(pendingBase)) {
     const hydrated = await mapWithConcurrency(group, 6, requireLocalPackAsset);
     const pack = await buildImageAssetPack(hydrated);
     const path = assetPackPath(pack.sha256);
-    const blobSha = await gitCreateBlob(client, pack.bytes);
+    const blobSha = await client.createGitBlob(pack.bytes);
     const descriptor = descriptorFromBlob(path, blobSha, pack.sha256, pack.bytes.byteLength);
     treeMutations.push({ path, blobSha });
     for (const entry of pack.entries) packByAsset.set(entry.id, { descriptor, entry });
@@ -664,7 +563,7 @@ async function publishAttempt(
     });
     const sha256 = await sha256DigestHex(bytes);
     const path = assetPackPath(sha256);
-    const blobSha = await gitCreateBlob(client, bytes);
+    const blobSha = await client.createGitBlob(bytes);
     const descriptor = descriptorFromBlob(path, blobSha, sha256, bytes.byteLength);
     nextShards[key] = descriptor;
     treeMutations.push({ path, blobSha });
@@ -675,11 +574,11 @@ async function publishAttempt(
     generatedAt: new Date().toISOString(),
     shards: nextShards,
   };
-  const rootBlobSha = await gitCreateBlob(client, utf8(root));
+  const rootBlobSha = await client.createGitBlob(utf8(root));
   treeMutations.push({ path: IMAGE_ASSET_INDEX_PATH, blobSha: rootBlobSha });
 
 
-  if (!await createTreeCommit(client, snapshot, treeMutations)) return null;
+  if (!await client.commitGitTreeFastForward(snapshot, treeMutations, "sync(v9): publish image asset packs")) return null;
   const cache = resetRuntimeCache(client);
   cache.root = root;
   for (const key of affectedKeys) {

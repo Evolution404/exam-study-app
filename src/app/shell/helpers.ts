@@ -8,7 +8,7 @@ import type { BankQuickMode } from "@/app/bank/bank-library-view";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { QUESTION_TYPE_ORDER, type ActivePractice } from "@/types/types";
 import type { AttemptOutcome, AttemptStatsV7, PracticeResponse, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
-import type { V7PracticeFilter } from "@/app/practice/practice-setup";
+import type { V7PracticeFilter } from "@/lib/practice/practice-setup-model";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
 import { isNativeApp } from "@/platform/environment";

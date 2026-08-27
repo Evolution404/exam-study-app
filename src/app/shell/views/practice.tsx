@@ -8,7 +8,7 @@ import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { CalculationContentRenderer, FillContentRenderer } from "@/app/practice/calculation-content-renderer";
 import { resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
-import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, stableQuestionOptionIds } from "@/lib/question/question-utils";
+import { derivePracticeAnswerState, isPracticeAnswerCorrect } from "@/lib/practice/practice-answer-state";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
 import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
 import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
@@ -20,11 +20,8 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const solution = question.canonical.solution;
-  const optionIds = solution.kind === "choice" ? stableQuestionOptionIds(question.canonical) : [];
-  const correctOptionIds = solution.kind === "choice" ? new Set(solution.correctOptionIds) : new Set<string>();
   const expectedCalculationAnswers = solution.kind === "calculation" ? solution.blanks.map((blank) => String(blank.expected)) : [];
   const expectedFillSolution = solution.kind === "fill" ? solution : undefined;
-  const shortSolution = solution.kind === "short" ? solution : undefined;
   const [calculationDrafts, setCalculationDrafts] = useState<string[]>(question.type === "计算"
     ? initialState?.selected ?? Array.from({ length: expectedCalculationAnswers.length }, () => "")
     : []);
@@ -58,32 +55,22 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const effectiveDraft = draft ?? note?.content ?? "";
   const displayOrder = optionOrder?.length === question.options.length ? optionOrder : question.options.map((_, optionIndex) => optionIndex);
   const displayAnswer = displayedAnswer(question, displayOrder);
-  const selectedAnswer = question.type === "计算" ? formatCalculationAnswers(selected) : question.type === "填空" ? selected.join("；") : question.type === "简答" ? selected.join("\n") : selected
-    .map((letter) => displayOrder.indexOf(letter.charCodeAt(0) - 65))
-    .filter((displayIndex) => displayIndex >= 0)
-    .map((displayIndex) => String.fromCharCode(65 + displayIndex))
-    .sort()
-    .join("");
-  const correct = submitted && (question.type === "计算"
-    ? areCalculationAnswersCorrect(selected, expectedCalculationAnswers, preferences.calculationTolerancePercent)
-    : question.type === "填空"
-      ? Boolean(expectedFillSolution && fillAnswersAreCorrect(selected, expectedFillSolution))
-      : question.type === "简答"
-        ? shortOutcome === "correct"
-        : solution.kind === "choice" && (() => {
-          const selectedOptionIds = selected.map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));
-          return selectedOptionIds.length === correctOptionIds.size && selectedOptionIds.every((id) => correctOptionIds.has(id));
-        })());
-  const hasInlineCalculationBlanks = question.type === "计算"
-    && calculationBlankIndexes(question.stem).length === expectedCalculationAnswers.length;
-  const hasInlineFillBlanks = question.type === "填空"
-    && calculationBlankIndexes(question.stem).length === (expectedFillSolution?.blanks.length ?? 0);
-  const calculationInputValid = question.type === "计算"
-    && calculationDrafts.length === expectedCalculationAnswers.length
-    && calculationDrafts.every((value) => value.trim() && Number.isFinite(Number(value)));
-  const fillInputValid = question.type === "填空" && fillDrafts.length === (expectedFillSolution?.blanks.length ?? 0) && fillDrafts.every((value) => value.trim());
-  const gaveUp = submitted && selected.length === 0;
-  const revealAnswer = submitted && (correct || preferences.showAnswerOnWrong);
+  const {
+    optionIds, correctOptionIds, shortSolution, selectedAnswer, correct,
+    hasInlineCalculationBlanks, hasInlineFillBlanks, calculationInputValid,
+    fillInputValid, gaveUp, revealAnswer,
+  } = derivePracticeAnswerState({
+    question: question.canonical,
+    stem: question.stem,
+    selected,
+    calculationDrafts,
+    fillDrafts,
+    shortOutcome,
+    submitted,
+    displayOrder,
+    calculationTolerancePercent: preferences.calculationTolerancePercent,
+    showAnswerOnWrong: preferences.showAnswerOnWrong,
+  });
   const isLast = index === total - 1;
 
   useEffect(() => {
@@ -250,16 +237,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     if (!value || (question.type === "计算" && !calculationInputValid) || (question.type === "填空" && !fillInputValid) || (question.type === "简答" && !manualOutcome) || submitted || answering.current) return;
     answering.current = true;
     const finalSelection = question.type === "计算" ? calculationValues : question.type === "填空" ? fillValues : valueList;
-    const isCorrect = question.type === "计算"
-      ? areCalculationAnswersCorrect(calculationValues, expectedCalculationAnswers, preferences.calculationTolerancePercent)
-      : question.type === "填空"
-        ? Boolean(expectedFillSolution && fillAnswersAreCorrect(fillValues, expectedFillSolution))
-        : question.type === "简答"
-          ? manualOutcome === "correct"
-          : solution.kind === "choice" && (() => {
-            const selectedOptionIds = valueList.map((letter) => optionIds[letter.charCodeAt(0) - 65]).filter((id): id is string => Boolean(id));
-            return selectedOptionIds.length === correctOptionIds.size && selectedOptionIds.every((id) => correctOptionIds.has(id));
-          })();
+    const isCorrect = isPracticeAnswerCorrect(question.canonical, finalSelection, preferences.calculationTolerancePercent, manualOutcome);
     try {
       const result = await recordPracticeAnswer({ runId, questionId: question.id, bankId: question.bankId, selected: finalSelection, correct: isCorrect, outcome: question.type === "简答" ? manualOutcome : undefined, elapsedMs: activeTimer.current?.elapsedMs(window.performance.now()) ?? 0 });
       setSelected(finalSelection);

@@ -3,8 +3,20 @@ import { assertSyncV7Path, validateSyncHeadV7 } from "./sync-v7-head-validation"
 import type { SyncHeadV7, SyncV7Bytes, SyncV7Descriptor, SyncV7DescriptorKind, SyncV7PublicationFile, SyncV7PublicationPlan } from "./sync-v7-head-types";
 import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
 import { sha256DigestHex } from "../crypto/sha256";
+import {
+  blobPath,
+  commitGitHubTreeFastForward,
+  contentPath,
+  createGitHubBlob,
+  decodeBase64,
+  encodeBase64,
+  readGitHubBranchSnapshot,
+  readGitHubContentsAtRef,
+  withRef,
+  type GitHubV7BranchSnapshot,
+  type GitHubV7TreeMutation,
+} from "./github-v7-transport";
 
-// Keep these names stable for callers which switch transports at runtime.
 export const GITHUB_V7_API = "https://api.github.com";
 export const GITHUB_V7_JSON_MEDIA_TYPE = "application/vnd.github+json";
 export const GITHUB_V7_RAW_MEDIA_TYPE = "application/vnd.github.raw+json";
@@ -151,17 +163,6 @@ function asBytes(value: SyncV7Bytes): Uint8Array {
   throw new TypeError("immutable v9 file bytes must be text, Uint8Array, or ArrayBuffer");
 }
 
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let index = 0; index < bytes.byteLength; index += 8192) binary += String.fromCharCode(...bytes.subarray(index, index + 8192));
-  return btoa(binary);
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value.replace(/\s/g, ""));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
   for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return false;
@@ -208,16 +209,6 @@ function parseContentsPayload(value: unknown, operation: string): { bytes: Uint8
   try { bytes = decodeBase64(payload.content); } catch { throw new GitHubV7RemoteError(operation, 200, "GitHub returned invalid base64 content"); }
   return { bytes, blobSha: getString(payload.sha) };
 }
-
-function contentPath(owner: string, repo: string, path: string): string {
-  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path.split("/").map((segment) => encodeURIComponent(segment)).join("/")}`;
-}
-
-function blobPath(owner: string, repo: string, blobSha: string): string {
-  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(blobSha)}`;
-}
-
-function withRef(path: string, branch: string): string { return `${path}?ref=${encodeURIComponent(branch)}`; }
 
 function cacheFrom(head: SyncHeadV7, etag?: string, blobSha?: string): SyncV7HeadCache {
   validateSyncHeadV7(head);
@@ -320,6 +311,11 @@ export class GitHubV7Remote {
   private requireOk(response: Response, operation: string): void {
     if (!response.ok) throw new GitHubV7RemoteError(operation, response.status);
   }
+
+  async readContentsAtRef(path: string, ref = this.branch): Promise<Uint8Array | null> { return readGitHubContentsAtRef(this, path, ref); }
+  async createGitBlob(bytes: SyncV7Bytes): Promise<string> { return createGitHubBlob(this, asBytes(bytes)); }
+  async readGitBranchSnapshot(): Promise<GitHubV7BranchSnapshot> { return readGitHubBranchSnapshot(this); }
+  async commitGitTreeFastForward(base: GitHubV7BranchSnapshot, mutations: readonly GitHubV7TreeMutation[], message: string): Promise<boolean> { return commitGitHubTreeFastForward(this, base, mutations, message); }
 
   private async readContentsMetadata(path: string): Promise<string> {
     const response = await this.request(withRef(contentPath(this.owner, this.repo, path), this.branch));

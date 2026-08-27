@@ -15,6 +15,8 @@ export const testGroups = {
     "test:progress-boundaries",
     "test:projection-edge",
     "test:search-filters",
+    "test:practice-setup-model",
+    "test:practice-answer-state",
     "test:io-worker",
     "test:review-scope-ui",
     "test:change-set-v7",
@@ -52,6 +54,7 @@ export const testGroups = {
   integration: [
     "test:db-v7",
     "test:search-performance",
+    "test:practice-setup-performance",
     "test:safari-idb",
     "test:checkpoint-extra",
     "test:sync-mock",
