@@ -237,6 +237,16 @@ React component 只负责 state、interaction 和 rendering。
 - strict search-pin geometry、Sync storage 深层回归、Browser Chromium/WebKit coverage 不降；
 - 新增大数据测试应进入合适的 integration/fast 分组，不重复启动昂贵 runner。
 
+### Phase E 执行记录
+
+- 二次审计确认 `xlsx-import.ts` 与 `question-bank-bundle.ts` 存在一套真正等价的底层 ZIP primitive 重复：archive path normalization / path traversal guard、EOCD/central-directory scan、entry/total uncompressed bounds、local-header 校验、stored/deflate-raw 解压、解压膨胀与长度校验。
+- 新增 `src/lib/io/safe-zip-reader.ts` 作为唯一 bounded ZIP reader；XLSX 与题库 ZIP 各自注入 limits、fail/error messages，因此 XLSX XML/parser 与题库 bundle/content-addressed image 安全边界仍独立，错误契约不被统一成泛化文案。
+- `xlsx-import.ts` 25,358 B → 21,438 B；对应 code-size baseline 已从 25,358 收紧至 21,438，没有放宽任何 gate。
+- `sync-v7-checkpoint-validation.ts` 保持 29,185 B：其体积来自 current-only schema、entity/reference integrity 与精确错误契约；未发现可在不改变同步/恢复语义下安全净删的等价 primitive，因此明确不做机械拆分。
+- `image-assets.ts` / `question-bank-export.ts` 未发现除 ZIP reader 之外完全等价且可净删的安全 helper；保持现状。
+- 既有 XLSX、embedded image、ZIP round-trip、tamper/missing-reference、duplicate-path 等真实 fixture/安全断言均保留；未减少测试场景。
+- Phase D 首次远端 Governance 暴露两个仅模块内部使用的 `derivePracticeMode` / `composePracticeModeLabel` 为 unused exports；已直接改为 internal helper，unused-export budget 恢复并保持 `112/112`，没有提高 baseline。
+
 ## Phase F — 代码量与 exact-head 收口
 
 最终必须报告：
@@ -267,6 +277,15 @@ exact-head 必须通过：
 - PR Preview。
 
 全部成功后再转 Ready。
+
+### Phase F 收口记录
+
+- Phase E 代码收口后的 Governance size report：`src code` 183 files / 1,327,202 B / 24,751 lines；tests 112 / 864,329 B / 14,381 lines；tools 23 / 109,955 B / 2,488 lines；src CSS 44 / 297,025 B / 5,458 lines；workflows 5 / 21,664 B / 595 lines。
+- 相对 `main@4842f68...`，生产 `src` 代码实际 diff 为 **+776 / -546 lines，net +230**；新增的是明确 transport/read-model/answer-state/safe-zip owners，而不是把文档/测试新增伪装成 source 缩减。
+- source hotspot 数保持 `>=20 KiB: 17 → 17`、`>=15 KiB: 24 → 24`；本 PR 的目标是降低真实复杂度与局部热点，不以强行跨阈值为目标。
+- 被修改热点 before → after：`github-v7-remote.ts` 32,270 → 32,095 B；`image-asset-pack.ts` 31,798 → 27,238 B；`practice-setup.tsx` 27,850 → 21,838 B；`views/practice.tsx` 27,479 → 25,108 B；`xlsx-import.ts` 25,358 → 21,438 B。五项 ratchet 均只下调或保持，不存在上调。
+- 有意保持：`search-view.tsx` 29,033 B（PR #36 已治理，本 PR 不重复）；`sync-v7-checkpoint-validation.ts` 29,185 B（current schema/reference integrity）；`sync-v7-orchestrator.ts` 27,806 B（没有新的可证明 owner/重复证据）；`image-assets.ts` / `question-bank-export.ts` 保留各自图像优化与导出边界。
+- Phase E code head `e013561` 已通过 Governance Audit、Sync storage CI、PR Preview；Production build 已通过，主 Fast/Chromium/WebKit/search-pin/PWA 矩阵正在作为最终文档 commit 的前置验证。最终 Ready 仍以本记录提交后的 exact-head 全绿为准，PR 描述记录最终 run 状态。
 
 ## 全局红线 / 明确不做
 
