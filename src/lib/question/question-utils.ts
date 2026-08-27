@@ -118,7 +118,7 @@ function hasValidOptionIds(optionIds: readonly string[] | undefined, optionCount
   );
 }
 
-export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string {
+function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string {
   return `option-${hashToken(contentIdentity(blocks))}`;
 }
 
