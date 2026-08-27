@@ -109,15 +109,48 @@ function contentIdentity(blocks: readonly ContentBlock[]): string {
   return blocks.map((block) => block.type === "text" ? `t:${normalizeFillAnswer(block.text)}` : `i:${block.assetId}`).join("|");
 }
 
-export function stableQuestionOptionIds(question: Pick<QuestionV7, "options" | "optionIds">): string[] {
-  if (question.optionIds?.length === question.options.length && new Set(question.optionIds).size === question.optionIds.length && question.optionIds.every(Boolean)) {
-    return [...question.optionIds];
-  }
-  return question.options.map((option) => `option-${hashToken(contentIdentity(option))}`);
+function hasValidOptionIds(optionIds: readonly string[] | undefined, optionCount: number): optionIds is readonly string[] {
+  return Boolean(
+    optionIds
+    && optionIds.length === optionCount
+    && optionIds.every(Boolean)
+    && new Set(optionIds).size === optionIds.length,
+  );
 }
 
 export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string {
   return `option-${hashToken(contentIdentity(blocks))}`;
+}
+
+/**
+ * Generate deterministic option ids for an ordered option list.
+ *
+ * The first occurrence keeps the historical content-derived id. Repeated
+ * content (or a hash collision) receives a deterministic occurrence suffix so
+ * every option in the question remains independently addressable.
+ */
+export function stableOptionIdsForOptions(options: readonly (readonly ContentBlock[])[]): string[] {
+  const used = new Set<string>();
+  return options.map((option) => {
+    const baseId = stableOptionIdForBlocks(option);
+    if (!used.has(baseId)) {
+      used.add(baseId);
+      return baseId;
+    }
+    let occurrence = 2;
+    let candidate = `${baseId}-${occurrence}`;
+    while (used.has(candidate)) {
+      occurrence += 1;
+      candidate = `${baseId}-${occurrence}`;
+    }
+    used.add(candidate);
+    return candidate;
+  });
+}
+
+export function stableQuestionOptionIds(question: Pick<QuestionV7, "options" | "optionIds">): string[] {
+  if (hasValidOptionIds(question.optionIds, question.options.length)) return [...question.optionIds];
+  return stableOptionIdsForOptions(question.options);
 }
 
 function calculationSolutionFromInput(value: string | readonly string[]): Extract<QuestionSolution, { kind: "calculation" }> {
@@ -138,7 +171,7 @@ export function solutionFromInput(
   if (type === "计算") return calculationSolutionFromInput(answer);
   if (type === "填空") return normalizeFillSolution(answer);
   if (type === "简答") return shortAnswerSolution(Array.isArray(answer) ? answer.join("\n") : String(answer));
-  const ids = optionIds?.length === options.length ? [...optionIds] : options.map((option) => stableOptionIdForBlocks(option));
+  const ids = hasValidOptionIds(optionIds, options.length) ? [...optionIds] : stableOptionIdsForOptions(options);
   const letters = (Array.isArray(answer) ? answer.join("") : String(answer)).toUpperCase().replace(/[^A-Z]/g, "");
   return {
     kind: "choice",
