@@ -17,6 +17,8 @@ const practiceView = read("src/app/shell/views/practice.tsx");
 const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
+const practiceSetupModel = read("src/lib/practice/practice-setup-model.ts");
+const practiceSetupRead = read("src/lib/db/practice-setup-read-v7.ts");
 const practiceHistory = read("src/app/practice/practice-history.tsx");
 const styles = readStyles();
 const database = read("src/lib/db/db-v7.ts");
@@ -54,7 +56,7 @@ assert.match(styles, /\.resume-progress>i>b/, "resume card must render a dedicat
 
 assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
 assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");
-assert.match(practiceSetup, /amountChoice === "custom" \? requestedRandomCount/, "custom random count must be passed as this run's limit");
+assert.match(practiceSetupModel, /state\.amountChoice === "custom" \? state\.requestedRandomCount/, "custom random count must be passed as this run's limit by the canonical setup model");
 assert.match(practiceSetup, /不修改全局配置/, "custom random mode must remain independent from global preferences");
 assert.match(practiceSetup, /assembleFilter\(card\.combo, \{ quick: true \}\)/, "preset cards must start immediately with a pure combo");
 assert.match(practiceSetup, /点卡片立即开始，不使用下方自定义组合/, "card row must explain that cards bypass the custom combo area");
@@ -66,7 +68,7 @@ assert.match(practiceSetup, /className="date-range"/, "date range inputs must us
 assert.doesNotMatch(practiceSetup, /date-range-filter/, "the dead date-range-filter class must stay deleted");
 assert.match(practiceSetup, /当前口径下 \$\{wrongCardCount\} 道错题/, "wrong card must preview the scoped wrong-question count");
 assert.match(practiceSetup, /card\.id === "wrong" && wrongCardCount === 0/, "wrong card must disable itself when no wrong questions remain");
-assert.match(practiceSetup, /where\("questionId"\)\.anyOf/, "card counts must load attempts via the questionId index instead of the whole table");
+assert.match(practiceSetupRead, /attempts\.where\("questionId"\)\.anyOf\(ids\)/, "card counts must load attempts via the questionId index instead of the whole table");
 assert.match(studyApp, /wrongRemovalStreak=\{preferences\.wrongRemovalStreak\}/, "practice setup must receive the wrong-removal streak preference");
 assert.match(practiceHistory, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮必须带 danger 类");
 assert.match(styles, /\.result-actions \.danger\{border-color:var\(--color-danger\);color:var\(--color-danger\);background:var\(--color-danger-soft\)\}/, "只练本次错题按钮应整组走 danger token");

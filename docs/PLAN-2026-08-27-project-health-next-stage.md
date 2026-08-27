@@ -182,6 +182,14 @@ React component 只负责 state、interaction 和 rendering。
 
 验收：Practice Setup 不再对上述历史表做无条件 `toArray()`；无关历史数据增长不再线性放大本次 setup read cardinality。
 
+### Phase C 执行记录
+
+- 新增 `practice-setup-read-v7.ts`：先解析当前题集，再按去重 `questionIds` 定向读取 `attemptStats`、`reviewRoundProgress` 与 `attempts`；空题集直接返回。
+- `practice-setup.tsx` 已移除历史表全表读取；现有主键与 `questionId` 索引足够，本阶段没有 IndexedDB schema migration。
+- 新增 `practice-setup-model.ts`，只迁出 filter 组装、mode/modeLabel、advanced filter count、validation 等 pure model；React state、handlers、JSX 保持原 owner。
+- read-cardinality 回归覆盖 100,000 条无关 attempts、20,000 条无关 stats、20,000 条无关 round progress；目标小题集仅 materialize 7 / 2 / 3 条对应记录。
+- `practice-setup.tsx` 27,850 B → 21,838 B；code-size ratchet 已同步收紧。
+
 ## Phase D — Practice 主答题 owner 的证据式收口
 
 仅在 Phase C 后重新审计 `views/practice.tsx`。

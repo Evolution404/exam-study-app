@@ -10,7 +10,7 @@
     "src/lib/sync/image-asset-pack.ts": 27238,
     "src/app/search/search-view.tsx": 29033,
     "src/lib/sync/sync-v7-checkpoint-validation.ts": 29185,
-    "src/app/practice/practice-setup.tsx": 27850,
+    "src/app/practice/practice-setup.tsx": 21838,
     "src/lib/sync/sync-v7-orchestrator.ts": 27806,
     "src/app/shell/views/practice.tsx": 27479,
     "src/lib/io/xlsx-import.ts": 25358,
