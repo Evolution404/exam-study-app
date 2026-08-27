@@ -1,27 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, sep } from "node:path";
-
-const root = process.cwd();
-
-function walk(dir) {
-  if (!existsSync(dir)) return [];
-  const result = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) result.push(...walk(path));
-    else if (entry.isFile()) result.push(path);
-  }
-  return result;
-}
-
-function metrics(path) {
-  const text = readFileSync(path, "utf8");
-  return {
-    path: relative(root, path),
-    bytes: statSync(path).size,
-    lines: text === "" ? 0 : text.split("\n").length,
-  };
-}
+import { existsSync } from "node:fs";
+import { dirname, extname, join, sep } from "node:path";
+import { fileMetrics, root, sourceExtensions, walk } from "./code-size-utils.mjs";
 
 function top(rows, limit = 20) {
   return [...rows].sort((a, b) => b.bytes - a.bytes).slice(0, limit);
@@ -85,13 +64,12 @@ function printDirectoryTable(title, rows, limit = 20) {
   }
 }
 
-const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"]);
-const codeFiles = (dir) => walk(join(root, dir)).filter((path) => sourceExtensions.has(extname(path))).map(metrics);
+const codeFiles = (dir) => walk(join(root, dir)).filter((path) => sourceExtensions.has(extname(path))).map(fileMetrics);
 const source = codeFiles("src");
 const tests = codeFiles(join("scripts", "tests"));
 const tools = codeFiles(join("scripts", "tools"));
-const css = walk(join(root, "src")).filter((path) => extname(path) === ".css").map(metrics);
-const workflows = walk(join(root, ".github", "workflows")).filter((path) => /\.ya?ml$/i.test(path)).map(metrics);
+const css = walk(join(root, "src")).filter((path) => extname(path) === ".css").map(fileMetrics);
+const workflows = walk(join(root, ".github", "workflows")).filter((path) => /\.ya?ml$/i.test(path)).map(fileMetrics);
 
 console.log("# Project health size report");
 console.log("Report-only visibility: this command intentionally does not introduce arbitrary hard size limits. Existing CSS/export/dependency ratchets remain authoritative gates.");
@@ -128,5 +106,5 @@ const focus = [
   "src/lib/sync/image-asset-pack.ts",
   ".github/workflows/deploy-pages.yml",
 ];
-const focusRows = focus.map((path) => join(root, path)).filter(existsSync).map(metrics);
+const focusRows = focus.map((path) => join(root, path)).filter(existsSync).map(fileMetrics);
 printFileTable("Tracked refactor focus", focusRows);
