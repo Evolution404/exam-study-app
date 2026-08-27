@@ -100,6 +100,16 @@ PR #36 exact-head Governance report：
 
 验收：后续每个 Phase 都必须对应一个已确认问题，不做猜测式重构。
 
+### Phase A 执行记录
+
+- exact branch baseline：`8a8e22e32977c52d99fa6a5a1c17281e56825b7e`，`origin/main@4842f68d8a4f7c5bc2030c72d385f258eea2a58d`；工作区起始无未提交改动，`npm run typecheck` 通过。
+- size baseline 已复现：`src code` 178 files / 1,319,787 B / 24,517 lines；tests 109 / 848,348 B / 14,065 lines；tools 23 / 109,849 B / 2,485 lines；src CSS 45 / 297,199 B / 5,466 lines；workflows 5 / 21,664 B / 595 lines。当前 source hotspot 为 17 个 `>=20 KiB`、24 个 `>=15 KiB`。
+- 确认治理：`image-asset-pack.ts` 重复拥有 base64、Contents/Git Data path、branch encoding、request binding、HTTP status/JSON parsing；这些应收口到 `GitHubV7Remote` transport owner。
+- 确认治理：`practice-setup.tsx` 对 `attemptStats`、`reviewRoundProgress` 做全表 `toArray()`；当前 schema 已有 `attemptStats.questionId` 主键与 `reviewRoundProgress.questionId` 索引，Phase C 不需要升级 IndexedDB schema。
+- 保留不动：Sync checkpoint/projection 构建路径上的全表读取是完整投影语义，不属于 UI read-cardinality 问题；`sync-v7-checkpoint-validation.ts` 暂未发现可在不改变 current-only schema/error contract 下安全合并的重复 primitive。
+- 保留待 Phase D 复核：`views/practice.tsx` 的 choice correctness 在渲染派生与 submit 路径重复，但只在能形成单一 pure answer-state owner、复用既有 question-utils/answer-submission 且测试收益明确时才抽取。
+- 保留不动（Phase E 初审）：`xlsx-import.ts` 的 ZIP/XML 解析与安全边界目前未发现与 `image-assets.ts` / `question-bank-export.ts` 完全等价且可净删除的 helper；不因文件体积强拆。
+
 ## Phase B — 收口 GitHub transport / Asset Pack 边界
 
 目标：`image-asset-pack.ts` 只理解 Asset Pack domain，不再理解 GitHub HTTP 细节。
