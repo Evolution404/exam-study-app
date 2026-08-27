@@ -37,7 +37,7 @@ export function questionFromDraft(id: string, draft: StructuredQuestionDraftV7, 
   const content = normalizeBlocks(draft.content ?? plainTextToContentBlocks(draft.stem ?? "", "stem-0"));
   const options = blocksFromOptions(draft.options);
   const optionIds = (draft.type === "判断" || draft.type === "单选" || draft.type === "多选")
-    ? stableQuestionOptionIds({ options, optionIds: draft.optionIds })
+    ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : stableQuestionOptionIds({ options }))
     : [];
   const solution = structuredClone(draft.solution);
   const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, solution });
