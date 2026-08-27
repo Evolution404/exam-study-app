@@ -29,6 +29,7 @@ import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, t
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 import { buildSearchIndexQuestion } from "@/lib/question/search-read-model";
+import { readAttemptsForQuestionIdsV7, readAttemptStatsForQuestionIdsV7, readNotesForQuestionIdsV7, readReviewRoundProgressForQuestionIdsV7 } from "@/lib/db/search-read-v7";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -216,12 +217,16 @@ export function SearchView({
   const bankKey = allBankIds.join("|");
   const data = useLiveQuery(async () => {
     const views = await listQuestionViewsForBanksV7(allBankIds);
-    const ids = new Set(views.map((view) => view.question.id));
+    const questionIds = views.map((view) => view.question.id);
     const sourceBankByQuestion = new Map(views.map((view) => [view.question.id, view.memberships[0]?.bankId ?? ""]));
-    const [rawStats, rawAttempts, notes, roundProgress] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.attempts.toArray(), dbV7.notes.toArray(), dbV7.reviewRoundProgress.toArray()]);
-    const attemptStats = rawStats.filter((stats) => ids.has(stats.questionId)).map((stats) => ({ ...stats, bankId: sourceBankByQuestion.get(stats.questionId) ?? "" }));
-    const attempts = rawAttempts.filter((attempt) => ids.has(attempt.questionId));
-    return { views, attemptStats, attempts, notes: notes.filter((note) => ids.has(note.questionId)), roundProgress: roundProgress.filter((row) => ids.has(row.questionId)) };
+    const [rawStats, attempts, notes, roundProgress] = await Promise.all([
+      readAttemptStatsForQuestionIdsV7(questionIds),
+      readAttemptsForQuestionIdsV7(questionIds),
+      readNotesForQuestionIdsV7(questionIds),
+      readReviewRoundProgressForQuestionIdsV7(questionIds),
+    ]);
+    const attemptStats = rawStats.map((stats) => ({ ...stats, bankId: sourceBankByQuestion.get(stats.questionId) ?? "" }));
+    return { views, attemptStats, attempts, notes, roundProgress };
   }, [bankKey]);
 
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
