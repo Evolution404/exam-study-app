@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTION_TYPE_ORDER } from "../../src/types/types";
-import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
+import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, solutionFromInput, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
@@ -19,6 +19,8 @@ const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const helpers = read("src/app/shell/helpers.ts");
 const searchMatching = read("src/lib/question/search-matching.ts");
 const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
+const questionImport = read("src/lib/db/db-v7-question-import.ts");
+const questionDraft = read("src/lib/db/db-v7-question-draft.ts");
 
 assert.equal(normalizeCalculationAnswer(" 12.50 "), "12.50");
 assert.equal(normalizeCalculationAnswer([" 11.0 ", "968.0"]), "11.0\n968.0");
@@ -47,6 +49,34 @@ const choiceQuestion = {
 const choiceOptionIds = stableQuestionOptionIds(choiceQuestion);
 assert.equal(choiceQuestion.solution.kind, "choice");
 assert.deepEqual(choiceQuestion.solution.correctOptionIds, [choiceOptionIds[1]]);
+
+const duplicateOptionBlocks = [
+  [{ type: "text" as const, text: "完全相同" }],
+  [{ type: "text" as const, text: "完全相同" }],
+  [{ type: "text" as const, text: "完全相同" }],
+  [{ type: "text" as const, text: "不同选项" }],
+];
+const duplicateOptionIds = stableQuestionOptionIds({ options: duplicateOptionBlocks });
+assert.equal(new Set(duplicateOptionIds).size, duplicateOptionBlocks.length, "重复选项文本仍必须生成互不冲突的 optionId");
+assert.equal(duplicateOptionIds[1], `${duplicateOptionIds[0]}-2`, "第二个相同选项使用稳定 occurrence 后缀");
+assert.equal(duplicateOptionIds[2], `${duplicateOptionIds[0]}-3`, "第三个相同选项使用稳定 occurrence 后缀");
+assert.deepEqual(stableQuestionOptionIds({ options: duplicateOptionBlocks }), duplicateOptionIds, "同一有序选项列表必须重复生成相同 optionIds");
+assert.deepEqual(
+  stableQuestionOptionIds({ options: duplicateOptionBlocks, optionIds: ["dup", "dup", "other", "last"] }),
+  duplicateOptionIds,
+  "冲突的既有 optionIds 不能绕过 canonical 生成器",
+);
+const duplicateChoiceSolution = solutionFromInput("单选", "B", duplicateOptionBlocks);
+assert.deepEqual(
+  duplicateChoiceSolution,
+  { kind: "choice", correctOptionIds: [duplicateOptionIds[1]] },
+  "答案 B 必须稳定指向第二个重复文本选项，而不是第一个",
+);
+assert.match(questionImport, /stableOptionIdsForOptions\(optionBlocks\)/, "JSON/Excel import fallback must allocate option ids as an ordered batch");
+assert.match(questionDraft, /stableOptionIdsForOptions\(options\)/, "question draft fallback must allocate option ids as an ordered batch");
+assert.doesNotMatch(questionImport, /optionBlocks\.map\(stableOptionIdForBlocks\)/, "import must not independently hash each option into a colliding id");
+assert.doesNotMatch(questionDraft, /options\.map\([^\n]*stableOptionIdForBlocks/, "draft creation must not independently hash each option into a colliding id");
+
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
 assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup must use the canonical question type order");
@@ -86,4 +116,4 @@ assert.doesNotMatch(history, /disabled=\{!canContinue\}/, "completed result rows
 assert.match(vite, /__APP_COMMIT_SHA__/, "build must inject its commit hash");
 assert.match(vite, /__APP_COMMIT_TIME__/, "build must inject its commit timestamp");
 
-console.log("question feature tests passed: images, calculation tolerance, result details, reshuffle, note autosave and build version");
+console.log("question feature tests passed: duplicate option ids, images, calculation tolerance, result details, reshuffle, note autosave and build version");
