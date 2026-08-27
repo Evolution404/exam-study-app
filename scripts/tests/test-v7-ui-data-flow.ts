@@ -174,6 +174,7 @@ assert.match(componentStyles, /\.delete-choice-list>button span\{[^}]*font-size:
 assert.match(componentStyles, /\.delete-choice-list>button:not\(:disabled\):hover/, "删除题库选项应提供悬浮反馈");
 
 const search = source("search/search-view.tsx");
+const searchReadModel = readFileSync(new URL("../../src/lib/question/search-read-model.ts", import.meta.url), "utf8");
 assert.match(search, /detail-current/, "搜索列表应为当前详情题目标记样式");
 assert.match(search, /\(detailQuestionId \?\? activeQuestionId\) === question\.id/, "搜索列表应知道当前详情题目");
 assert.match(search, /setActiveQuestionId\(detailQuestionId\)/, "搜索详情关闭后应保留当前题目高亮");
@@ -181,7 +182,9 @@ assert.match(search, /data-question-id=/, "搜索结果列表应带 question id 
 assert.match(search, /scrollIntoView\(/, "搜索详情切换时应滚动到当前题目");
 assert.match(search, /searchTriggered/, "搜索页应支持按条件触发搜索");
 assert.match(search, /search-trigger-button/, "搜索页应有搜索按钮");
-assert.match(search, /buildScopedQuestionStats/, "搜索页应按区间统计作答/难度");
+assert.match(search, /buildSearchDerivedData/, "搜索页应把区间统计/read-model 派生委托给纯领域层");
+assert.doesNotMatch(search, /buildScopedQuestionStats/, "搜索 React 视图不得重新内联区间统计派生");
+assert.match(searchReadModel, /buildScopedQuestionStats/, "搜索 read-model 领域层应按区间统计作答/难度");
 assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} 次（\{scopeLabel\}）/, "搜索结果应标注区间口径");
 assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
 assert.match(search, /<SearchFilterDrawer/, "搜索页应使用桌面/手机共用的筛选抽屉");

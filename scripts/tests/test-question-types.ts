@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTION_TYPE_ORDER } from "../../src/types/types";
 import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, solutionFromInput, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
-import { emptySearchFilterProjection, filterSearchIndex, searchIndexFingerprint, type SearchIndexQuestion } from "../../src/lib/question/search-matching";
+import { emptySearchFilterProjection, filterSearchIndex, searchIndexFingerprint } from "../../src/lib/question/search-matching";
+import { buildSearchIndexQuestion } from "../../src/lib/question/search-read-model";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
@@ -19,6 +20,7 @@ const questionManager = read("src/app/bank/bank-library/question-manager.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
 const helpers = read("src/app/shell/helpers.ts");
 const searchMatching = read("src/lib/question/search-matching.ts");
+const searchReadModel = read("src/lib/question/search-read-model.ts");
 const searchView = read("src/app/search/search-view.tsx");
 const quickSearch = read("src/app/search/quick-search.tsx");
 const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
@@ -80,39 +82,114 @@ assert.match(questionDraft, /stableQuestionOptionIds\(\{ options \}\)/, "questio
 assert.doesNotMatch(questionImport, /optionBlocks\.map\(stableOptionIdForBlocks\)/, "import must not independently hash each option into a colliding id");
 assert.doesNotMatch(questionDraft, /options\.map\([^\n]*stableOptionIdForBlocks/, "draft creation must not independently hash each option into a colliding id");
 
-const shortAnswerSearchQuestion: SearchIndexQuestion = {
-  id: "short-answer-search",
+const canonicalSearchProjection = buildSearchIndexQuestion({
+  id: "canonical-search",
   type: "简答",
-  stem: "说明提高输电线路耐雷水平的措施。",
+  content: [{ id: "stem-0", type: "text", text: "canonical stem" }],
   options: [],
-  answer: "降低杆塔接地电阻，并提高线路耦合系数。",
-  tags: ["防雷"],
-  explanation: "",
-  favorite: false,
-  difficulty: 50,
-  total: 0,
-  wrong: 0,
-  latest: null,
-  done: false,
-  needsWrongReview: false,
-};
-const shortAnswerAllResult = filterSearchIndex([shortAnswerSearchQuestion], {
-  query: "降低杆塔接地电阻",
-  filters: { ...emptySearchFilterProjection("all"), keywordMode: "plain" },
-});
-assert.deepEqual(shortAnswerAllResult.ids, [shortAnswerSearchQuestion.id], "全部范围必须能通过简答参考答案命中题目");
-const shortAnswerStemResult = filterSearchIndex([shortAnswerSearchQuestion], {
-  query: "降低杆塔接地电阻",
-  filters: { ...emptySearchFilterProjection("stem"), keywordMode: "plain" },
-});
-assert.deepEqual(shortAnswerStemResult.ids, [], "简答参考答案不得泄漏进题干专用范围");
+  solution: { kind: "short", referenceText: "canonical answer" },
+  tags: ["tag-a"],
+  favorite: true,
+  contentFingerprint: "canonical-search-fingerprint",
+  updatedAt: "2026-08-27T00:00:00.000Z",
+  deviceId: "test-device",
+}, { explanation: "personal note", difficulty: 73, total: 12, wrong: 3, latest: 42, done: true, needsWrongReview: true });
+assert.deepEqual(canonicalSearchProjection, {
+  id: "canonical-search",
+  type: "简答",
+  stem: "canonical stem",
+  options: [],
+  answer: "canonical answer",
+  tags: ["tag-a"],
+  explanation: "personal note",
+  favorite: true,
+  difficulty: 73,
+  total: 12,
+  wrong: 3,
+  latest: 42,
+  done: true,
+  needsWrongReview: true,
+}, "搜索 read-model builder 必须统一 canonical 字段并仅通过 context 注入运行时字段");
+
+const answerSearchQuestions = [
+  buildSearchIndexQuestion({
+    id: "choice-answer-search",
+    type: "单选",
+    content: [{ id: "stem-0", type: "text", text: "选择正确项" }],
+    options: [[{ id: "option-a", type: "text", text: "错误选项" }], [{ id: "option-b", type: "text", text: "正确选项文本" }]],
+    optionIds: ["option-a", "option-b"],
+    solution: { kind: "choice", correctOptionIds: ["option-b"] },
+    tags: [],
+    contentFingerprint: "choice-answer-search",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    deviceId: "test-device",
+  }),
+  buildSearchIndexQuestion({
+    id: "calculation-answer-search",
+    type: "计算",
+    content: [{ id: "stem-0", type: "text", text: "计算线路参数" }],
+    options: [],
+    solution: { kind: "calculation", blanks: [{ id: "blank-1", expected: 11 }, { id: "blank-2", expected: 968 }] },
+    tags: [],
+    contentFingerprint: "calculation-answer-search",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    deviceId: "test-device",
+  }),
+  buildSearchIndexQuestion({
+    id: "fill-answer-search",
+    type: "填空",
+    content: [{ id: "stem-0", type: "text", text: "填写线路参数" }],
+    options: [],
+    solution: { kind: "fill", blanks: [{ id: "blank-1", acceptedAnswers: ["电流", "电流强度"] }, { id: "blank-2", acceptedAnswers: ["功率"] }] },
+    tags: [],
+    contentFingerprint: "fill-answer-search",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    deviceId: "test-device",
+  }),
+  canonicalSearchProjection,
+];
+assert.equal(answerSearchQuestions[0].answer, "正确选项文本", "choice canonical answer 必须解析为正确 option 的文本");
+assert.equal(answerSearchQuestions[1].answer, "第1空：11；第2空：968", "calculation canonical answer 必须复用统一 formatter");
+assert.equal(answerSearchQuestions[2].answer, "第1空：电流 / 电流强度；第2空：功率", "fill canonical answer 必须包含 accepted answers");
+assert.equal(answerSearchQuestions[3].answer, "canonical answer", "short canonical answer 必须使用 referenceText");
+for (const [questionId, query] of [
+  ["calculation-answer-search", "第2空：968"],
+  ["fill-answer-search", "电流强度"],
+  ["canonical-search", "canonical answer"],
+] as const) {
+  assert.deepEqual(filterSearchIndex(answerSearchQuestions, {
+    query,
+    filters: { ...emptySearchFilterProjection("all"), keywordMode: "plain" },
+  }).ids, [questionId], `${questionId} 的 canonical answer 必须在 all scope 可搜索`);
+  for (const scope of ["stem", "options", "explanation"] as const) {
+    assert.deepEqual(filterSearchIndex(answerSearchQuestions, {
+      query,
+      filters: { ...emptySearchFilterProjection(scope), keywordMode: "plain" },
+    }).ids, [], `${questionId} 的 canonical answer 不得泄漏到 ${scope} scope`);
+  }
+}
+const changedCanonicalAnswer = buildSearchIndexQuestion({
+  id: "canonical-search",
+  type: "简答",
+  content: [{ id: "stem-0", type: "text", text: "canonical stem" }],
+  options: [],
+  solution: { kind: "short", referenceText: "changed canonical answer" },
+  tags: ["tag-a"],
+  favorite: true,
+  contentFingerprint: "canonical-search-fingerprint-2",
+  updatedAt: "2026-08-27T00:00:00.000Z",
+  deviceId: "test-device",
+}, { explanation: "personal note", difficulty: 73, total: 12, wrong: 3, latest: 42, done: true, needsWrongReview: true });
 assert.notEqual(
-  searchIndexFingerprint([shortAnswerSearchQuestion]),
-  searchIndexFingerprint([{ ...shortAnswerSearchQuestion, answer: "提高绝缘水平。" }]),
-  "修改简答参考答案必须让 Worker 索引 fingerprint 失效",
+  searchIndexFingerprint([canonicalSearchProjection]),
+  searchIndexFingerprint([changedCanonicalAnswer]),
+  "canonical answer 变化必须使 Worker 索引 fingerprint 失效",
 );
-assert.match(searchView, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "搜索主页必须把 canonical 简答参考答案投影到轻量索引");
-assert.match(quickSearch, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "顶栏快速搜索必须把 canonical 简答参考答案投影到轻量索引");
+assert.match(searchView, /buildSearchDerivedData\(\{/, "搜索主页必须复用纯 search derived read-model");
+assert.match(searchReadModel, /buildSearchIndexQuestion\(question, \{/, "Search View 的 derived read-model 必须继续复用 canonical question builder");
+assert.match(quickSearch, /buildSearchIndexQuestion\(question\.canonical, \{/, "顶栏快速搜索必须复用 canonical search read-model builder");
+assert.doesNotMatch(searchView, /answer: question\.solution/, "搜索主页不得再自行投影 canonical answer");
+assert.doesNotMatch(quickSearch, /answer: question\.solution/, "顶栏快速搜索不得再自行投影 canonical answer");
 
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
