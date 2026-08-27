@@ -2,12 +2,10 @@ import { collapseExtractedVisualLineBreaks } from "../question/imported-text-cle
 import { normalizeCalculationAnswer, normalizeFillSolution, validateCalculationBlankLayout } from "../question/question-utils";
 import { QUESTION_TYPE_ORDER, type QuestionType } from "../../types/types";
 import { IMPORT_LIMITS } from "./import-limits";
+import { SafeZipReader } from "./safe-zip-reader";
 
 export const XLSX_IMPORT_LIMITS = IMPORT_LIMITS.xlsx;
 const MAX_XLSX_BYTES = XLSX_IMPORT_LIMITS.maxBytes;
-const MAX_ARCHIVE_ENTRIES = XLSX_IMPORT_LIMITS.maxArchiveEntries;
-const MAX_ENTRY_BYTES = XLSX_IMPORT_LIMITS.maxEntryBytes;
-const MAX_TOTAL_UNCOMPRESSED_BYTES = XLSX_IMPORT_LIMITS.maxTotalUncompressedBytes;
 const MAX_QUESTIONS = XLSX_IMPORT_LIMITS.maxQuestions;
 const MAX_OPTIONS = XLSX_IMPORT_LIMITS.maxOptionsPerQuestion;
 const MAX_IMAGES_PER_QUESTION = XLSX_IMPORT_LIMITS.maxImagesPerQuestion;
@@ -55,15 +53,34 @@ export class XlsxImportError extends Error {
   }
 }
 
-interface ZipEntry {
-  compression: number;
-  compressedSize: number;
-  uncompressedSize: number;
-  localHeaderOffset: number;
-}
-
 function fail(message: string): never {
   throw new XlsxImportError(message);
+}
+
+function openWorkbookArchive(buffer: ArrayBuffer): SafeZipReader {
+  return new SafeZipReader(buffer, {
+    maxEntries: XLSX_IMPORT_LIMITS.maxArchiveEntries,
+    maxEntryBytes: XLSX_IMPORT_LIMITS.maxEntryBytes,
+    maxTotalUncompressedBytes: XLSX_IMPORT_LIMITS.maxTotalUncompressedBytes,
+    fail,
+    messages: {
+      invalidArchive: "文件不是有效的 .xlsx 工作簿。",
+      tooManyEntries: "Excel 文件包含异常数量的内部文件。",
+      directoryCorrupt: "Excel 文件目录损坏。",
+      entryTooLarge: "Excel 文件中的单个内容过大。",
+      totalTooLarge: "Excel 文件解压后的内容过大。",
+      pathTraversal: "Excel 压缩包包含越界路径。",
+      emptyPath: "Excel 压缩包包含无效的空路径。",
+      duplicatePath: (path) => `Excel 压缩包包含重复路径：${path}`,
+      missingEntry: (path) => `Excel 文件缺少必要内容：${path}`,
+      contentIndexCorrupt: "Excel 文件内容索引损坏。",
+      contentIncomplete: "Excel 文件内容不完整。",
+      decompressionUnavailable: "当前浏览器不支持读取 Excel 压缩内容，请升级浏览器。",
+      expandedEntryTooLarge: "Excel 文件解压后的单个内容超过安全上限。",
+      unsupportedCompression: (compression) => `Excel 使用了不支持的压缩方式（${compression}）。`,
+      lengthMismatch: "Excel 文件解压长度不一致，文件可能已损坏。",
+    },
+  });
 }
 
 function xmlText(value: string) {
@@ -99,107 +116,7 @@ function columnLabel(index: number): string {
   return label;
 }
 
-function normalizeArchivePath(value: string) {
-  const parts: string[] = [];
-  for (const part of value.replace(/\\/g, "/").replace(/^\/+/, "").split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) fail("Excel 压缩包包含越界路径。");
-      parts.pop();
-    }
-    else parts.push(part);
-  }
-  const normalized = parts.join("/");
-  if (!normalized) fail("Excel 压缩包包含无效的空路径。");
-  return normalized;
-}
-
-function findEndOfCentralDirectory(view: DataView) {
-  const lowerBound = Math.max(0, view.byteLength - 65_557);
-  for (let offset = view.byteLength - 22; offset >= lowerBound; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50) return offset;
-  }
-  return -1;
-}
-
-function readZipEntries(buffer: ArrayBuffer) {
-  const view = new DataView(buffer);
-  const eocd = findEndOfCentralDirectory(view);
-  if (eocd < 0) fail("文件不是有效的 .xlsx 工作簿。");
-  const entryCount = view.getUint16(eocd + 10, true);
-  const centralDirectoryOffset = view.getUint32(eocd + 16, true);
-  if (!entryCount || entryCount > MAX_ARCHIVE_ENTRIES) fail("Excel 文件包含异常数量的内部文件。");
-  const decoder = new TextDecoder();
-  const entries = new Map<string, ZipEntry>();
-  let offset = centralDirectoryOffset;
-  let totalSize = 0;
-  for (let index = 0; index < entryCount; index += 1) {
-    if (offset + 46 > view.byteLength || view.getUint32(offset, true) !== 0x02014b50) fail("Excel 文件目录损坏。");
-    const compression = view.getUint16(offset + 10, true);
-    const compressedSize = view.getUint32(offset + 20, true);
-    const uncompressedSize = view.getUint32(offset + 24, true);
-    const fileNameLength = view.getUint16(offset + 28, true);
-    const extraLength = view.getUint16(offset + 30, true);
-    const commentLength = view.getUint16(offset + 32, true);
-    const localHeaderOffset = view.getUint32(offset + 42, true);
-    if (uncompressedSize > MAX_ENTRY_BYTES) fail("Excel 文件中的单个内容过大。");
-    totalSize += uncompressedSize;
-    if (totalSize > MAX_TOTAL_UNCOMPRESSED_BYTES) fail("Excel 文件解压后的内容过大。");
-    const fileNameEnd = offset + 46 + fileNameLength;
-    if (fileNameEnd > view.byteLength) fail("Excel 文件目录损坏。");
-    const name = normalizeArchivePath(decoder.decode(new Uint8Array(buffer, offset + 46, fileNameLength)));
-    if (entries.has(name)) fail(`Excel 压缩包包含重复路径：${name}`);
-    entries.set(name, { compression, compressedSize, uncompressedSize, localHeaderOffset });
-    offset = fileNameEnd + extraLength + commentLength;
-  }
-  return entries;
-}
-
-async function unzipBytes(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string, required = true): Promise<Uint8Array> {
-  const entry = entries.get(normalizeArchivePath(path));
-  if (!entry) {
-    if (required) fail(`Excel 文件缺少必要内容：${path}`);
-    return new Uint8Array(0);
-  }
-  const view = new DataView(buffer);
-  const offset = entry.localHeaderOffset;
-  if (offset + 30 > view.byteLength || view.getUint32(offset, true) !== 0x04034b50) fail("Excel 文件内容索引损坏。");
-  const fileNameLength = view.getUint16(offset + 26, true);
-  const extraLength = view.getUint16(offset + 28, true);
-  const dataOffset = offset + 30 + fileNameLength + extraLength;
-  if (dataOffset + entry.compressedSize > view.byteLength) fail("Excel 文件内容不完整。");
-  const compressed = new Uint8Array(buffer, dataOffset, entry.compressedSize);
-  let bytes: Uint8Array;
-  if (entry.compression === 0) bytes = compressed;
-  else if (entry.compression === 8) {
-    if (typeof DecompressionStream === "undefined") fail("当前浏览器不支持读取 Excel 压缩内容，请升级浏览器。");
-    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value?.byteLength) continue;
-      total += value.byteLength;
-      if (total > MAX_ENTRY_BYTES || total > entry.uncompressedSize) fail("Excel 文件解压后的单个内容超过安全上限。");
-      chunks.push(value);
-    }
-    bytes = new Uint8Array(total);
-    let outputOffset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, outputOffset); outputOffset += chunk.byteLength; }
-  } else fail(`Excel 使用了不支持的压缩方式（${entry.compression}）。`);
-  if (bytes.byteLength !== entry.uncompressedSize) fail("Excel 文件解压长度不一致，文件可能已损坏。");
-  return bytes;
-}
-
-async function unzipText(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string, required = true) {
-  const bytes = await unzipBytes(buffer, entries, path, required);
-  if (!bytes.byteLength && !entries.has(normalizeArchivePath(path))) return "";
-  return new TextDecoder().decode(bytes);
-}
-
-function relationshipTarget(workbookXml: string, relationshipsXml: string, sheetName: string) {
+function relationshipTarget(workbookXml: string, relationshipsXml: string, sheetName: string, archive: SafeZipReader) {
   let relationshipId = "";
   for (const match of workbookXml.matchAll(/<(?:[\w.-]+:)?sheet\b([^>]*)\/?\s*>/gi)) {
     if (xmlAttribute(match[1], "name") === sheetName) {
@@ -212,7 +129,7 @@ function relationshipTarget(workbookXml: string, relationshipsXml: string, sheet
     if (xmlAttribute(match[1], "Id") === relationshipId) {
       const target = xmlAttribute(match[1], "Target");
       if (!target) break;
-      return normalizeArchivePath(target.startsWith("/") ? target : `xl/${target}`);
+      return archive.normalizePath(target.startsWith("/") ? target : `xl/${target}`);
     }
   }
   fail(`无法定位“${sheetName}”工作表。`);
@@ -260,24 +177,24 @@ function rowsFromSheetXml(xml: string, sharedStrings: string[]) {
 
 /** Locate and decode the WPS cell-image table: xl/cellimages.xml maps a
  *  DISPIMG id to an rId, and its .rels maps the rId to a media file. */
-async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, relationshipsXml: string): Promise<Map<string, WorkbookImage>> {
+async function readCellImages(archive: SafeZipReader, relationshipsXml: string): Promise<Map<string, WorkbookImage>> {
   const images = new Map<string, WorkbookImage>();
   let cellImagesTarget = "";
   for (const match of relationshipsXml.matchAll(/<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi)) {
     if ((xmlAttribute(match[1], "Type") ?? "").includes("/cellImage")) {
       const target = xmlAttribute(match[1], "Target");
-      if (target) cellImagesTarget = normalizeArchivePath(target.startsWith("/") ? target : `xl/${target}`);
+      if (target) cellImagesTarget = archive.normalizePath(target.startsWith("/") ? target : `xl/${target}`);
     }
   }
   if (!cellImagesTarget) return images;
-  const cellImagesXml = await unzipText(buffer, entries, cellImagesTarget, false);
+  const cellImagesXml = await archive.readText(cellImagesTarget, false);
   if (!cellImagesXml) return images;
-  const imageRelsXml = await unzipText(buffer, entries, `xl/_rels/${cellImagesTarget.split("/").pop()}.rels`, false);
+  const imageRelsXml = await archive.readText(`xl/_rels/${cellImagesTarget.split("/").pop()}.rels`, false);
   const mediaByRelationship = new Map<string, string>();
   for (const match of (imageRelsXml || "").matchAll(/<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi)) {
     const id = xmlAttribute(match[1], "Id");
     const target = xmlAttribute(match[1], "Target");
-    if (id && target) mediaByRelationship.set(id, normalizeArchivePath(target.startsWith("/") ? target : `xl/${target.replace(/^\.\.\//, "")}`));
+    if (id && target) mediaByRelationship.set(id, archive.normalizePath(target.startsWith("/") ? target : `xl/${target.replace(/^\.\.\//, "")}`));
   }
   for (const match of cellImagesXml.matchAll(/<(?:[\w.-]+:)?cellImage\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?cellImage>/gi)) {
     const body = match[1];
@@ -286,7 +203,7 @@ async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry
     if (!id || !embed) continue;
     const mediaPath = mediaByRelationship.get(embed);
     if (!mediaPath) continue;
-    const bytes = await unzipBytes(buffer, entries, mediaPath, false);
+    const bytes = await archive.readBytes(mediaPath, false);
     if (!bytes.byteLength) continue;
     const signature = bytes[0] === 0x89 && bytes[1] === 0x50 ? "image/png" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : undefined;
     if (!signature) continue;
@@ -298,13 +215,13 @@ async function readCellImages(buffer: ArrayBuffer, entries: Map<string, ZipEntry
 export async function readQuestionWorkbook(buffer: ArrayBuffer): Promise<QuestionWorkbook> {
   if (!buffer.byteLength) fail("Excel 文件为空。");
   if (buffer.byteLength > MAX_XLSX_BYTES) fail("Excel 文件超过 128 MB 上限。");
-  const entries = readZipEntries(buffer);
-  const workbook = await unzipText(buffer, entries, "xl/workbook.xml");
-  const relationships = await unzipText(buffer, entries, "xl/_rels/workbook.xml.rels");
-  const sharedStrings = sharedStringsFromXml(await unzipText(buffer, entries, "xl/sharedStrings.xml", false));
-  const sheetPath = relationshipTarget(workbook, relationships, "题库");
-  const sheet = await unzipText(buffer, entries, sheetPath);
-  const images = await readCellImages(buffer, entries, relationships);
+  const archive = openWorkbookArchive(buffer);
+  const workbook = await archive.readText("xl/workbook.xml");
+  const relationships = await archive.readText("xl/_rels/workbook.xml.rels");
+  const sharedStrings = sharedStringsFromXml(await archive.readText("xl/sharedStrings.xml", false));
+  const sheetPath = relationshipTarget(workbook, relationships, "题库", archive);
+  const sheet = await archive.readText(sheetPath);
+  const images = await readCellImages(archive, relationships);
   return { rows: rowsFromSheetXml(sheet, sharedStrings), images };
 }
 
