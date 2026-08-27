@@ -28,6 +28,7 @@ import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
+import { buildSearchIndexQuestion } from "@/lib/question/search-read-model";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -242,22 +243,15 @@ export function SearchView({
       const metric = scopedMetricByQuestion.get(question.id) ?? summarizeAttemptStats(stats);
       const latest = summarizeAttemptStats(stats).latest;
       const note = notesByQuestion.get(question.id) ?? "";
-      return {
-        id: question.id,
-        type: question.type,
-        stem: question.stem,
-        options: question.options,
-        answer: question.solution.kind === "short" ? question.solution.referenceText : "",
-        tags: question.tags,
+      return buildSearchIndexQuestion(question.canonical, {
         explanation: note,
-        favorite: Boolean(question.favorite),
         difficulty: metric.difficulty,
         total: metric.total,
         wrong: metric.wrong,
         latest,
         done: isQuestionDoneInScope(question.id, normalizedScope, attemptStats, data?.roundProgress ?? [], referenceTime),
         needsWrongReview: statsNeedWrongReview(scopedLegacyByQuestion.get(question.id), wrongRemovalStreak),
-      };
+      });
     });
     return { index, scopedMetricByQuestion, normalizedScope, indexById: new Map(index.map((item) => [item.id, item])) };
   }, [appliedQuestions, data, normalizedSearchScope, referenceTime, wrongRemovalStreak]);

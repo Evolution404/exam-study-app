@@ -13,6 +13,7 @@ import type { BankV7 } from "@/lib/db/v7-types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptySearchFilterProjection, emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
+import { buildSearchIndexQuestion } from "@/lib/question/search-read-model";
 
 /**
  * Keep the topbar quick search on the input/update timing that originally
@@ -81,24 +82,10 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
   const index = useMemo<SearchIndexQuestion[]>(() => {
     const questions = data?.questions ?? [];
     const notesByQuestion = data?.notes ?? new Map<string, string>();
-    return questions.map((question) => ({
-      id: question.id,
-      type: question.type,
-      stem: question.stem,
-      options: question.options,
-      answer: question.solution.kind === "short" ? question.solution.referenceText : "",
-      tags: question.tags,
+    return questions.map((question) => buildSearchIndexQuestion(question.canonical, {
       explanation: notesByQuestion.get(question.id) ?? "",
-      favorite: Boolean(question.favorite),
-      // Quick search has no learning-stat filters; neutral values keep the
-      // shared pure matcher reusable without transferring stats or canonical
-      // content into the worker.
-      difficulty: 50,
-      total: 0,
-      wrong: 0,
-      latest: null,
-      done: false,
-      needsWrongReview: false,
+      // Quick search has no learning-stat filters; the builder's neutral
+      // defaults keep the shared matcher reusable without transferring stats.
     }));
   }, [data]);
   const searchIndexKey = useMemo(() => `${bankKey}:${searchIndexFingerprint(index)}`, [bankKey, index]);

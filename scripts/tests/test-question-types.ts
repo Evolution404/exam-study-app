@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { QUESTION_TYPE_ORDER } from "../../src/types/types";
 import { areCalculationAnswersCorrect, calculationBlankIndexes, fillAnswersAreCorrect, formatCalculationAnswers, isCalculationAnswerCorrect, normalizeCalculationAnswer, normalizeFillSolution, solutionFromInput, stableQuestionOptionIds, validateCalculationBlankLayout } from "../../src/lib/question/question-utils";
 import { emptySearchFilterProjection, filterSearchIndex, searchIndexFingerprint, type SearchIndexQuestion } from "../../src/lib/question/search-matching";
+import { buildSearchIndexQuestion } from "../../src/lib/question/search-read-model";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
@@ -111,8 +112,38 @@ assert.notEqual(
   searchIndexFingerprint([{ ...shortAnswerSearchQuestion, answer: "提高绝缘水平。" }]),
   "修改简答参考答案必须让 Worker 索引 fingerprint 失效",
 );
-assert.match(searchView, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "搜索主页必须把 canonical 简答参考答案投影到轻量索引");
-assert.match(quickSearch, /answer: question\.solution\.kind === "short" \? question\.solution\.referenceText : ""/, "顶栏快速搜索必须把 canonical 简答参考答案投影到轻量索引");
+const canonicalSearchProjection = buildSearchIndexQuestion({
+  id: "canonical-search",
+  type: "简答",
+  content: [{ id: "stem-0", type: "text", text: "canonical stem" }],
+  options: [],
+  solution: { kind: "short", referenceText: "canonical answer" },
+  tags: ["tag-a"],
+  favorite: true,
+  contentFingerprint: "canonical-search-fingerprint",
+  updatedAt: "2026-08-27T00:00:00.000Z",
+  deviceId: "test-device",
+}, { explanation: "personal note", difficulty: 73, total: 12, wrong: 3, latest: 42, done: true, needsWrongReview: true });
+assert.deepEqual(canonicalSearchProjection, {
+  id: "canonical-search",
+  type: "简答",
+  stem: "canonical stem",
+  options: [],
+  answer: "canonical answer",
+  tags: ["tag-a"],
+  explanation: "personal note",
+  favorite: true,
+  difficulty: 73,
+  total: 12,
+  wrong: 3,
+  latest: 42,
+  done: true,
+  needsWrongReview: true,
+}, "搜索 read-model builder 必须统一 canonical 字段并仅通过 context 注入运行时字段");
+assert.match(searchView, /buildSearchIndexQuestion\(question\.canonical, \{/, "搜索主页必须复用 canonical search read-model builder");
+assert.match(quickSearch, /buildSearchIndexQuestion\(question\.canonical, \{/, "顶栏快速搜索必须复用 canonical search read-model builder");
+assert.doesNotMatch(searchView, /answer: question\.solution/, "搜索主页不得再自行投影 canonical answer");
+assert.doesNotMatch(quickSearch, /answer: question\.solution/, "顶栏快速搜索不得再自行投影 canonical answer");
 
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
 assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
