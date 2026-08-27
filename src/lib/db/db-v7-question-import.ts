@@ -14,7 +14,7 @@ import {
   plainTextToContentBlocks,
   stripImagePlaceholders,
 } from "../question/question-content";
-import { solutionFromInput, stableOptionIdsForOptions } from "../question/question-utils";
+import { solutionFromInput, stableQuestionOptionIds } from "../question/question-utils";
 import {
   findQuestionByFingerprint,
   questionFromDraft,
@@ -128,7 +128,7 @@ function importDraft(row: ImportedQuestionRowV7): StructuredQuestionDraftV7 | un
   const suppliedOptionIds = Array.isArray(record.optionIds) && record.optionIds.length === options.length
     ? record.optionIds.map(String)
     : undefined;
-  const optionIds = suppliedOptionIds ?? (type === "单选" || type === "多选" || type === "判断" ? stableOptionIdsForOptions(optionBlocks) : undefined);
+  const optionIds = suppliedOptionIds ?? (type === "单选" || type === "多选" || type === "判断" ? stableQuestionOptionIds({ options: optionBlocks }) : undefined);
   const suppliedSolution = isQuestionSolution(record.solution) ? structuredClone(record.solution) : undefined;
   const solution = suppliedSolution ?? (answer.trim() ? solutionFromInput(type, answer, optionBlocks, optionIds) : undefined);
   if (!solution || !solutionMatchesType(type, solution)) return undefined;
