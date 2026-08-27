@@ -1,138 +1,133 @@
-# 代码量治理审计（2026-08-27）
+# 代码量治理审计与执行计划（2026-08-27）
 
 基线：`main@7e2d8013b5606dace24147637b3a33e55916b993`
 
-## 结论
+## 目标
 
-当前项目已经完成上一轮 AppShell 与 Browser E2E 单体拆分，因此代码量风险不再集中于单个入口文件，而是转为 **Sync 子系统总体积过大、若干 25–32 KiB 生产模块、多组 20–31 KiB 测试文件，以及样式/页面实现的横向膨胀**。
+本轮只做代码量与复杂度治理，不改变产品行为、Sync v9 协议、IndexedDB schema、Asset Pack wire layout、恢复/GC/replay 语义，也不通过删测试或放宽断言换取行数下降。
 
-本轮治理目标不是“为了行数而拆文件”，而是：
+代码量治理按三个指标判断是否有效：
 
-1. 删除确实无用的代码、兼容壳、重复 helper 与重复测试 fixture；
-2. 合并同职责但分散的薄 wrapper / barrel / alias；
-3. 对仍然多职责的大模块按协议边界拆分；
-4. 建立代码量可观测与增量 ratchet，防止治理完成后重新膨胀；
-5. 不改变 Sync v9 wire format、数据库 schema、恢复语义、Asset Pack 布局、搜索几何门禁和发布语义。
+1. **净代码是否下降**：删除重复实现、无价值 wrapper、重复 fixture/helper 优先于纯拆文件。
+2. **职责集中度是否下降**：确有多职责的大文件允许拆分，但拆分本身不计作“净减量”。
+3. **增长是否被约束**：既有热点只能缩小，新增模块不得重新形成新的巨型文件。
 
-## 当前热点
+## 当前真实状态
 
-### P0：Sync 子系统
+上一轮治理已经完成两个旧热点，本轮不重复：
 
-当前最大生产文件几乎都集中在 `src/lib/sync`：
+- `src/app/shell/app-shell.tsx` 已由旧审计约 56.8 KiB 降到约 15.7 KiB；
+- `scripts/tests/test-browser-visible.mjs` 已由约 145 KiB 单体测试降为 31 B 兼容入口，浏览器场景拆入 `scripts/tests/browser/`。
 
-- `github-v7-remote.ts`：32,278 B
-- `image-asset-pack.ts`：32,126 B
-- `sync-v7-checkpoint-validation.ts`：29,185 B
-- `sync-v7-orchestrator.ts`：27,806 B
-- `sync-v8-history.ts`：22,844 B
-- `change-set-v7-reducer.ts`：22,163 B
-- `sync-v7-head-operations.ts`：18,471 B
-- `change-set-v7-planning.ts`：15,171 B
+因此当前热点已经转移到 Sync、搜索/练习 UI、I/O、题库编辑/导出及部分测试。
 
-这些文件大多不是单纯“长”，而是同时承担 codec/validation/remote IO/planning/apply/cache 等职责。优先抽取纯函数与协议无关的机械逻辑，不修改 wire format 和调用顺序。
+## 当前主要生产热点
 
-### P0：生产 UI / I/O 大文件
+| 文件 | 当前约大小 | 判断 |
+| --- | ---: | --- |
+| `src/lib/sync/github-v7-remote.ts` | 32.3 KiB | transport 职责集中，且被 Asset Pack 越界复用 |
+| `src/lib/sync/image-asset-pack.ts` | 32.1 KiB | pack codec/index/cache + Git transport orchestration 混合 |
+| `src/app/search/search-view.tsx` | 30.6 KiB | 搜索状态、数据、编辑、practice wiring 集中 |
+| `src/lib/sync/sync-v7-checkpoint-validation.ts` | 29.2 KiB | 主要是必要 schema / reference validation |
+| `src/app/practice/practice-setup.tsx` | 27.9 KiB | setup 表单与策略逻辑集中 |
+| `src/lib/sync/sync-v7-orchestrator.ts` | 27.8 KiB | 多阶段同步 orchestration |
+| `src/app/shell/views/practice.tsx` | 27.5 KiB | presentation + interaction wiring 集中 |
+| `src/lib/io/xlsx-import.ts` | 25.4 KiB | parse / validation / normalization 混合 |
 
-- `search-view.tsx`：30,598 B
-- `practice-setup.tsx`：27,850 B
-- `shell/views/practice.tsx`：27,479 B
-- `xlsx-import.ts`：25,358 B
-- `image-assets.ts`：22,825 B
-- `bank-detail.tsx`：22,769 B
-- `question-editor.tsx`：22,749 B
-- `question-bank-export.ts`：22,073 B
-- `db-v7-practice.ts`：22,230 B
-- `knowledge-view.tsx`：22,210 B
-- `sync-event-manager.tsx`：21,333 B
-- `use-practice-session-controller.ts`：20,296 B
+## 已确认结构问题
 
-这些模块应逐个判断：是否存在可删除重复逻辑、是否可以抽共享纯函数、是否只是 JSX 体积大。只有职责真正混杂时才拆文件。
+### Asset Pack 越过 GitHub transport 边界
 
-### P1：测试体量
+`image-asset-pack.ts` 自己重复实现了：
 
-当前测试代码也有明显热点：
+- base64 encode/decode；
+- GitHub Contents/Git API path；
+- response JSON 解析；
+- branch/ref/tree/commit 原语。
 
-- `test-question-images.ts`：31,381 B
-- `test-sync-question-management.ts`：28,688 B
-- `browser/specs/desktop.mjs`：24,743 B
-- `test-progress-metrics-boundaries.ts`：24,340 B
-- `test-db-v7.ts`：22,083 B
-- `browser/specs/management.mjs`：21,739 B
-- `test-sync-coalescing.ts`：20,919 B
-- `browser/helpers.mjs`：20,925 B
+更关键的是，它通过类型强转访问 `GitHubV7Remote` 的 private `request()`。这说明 transport abstraction 已泄漏，也是 `github-v7-remote.ts` 与 `image-asset-pack.ts` 同时膨胀的原因之一。
 
-测试治理原则：优先抽 fixture/builders/assertion helpers，不能通过删覆盖、合并断言或放宽严格 geometry 来“减代码”。
+治理顺序：先为 GitHub transport 建立公开但受控的原子 Git 数据操作边界，再删除 Asset Pack 内的 API/path/response 重复实现。不得改变 Asset Pack pack/index/shard 物理格式和 fast-forward CAS 行为。
 
-### P1：CSS 横向体积
+### Checkpoint validation 大，但不是首要净减量目标
 
-CSS 已经有 architecture ratchet，但仍存在大量 8–14 KiB 文件以及 `*-1.css` / `*-2.css` / `*-3.css` 人工分片。代码量治理不应再次按文件大小机械切片；后续应按 component/domain ownership 合并重复 selector/token，并保持现有 CSS governance baseline。
+`sync-v7-checkpoint-validation.ts` 的大部分体积来自 current schema 的 question/bank/membership/attempt/run/stats 校验及跨引用完整性验证。它适合按 entity validator 抽职责、复用 primitive validation，但不能把“拆成多个文件”虚报成代码量下降。
 
-## 已完成，不重复做
+### 薄 facade 必须按边界价值判断
 
-- `AppShell` 当前约 15.7 KiB，上一轮 controller 拆分已经生效。
-- `scripts/tests/test-browser-visible.mjs` 已缩为 31 B 兼容入口，Browser E2E 已拆到 `scripts/tests/browser/`。
-- 不恢复旧单体结构。
+例如 `db-v7-question.ts`、`github-sync.ts` 虽然很薄，但承担稳定 domain/public facade。不能仅按字节数机械删除 barrel；必须先证明它既无 import 边界价值、又无兼容/public API 作用。
 
-## 执行阶段
+## Phase A：建立可观测基线 — 已完成
 
-### Phase A — 建立真实代码量基线
+`report-project-health.mjs` 已扩展为输出：
 
-改造 `report-project-health.mjs`：
+- source / tests / tools / CSS / workflows 的文件数、bytes、lines；
+- >=15 KiB / >=20 KiB 热点数量；
+- 一级/二级目录体积集中度；
+- 最大 source/test/CSS 文件；
+- 当前 refactor focus。
 
-- 输出 `src`、`scripts/tests`、`scripts/tools`、CSS 的文件数/bytes/lines 总量；
-- 输出按一级/二级目录聚合；
-- 输出 >20 KiB、>15 KiB 热点数量；
-- 保持 report-only，不用一个全仓硬上限阻止正常重构。
+这一步 report-only，不用任意全仓硬上限阻塞合理代码。
 
-同时新增增量治理检查：只阻止 **新出现的超大文件** 和 **既有热点继续显著增长**，不要求一次性把所有历史大文件清零。
+## Phase B：增量代码量 ratchet — 已完成
 
-### Phase B — 删除/合并低风险冗余
+已新增：
 
-全仓检查：
+- `scripts/tools/code-size-baseline.json`
+- `scripts/tools/check-code-size-growth.mjs`
+- Governance Audit 中的 `Code size growth ratchet`
 
-- 仅 re-export 的无价值 barrel；
-- 单调用点 alias / wrapper；
-- 重复 normalize/parse/helper；
-- 重复 test fixture / fake remote builder；
-- 已无调用的 source files / exports；
-- 历史命名残留（v8 名称但实际是 current-only 语义）仅在不影响持久协议路径时处理。
+当前规则：
 
-所有删除必须由 `knip`、typecheck、Fast checks 与对应行为测试证明安全。
+- 18 个已知生产热点以当前 `main` 大小为上限，**可以缩小，不允许继续增长**；
+- 新的 source/test 单文件不得超过 32 KiB；
+- CSS 单文件不得新增长到 15 KiB 以上；
+- baseline 本身必须 committed，CI 不允许通过运行脚本后偷偷改 baseline。
 
-### Phase C — Sync 分批瘦身
+这不是“所有文件必须很短”的武断限制，而是只阻止技术债继续扩散。后续每完成一批真实减量，就把该文件更低的新值固化到 baseline。
+
+## Phase C：优先真实净减量
 
 顺序：
 
-1. `github-v7-remote.ts`：拆 transport/request/object/history API，保持同一 remote facade；
-2. `image-asset-pack.ts`：拆 index/shard/pack codec 与 remote orchestration；
-3. `sync-v7-checkpoint-validation.ts`：按 descriptor/content/reference validation 拆纯函数；
-4. `sync-v7-orchestrator.ts`：只拆具名 phase，不改执行顺序；
-5. `change-set-v7-reducer.ts` / planning：抽 mutation-family reducer。
+1. 收口 GitHub transport / Asset Pack 重复实现；
+2. 删除可证明无边界价值的 alias / wrapper；
+3. 抽取并合并重复 validation / base64 / response / path helper；
+4. 合并重复测试 fixture/builder/assert helper；
+5. 只在上述净减量之后再拆高职责文件。
 
-每一步独立 commit，并跑 Sync storage CI。
+## Phase D：UI / I/O 热点
 
-### Phase D — UI / I/O 瘦身
+重点审计：
 
-优先 `search-view.tsx`、`practice-setup.tsx`、`practice.tsx`、`xlsx-import.ts`、`question-editor.tsx`。
+- `search-view.tsx`
+- `practice-setup.tsx`
+- `views/practice.tsx`
+- `xlsx-import.ts`
+- `question-editor.tsx`
+- `question-bank-export.ts`
 
-要求：
+原则：优先把纯 domain logic 移出 React component，并确认是否能与已有 lib helper 合并；不能只把 JSX 从 A 文件搬到 B 文件。
 
-- 优先删除重复 derived state / adapters；
-- 公共 UI 只在至少两个稳定调用点存在时抽取；
-- 不为了让文件短而创建几十个 1–2 KiB 无语义文件。
+## Phase E：测试体积治理
 
-### Phase E — 测试基础设施去重
+当前最大测试约 20–31 KiB。目标：
 
-把重复 fixture/builders/assert helpers 合并到领域 helper；测试名称和 feature ownership 保持清晰。
+- fixture/builder/assert helper 去重；
+- browser shared helper 继续收敛；
+- 不删除场景覆盖；
+- strict search-pin geometry 不降低；
+- Sync storage 深层回归保持原样。
 
-## 验收指标
+## 验收
 
-本轮最终验收同时看“净代码量”和“复杂度热点”：
+最终要求：
 
-- `src` 总 bytes/lines 相比本 PR 初始基线有实质下降；
-- `src/lib/sync` 总体积下降，而不是把代码移到别的目录；
-- >20 KiB 生产文件数量下降；
-- 不新增新的 >20 KiB 生产文件；
-- tests 若因更强覆盖增长可以接受，但重复 fixture/helper 应下降；
-- `npm run build`、`npm run test:fast`、Sync storage CI、Governance Audit、Chromium/WebKit smoke 全绿；
-- 不修改协议/数据/恢复/发布语义来换取代码量下降。
+- Production build；
+- Fast checks；
+- Governance Audit；
+- Sync storage；
+- Chromium/WebKit smoke；
+- exact-head 全绿。
+
+同时 PR 必须能给出基线与最终的 source/test/CSS bytes、lines、热点数对比；仅拆文件但净量不降，不算完整代码量治理。
