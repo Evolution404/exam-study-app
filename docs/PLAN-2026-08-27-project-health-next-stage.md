@@ -209,6 +209,15 @@ React component 只负责 state、interaction 和 rendering。
 
 验收：只有真实 owner 更清晰且 source ratchet 可下调时才保留该 Phase 的结构修改。
 
+### Phase D 执行记录
+
+- 复核确认 `views/practice.tsx` 的 correctness 在 presentation 派生与 submit 路径存在真实重复，且 choice/calculation/fill/short 四类规则可以形成单一 pure owner。
+- 新增 `practice-answer-state.ts`：复用既有 `question-utils` 的 calculation/fill/stable option primitives，统一 correctness、selected-answer、input-valid、inline-blank、gave-up/reveal 等纯派生。
+- submit 路径与 rendering 路径现在都调用同一 `isPracticeAnswerCorrect()`；React owner 已无第二套 `areCalculationAnswersCorrect` / `fillAnswersAreCorrect` / selected option-id 判题实现。
+- 新增四题型 pure model 回归，并把既有 question-types/answer-ui source guards 指向新的 canonical owner；测试断言未删除，仅随 ownership 移动。
+- 未迁移 keyboard/swipe/note/submit handlers，未改计时、简答自评、auto-next 或 note autosave。
+- `views/practice.tsx` 27,479 B → 25,108 B；code-size ratchet 已同步收紧，新 model 远低于 new-source 上限。
+
 ## Phase E — I/O 与测试体积的保守治理
 
 ### I/O
