@@ -33,6 +33,10 @@ jobs:
         run: node scripts/tools/check-workflow-hygiene.mjs
       - name: Project health size report
         run: node scripts/tools/report-project-health.mjs
+      - name: Code size growth ratchet
+        run: node scripts/tools/check-code-size-growth.mjs
+      - name: Require committed code size baseline
+        run: git diff --exit-code -- scripts/tools/code-size-baseline.json scripts/tools/check-code-size-growth.mjs
       - name: Dependency vulnerability gate
         run: npm audit --audit-level=moderate
       - name: Structural dead-code gate
