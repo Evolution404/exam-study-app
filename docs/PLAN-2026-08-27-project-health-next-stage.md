@@ -135,6 +135,15 @@ PR #36 exact-head Governance report：
 
 验收：`image-asset-pack.ts` 中不再出现自有 GitHub REST path 构造和重复 base64/response parsing；如两个热点实际缩小，立即下调 ratchet，不允许提高 baseline。
 
+### Phase B 执行记录
+
+- 新增 `github-v7-transport.ts` 作为明确的低层 GitHub transport primitive owner，统一 base64、Contents/Git Data path、branch/ref encoding、HTTP status/JSON parsing，以及 blob/tree/commit/ref fast-forward primitives。
+- `GitHubV7Remote` 继续作为同步 transport façade，并向 Asset Pack 提供 typed delegation；`image-asset-pack.ts` 只保留 pack codec、index/shard validation、cache、publish planning 与 descriptor 领域语义。
+- `image-asset-pack.ts` 已无 `encodeBase64` / `decodeBase64`、`/repos/` path、`client.request`、`responseJson` 等 GitHub HTTP 细节；新增结构性测试防止 ownership 回退。
+- Asset Pack fast-forward 仍为 `force: false`，409/422 仍触发上层重读重试；pack/index/shard bytes/layout 与请求聚合策略未改变。
+- hotspot bytes：`github-v7-remote.ts` 32,270 → 32,095；`image-asset-pack.ts` 31,798 → 27,238；对应 code-size ratchet 同步收紧，不新增 >32 KiB helper。
+- 专项验证：typecheck、code-size ratchet、GitHub remote、Asset Pack、mock GitHub backend、relay consistency 均通过。
+
 ## Phase C — Practice Setup 定向读取 + canonical setup read-model
 
 ### 定向 IndexedDB 读取

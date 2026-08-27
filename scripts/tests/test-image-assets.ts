@@ -41,6 +41,11 @@ assert.match(syncUploadSource, /publishImageAssetsAsPacks/, "sync upload must pu
 assert.doesNotMatch(syncUploadSource, /putImmutable\([\s\S]*sha256:\s*asset\.id/, "sync upload must not create one immutable Git file per image");
 assert.match(imageCacheSource, /readImageAssetsFromPacks/, "full image cache must batch by pack instead of requesting every image blob");
 assert.match(imagePackSource, /if \(assets\.every\(\(asset\) => isIndexed\(knownShards, asset\)\)\) return \[\];/, "idempotent pack publication must use the cached index fast path before Git ref reads");
+assert.doesNotMatch(imagePackSource, /encodeBase64|decodeBase64|\/repos\/|client\.request|responseJson/, "Asset Pack domain must not own GitHub REST paths, base64 or HTTP response parsing");
+assert.match(imagePackSource, /client\.readContentsAtRef/, "Asset Pack index reads must use the GitHub transport owner");
+assert.match(imagePackSource, /client\.createGitBlob/, "Asset Pack blob creation must use the GitHub transport owner");
+assert.match(imagePackSource, /client\.readGitBranchSnapshot/, "Asset Pack branch snapshots must use the GitHub transport owner");
+assert.match(imagePackSource, /client\.commitGitTreeFastForward/, "Asset Pack publication CAS must use the GitHub transport owner");
 
 // The shared pool must preserve order, cap active work and stop claiming new
 // items after the first worker error. This protects import/export/image-cache

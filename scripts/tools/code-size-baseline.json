@@ -6,8 +6,8 @@
     "newCssMaxBytes": 15360
   },
   "tracked": {
-    "src/lib/sync/github-v7-remote.ts": 32270,
-    "src/lib/sync/image-asset-pack.ts": 31798,
+    "src/lib/sync/github-v7-remote.ts": 32095,
+    "src/lib/sync/image-asset-pack.ts": 27238,
     "src/app/search/search-view.tsx": 29033,
     "src/lib/sync/sync-v7-checkpoint-validation.ts": 29185,
     "src/app/practice/practice-setup.tsx": 27850,
