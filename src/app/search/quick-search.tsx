@@ -7,13 +7,13 @@ import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
 import { AppSelect } from "@/app/ui/app-select";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
-import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptySearchFilterProjection, emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 import { buildSearchIndexQuestion } from "@/lib/question/search-read-model";
+import { readNotesForQuestionIdsV7 } from "@/lib/db/search-read-v7";
 
 /**
  * Keep the topbar quick search on the input/update timing that originally
@@ -67,10 +67,8 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
     if (!bankIds.length) {
       return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
     }
-    const [views, notes] = await Promise.all([
-      listQuestionViewsForBanksV7(bankIds),
-      dbV7.notes.toArray(),
-    ]);
+    const views = await listQuestionViewsForBanksV7(bankIds);
+    const notes = await readNotesForQuestionIdsV7(views.map((view) => view.question.id));
     const questions = views.map((view) => {
       const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
       const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
