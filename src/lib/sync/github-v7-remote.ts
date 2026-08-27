@@ -280,7 +280,7 @@ export class GitHubV7Remote {
     if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubV7RemoteError("vault identity", 409, "v9 head vault identity does not match this remote");
   }
 
-  private async request(path: string, init: RequestInit = {}, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
+  async request(path: string, init: RequestInit = {}, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
     const method = (init.method ?? "GET").toString().toUpperCase();
     const canRetry = method === "GET";
     for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
