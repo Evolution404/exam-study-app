@@ -2,21 +2,18 @@
  * Parse a question-bank zip bundle (bank.json + images/) produced by the
  * export side of `lib/question-bank-export.ts`.
  *
- * The reader mirrors the hand-rolled xlsx zip reader (central directory scan +
- * optional deflate through DecompressionStream) so imports need no runtime
- * dependency.  Images are content-addressed: each archive file name must equal
- * the sha256 of its bytes, which is what makes the bundle tamper-evident and
- * naturally deduplicated.
+ * ZIP structure and decompression safety are delegated to the shared bounded
+ * reader; bundle-specific validation remains here. Images are content-addressed:
+ * each archive file name must equal the sha256 of its bytes, which makes the
+ * bundle tamper-evident and naturally deduplicated.
  */
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { IMAGE_MIME_BY_EXTENSION, sha256Bytes, IMAGE_MIME_TYPES, type ImageMimeType } from "../io/image-assets";
 import { IMPORT_LIMITS } from "../io/import-limits";
+import { SafeZipReader } from "../io/safe-zip-reader";
 
 export const QUESTION_BANK_ZIP_IMPORT_LIMITS = IMPORT_LIMITS.zip;
 const MAX_BUNDLE_BYTES = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxBytes;
-const MAX_ARCHIVE_ENTRIES = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxArchiveEntries;
-const MAX_ENTRY_BYTES = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxEntryBytes;
-const MAX_TOTAL_UNCOMPRESSED_BYTES = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxTotalUncompressedBytes;
 const MAX_QUESTIONS = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxQuestions;
 const MAX_OPTIONS = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxOptionsPerQuestion;
 const MAX_IMAGES_PER_QUESTION = QUESTION_BANK_ZIP_IMPORT_LIMITS.maxImagesPerQuestion;
@@ -31,6 +28,32 @@ export class QuestionBundleError extends Error {
 
 function fail(message: string): never {
   throw new QuestionBundleError(message);
+}
+
+function openBundleArchive(buffer: ArrayBuffer): SafeZipReader {
+  return new SafeZipReader(buffer, {
+    maxEntries: QUESTION_BANK_ZIP_IMPORT_LIMITS.maxArchiveEntries,
+    maxEntryBytes: QUESTION_BANK_ZIP_IMPORT_LIMITS.maxEntryBytes,
+    maxTotalUncompressedBytes: QUESTION_BANK_ZIP_IMPORT_LIMITS.maxTotalUncompressedBytes,
+    fail,
+    messages: {
+      invalidArchive: "文件不是有效的题库压缩包。",
+      tooManyEntries: "题库压缩包包含异常数量的内部文件。",
+      directoryCorrupt: "题库压缩包目录损坏。",
+      entryTooLarge: "题库压缩包中的单个文件过大。",
+      totalTooLarge: "题库压缩包解压后的内容过大。",
+      pathTraversal: "题库压缩包包含越界路径。",
+      emptyPath: "题库压缩包包含无效的空路径。",
+      duplicatePath: (path) => `题库压缩包包含重复路径：${path}`,
+      missingEntry: (path) => `题库压缩包缺少 ${path}。`,
+      contentIndexCorrupt: "题库压缩包内容索引损坏。",
+      contentIncomplete: "题库压缩包内容不完整。",
+      decompressionUnavailable: "当前浏览器不支持读取压缩包内容，请升级浏览器。",
+      expandedEntryTooLarge: "题库压缩包解压后的单个文件超过安全上限。",
+      unsupportedCompression: (compression) => `题库压缩包使用了不支持的压缩方式（${compression}）。`,
+      lengthMismatch: "题库压缩包解压长度不一致，文件可能已损坏。",
+    },
+  });
 }
 
 /** A bundled image resolved to its content-addressed asset identity. */
@@ -50,104 +73,6 @@ export interface ParsedQuestionBundle {
   name?: string;
   questions: Array<Record<string, unknown>>;
   images: ParsedBundleImage[];
-}
-
-function normalizeArchivePath(value: string) {
-  const parts: string[] = [];
-  for (const part of value.replace(/\\/g, "/").replace(/^\/+/, "").split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) fail("题库压缩包包含越界路径。");
-      parts.pop();
-    }
-    else parts.push(part);
-  }
-  const normalized = parts.join("/");
-  if (!normalized) fail("题库压缩包包含无效的空路径。");
-  return normalized;
-}
-
-interface ZipEntry {
-  compression: number;
-  compressedSize: number;
-  uncompressedSize: number;
-  localHeaderOffset: number;
-}
-
-function findEndOfCentralDirectory(view: DataView) {
-  const lowerBound = Math.max(0, view.byteLength - 65_557);
-  for (let offset = view.byteLength - 22; offset >= lowerBound; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50) return offset;
-  }
-  return -1;
-}
-
-function readZipEntries(buffer: ArrayBuffer): Map<string, ZipEntry> {
-  const view = new DataView(buffer);
-  const eocd = findEndOfCentralDirectory(view);
-  if (eocd < 0) fail("文件不是有效的题库压缩包。");
-  const entryCount = view.getUint16(eocd + 10, true);
-  const centralDirectoryOffset = view.getUint32(eocd + 16, true);
-  if (!entryCount || entryCount > MAX_ARCHIVE_ENTRIES) fail("题库压缩包包含异常数量的内部文件。");
-  const decoder = new TextDecoder();
-  const entries = new Map<string, ZipEntry>();
-  let offset = centralDirectoryOffset;
-  let totalSize = 0;
-  for (let index = 0; index < entryCount; index += 1) {
-    if (offset + 46 > view.byteLength || view.getUint32(offset, true) !== 0x02014b50) fail("题库压缩包目录损坏。");
-    const compression = view.getUint16(offset + 10, true);
-    const compressedSize = view.getUint32(offset + 20, true);
-    const uncompressedSize = view.getUint32(offset + 24, true);
-    const fileNameLength = view.getUint16(offset + 28, true);
-    const extraLength = view.getUint16(offset + 30, true);
-    const commentLength = view.getUint16(offset + 32, true);
-    const localHeaderOffset = view.getUint32(offset + 42, true);
-    if (uncompressedSize > MAX_ENTRY_BYTES) fail("题库压缩包中的单个文件过大。");
-    totalSize += uncompressedSize;
-    if (totalSize > MAX_TOTAL_UNCOMPRESSED_BYTES) fail("题库压缩包解压后的内容过大。");
-    const fileNameEnd = offset + 46 + fileNameLength;
-    if (fileNameEnd > view.byteLength) fail("题库压缩包目录损坏。");
-    const name = normalizeArchivePath(decoder.decode(new Uint8Array(buffer, offset + 46, fileNameLength)));
-    if (entries.has(name)) fail(`题库压缩包包含重复路径：${name}`);
-    entries.set(name, { compression, compressedSize, uncompressedSize, localHeaderOffset });
-    offset = fileNameEnd + extraLength + commentLength;
-  }
-  return entries;
-}
-
-async function unzip(buffer: ArrayBuffer, entries: Map<string, ZipEntry>, path: string): Promise<Uint8Array> {
-  const entry = entries.get(normalizeArchivePath(path));
-  if (!entry) fail(`题库压缩包缺少 ${path}。`);
-  const view = new DataView(buffer);
-  const offset = entry.localHeaderOffset;
-  if (offset + 30 > view.byteLength || view.getUint32(offset, true) !== 0x04034b50) fail("题库压缩包内容索引损坏。");
-  const fileNameLength = view.getUint16(offset + 26, true);
-  const extraLength = view.getUint16(offset + 28, true);
-  const dataOffset = offset + 30 + fileNameLength + extraLength;
-  if (dataOffset + entry.compressedSize > view.byteLength) fail("题库压缩包内容不完整。");
-  const compressed = new Uint8Array(buffer, dataOffset, entry.compressedSize);
-  let bytes: Uint8Array;
-  if (entry.compression === 0) bytes = compressed;
-  else if (entry.compression === 8) {
-    if (typeof DecompressionStream === "undefined") fail("当前浏览器不支持读取压缩包内容，请升级浏览器。");
-    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value?.byteLength) continue;
-      total += value.byteLength;
-      if (total > MAX_ENTRY_BYTES || total > entry.uncompressedSize) fail("题库压缩包解压后的单个文件超过安全上限。");
-      chunks.push(value);
-    }
-    bytes = new Uint8Array(total);
-    let outputOffset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, outputOffset); outputOffset += chunk.byteLength; }
-  } else fail(`题库压缩包使用了不支持的压缩方式（${entry.compression}）。`);
-  if (bytes.byteLength !== entry.uncompressedSize) fail("题库压缩包解压长度不一致，文件可能已损坏。");
-  return bytes;
 }
 
 function imageMimeFor(src: string, declared: unknown): ImageMimeType {
@@ -184,8 +109,8 @@ function resolveBlocks(value: unknown, imageBySrc: Map<string, ParsedBundleImage
 export async function parseQuestionBankZip(buffer: ArrayBuffer): Promise<ParsedQuestionBundle> {
   if (!buffer.byteLength) fail("题库压缩包为空。");
   if (buffer.byteLength > MAX_BUNDLE_BYTES) fail("题库压缩包超过 256 MB 上限。");
-  const entries = readZipEntries(buffer);
-  const manifestBytes = await unzip(buffer, entries, "bank.json");
+  const archive = openBundleArchive(buffer);
+  const manifestBytes = await archive.readBytes("bank.json");
   let manifest: Record<string, unknown>;
   try {
     manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as Record<string, unknown>;
@@ -202,7 +127,7 @@ export async function parseQuestionBankZip(buffer: ArrayBuffer): Promise<ParsedQ
   const imageBySrc = new Map<string, ParsedBundleImage>();
   for (const [src, declared] of Object.entries(imageManifest)) {
     if (!src.startsWith("images/")) fail(`图片路径必须位于 images/ 目录下：${src}`);
-    const bytes = await unzip(buffer, entries, src);
+    const bytes = await archive.readBytes(src);
     const assetId = await sha256Bytes(bytes);
     const expectedName = `${assetId}.${(src.split(".").pop() ?? "").toLowerCase()}`;
     if (!src.endsWith(expectedName)) fail(`图片 ${src} 的内容与其文件名不一致，文件可能已损坏或被篡改。`);
