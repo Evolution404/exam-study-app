@@ -129,7 +129,7 @@ export function stableOptionIdForBlocks(blocks: readonly ContentBlock[]): string
  * content (or a hash collision) receives a deterministic occurrence suffix so
  * every option in the question remains independently addressable.
  */
-export function stableOptionIdsForOptions(options: readonly (readonly ContentBlock[])[]): string[] {
+function stableOptionIdsForOptions(options: readonly (readonly ContentBlock[])[]): string[] {
   const used = new Set<string>();
   return options.map((option) => {
     const baseId = stableOptionIdForBlocks(option);
