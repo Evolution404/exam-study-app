@@ -86,6 +86,7 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
       type: question.type,
       stem: question.stem,
       options: question.options,
+      answer: question.solution.kind === "short" ? question.solution.referenceText : "",
       tags: question.tags,
       explanation: notesByQuestion.get(question.id) ?? "",
       favorite: Boolean(question.favorite),

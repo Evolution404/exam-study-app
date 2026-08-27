@@ -53,6 +53,8 @@ export interface SearchIndexQuestion {
   type: SearchQuestionType;
   stem: string;
   options: readonly string[];
+  /** Canonical answer text that is safe and useful for all-fields search. */
+  answer?: string;
   tags: readonly string[];
   explanation: string;
   favorite: boolean;
@@ -83,11 +85,12 @@ const MAX_SEARCH_FIELD_LENGTH = 20_000;
 
 /**
  * Return the exact fields a keyword query is allowed to inspect.
- * Tags are part of the existing all-fields search contract, while the three
- * focused modes deliberately exclude tags so a field selection is real.
+ * Tags and canonical answer text are part of the all-fields search contract,
+ * while the three focused modes deliberately exclude them so a field
+ * selection is real.
  */
 export function searchFieldsForQuestion(
-  question: Pick<SearchIndexQuestion, "stem" | "options" | "tags">,
+  question: Pick<SearchIndexQuestion, "stem" | "options" | "answer" | "tags">,
   explanation: string,
   scope: SearchContentScope,
 ): string[] {
@@ -95,7 +98,7 @@ export function searchFieldsForQuestion(
     case "stem": return [question.stem];
     case "options": return [...question.options];
     case "explanation": return [explanation];
-    case "all": return [question.stem, ...question.options, ...question.tags, explanation];
+    case "all": return [question.stem, ...question.options, question.answer ?? "", ...question.tags, explanation];
   }
 }
 
@@ -229,6 +232,7 @@ export function searchIndexFingerprint(questions: readonly SearchIndexQuestion[]
       question.type,
       question.stem,
       question.options.join("\u001f"),
+      question.answer ?? "",
       question.tags.join("\u001f"),
       question.explanation,
       question.favorite ? "1" : "0",
