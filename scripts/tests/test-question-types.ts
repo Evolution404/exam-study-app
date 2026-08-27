@@ -72,8 +72,8 @@ assert.deepEqual(
   { kind: "choice", correctOptionIds: [duplicateOptionIds[1]] },
   "答案 B 必须稳定指向第二个重复文本选项，而不是第一个",
 );
-assert.match(questionImport, /stableOptionIdsForOptions\(optionBlocks\)/, "JSON/Excel import fallback must allocate option ids as an ordered batch");
-assert.match(questionDraft, /stableOptionIdsForOptions\(options\)/, "question draft fallback must allocate option ids as an ordered batch");
+assert.match(questionImport, /stableQuestionOptionIds\(\{ options: optionBlocks \}\)/, "JSON/Excel import fallback must allocate option ids through the canonical ordered helper");
+assert.match(questionDraft, /stableQuestionOptionIds\(\{ options \}\)/, "question draft fallback must allocate option ids through the canonical ordered helper");
 assert.doesNotMatch(questionImport, /optionBlocks\.map\(stableOptionIdForBlocks\)/, "import must not independently hash each option into a colliding id");
 assert.doesNotMatch(questionDraft, /options\.map\([^\n]*stableOptionIdForBlocks/, "draft creation must not independently hash each option into a colliding id");
 
