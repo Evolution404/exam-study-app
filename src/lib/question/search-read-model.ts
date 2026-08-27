@@ -1,5 +1,6 @@
 import type { QuestionV7 } from "../db/v7-types";
 import { deriveContentText } from "./question-content";
+import { questionAnswerTextV7 } from "./question-answer-text";
 import type { SearchIndexQuestion } from "./search-matching";
 
 /**
@@ -28,9 +29,7 @@ export function buildSearchIndexQuestion(question: QuestionV7, context: SearchIn
     type: question.type,
     stem: deriveContentText(question.content),
     options: question.options.map((blocks) => deriveContentText(blocks)),
-    // Phase B promotes this to the shared current-schema canonical answer
-    // formatter. Phase A deliberately preserves the existing search contract.
-    answer: question.solution.kind === "short" ? question.solution.referenceText : "",
+    answer: questionAnswerTextV7(question),
     tags: [...question.tags],
     explanation: context.explanation ?? "",
     favorite: Boolean(question.favorite),

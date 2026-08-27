@@ -1,7 +1,7 @@
 import { dbV7, getBankQuestionJoinsV7 } from "./db-v7";
 import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
 import type { BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
-import { formatCalculationAnswers, stableQuestionOptionIds } from "../question/question-utils";
+export { questionAnswerTextV7 } from "../question/question-answer-text";
 
 /**
  * A presentation-only join.  Bank identity and ordering remain membership
@@ -34,28 +34,6 @@ export function questionPlainViewV7(question: QuestionV7): QuestionPlainViewV7 {
     ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(),
     summary: summarizeContent(question.content),
   };
-}
-
-export function questionAnswerTextV7(question: QuestionV7): string {
-  const solution = question.solution;
-  if (solution.kind === "choice") {
-    const optionIds = stableQuestionOptionIds(question);
-    return solution.correctOptionIds
-      .map((id) => optionIds.indexOf(id))
-      .filter((index) => index >= 0)
-      .map((index) => deriveContentText(question.options[index] ?? []))
-      .filter(Boolean)
-      .join("、");
-  }
-  if (solution.kind === "calculation") {
-    return formatCalculationAnswers(solution.blanks.map((blank) => String(blank.expected)));
-  }
-  if (solution.kind === "fill") {
-    return solution.blanks
-      .map((blank, index) => `第${index + 1}空：${blank.acceptedAnswers.join(" / ")}`)
-      .join("；");
-  }
-  return solution.referenceText;
 }
 
 export async function getQuestionViewV7(questionId: string, preferredBankId?: string): Promise<QuestionViewV7 | undefined> {
