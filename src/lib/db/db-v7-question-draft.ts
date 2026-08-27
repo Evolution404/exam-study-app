@@ -6,7 +6,7 @@ import {
   plainTextToContentBlocks,
   questionContentFingerprint,
 } from "../question/question-content";
-import { stableOptionIdForBlocks } from "../question/question-utils";
+import { stableQuestionOptionIds } from "../question/question-utils";
 import type { ContentBlock, QuestionV7, QuestionSolution } from "./v7-types";
 
 export type StructuredQuestionDraftV7 = Omit<QuestionDraftV7, "answer"> & {
@@ -37,7 +37,7 @@ export function questionFromDraft(id: string, draft: StructuredQuestionDraftV7, 
   const content = normalizeBlocks(draft.content ?? plainTextToContentBlocks(draft.stem ?? "", "stem-0"));
   const options = blocksFromOptions(draft.options);
   const optionIds = (draft.type === "判断" || draft.type === "单选" || draft.type === "多选")
-    ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : options.map((option) => stableOptionIdForBlocks(option)))
+    ? (draft.optionIds?.length === options.length ? [...draft.optionIds] : stableQuestionOptionIds({ options }))
     : [];
   const solution = structuredClone(draft.solution);
   const contentFingerprint = questionContentFingerprint({ type: draft.type, content, options, solution });
