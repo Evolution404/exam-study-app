@@ -25,8 +25,9 @@ import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from
 import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
-import { createSearchMatcher, emptyTypeCounts, searchIndexFingerprint, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/lib/question/search-matching";
+import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
+import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -356,6 +357,7 @@ export function SearchView({
     setVisibleCount(50);
     setSelectedIds([]);
   }
+
   const totalCount = result.counts.单选 + result.counts.多选 + result.counts.判断 + result.counts.计算;
   const activeFilterCount = countActiveSearchFilters(filters);
   const filterChips = [
