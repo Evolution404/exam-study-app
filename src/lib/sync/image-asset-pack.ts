@@ -184,10 +184,8 @@ function branchPath(branch: string): string {
   return branch.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }
 
-function requestFrom(client: GitHubV7Remote): (path: string, init?: RequestInit, accept?: string) => Promise<Response> {
-  const candidate = (client as unknown as { request?: (path: string, init?: RequestInit, accept?: string) => Promise<Response> }).request;
-  if (typeof candidate !== "function") throw new Error("当前 GitHub transport 不支持 Asset Pack 原子发布。");
-  return candidate.bind(client);
+function requestFrom(client: GitHubV7Remote) {
+  return client.request.bind(client);
 }
 
 async function responseJson(response: Response, operation: string): Promise<Record<string, unknown>> {
