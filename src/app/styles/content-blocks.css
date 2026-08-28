@@ -55,7 +55,7 @@
 }
 
 .calculation-blank-label {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   background: var(--color-primary-soft);
 }
 
@@ -132,7 +132,7 @@
   border: 1px solid var(--color-border);
   border-radius: 9px;
   padding: 6px 10px;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   background: var(--color-surface-raised);
   cursor: pointer;
   font-size: 12px;
@@ -293,7 +293,7 @@
 
 .unfiled-question-section > header > strong {
   flex: 0 0 auto;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-size: .9rem;
 }
 
