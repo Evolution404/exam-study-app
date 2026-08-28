@@ -143,6 +143,37 @@ export async function runDarkModeAudit(page) {
     await page.waitForTimeout(450);
     await auditVisibleButtons(page, nav, offenders);
   }
+
+  // 题库详情夜间层级：Hero 是深色 surface，主文字必须保持浅色；文件夹标签
+  // 与题库说明同属辅助信息，禁止再回退成高饱和橙色。
+  await helpers.clickButton(page, "题库");
+  const firstBank = page.locator("button.bank-management-main").first();
+  await firstBank.waitFor({ state: "visible" });
+  await firstBank.click();
+  await page.locator(".bank-progress-hero").waitFor({ state: "visible" });
+  const bankDetailColors = await page.evaluate(() => {
+    const color = (selector) => getComputedStyle(document.querySelector(selector)).color;
+    return {
+      headingKicker: color(".bank-detail-heading .section-kicker"),
+      headingDescription: color(".bank-detail-heading p"),
+      heroCompletion: color(".bank-progress-ring strong"),
+      heroTitle: color(".bank-progress-copy h2"),
+      heroSideValue: color(".bank-progress-side strong"),
+    };
+  });
+  harness.assert.equal(bankDetailColors.headingKicker, bankDetailColors.headingDescription, "题库详情文件夹标签应与辅助说明使用同一夜间文字层级");
+  for (const [label, value] of Object.entries({
+    "完成度数字": bankDetailColors.heroCompletion,
+    "进度主标题": bankDetailColors.heroTitle,
+    "最近作答值": bankDetailColors.heroSideValue,
+  })) {
+    const channels = parseRgbChannels(value);
+    harness.assert.ok(looksLightInDark(channels, 220), `题库进度 Hero 的${label}必须保持浅色，实际 ${value}`);
+  }
+  await auditVisibleButtons(page, "题库详情", offenders);
+  await helpers.capture(page, contextName, "bank-detail-dark");
+  await helpers.clickTextButton(page, "返回题库管理");
+
   // 题组编辑器编辑态（历史漏检点）：取消编辑的叉按钮与条目移除按钮只在编辑
   // 已有题组时渲染，常规视图巡检看不到，曾在夜间保持白底。必须进入编辑态审计。
   await helpers.clickButton(page, "知识整理");
@@ -203,5 +234,5 @@ export async function runDarkModeAudit(page) {
   await auditVisibleButtons(page, "练习作答", offenders);
 
   harness.assert.deepEqual(offenders, [], `夜间模式下存在未适配按钮（${offenders.length} 个，请改用主题 token 或登记 ALLOWLIST）：\n${offenders.join("\n")}`);
-  console.log(`dark mode button audit passed: 6 视图 + 清除数据弹窗 + 练习作答，无未适配按钮`);
+  console.log(`dark mode button audit passed: 6 视图 + 题库详情 + 清除数据弹窗 + 练习作答，无未适配按钮`);
 }
