@@ -10,7 +10,7 @@
 .overview-group>div:first-child>span { color:var(--color-text-muted); font-size:10px; }
 .overview-number-grid { display:grid!important; grid-template-columns:repeat(auto-fill,minmax(43px,1fr)); gap:10px; }
 .overview-number-grid button { aspect-ratio:1; min-width:0; border:1px solid; border-radius:50%; cursor:pointer; font-weight:700; }
-.overview-number-grid button.current { outline:3px solid var(--p-1f3b2d); outline-offset:3px; }
+.overview-number-grid button.current { outline:3px solid currentColor; outline-offset:3px; }
 .overview-empty { margin:0; padding:13px; border:1px dashed; border-radius:10px; font-size:11px; text-align:center; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin{to{transform:rotate(360deg)}}
