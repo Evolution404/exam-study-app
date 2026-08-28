@@ -212,12 +212,12 @@ html[data-theme="dark"] {
   --overview-number-pending-bg: #614b29;
   --overview-legend-marker-border: #556159;
   --overview-legend-marker-bg: #202822;
-  --overview-legend-correct-border: #556159;
-  --overview-legend-correct-bg: #202822;
-  --overview-legend-wrong-border: #556159;
-  --overview-legend-wrong-bg: #202822;
-  --overview-legend-pending-border: #556159;
-  --overview-legend-pending-bg: #202822;
+  --overview-legend-correct-border: #58a477;
+  --overview-legend-correct-bg: #3d825b;
+  --overview-legend-wrong-border: #c66d50;
+  --overview-legend-wrong-bg: #a95139;
+  --overview-legend-pending-border: #bb8b45;
+  --overview-legend-pending-bg: #614b29;
   --overview-empty-border: #465149;
   --overview-empty-text: #939e97;
   --overview-empty-bg: #151c18;
