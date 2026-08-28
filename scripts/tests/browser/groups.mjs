@@ -4,6 +4,7 @@ import { runManagementQA } from "./specs/management.mjs";
 import { runReviewRounds } from "./specs/review.mjs";
 import { runSearchBatch } from "./specs/search.mjs";
 import { runSearchPinMobile } from "./specs/search-pin.mjs";
+import { runSelectToggleMobile } from "./specs/select-toggle.mjs";
 import { runHistoryResult } from "./specs/history.mjs";
 import { runPracticeSetupComboQA } from "./specs/practice.mjs";
 import { runInFlightDeletionQA } from "./specs/inflight.mjs";
@@ -13,6 +14,7 @@ import { runDarkModeAudit } from "./specs/dark.mjs";
 export const GROUPS = [
   { key: "desktop", run: runDesktop, viewport: { width: 1440, height: 960 }, minScreenshots: 12 },
   { key: "topbar-mobile", run: runTopbarMobile, viewport: { width: 390, height: 844 }, isMobile: true, minScreenshots: 1 },
+  { key: "select-toggle-mobile", run: runSelectToggleMobile, viewport: { width: 390, height: 844 }, isMobile: true, minScreenshots: 1 },
   { key: "mobile", run: runMobile, viewport: { width: 390, height: 844 }, isMobile: true, requires: ["desktop"], minScreenshots: 6 },
   { key: "management", run: runManagementQA, viewport: { width: 1440, height: 960 }, minScreenshots: 8 },
   { key: "review", run: runReviewRounds, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
