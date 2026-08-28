@@ -17,7 +17,9 @@ export async function runTopbarMobile(page) {
   harness.assert.equal(await page.locator(".topbar .quick-sync-label").evaluate((element) => getComputedStyle(element).display), "none", "mobile quick sync must show only its icon");
   await quickScope.tap();
   await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "true");
-  await quickScope.tap();
+  // Radix's open dismissable layer intentionally intercepts Playwright hit-testing
+  // in WebKit, so dispatch the same touch pointerdown directly to the open trigger.
+  await quickScope.dispatchEvent("pointerdown", { pointerType: "touch", button: 0, buttons: 1, isPrimary: true });
   await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "false");
   await quickQuery.focus();
   await page.waitForFunction(() => (document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? Infinity) <= 1);
