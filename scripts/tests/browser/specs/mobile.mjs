@@ -15,6 +15,10 @@ export async function runTopbarMobile(page) {
   const quickScopeBox = await quickScope.boundingBox();
   harness.assert.ok(quickScopeBox && quickScopeBox.width <= 60, "mobile quick-search scope trigger must fit its two-character label");
   harness.assert.equal(await page.locator(".topbar .quick-sync-label").evaluate((element) => getComputedStyle(element).display), "none", "mobile quick sync must show only its icon");
+  await quickScope.tap();
+  await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "true");
+  await quickScope.tap();
+  await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "false");
   await quickQuery.focus();
   await page.waitForFunction(() => (document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? Infinity) <= 1);
   const topbarFocused = await page.evaluate(() => {
