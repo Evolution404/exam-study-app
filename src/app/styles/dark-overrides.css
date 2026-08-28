@@ -51,6 +51,7 @@ html[data-theme="dark"] :is(.group-type,.result-type){color:var(--p-b7d7c3);back
 html[data-theme="dark"] .group-list article>footer{border-color:var(--p-35423a)}
 /* 题组编辑器头部操作按钮与条目移除按钮用 token（--line 边框 / surface-raised 背景，主色保存按钮 white 文字），夜间自动适配。 */
 html[data-theme="dark"] .batch-tag button{border-color:var(--p-35423a)}
+html[data-theme="dark"] :is(.note-markdown p,.note-markdown ul,.note-markdown ol,.note-markdown blockquote,.note-markdown h6){color:var(--p-a4b0a8)}
 html[data-theme="dark"] :is(.bank-master-list,.bank-detail){border-color:var(--p-35423a);background:var(--p-18201b)}
 html[data-theme="dark"] .bank-master-list article.active{border-color:var(--p-557061);background:var(--p-223229)}
 html[data-theme="dark"] .bank-scope-toggle{border-color:var(--p-46544c);color:var(--p-d9e5de);background:var(--p-202822)}
