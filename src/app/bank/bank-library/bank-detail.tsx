@@ -145,7 +145,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
       </section>
 
       <section className="bank-progress-hero">
-        <div className="bank-progress-ring" style={{ background: `conic-gradient(#3f7258 ${dashboard.completion}%, #dfe5df 0)` }}><span><strong>{dashboard.completion}%</strong><small>完成度</small></span></div>
+        <div className="bank-progress-ring" style={{ background: `conic-gradient(var(--bank-progress-bar-fill) ${dashboard.completion}%, var(--bank-progress-bar-track) 0)` }}><span><strong>{dashboard.completion}%</strong><small>完成度</small></span></div>
         <div className="bank-progress-copy"><span className="section-kicker">学习进度 · {progressScopeLabel}</span><h2>已做 {dashboard.attempted} 题，还有 {dashboard.unattempted} 题等待开始</h2><p>{progressScopeLabel}内错题 {dashboard.wrong} 道；连续答对 {wrongRemovalStreak} 次后计入已掌握并移出错题。</p><div className="bank-progress-bar"><i style={{ width: `${dashboard.completion}%` }} /></div></div>
         <div className="bank-progress-side"><span>{progressScopeLabel}最近作答</span><strong>{formatDateTime(dashboard.lastAttempt)}</strong><small>{latestRun ? `${latestRun.modeLabel} · ${latestRun.status === "completed" ? "已完成" : latestRun.status === "abandoned" ? "已放弃" : "进行中"}` : "还没有练习记录"}</small></div>
       </section>
