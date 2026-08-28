@@ -1,19 +1,19 @@
 /* Appearance preferences */
 .theme-setting{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.theme-setting button{position:relative;min-height:92px;border:1px solid var(--color-border);border-radius:14px;padding:14px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-items:center;gap:5px 10px;text-align:left;color:var(--color-text);background:var(--p-fff);cursor:pointer}
-.theme-setting button>span{grid-row:1/3;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:var(--p-476b58);background:var(--p-e7eee9)}
+.theme-setting button{position:relative;min-height:92px;border:1px solid var(--color-border);border-radius:14px;padding:14px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-items:center;gap:5px 10px;text-align:left;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer}
+.theme-setting button>span{grid-row:1/3;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:var(--color-primary-text);background:var(--color-primary-soft)}
 .theme-setting button strong,.theme-setting button small{display:block}
 .theme-setting button strong{font-size:12px}
 .theme-setting button small{color:var(--color-text-muted);font-size:9px}
-.theme-setting button>svg{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--p-fff);border-radius:50%;padding:2px;background:var(--p-3e7057)}
-.theme-setting button.active{border-color:var(--p-4d7a61);background:var(--color-primary-soft);box-shadow:0 0 0 2px var(--p-4d7a6114)}
+.theme-setting button>svg{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--p-fff);border-radius:50%;padding:2px;background:var(--color-primary)}
+.theme-setting button.active{border-color:var(--color-primary);background:var(--color-primary-soft);box-shadow:0 0 0 2px color-mix(in srgb,var(--color-primary) 14%,transparent)}
 .keyboard-hint{margin-top:10px;color:var(--color-text-muted);font-size:10px;text-align:center;opacity:.62}
 .keyboard-hint kbd{margin:0 2px;padding:2px 5px;border:1px solid var(--color-border);border-radius:5px;color:var(--color-text-muted);background:transparent;font:600 9px/1 sans-serif}
 
 .multi-select-toolbar{margin:0 0 11px;padding:9px 11px;border:1px solid var(--color-border);border-radius:11px;display:flex;align-items:center;gap:9px;color:var(--color-text-muted);background:var(--color-surface)}
 .multi-select-toolbar>span{color:var(--color-text);font-size:11px;font-weight:700}
 .multi-select-toolbar small{font-size:10px}
-.multi-select-toolbar button{margin-left:auto;border:1px solid var(--color-border);border-radius:8px;padding:7px 10px;display:flex;align-items:center;gap:5px;color:var(--color-primary);background:var(--color-surface-raised);cursor:pointer;font-size:12px;font-weight:700}
+.multi-select-toolbar button{margin-left:auto;border:1px solid var(--color-border);border-radius:8px;padding:7px 10px;display:flex;align-items:center;gap:5px;color:var(--color-primary-text);background:var(--color-surface-raised);cursor:pointer;font-size:12px;font-weight:700}
 .multi-select-toolbar button:hover{border-color:var(--color-primary);background:var(--color-primary-soft)}
 
 
@@ -32,7 +32,7 @@
 .version-card dl>div{padding:12px 14px;display:flex;justify-content:space-between;gap:18px;background:var(--color-surface)}
 .version-card dt{color:var(--color-text-muted);font-size:11px}
 .version-card dd{margin:0;text-align:right;font-size:11px}
-.version-card code{color:var(--color-primary);font-weight:800}
+.version-card code{color:var(--color-primary-text);font-weight:800}
 
 .route-loading{min-height:240px;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--color-text-muted);font-size:12px}
 
@@ -92,7 +92,7 @@
 .note-markdown code{padding:1px 5px;border-radius:6px;background:var(--color-surface-muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:var(--color-text)}
 .note-markdown pre{margin:8px 0;padding:10px 12px;border-radius:10px;overflow-x:auto;background:var(--color-surface-muted)}
 .note-markdown pre code{padding:0;background:none;font-size:10px;line-height:1.6;white-space:pre}
-.note-markdown a{color:var(--color-primary);text-decoration:underline;text-underline-offset:2px}
+.note-markdown a{color:var(--color-primary-text);text-decoration:underline;text-underline-offset:2px}
 .note-markdown hr{margin:12px 0;border:0;border-top:1px solid var(--color-border)}
 .note-markdown .latex-formula{padding:0 2px}
 .note-markdown .note-md-display-formula{margin:10px 0;text-align:center}
