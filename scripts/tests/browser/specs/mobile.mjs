@@ -15,6 +15,13 @@ export async function runTopbarMobile(page) {
   const quickScopeBox = await quickScope.boundingBox();
   harness.assert.ok(quickScopeBox && quickScopeBox.width <= 60, "mobile quick-search scope trigger must fit its two-character label");
   harness.assert.equal(await page.locator(".topbar .quick-sync-label").evaluate((element) => getComputedStyle(element).display), "none", "mobile quick sync must show only its icon");
+  await quickScope.tap();
+  await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "true");
+  // Use a real screen-coordinate touch for the second tap. With Radix's modal
+  // Select open, WebKit intentionally hit-tests the document instead of the
+  // underlying trigger; AppSelect must still recognize that trigger-area tap.
+  await page.touchscreen.tap(quickScopeBox.x + quickScopeBox.width / 2, quickScopeBox.y + quickScopeBox.height / 2);
+  await page.waitForFunction(() => document.querySelector('[aria-label="快速搜索范围"]')?.getAttribute("aria-expanded") === "false");
   await quickQuery.focus();
   await page.waitForFunction(() => (document.querySelector(".topbar .quick-sync-split")?.getBoundingClientRect().width ?? Infinity) <= 1);
   const topbarFocused = await page.evaluate(() => {

@@ -2,7 +2,7 @@
 
 import * as Select from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import type { CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
 export interface AppSelectOption {
   value: string;
@@ -23,9 +23,37 @@ export interface AppSelectProps {
   style?: CSSProperties;
 }
 
+function pointerHitsTrigger(trigger: HTMLButtonElement | null, event: PointerEvent) {
+  if (!trigger) return false;
+  const rect = trigger.getBoundingClientRect();
+  return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+}
+
 export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id, style }: AppSelectProps) {
-  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
-    <Select.Trigger id={id} className={["app-select-trigger", className].filter(Boolean).join(" ")} aria-label={ariaLabel} style={style}>
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled} open={open} onOpenChange={setOpen}>
+    <Select.Trigger
+      ref={triggerRef}
+      id={id}
+      className={["app-select-trigger", className].filter(Boolean).join(" ")}
+      aria-label={ariaLabel}
+      style={style}
+      onPointerDown={(event) => {
+        // Radix opens mouse Selects on pointerdown. Consume the same event when
+        // this trigger is already open so it behaves as a toggle instead.
+        if (!open || event.pointerType !== "mouse") return;
+        event.preventDefault();
+        setOpen(false);
+      }}
+      onClick={(event) => {
+        // Radix opens touch/pen Selects on click. Its default handler only ever
+        // opens, so an open trigger needs to consume the click and close itself.
+        if (!open) return;
+        event.preventDefault();
+        setOpen(false);
+      }}
+    >
       <Select.Value placeholder={placeholder} />
       <Select.Icon className="app-select-icon"><ChevronDown size={15} aria-hidden="true" /></Select.Icon>
     </Select.Trigger>
@@ -35,6 +63,16 @@ export function AppSelect({ value, onValueChange, options, ariaLabel, placeholde
         position="popper"
         sideOffset={6}
         collisionPadding={16}
+        onPointerDownOutside={(event) => {
+          // While Select is open Radix disables pointer events outside its
+          // dismissable layer, so Safari/WebKit can target the document rather
+          // than the trigger. Recover the intended trigger tap from coordinates.
+          const originalEvent = event.detail.originalEvent;
+          if (!pointerHitsTrigger(triggerRef.current, originalEvent)) return;
+          originalEvent.preventDefault();
+          event.preventDefault();
+          setOpen(false);
+        }}
       >
         <Select.ScrollUpButton className="app-select-scroll-button"><ChevronUp size={15} /></Select.ScrollUpButton>
         <Select.Viewport className="app-select-viewport">
