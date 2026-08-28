@@ -34,6 +34,9 @@
 .search-question-detail>footer.question-detail-pager .question-detail-next:hover,.search-question-detail>footer.question-detail-pager .question-detail-next:focus-visible{outline:0;background:var(--color-surface-muted)}
 .search-question-detail>footer.question-detail-pager button:disabled{opacity:.38;cursor:not-allowed}
 
+/* The in-practice next action uses the same outlined accent hierarchy as detail paging. */
+.practice-actions .practice-next{color:var(--color-primary-text)}
+
 @media(max-width:760px){
   .question-heading{gap:7px;margin-bottom:10px}
   .question-source{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
