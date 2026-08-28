@@ -50,6 +50,60 @@ async function auditVisibleButtons(page, viewName, offenders) {
   }
 }
 
+// 直接文本夜间可读性审计：只检查可见、非禁用元素自己的文本节点，并向上寻找
+// 第一个不透明背景。这样能抓住「深色 surface + 深色前景」这类主题泄漏，同时避开
+// 渐变/透明容器中的大部分误报。阈值故意低于完整 WCAG 审计，只做明显回退守卫。
+async function auditVisibleTextContrast(page, viewName, offenders) {
+  const rows = await page.evaluate(() => {
+    const parse = (value) => {
+      const match = /rgba?\(([^)]+)\)/.exec(value ?? "");
+      if (!match) return null;
+      const parts = match[1].split(",").map((part) => Number(part.trim()));
+      if (parts.length < 3 || parts.slice(0, 3).some((n) => !Number.isFinite(n))) return null;
+      return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    };
+    const channel = (value) => {
+      const x = value / 255;
+      return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4;
+    };
+    const luminance = (rgb) => .2126 * channel(rgb.r) + .7152 * channel(rgb.g) + .0722 * channel(rgb.b);
+    const contrast = (a, b) => (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    const out = [];
+    for (const element of document.querySelectorAll("body *")) {
+      if (!(element instanceof HTMLElement) || element.offsetParent === null) continue;
+      if (element.matches(":disabled,[aria-disabled='true'],.sr-only") || element.closest(".sr-only")) continue;
+      const style = getComputedStyle(element);
+      if (Number.parseFloat(style.opacity || "1") < .65 || style.visibility === "hidden") continue;
+      const text = [...element.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!text) continue;
+      const fg = parse(style.color);
+      if (!fg || fg.a < .85) continue;
+      let bg = null;
+      let cursor = element;
+      while (cursor instanceof HTMLElement) {
+        const candidate = parse(getComputedStyle(cursor).backgroundColor);
+        if (candidate && candidate.a >= .92) { bg = candidate; break; }
+        cursor = cursor.parentElement;
+      }
+      if (!bg) continue;
+      const fgLum = luminance(fg);
+      const bgLum = luminance(bg);
+      const ratio = contrast(fgLum, bgLum);
+      if (bgLum < .16 && fgLum < .32 && ratio < 3) {
+        out.push({ text: text.slice(0, 42), color: style.color, bg: `rgb(${bg.r}, ${bg.g}, ${bg.b})`, ratio: ratio.toFixed(2) });
+      }
+      if (out.length >= 30) break;
+    }
+    return out;
+  });
+  for (const row of rows) offenders.push(`${viewName} · “${row.text}” color=${row.color} bg=${row.bg} contrast=${row.ratio}`);
+}
+
 // 夜间透明输入框审计：搜索类 input 的底色必须保持透明（旧 bug：全站夜间 input
 // 规则带 !important 强制 #111813，压进本应透明的搜索框，容器与 input 呈两种深色）。
 async function auditSearchInputsDark(page, offenders) {
@@ -138,10 +192,12 @@ export async function runDarkModeAudit(page) {
   harness.assert.deepEqual(hoverOffenders, [], `夜间模式下存在未适配的 :hover 浅色规则（请补 html[data-theme="dark"] 覆盖或改用主题 token）：\n${hoverOffenders.join("\n")}`);
 
   const offenders = [];
+  const textOffenders = [];
   for (const nav of ["今日", "题库", "练习", "知识整理", "配置", "同步"]) {
     await helpers.clickButton(page, nav);
     await page.waitForTimeout(450);
     await auditVisibleButtons(page, nav, offenders);
+    await auditVisibleTextContrast(page, nav, textOffenders);
   }
 
   // 题库详情夜间层级：Hero 是深色 surface，主文字必须保持浅色；文件夹标签
@@ -171,6 +227,7 @@ export async function runDarkModeAudit(page) {
     harness.assert.ok(looksLightInDark(channels, 220), `题库进度 Hero 的${label}必须保持浅色，实际 ${value}`);
   }
   await auditVisibleButtons(page, "题库详情", offenders);
+  await auditVisibleTextContrast(page, "题库详情", textOffenders);
   await helpers.capture(page, contextName, "bank-detail-dark");
   await helpers.clickTextButton(page, "返回题库管理");
 
@@ -193,6 +250,7 @@ export async function runDarkModeAudit(page) {
   await groupCard.getByRole("button", { name: "编辑" }).click();
   await page.getByRole("button", { name: "取消编辑" }).waitFor({ state: "visible" });
   await auditVisibleButtons(page, "题组编辑器编辑态", offenders);
+  await auditVisibleTextContrast(page, "题组编辑器编辑态", textOffenders);
   await helpers.capture(page, contextName, "group-editor-edit-dark");
   await page.getByRole("button", { name: "取消编辑" }).click();
   // 搜索视图：透明输入框审计（顶栏 + 搜索页两个搜索框）。
@@ -208,6 +266,7 @@ export async function runDarkModeAudit(page) {
   await page.locator(".search-result-list article").first().locator(".search-result-main").click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "visible" });
   await auditVisibleButtons(page, "搜索详情面板", offenders);
+  await auditVisibleTextContrast(page, "搜索详情面板", textOffenders);
   await helpers.capture(page, contextName, "search-detail-dark");
   await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
@@ -220,6 +279,7 @@ export async function runDarkModeAudit(page) {
   await clearButton.click();
   await page.locator(".confirm-dialog").waitFor({ state: "visible" });
   await auditVisibleButtons(page, "清除数据弹窗", offenders);
+  await auditVisibleTextContrast(page, "清除数据弹窗", textOffenders);
   await helpers.capture(page, contextName, "clear-data-dialog-dark");
   await page.getByRole("button", { name: "取消" }).click();
   await page.locator(".confirm-dialog").waitFor({ state: "hidden" });
@@ -232,7 +292,9 @@ export async function runDarkModeAudit(page) {
   await page.locator(".question-card").waitFor({ state: "visible" });
   await helpers.answerCurrentQuestion(page, [0]);
   await auditVisibleButtons(page, "练习作答", offenders);
+  await auditVisibleTextContrast(page, "练习作答", textOffenders);
 
+  harness.assert.deepEqual(textOffenders, [], `夜间模式下存在明显低对比正文（${textOffenders.length} 个，请改用语义前景 token）：\n${textOffenders.join("\n")}`);
   harness.assert.deepEqual(offenders, [], `夜间模式下存在未适配按钮（${offenders.length} 个，请改用主题 token 或登记 ALLOWLIST）：\n${offenders.join("\n")}`);
-  console.log(`dark mode button audit passed: 6 视图 + 题库详情 + 清除数据弹窗 + 练习作答，无未适配按钮`);
+  console.log(`dark mode audit passed: 6 视图 + 题库详情 + 清除数据弹窗 + 练习作答，按钮与正文均无明显主题泄漏`);
 }
