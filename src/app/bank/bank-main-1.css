@@ -126,3 +126,12 @@
 .bank-primary-actions{width:min(470px,48%);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .bank-primary-actions>button{min-height:42px;border:1px solid var(--color-border);border-radius:15px;padding:13px 15px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:11px;text-align:left;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer}
 .bank-primary-actions>button>span:first-child{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:var(--color-primary);background:var(--color-primary-soft)}
+
+/* Bank detail hierarchy: metadata stays neutral; selection uses the brand color. */
+.bank-detail-heading .section-kicker{color:var(--bank-detail-kicker)}
+.bank-detail-heading h1{color:var(--color-text)}
+.bank-detail-tabs{border-bottom-color:var(--color-border)}
+.bank-detail-tabs button{color:var(--bank-tab-text);transition:color var(--motion-fast) var(--motion-ease)}
+.bank-detail-tabs button:hover{color:var(--color-text)}
+.bank-detail-tabs button.active{border-bottom-color:var(--color-primary);color:var(--bank-accent-strong)}
+.bank-detail-tabs span{color:var(--bank-tab-badge-text);background:var(--bank-tab-badge-bg)}
