@@ -32,7 +32,15 @@ function pointerHitsTrigger(trigger: HTMLButtonElement | null, event: PointerEve
 export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id, style }: AppSelectProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled} open={open} onOpenChange={setOpen}>
+  const suppressReopenUntilRef = useRef(0);
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && Date.now() < suppressReopenUntilRef.current) {
+      suppressReopenUntilRef.current = 0;
+      return;
+    }
+    setOpen(nextOpen);
+  };
+  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled} open={open} onOpenChange={handleOpenChange}>
     <Select.Trigger
       ref={triggerRef}
       id={id}
@@ -64,11 +72,12 @@ export function AppSelect({ value, onValueChange, options, ariaLabel, placeholde
         sideOffset={6}
         collisionPadding={16}
         onPointerDownOutside={(event) => {
-          // While Select is open Radix disables pointer events outside its
-          // dismissable layer, so Safari/WebKit can target the document rather
-          // than the trigger. Recover the intended trigger tap from coordinates.
+          // Radix disables outside pointer events while the Select is open. On
+          // iOS/WebKit a second trigger-area tap therefore reaches this layer
+          // first: close now and suppress the trailing click's open request.
           const originalEvent = event.detail.originalEvent;
           if (!pointerHitsTrigger(triggerRef.current, originalEvent)) return;
+          suppressReopenUntilRef.current = Date.now() + 500;
           originalEvent.preventDefault();
           event.preventDefault();
           setOpen(false);
