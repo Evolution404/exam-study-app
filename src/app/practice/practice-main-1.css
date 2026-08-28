@@ -29,8 +29,8 @@
 .question-body h1,.practice-stem { margin:17px 0 30px; font:500 clamp(21px,3vw,29px)/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .options button p,.practice-option-content{flex:1;margin:0;font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.6}
 .option-status { position:absolute; right:15px; top:50%; width:22px; height:22px; margin:0; display:grid; place-items:center; transform:translateY(-50%); pointer-events:none; }
-.option-status-right { color:var(--p-356049); }
-.option-status-wrong { color:var(--p-8b4b30); }
+.option-status-right { color:var(--result-state-correct-text); }
+.option-status-wrong { color:var(--result-state-wrong-text); }
 .result-box { margin-top:18px; border-radius:12px; padding:14px 16px; }
 .result-box.success { background:var(--practice-result-success-bg); color:var(--practice-result-success-text); }
 .result-box.error { background:var(--practice-result-error-bg); color:var(--practice-result-error-text); }
