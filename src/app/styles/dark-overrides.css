@@ -40,7 +40,6 @@ html[data-theme="dark"] :is(.filter-section,.gesture-guide){border-color:var(--p
 html[data-theme="dark"] :is(.result-type){color:var(--p-b7d7c3);background:var(--p-253a2e)}
 html[data-theme="dark"] .batch-tag button{border-color:var(--p-35423a)}
 html[data-theme="dark"] :is(.note-markdown p,.note-markdown ul,.note-markdown ol,.note-markdown blockquote,.note-markdown h6){color:var(--p-a4b0a8)}
-html[data-theme="dark"] .tag-quick-practice{border-color:var(--p-35423a);color:var(--p-9bc8ad);background:var(--p-1c2a22)}
 html[data-theme="dark"] .restore-card p{color:var(--p-c5aea4)}
 html[data-theme="dark"] :is(.bank-color,.bank-profile-color){color:var(--p-b8d8c5);background:var(--p-26352c)!important}
 html[data-theme="dark"] ::placeholder{color:var(--p-77847c);opacity:1}
