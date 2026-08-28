@@ -8,6 +8,7 @@
   --color-text-muted: #758078;
   --color-border: #dedbd2;
   --color-primary: #285d45;
+  --color-primary-text: #285d45;
   --color-primary-strong: #203a2e;
   --color-primary-soft: #dbe9df;
   --color-accent: #dd6b39;
@@ -75,6 +76,7 @@ html[data-theme="dark"] {
   --color-text-muted: #97a39b;
   --color-border: #35423a;
   --color-primary: #39785a;
+  --color-primary-text: #9bc8ad;
   --color-primary-strong: #14261d;
   --color-primary-soft: #22392d;
   --color-accent: #e08156;

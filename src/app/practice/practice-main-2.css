@@ -2,7 +2,7 @@
 .latest-practice-score strong{font:600 38px Georgia,serif;line-height:1}
 .latest-practice-score small{margin-top:4px;color:color-mix(in srgb,white 72%,transparent)}
 .latest-practice-score span{margin-top:7px;color:color-mix(in srgb,white 68%,transparent);font-size:9px}
-.tag-quick-practice { border:0; border-left:1px solid var(--p-e3e1da); padding:9px; display:grid; place-items:center; align-content:center; gap:3px; color:var(--p-37644e); background:var(--p-f4f7f4); cursor:pointer; font-size:9px; }
+.tag-quick-practice { border:0; border-left:1px solid var(--color-border); padding:9px; display:grid; place-items:center; align-content:center; gap:3px; color:var(--color-primary-text); background:var(--color-primary-soft); cursor:pointer; font-size:9px; }
 .shortcut-option-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
 .shortcut-option-grid label{display:grid;gap:6px;color:var(--color-text-muted);font-size:9px}
 

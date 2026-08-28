@@ -32,8 +32,8 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const [customActivityRange, setCustomActivityRange] = useState({ from: calendarDate(defaultCustomFrom), to: calendarDate(new Date(referenceTime)) });
   const dataset = useLiveQuery(async () => {
     const views = await listQuestionViewsForBankV7(bank.id);
-    const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
-    const questionIdList = questions.map((question) => question.id);
+    const questions = views.map((v) => toQuestionViewModel(v.question, bank.id, bankTitle(bank), v.memberships[0]?.sortOrder ?? 0));
+    const questionIdList = questions.map((q) => q.id);
     const [rawStats, rawAttempts, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
       dbV7.attemptStats.bulkGet(questionIdList),
       questionIdList.length ? dbV7.attempts.where("questionId").anyOf(questionIdList).toArray() : [],
@@ -53,11 +53,11 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const runStats = dataset?.runStats;
   const roundProgress = useMemo(() => dataset?.roundProgress ?? [], [dataset?.roundProgress]);
   const normalizedScope = useMemo(() => normalizeProgressScope(progressScope), [progressScope]);
-  const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats(questions.map((question) => question.id), normalizedScope, attempts, roundProgress, referenceTime), [questions, normalizedScope, attempts, roundProgress, referenceTime]);
+  const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats(questions.map((q) => q.id), normalizedScope, attempts, roundProgress, referenceTime), [questions, normalizedScope, attempts, roundProgress, referenceTime]);
   const attemptStats = useMemo<AttemptStats[]>(() => [...scopedStatsByQuestion.values()].map((stats) => scopedStatsToAttemptStats(stats, bank.id)), [bank.id, scopedStatsByQuestion]);
-  const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
+  const statsByQuestion = useMemo(() => new Map(attemptStats.map((s) => [s.questionId, s])), [attemptStats]);
   const dashboard = useMemo(() => {
-    const noteIds = new Set(notes.map((note) => note.questionId));
+    const noteIds = new Set(notes.map((n) => n.questionId));
     const summaries = new Map(questions.map((question) => [question.id, summarizeAttemptStats(statsByQuestion.get(question.id))]));
     const attempted = questions.filter((question) => isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime));
     const doneByQuestion = new Map(questions.map((question) => [question.id, isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)]));
@@ -145,7 +145,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
       </section>
 
       <section className="bank-progress-hero">
-        <div className="bank-progress-ring" style={{ background: `conic-gradient(#3f7258 ${dashboard.completion}%, #dfe5df 0)` }}><span><strong>{dashboard.completion}%</strong><small>完成度</small></span></div>
+        <div className="bank-progress-ring" style={{ background: `conic-gradient(var(--bank-progress-bar-fill) ${dashboard.completion}%, var(--bank-progress-bar-track) 0)` }}><span><strong>{dashboard.completion}%</strong><small>完成度</small></span></div>
         <div className="bank-progress-copy"><span className="section-kicker">学习进度 · {progressScopeLabel}</span><h2>已做 {dashboard.attempted} 题，还有 {dashboard.unattempted} 题等待开始</h2><p>{progressScopeLabel}内错题 {dashboard.wrong} 道；连续答对 {wrongRemovalStreak} 次后计入已掌握并移出错题。</p><div className="bank-progress-bar"><i style={{ width: `${dashboard.completion}%` }} /></div></div>
         <div className="bank-progress-side"><span>{progressScopeLabel}最近作答</span><strong>{formatDateTime(dashboard.lastAttempt)}</strong><small>{latestRun ? `${latestRun.modeLabel} · ${latestRun.status === "completed" ? "已完成" : latestRun.status === "abandoned" ? "已放弃" : "进行中"}` : "还没有练习记录"}</small></div>
       </section>

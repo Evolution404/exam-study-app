@@ -7,6 +7,21 @@
   --bank-accent-strong: var(--p-315f47);
   --bank-selected-bg: var(--p-eaf2ed);
   --bank-danger: var(--p-a65238);
+  --bank-detail-kicker: var(--color-text-muted);
+  --bank-tab-text: var(--color-text-muted);
+  --bank-tab-badge-bg: var(--p-e5e4de);
+  --bank-tab-badge-text: var(--p-607169);
+  --bank-progress-bg-start: var(--p-214b38);
+  --bank-progress-bg-end: var(--p-3d7559);
+  --bank-progress-text: var(--p-fff);
+  --bank-progress-muted: var(--p-c6d8ce);
+  --bank-progress-kicker: var(--p-c9dbd1);
+  --bank-progress-ring-center: var(--p-2b5d45);
+  --bank-progress-bar-track: var(--p-ffffff25);
+  --bank-progress-bar-fill: var(--p-e8d7c5);
+  --bank-progress-divider: var(--p-ffffff26);
+  --bank-progress-side-label: var(--p-bcd0c5);
+  --bank-progress-side-muted: var(--p-c4d5cc);
 }
 html[data-theme="dark"] {
   --bank-surface: var(--p-18201b);
@@ -16,4 +31,19 @@ html[data-theme="dark"] {
   --bank-accent-strong: var(--p-a9d0b8);
   --bank-selected-bg: var(--p-20352a);
   --bank-danger: var(--p-e4a089);
+  --bank-detail-kicker: var(--color-text-muted);
+  --bank-tab-text: var(--color-text-muted);
+  --bank-tab-badge-bg: var(--p-29332d);
+  --bank-tab-badge-text: var(--p-aab4ae);
+  --bank-progress-bg-start: var(--p-1f3b2d);
+  --bank-progress-bg-end: var(--p-315b46);
+  --bank-progress-text: var(--p-fff);
+  --bank-progress-muted: var(--p-c6d8ce);
+  --bank-progress-kicker: var(--p-b8d8c5);
+  --bank-progress-ring-center: var(--p-243a2e);
+  --bank-progress-bar-track: var(--p-ffffff25);
+  --bank-progress-bar-fill: var(--p-c9dbd1);
+  --bank-progress-divider: var(--p-ffffff26);
+  --bank-progress-side-label: var(--p-bcd0c5);
+  --bank-progress-side-muted: var(--p-c4d5cc);
 }

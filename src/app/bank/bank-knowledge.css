@@ -1,14 +1,14 @@
 /* Bank / Knowledge rules historically misplaced in Search. */
-.question-manager-search{height:42px;border:1px solid var(--p-d8d8d1);border-radius:10px;padding:0 11px;display:flex;align-items:center;gap:8px;background:var(--p-fff)}
+.question-manager-search{height:42px;border:1px solid var(--color-border);border-radius:10px;padding:0 11px;display:flex;align-items:center;gap:8px;color:var(--color-text-muted);background:var(--color-surface-raised)}
 .question-manager-search input{width:100%;border:0;outline:0;background:transparent}
-.group-fields input,.group-fields select,.group-fields textarea,.group-search input,.group-items input{width:100%;border:1px solid var(--p-d8d8d2);border-radius:10px;padding:9px 10px;color:var(--color-text);background:var(--p-fff);outline:0}
-.group-search{height:42px;margin-top:12px;padding:0 11px;border:1px solid var(--p-d8d8d2);border-radius:10px;display:flex;align-items:center;gap:8px;background:var(--p-fff)}
+.group-fields input,.group-fields select,.group-fields textarea,.group-search input,.group-items input{width:100%;border:1px solid var(--color-border);border-radius:10px;padding:9px 10px;color:var(--color-text);background:var(--color-surface-raised);outline:0}
+.group-search{height:42px;margin-top:12px;padding:0 11px;border:1px solid var(--color-border);border-radius:10px;display:flex;align-items:center;gap:8px;color:var(--color-text-muted);background:var(--color-surface-raised)}
 .group-search input{border:0;padding:0}
-.group-search-results{margin-top:5px;border:1px solid var(--p-d7dbd7);border-radius:11px;overflow:hidden;background:var(--p-fff);box-shadow:0 12px 35px var(--p-1b352718)}
-.group-search-results button{width:100%;padding:10px;border:0;border-bottom:1px solid var(--p-e8e6e0);display:flex;align-items:center;gap:8px;text-align:left;background:var(--p-fff);cursor:pointer}
+.group-search-results{margin-top:5px;border:1px solid var(--color-border);border-radius:11px;overflow:hidden;background:var(--color-surface-raised);box-shadow:0 12px 35px var(--shadow-color)}
+.group-search-results button{width:100%;padding:10px;border:0;border-bottom:1px solid var(--color-border);display:flex;align-items:center;gap:8px;text-align:left;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer}
 .group-search-results span,.group-search-results strong,.group-search-results small{display:block}
 .group-search-results small{margin-top:3px;color:var(--color-text-muted);font-size:9px}
-.knowledge-search { flex:1; min-height:40px; border:1px solid var(--p-dcdad3); border-radius:10px; padding:0 11px; display:flex; align-items:center; gap:8px; background:var(--p-fff); }
+.knowledge-search { flex:1; min-height:40px; border:1px solid var(--color-border); border-radius:10px; padding:0 11px; display:flex; align-items:center; gap:8px; color:var(--color-text-muted); background:var(--color-surface-raised); }
 .knowledge-search input { flex:1; min-width:0; border:0; outline:0; background:transparent; }
 
 .managed-question-list article.detail-current,
