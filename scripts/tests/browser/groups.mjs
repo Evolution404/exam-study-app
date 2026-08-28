@@ -10,6 +10,7 @@ import { runPracticeSetupComboQA } from "./specs/practice.mjs";
 import { runInFlightDeletionQA } from "./specs/inflight.mjs";
 import { runSyncRefreshQA } from "./specs/sync-refresh.mjs";
 import { runDarkModeAudit } from "./specs/dark.mjs";
+import { runDarkEditorSelectionQA } from "./specs/dark-editor-selection.mjs";
 
 export const GROUPS = [
   { key: "desktop", run: runDesktop, viewport: { width: 1440, height: 960 }, minScreenshots: 12 },
@@ -25,4 +26,5 @@ export const GROUPS = [
   { key: "inflight", run: runInFlightDeletionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "sync-refresh", run: runSyncRefreshQA, viewport: { width: 1440, height: 960 }, minScreenshots: 3 },
   { key: "dark", run: runDarkModeAudit, viewport: { width: 1440, height: 960 }, minScreenshots: 1 },
+  { key: "dark-editor-selection", run: runDarkEditorSelectionQA, viewport: { width: 1440, height: 960 }, minScreenshots: 1 },
 ];
