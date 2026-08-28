@@ -10,7 +10,7 @@
 .bank-management-tools>div:first-child small{margin-top:3px;color:var(--color-text-muted);font-size:9px}
 .bank-management-tools-actions{display:flex;gap:7px}
 .bank-management-tools-actions>button{min-height:36px;border:1px solid var(--color-border);border-radius:9px;padding:7px 10px;display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;font-size:12px}
-.bank-management-tools-actions>button.active{border-color:var(--color-primary);color:var(--color-primary);background:var(--color-primary-soft)}
+.bank-management-tools-actions>button.active{border-color:var(--color-primary);color:var(--color-primary-text);background:var(--color-primary-soft)}
 .bank-empty-state{min-height:310px;border:1px dashed var(--color-border);border-radius:20px;padding:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:22px;background:linear-gradient(135deg,var(--color-surface),var(--color-surface-muted))}
 .bank-empty-icon{width:58px;height:58px;border-radius:17px;display:grid;place-items:center;color:white;background:var(--color-primary)}
 .bank-empty-state h2{margin:6px 0 7px;font:600 26px Georgia,"Noto Serif SC",serif}
@@ -53,7 +53,7 @@
 .bank-detail>header h2 { margin:6px 0 7px; font:600 clamp(25px,3vw,34px) -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .bank-detail>header p { margin:0; display:flex; align-items:center; gap:5px; color:var(--color-text-muted); font-size:10px; }
 .bank-detail>header>button { border:1px solid var(--color-border); border-radius:10px; padding:9px 11px; display:flex; align-items:center; gap:6px; color:var(--color-text); background:var(--color-surface-raised); cursor:pointer; font-size:12px; }
-.bank-detail>header>button.selected { border-color:var(--color-primary); color:var(--color-primary-strong); background:var(--color-primary-soft); }
+.bank-detail>header>button.selected { border-color:var(--color-primary); color:var(--color-primary-text); background:var(--color-primary-soft); }
 .bank-type-summary { padding:15px 24px; border-bottom:1px solid var(--p-e8e5df); display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
 .bank-type-summary span { min-height:58px; padding:10px; border-radius:11px; display:grid; align-content:center; color:var(--p-748079); background:var(--p-eceae4); font-size:9px; }
 .bank-type-summary strong { color:var(--color-text); font:600 21px Georgia,serif; }
