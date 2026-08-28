@@ -13,13 +13,13 @@
    button rule: solid brand fill + white glyph, with a small focus/state ring. */
 .question-editor .editor-options button.answer-selected{
   border-color:var(--color-primary);
-  color:#fff;
+  color:var(--p-fff);
   background:var(--color-primary);
   box-shadow:0 0 0 2px color-mix(in srgb,var(--color-primary) 24%,transparent);
 }
 .question-editor .editor-options button.answer-selected:hover,
 .question-editor .editor-options button.answer-selected:focus-visible{
   border-color:var(--color-primary);
-  color:#fff;
+  color:var(--p-fff);
   background:var(--color-primary);
 }
