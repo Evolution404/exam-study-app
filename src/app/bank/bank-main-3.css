@@ -1,60 +1,60 @@
-.bank-kpi:hover{border-color:var(--p-93aa9c);transform:translateY(-1px);box-shadow:0 7px 20px var(--p-1735250c)}
-.bank-kpi>span{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--p-3f6f56);background:var(--p-e5eee8)}
-.bank-kpi.warning>span{color:var(--p-a45438);background:var(--p-f5e5dc)}
+.bank-kpi:hover{border-color:var(--color-interactive-hover-border);transform:translateY(-1px);box-shadow:0 7px 20px var(--shadow-color)}
+.bank-kpi>span{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--color-primary-text);background:var(--color-primary-soft)}
+.bank-kpi.warning>span{color:var(--color-warning);background:var(--color-warning-soft)}
 .bank-kpi svg{width:17px}
-.bank-kpi>svg{margin-top:9px;color:var(--p-9ba39e)}
+.bank-kpi>svg{margin-top:9px;color:var(--color-text-muted)}
 .bank-kpi small,.bank-kpi strong,.bank-kpi p{display:block}
-.bank-kpi small{color:var(--p-78827c);font-size:9px}
+.bank-kpi small{color:var(--color-text-muted);font-size:9px}
 .bank-kpi strong{margin-top:4px;font:600 23px Georgia,serif}
-.bank-kpi strong em{margin-left:2px;color:var(--p-7d8680);font:normal 9px sans-serif}
-.bank-kpi p{margin:3px 0 0;overflow:hidden;color:var(--p-919792);font-size:8px;white-space:nowrap;text-overflow:ellipsis}
+.bank-kpi strong em{margin-left:2px;color:var(--color-text-muted);font:normal 9px sans-serif}
+.bank-kpi p{margin:3px 0 0;overflow:hidden;color:var(--color-text-muted);font-size:8px;white-space:nowrap;text-overflow:ellipsis}
 .bank-dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .bank-dashboard-panel{border:1px solid var(--color-border);border-radius:17px;padding:19px;background:var(--bank-surface)}
 .bank-panel-title{margin-bottom:15px;display:flex;align-items:center;gap:10px}
-.bank-panel-title>span{width:35px;height:35px;border-radius:10px;display:grid;place-items:center;color:var(--p-3e6c54);background:var(--p-e1ece5)}
+.bank-panel-title>span{width:35px;height:35px;border-radius:10px;display:grid;place-items:center;color:var(--color-primary-text);background:var(--color-primary-soft)}
 .bank-panel-title svg{width:17px}
-.bank-panel-title small{display:block;color:var(--p-b66743);font-size:8px;font-weight:700;letter-spacing:.13em}
+.bank-panel-title small{display:block;color:var(--color-text-muted);font-size:8px;font-weight:700;letter-spacing:.13em}
 .bank-panel-title h2{margin:3px 0 0;font:600 18px Georgia,"Noto Serif SC",serif}
 .bank-performance-grid,.bank-activity-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .bank-dashboard-number{min-width:0;min-height:69px;border-radius:11px;padding:10px;display:grid;align-content:center;background:var(--bank-field-bg)}
 .bank-dashboard-number strong,.bank-dashboard-number span{display:block}
 .bank-dashboard-number strong{overflow:hidden;font:600 18px Georgia,serif;text-overflow:ellipsis;white-space:nowrap}
-.bank-dashboard-number span{margin-top:4px;color:var(--p-7e8781);font-size:8px}
-.bank-range-tabs{margin:-50px 0 18px auto;width:max-content;border-radius:9px;padding:3px;display:flex;gap:2px;background:var(--p-e8e7e1)}
+.bank-dashboard-number span{margin-top:4px;color:var(--color-text-muted);font-size:8px}
+.bank-range-tabs{margin:-50px 0 18px auto;width:max-content;border-radius:9px;padding:3px;display:flex;gap:2px;background:var(--color-surface-muted)}
 .bank-range-tabs button{border:0;border-radius:7px;padding:5px 9px;color:var(--color-text-muted);background:transparent;cursor:pointer;font-size:12px}
 .bank-range-tabs button.active{color:var(--bank-accent-strong);background:var(--color-surface-raised);box-shadow:0 2px 6px color-mix(in srgb,var(--color-text) 12%,transparent)}
-.bank-distribution{min-height:32px;display:grid;grid-template-columns:43px minmax(0,1fr) 60px;align-items:center;gap:9px;color:var(--p-657169);font-size:9px}
-.bank-distribution>div{height:7px;border-radius:99px;overflow:hidden;background:var(--p-e6e5df)}
+.bank-distribution{min-height:32px;display:grid;grid-template-columns:43px minmax(0,1fr) 60px;align-items:center;gap:9px;color:var(--color-text-muted);font-size:9px}
+.bank-distribution>div{height:7px;border-radius:99px;overflow:hidden;background:var(--color-border)}
 .bank-distribution i{height:100%;display:block;border-radius:99px}
 .bank-distribution>strong{text-align:right;font-size:10px}
-.bank-distribution>strong small{margin-left:5px;color:var(--p-959a96);font-size:8px;font-weight:400}
-.bank-distribution-separator{height:1px;margin:9px 0;background:var(--p-e4e1da)}
+.bank-distribution>strong small{margin-left:5px;color:var(--color-text-muted);font-size:8px;font-weight:400}
+.bank-distribution-separator{height:1px;margin:9px 0;background:var(--color-border)}
 .bank-priority-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.bank-priority-grid button{min-height:44px;border:1px solid var(--p-deddd7);border-radius:10px;padding:8px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;text-align:left;color:var(--p-526158);background:var(--bank-field-bg);cursor:pointer}
+.bank-priority-grid button{min-height:44px;border:1px solid var(--color-border);border-radius:10px;padding:8px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer}
 .bank-priority-grid button:hover{border-color:color-mix(in srgb,var(--color-primary) 32%,var(--color-border));background:var(--color-surface-muted)}
 .bank-priority-grid button.wide{grid-column:1/-1}
 .bank-priority-grid span{overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
 .bank-priority-grid strong{min-width:22px;text-align:right;font:600 16px Georgia,serif}
-.bank-priority-grid svg{width:14px;color:var(--p-96a09a)}
-.bank-tag-table{border:1px solid var(--p-e1dfd8);border-radius:11px;overflow:hidden}
-.bank-tag-table>div{min-height:39px;padding:8px 12px;display:grid;grid-template-columns:minmax(0,1fr) 90px 90px 90px;align-items:center;border-top:1px solid var(--p-ebe8e2);background:var(--bank-field-bg);font-size:9px}
-.bank-tag-table>div:first-child{min-height:34px;border-top:0;color:var(--p-808983);background:var(--p-edebe6)}
+.bank-priority-grid svg{width:14px;color:var(--color-text-muted)}
+.bank-tag-table{border:1px solid var(--color-border);border-radius:11px;overflow:hidden}
+.bank-tag-table>div{min-height:39px;padding:8px 12px;display:grid;grid-template-columns:minmax(0,1fr) 90px 90px 90px;align-items:center;border-top:1px solid var(--color-border);background:var(--bank-field-bg);font-size:9px}
+.bank-tag-table>div:first-child{min-height:34px;border-top:0;color:var(--color-text-muted);background:var(--color-surface-muted)}
 .bank-tag-table strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bank-run-summary{margin:-48px 0 16px auto;width:max-content;display:flex;gap:6px}
-.bank-run-summary span{border-radius:99px;padding:4px 7px;color:var(--p-6f7b74);background:var(--p-e9e8e2);font-size:8px}
-.bank-recent-runs{border:1px solid var(--p-e1dfd8);border-radius:12px;overflow:hidden}
-.bank-recent-runs button{width:100%;min-height:58px;border:0;border-top:1px solid var(--p-ebe8e2);padding:9px 12px;display:grid;grid-template-columns:auto minmax(0,1fr) 100px 55px auto;align-items:center;gap:10px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer}
+.bank-run-summary span{border-radius:99px;padding:4px 7px;color:var(--color-text-muted);background:var(--color-surface-muted);font-size:8px}
+.bank-recent-runs{border:1px solid var(--color-border);border-radius:12px;overflow:hidden}
+.bank-recent-runs button{width:100%;min-height:58px;border:0;border-top:1px solid var(--color-border);padding:9px 12px;display:grid;grid-template-columns:auto minmax(0,1fr) 100px 55px auto;align-items:center;gap:10px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer}
 .bank-recent-runs button:first-child{border-top:0}
-.bank-recent-runs button:hover{background:var(--p-f3f7f4)}
+.bank-recent-runs button:hover{background:var(--color-surface-muted)}
 .bank-recent-runs span:nth-child(2) strong,.bank-recent-runs span:nth-child(2) small{display:block}
 .bank-recent-runs span:nth-child(2) small{margin-top:4px;color:var(--color-text-muted);font-size:8px}
-.bank-recent-runs>button>span:nth-child(3){color:var(--p-737e77);font-size:9px}
+.bank-recent-runs>button>span:nth-child(3){color:var(--color-text-muted);font-size:9px}
 .bank-recent-runs>button>strong{font:600 15px Georgia,serif}
-.bank-panel-empty{min-height:90px;border:1px dashed var(--p-d2d3ce);border-radius:11px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--p-87908a);font-size:9px}
-.bank-profile-details{border:1px solid var(--color-border);border-radius:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:hidden;background:var(--p-e2dfd8)}
+.bank-panel-empty{min-height:90px;border:1px dashed var(--color-border);border-radius:11px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--color-text-muted);font-size:9px}
+.bank-profile-details{border:1px solid var(--color-border);border-radius:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:hidden;background:var(--color-border)}
 .bank-profile-details>div{min-width:0;padding:12px;background:var(--bank-field-bg)}
 .bank-profile-details span,.bank-profile-details strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bank-profile-details span{color:var(--p-858c87);font-size:8px}
+.bank-profile-details span{color:var(--color-text-muted);font-size:8px}
 .bank-profile-details strong{margin-top:4px;font-size:10px}
 .question-manager>header{grid-template-columns:minmax(220px,1fr) 165px 110px auto auto}
 .question-manager-empty p{margin:5px 0 0;color:var(--color-text-muted);font-size:9px}
