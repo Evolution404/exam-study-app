@@ -1,272 +1,52 @@
 {
-  "totalBytes": 294597,
+  "totalBytes": 291307,
   "maxFileBytes": 13741,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 264666,
+  "totalDebtScore": 259008,
   "files": {
-    "src/app/globals.css": {
-      "bytes": 35,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/bank/bank-responsive.css": {
-      "bytes": 6543,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/search/search-responsive.css": {
-      "bytes": 3304,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/search/search-tokens.css": {
-      "bytes": 6116,
-      "hexColors": 154,
-      "darkSelectors": 1,
-      "important": 0
-    },
-    "src/app/styles/asset-image.css": {
-      "bytes": 2819,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/bank-controls.css": {
-      "bytes": 1983,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/base.css": {
-      "bytes": 349,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/components.css": {
-      "bytes": 1179,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/content-blocks.css": {
-      "bytes": 7458,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/controls.css": {
-      "bytes": 3804,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/dark-overrides.css": {
-      "bytes": 5084,
-      "hexColors": 0,
-      "darkSelectors": 40,
-      "important": 5
-    },
-    "src/app/styles/dashboard.css": {
-      "bytes": 7918,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 1
-    },
-    "src/app/styles/hint.css": {
-      "bytes": 458,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/practice-setup.css": {
-      "bytes": 8708,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/preferences.css": {
-      "bytes": 9285,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/primitives.css": {
-      "bytes": 7501,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/question-actions.css": {
-      "bytes": 5306,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/responsive.css": {
-      "bytes": 170,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/review-scope.css": {
-      "bytes": 13741,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 1
-    },
-    "src/app/styles/shell.css": {
-      "bytes": 7752,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 3
-    },
-    "src/app/styles/theme-tokens.css": {
-      "bytes": 2498,
-      "hexColors": 48,
-      "darkSelectors": 1,
-      "important": 0
-    },
-    "src/app/practice/practice-responsive.css": {
-      "bytes": 2772,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/practice/practice-tokens.css": {
-      "bytes": 9735,
-      "hexColors": 223,
-      "darkSelectors": 1,
-      "important": 0
-    },
-    "src/app/shell/shell-responsive.css": {
-      "bytes": 4138,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/shell/shell-tokens.css": {
-      "bytes": 1766,
-      "hexColors": 46,
-      "darkSelectors": 1,
-      "important": 0
-    },
-    "src/app/bank/bank-shared.css": {
-      "bytes": 8852,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/app-utility.css": {
-      "bytes": 8281,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/responsive-shared.css": {
-      "bytes": 10631,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 3
-    },
-    "src/app/bank/bank-knowledge.css": {
-      "bytes": 2016,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/bank/bank-tokens.css": {
-      "bytes": 1924,
-      "hexColors": 0,
-      "darkSelectors": 1,
-      "important": 0
-    },
-    "src/app/styles/palette-tokens.css": {
-      "bytes": 9750,
-      "hexColors": 416,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/bank/bank-main-1.css": {
-      "bytes": 12999,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/bank/bank-main-2.css": {
-      "bytes": 12666,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/bank/bank-main-3.css": {
-      "bytes": 7879,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/search/search-main-1.css": {
-      "bytes": 11967,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/search/search-main-2.css": {
-      "bytes": 12073,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/search/search-main-3.css": {
-      "bytes": 6549,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/shared-core-1.css": {
-      "bytes": 11561,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/shared-core-2.css": {
-      "bytes": 11610,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 2
-    },
-    "src/app/styles/shared-core-3.css": {
-      "bytes": 4088,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/practice/practice-main-1.css": {
-      "bytes": 12087,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 1
-    },
-    "src/app/practice/practice-main-2.css": {
-      "bytes": 10709,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/sync-events-1.css": {
-      "bytes": 12045,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    },
-    "src/app/styles/sync-events-2.css": {
-      "bytes": 6488,
-      "hexColors": 0,
-      "darkSelectors": 0,
-      "important": 0
-    }
+    "src/app/globals.css": {"bytes": 35, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/bank/bank-responsive.css": {"bytes": 6543, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/search/search-responsive.css": {"bytes": 3304, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/search/search-tokens.css": {"bytes": 6116, "hexColors": 154, "darkSelectors": 1, "important": 0},
+    "src/app/styles/asset-image.css": {"bytes": 2819, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/bank-controls.css": {"bytes": 1983, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/base.css": {"bytes": 411, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/components.css": {"bytes": 1179, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/content-blocks.css": {"bytes": 7458, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/controls.css": {"bytes": 3804, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/dark-overrides.css": {"bytes": 632, "hexColors": 0, "darkSelectors": 3, "important": 5},
+    "src/app/styles/dashboard.css": {"bytes": 7955, "hexColors": 0, "darkSelectors": 0, "important": 1},
+    "src/app/styles/hint.css": {"bytes": 458, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/practice-setup.css": {"bytes": 8708, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/preferences.css": {"bytes": 9285, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/primitives.css": {"bytes": 7501, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/question-actions.css": {"bytes": 5306, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/responsive.css": {"bytes": 170, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/review-scope.css": {"bytes": 13741, "hexColors": 0, "darkSelectors": 0, "important": 1},
+    "src/app/styles/shell.css": {"bytes": 7752, "hexColors": 0, "darkSelectors": 0, "important": 3},
+    "src/app/styles/theme-tokens.css": {"bytes": 2498, "hexColors": 48, "darkSelectors": 1, "important": 0},
+    "src/app/practice/practice-responsive.css": {"bytes": 2772, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/practice/practice-tokens.css": {"bytes": 9735, "hexColors": 223, "darkSelectors": 1, "important": 0},
+    "src/app/shell/shell-responsive.css": {"bytes": 4138, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/shell/shell-tokens.css": {"bytes": 1766, "hexColors": 46, "darkSelectors": 1, "important": 0},
+    "src/app/bank/bank-shared.css": {"bytes": 8852, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/app-utility.css": {"bytes": 8281, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/responsive-shared.css": {"bytes": 10631, "hexColors": 0, "darkSelectors": 0, "important": 3},
+    "src/app/bank/bank-knowledge.css": {"bytes": 2016, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/bank/bank-tokens.css": {"bytes": 1924, "hexColors": 0, "darkSelectors": 1, "important": 0},
+    "src/app/styles/palette-tokens.css": {"bytes": 9750, "hexColors": 416, "darkSelectors": 0, "important": 0},
+    "src/app/bank/bank-main-1.css": {"bytes": 12999, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/bank/bank-main-2.css": {"bytes": 12666, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/bank/bank-main-3.css": {"bytes": 7879, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/search/search-main-1.css": {"bytes": 11967, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/search/search-main-2.css": {"bytes": 12073, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/search/search-main-3.css": {"bytes": 6549, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/shared-core-1.css": {"bytes": 12270, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/shared-core-2.css": {"bytes": 11721, "hexColors": 0, "darkSelectors": 0, "important": 2},
+    "src/app/styles/shared-core-3.css": {"bytes": 4175, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/practice/practice-main-1.css": {"bytes": 12243, "hexColors": 0, "darkSelectors": 0, "important": 1},
+    "src/app/practice/practice-main-2.css": {"bytes": 10709, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/sync-events-1.css": {"bytes": 12045, "hexColors": 0, "darkSelectors": 0, "important": 0},
+    "src/app/styles/sync-events-2.css": {"bytes": 6488, "hexColors": 0, "darkSelectors": 0, "important": 0}
   }
 }
