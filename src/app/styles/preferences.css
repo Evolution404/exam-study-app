@@ -7,9 +7,9 @@
 .preference-row strong { font-size:14px; }
 .preference-row p { margin:5px 0 0; color:var(--color-text-muted); font-size:12px; line-height:1.6; }
 .preference-row>input[type="checkbox"] { position:absolute; opacity:0; pointer-events:none; }
-.toggle { width:46px; height:26px; flex:none; padding:3px; border-radius:99px; background:var(--p-cbcfc9); transition:.2s; }
-.toggle:after { content:""; display:block; width:20px; height:20px; border-radius:50%; background:var(--p-fff); box-shadow:0 1px 4px var(--p-18251e33); transition:.2s; }
-.preference-row input:checked+.toggle { background:var(--p-3e7158); }
+.toggle { width:46px; height:26px; flex:none; padding:3px; border-radius:99px; background:var(--color-border); transition:.2s; }
+.toggle:after { content:""; display:block; width:20px; height:20px; border-radius:50%; background:var(--color-surface-raised); box-shadow:0 1px 4px var(--p-18251e33); transition:.2s; }
+.preference-row input:checked+.toggle { background:var(--color-primary); }
 .preference-row input:checked+.toggle:after { transform:translateX(20px); }
 .preference-row input:focus-visible+.toggle { outline:3px solid var(--p-78958244); outline-offset:2px; }
 .select-preference select { width:min(190px,40vw); min-height:40px; border:1px solid var(--color-border); border-radius:10px; padding:8px 32px 8px 11px; color:var(--color-text); background:var(--p-fff); }
@@ -25,7 +25,7 @@
 .image-cache-buttons .danger-button { min-height:40px; padding:9px 14px; }
 
 .image-cache-progress{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin-top:16px;color:var(--color-text-muted);font-size:12px}
-.image-cache-progress strong{color:var(--color-primary);font-variant-numeric:tabular-nums}
+.image-cache-progress strong{color:var(--color-primary-text);font-variant-numeric:tabular-nums}
 .image-cache-progress>i{grid-column:1/-1;height:5px;overflow:hidden;border-radius:999px;background:var(--color-border)}
 .image-cache-progress>i>b{display:block;height:100%;border-radius:inherit;background:var(--color-primary);transition:width var(--motion-deliberate) var(--motion-ease)}
 
@@ -44,10 +44,10 @@
 
 
 .daily-goal-card blockquote { margin-bottom:10px; font-size:31px; line-height:1.2; }
-.daily-goal-progress { height:7px; border-radius:99px; overflow:hidden; background:var(--p-d1c7b8); }
-.daily-goal-progress i { display:block; height:100%; border-radius:inherit; background:var(--p-52785f); transition:width .25s; }
-.daily-goal-card p { margin:12px 0 0; color:var(--p-8d604a); font-size:11px; }
-.daily-goal-card p.achieved { color:var(--p-3d6f54); font-weight:700; }
+.daily-goal-progress { height:7px; border-radius:99px; overflow:hidden; background:var(--color-border); }
+.daily-goal-progress i { display:block; height:100%; border-radius:inherit; background:var(--color-primary); transition:width .25s; }
+.daily-goal-card p { margin:12px 0 0; color:var(--color-text-muted); font-size:11px; }
+.daily-goal-card p.achieved { color:var(--color-success); font-weight:700; }
 
 
 .shortcut-preference-card{display:grid;gap:18px}
@@ -84,7 +84,7 @@
 .shortcut-binding-values>span.conflict{border-color:var(--color-danger);background:var(--color-danger-soft)}
 .shortcut-binding-values kbd{padding:8px 9px;font:700 11px/1 system-ui;white-space:nowrap}
 .shortcut-binding-values>span button{width:28px;height:30px;border:0;border-left:1px solid var(--color-border);display:grid;place-items:center;color:var(--color-text-muted);background:transparent;cursor:pointer}
-.shortcut-capture{min-height:32px;border:1px dashed var(--color-primary);border-radius:9px;padding:7px 10px;display:flex;align-items:center;gap:5px;color:var(--color-primary);background:var(--color-surface-muted);cursor:pointer;font-size:12px}
+.shortcut-capture{min-height:32px;border:1px dashed var(--color-primary);border-radius:9px;padding:7px 10px;display:flex;align-items:center;gap:5px;color:var(--color-primary-text);background:var(--color-surface-muted);cursor:pointer;font-size:12px}
 .shortcut-capture.active{min-width:128px;border-style:solid;box-shadow:0 0 0 3px var(--shadow-color)}
 
 
