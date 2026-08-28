@@ -43,7 +43,7 @@ export async function runDarkEditorSelectionQA(page) {
     const style = getComputedStyle(button);
     return { color: style.color, background: style.backgroundColor, border: style.borderColor };
   });
-  const unselectedStyle = await page.locator(".question-editor .editor-options > div > button:not(.answer-selected)").first().evaluate((button) => {
+  const unselectedStyle = await page.locator('.question-editor .editor-options > div > button[aria-label^="将 "]:not(.answer-selected)').first().evaluate((button) => {
     const style = getComputedStyle(button);
     return { color: style.color, background: style.backgroundColor, border: style.borderColor };
   });
