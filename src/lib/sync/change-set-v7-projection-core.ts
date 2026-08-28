@@ -92,18 +92,57 @@ export function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
+function usableTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function latestAttemptTimestamps(attempts: readonly AttemptV7[]): Map<string, Map<string, string>> {
+  const byRun = new Map<string, Map<string, string>>();
+  for (const attempt of attempts) {
+    let byQuestion = byRun.get(attempt.runId);
+    if (!byQuestion) {
+      byQuestion = new Map<string, string>();
+      byRun.set(attempt.runId, byQuestion);
+    }
+    const current = byQuestion.get(attempt.questionId);
+    if (!current || attempt.createdAt.localeCompare(current) > 0) byQuestion.set(attempt.questionId, attempt.createdAt);
+  }
+  return byRun;
+}
+
+function repairSubmittedAnswerTimestamps(practiceRuns: PracticeRunV7[], attempts: readonly AttemptV7[]): void {
+  const attemptTimestamps = latestAttemptTimestamps(attempts);
+  for (const run of practiceRuns) {
+    const runAttempts = attemptTimestamps.get(run.id);
+    for (const [questionId, answer] of Object.entries(run.answers)) {
+      if (!answer.submitted || usableTimestamp(answer.updatedAt)) continue;
+      const fallback = runAttempts?.get(questionId) ?? run.updatedAt;
+      if (!usableTimestamp(fallback)) continue;
+      run.answers[questionId] = { ...answer, updatedAt: fallback };
+    }
+  }
+}
+
 export function normalizeProjection(input: ChangeSetProjectionInputV7): ChangeSetProjectionV7 {
+  const attempts = list(input.attempts);
+  const practiceRuns = list(input.practiceRuns);
+  // Current writers persist answer.updatedAt together with the matching attempt.
+  // Some already-published v9 checkpoints were produced from a run snapshot whose
+  // submitted answers predate that invariant. Repair only that missing field from
+  // canonical data already present in the same projection, so a synchronized
+  // checkpoint cannot poison IndexedDB during install/reconcile.
+  repairSubmittedAnswerTimestamps(practiceRuns, attempts);
   return {
     banks: list(input.banks),
     bankFolders: list(input.bankFolders),
     questions: list(input.questions),
     memberships: list(input.memberships),
     imageAssets: list(input.imageAssets),
-    attempts: list(input.attempts),
+    attempts,
     attemptStats: list(input.attemptStats),
     attemptDailyStats: list(input.attemptDailyStats),
     notes: list(input.notes),
-    practiceRuns: list(input.practiceRuns),
+    practiceRuns,
     practiceRunStats: list(input.practiceRunStats),
     questionGroups: list(input.questionGroups),
     reviewRounds: list(input.reviewRounds),
@@ -214,8 +253,17 @@ export function runBankIds(run: Pick<PracticeRunV7, "bankId" | "bankIds">): stri
  *  would leak into the base projection shared with a shallow replay envelope,
  *  breaking per-record rollback. */
 export function runWithAnswer(run: PracticeRunV7, questionId: string, answer: PracticeRunV7["answers"][string]): PracticeRunV7 {
-  const answers = { ...run.answers, [questionId]: clone(answer) };
-  const updatedAt = answer.updatedAt ?? run.updatedAt;
+  const normalizedAnswer = clone(answer);
+  // Decoder compatibility is deliberately narrow: a historical wire record may
+  // have a submitted answer without the timestamp that the current DB requires.
+  // A replayed record has no access to the attempt here, so the run clock is the
+  // deterministic fallback; normalizeProjection uses the matching attempt clock
+  // whenever the answer came from a checkpoint/base projection.
+  if (normalizedAnswer.submitted && !usableTimestamp(normalizedAnswer.updatedAt) && usableTimestamp(run.updatedAt)) {
+    normalizedAnswer.updatedAt = run.updatedAt;
+  }
+  const answers = { ...run.answers, [questionId]: normalizedAnswer };
+  const updatedAt = normalizedAnswer.updatedAt ?? run.updatedAt;
   const revision = run.revision + 1;
   const submitted = run.questionIds.reduce((last, id, index) => answers[id]?.submitted ? index : last, -1);
   return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
