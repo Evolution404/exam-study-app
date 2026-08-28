@@ -1,9 +1,9 @@
 .bank-primary-actions strong,.bank-primary-actions small{display:block}
 .bank-primary-actions strong{font-size:12px}
 .bank-primary-actions small{margin-top:4px;color:var(--color-text-muted);font-size:9px;white-space:nowrap}
-.bank-primary-actions>button.primary{border-color:transparent;color:white;background:var(--color-primary)}
-.bank-primary-actions>button.primary>span:first-child{color:white;background:color-mix(in srgb,white 12%,transparent)}
-.bank-primary-actions>button.primary small{color:color-mix(in srgb,white 78%,transparent)}
+.bank-primary-actions>button.primary{border-color:transparent;color:var(--p-fff);background:var(--color-primary)}
+.bank-primary-actions>button.primary>span:first-child{color:var(--p-fff);background:color-mix(in srgb,var(--p-fff) 12%,transparent)}
+.bank-primary-actions>button.primary small{color:color-mix(in srgb,var(--p-fff) 78%,transparent)}
 .bank-management-tools{margin:-13px 0 18px;padding:12px 14px;border:1px solid var(--color-border);border-radius:14px;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--color-surface)}
 .bank-management-tools>div:first-child strong,.bank-management-tools>div:first-child small{display:block}
 .bank-management-tools>div:first-child strong{font-size:11px}
@@ -12,72 +12,72 @@
 .bank-management-tools-actions>button{min-height:36px;border:1px solid var(--color-border);border-radius:9px;padding:7px 10px;display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;font-size:12px}
 .bank-management-tools-actions>button.active{border-color:var(--color-primary);color:var(--color-primary-text);background:var(--color-primary-soft)}
 .bank-empty-state{min-height:310px;border:1px dashed var(--color-border);border-radius:20px;padding:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:22px;background:linear-gradient(135deg,var(--color-surface),var(--color-surface-muted))}
-.bank-empty-icon{width:58px;height:58px;border-radius:17px;display:grid;place-items:center;color:white;background:var(--color-primary)}
+.bank-empty-icon{width:58px;height:58px;border-radius:17px;display:grid;place-items:center;color:var(--p-fff);background:var(--color-primary)}
 .bank-empty-state h2{margin:6px 0 7px;font:600 26px Georgia,"Noto Serif SC",serif}
 .bank-empty-state p{max-width:530px;margin:0;color:var(--color-text-muted);font-size:10px;line-height:1.7}
 .bank-empty-actions{display:grid;gap:8px}
 .bank-empty-actions>button{min-height:42px;border:1px solid var(--color-border);border-radius:10px;padding:9px 13px;display:flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer}
-.bank-empty-actions>button.primary{border-color:transparent;color:white;background:var(--color-primary)}
+.bank-empty-actions>button.primary{border-color:transparent;color:var(--p-fff);background:var(--color-primary)}
 .bank-create-intro{margin:0;padding:11px 13px;border-radius:10px;color:var(--color-text-muted);background:var(--color-primary-soft);font-size:10px;line-height:1.6}
 
 .bank-primary-actions{width:auto;display:flex;gap:8px}
 .bank-primary-actions>button{min-width:112px;min-height:42px;border-radius:10px;padding:8px 14px;display:flex;align-items:center;justify-content:center;gap:7px;text-align:center}
-.bank-primary-actions>button.primary{border-color:transparent;color:white;background:var(--color-primary)}
+.bank-primary-actions>button.primary{border-color:transparent;color:var(--p-fff);background:var(--color-primary)}
 .group-editor-title{min-width:0;flex:1}
 .group-editor-actions{display:flex;align-items:center;gap:7px}
-.group-editor-actions button{width:32px;min-height:32px;height:32px;padding:0;border:1px solid var(--color-border);border-radius:9px;display:grid;place-items:center;background:var(--color-surface-raised);cursor:pointer;line-height:0}
+.group-editor-actions button{width:32px;min-height:32px;height:32px;padding:0;border:1px solid var(--color-border);border-radius:9px;display:grid;place-items:center;color:var(--color-text);background:var(--color-surface-raised);cursor:pointer;line-height:0}
 .group-editor-actions button svg{display:block}
-.group-editor-actions button.primary{border:0;color:white;background:var(--color-primary)}
+.group-editor-actions button.primary{border:0;color:var(--p-fff);background:var(--color-primary)}
 .group-editor-actions button:disabled{opacity:.4;cursor:not-allowed}
 
 
 /* Bank library workspace */
 .bank-workspace { display:grid; grid-template-columns:minmax(260px,320px) minmax(0,1fr); gap:17px; align-items:start; }
 .bank-master-list,.bank-detail { border:1px solid var(--color-border); border-radius:19px; background:var(--bank-surface); overflow:hidden; }
-.bank-master-list>header { padding:18px; border-bottom:1px solid var(--p-e4e1da); display:flex; justify-content:space-between; gap:12px; }
+.bank-master-list>header { padding:18px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; gap:12px; }
 .bank-master-list>header>div { display:grid; gap:4px; }
 .bank-master-list>header strong { font-size:14px; }
 .bank-master-list>header span,.bank-master-list>header small { color:var(--color-text-muted); font-size:9px; }
 .bank-master-list>div { padding:8px; display:grid; gap:5px; }
 .bank-master-list article { border:1px solid transparent; border-radius:13px; padding:5px; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; background:transparent; }
-.bank-master-list article.active { border-color:var(--p-b9c8bf); background:var(--p-f0f5f1); }
-.bank-master-list article.selected { box-shadow:inset 3px 0 var(--p-417058); }
-.bank-scope-toggle { width:28px; height:28px; border:1px solid var(--p-c9cec9); border-radius:8px; display:grid; place-items:center; color:var(--bank-field-bg); background:var(--bank-field-bg); cursor:pointer; }
-.bank-master-list article.selected .bank-scope-toggle { border-color:var(--bank-accent); background:var(--bank-accent); }
-.bank-inspect-button { min-width:0; border:0; padding:7px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; text-align:left; background:transparent; cursor:pointer; }
+.bank-master-list article.active { border-color:var(--color-primary); background:var(--bank-selected-bg); }
+.bank-master-list article.selected { box-shadow:inset 3px 0 var(--color-primary); }
+.bank-scope-toggle { width:28px; height:28px; border:1px solid var(--color-border); border-radius:8px; display:grid; place-items:center; color:var(--color-text-muted); background:var(--color-surface-muted); cursor:pointer; }
+.bank-master-list article.selected .bank-scope-toggle { border-color:var(--bank-accent); color:var(--p-fff); background:var(--bank-accent); }
+.bank-inspect-button { min-width:0; border:0; padding:7px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; text-align:left; color:var(--color-text); background:transparent; cursor:pointer; }
 .bank-inspect-button>span:nth-child(2) { min-width:0; }
 .bank-inspect-button strong,.bank-inspect-button small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bank-inspect-button strong { font-size:12px; }
 .bank-inspect-button small { margin-top:4px; color:var(--color-text-muted); font-size:9px; }
-.bank-detail>header { padding:24px; border-bottom:1px solid var(--p-e3e0d9); display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.bank-detail>header { padding:24px; border-bottom:1px solid var(--color-border); display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .bank-detail>header h2 { margin:6px 0 7px; font:600 clamp(25px,3vw,34px) -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .bank-detail>header p { margin:0; display:flex; align-items:center; gap:5px; color:var(--color-text-muted); font-size:10px; }
 .bank-detail>header>button { border:1px solid var(--color-border); border-radius:10px; padding:9px 11px; display:flex; align-items:center; gap:6px; color:var(--color-text); background:var(--color-surface-raised); cursor:pointer; font-size:12px; }
 .bank-detail>header>button.selected { border-color:var(--color-primary); color:var(--color-primary-text); background:var(--color-primary-soft); }
-.bank-type-summary { padding:15px 24px; border-bottom:1px solid var(--p-e8e5df); display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-.bank-type-summary span { min-height:58px; padding:10px; border-radius:11px; display:grid; align-content:center; color:var(--p-748079); background:var(--p-eceae4); font-size:9px; }
+.bank-type-summary { padding:15px 24px; border-bottom:1px solid var(--color-border); display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.bank-type-summary span { min-height:58px; padding:10px; border-radius:11px; display:grid; align-content:center; color:var(--color-text-muted); background:var(--color-surface-muted); font-size:9px; }
 .bank-type-summary strong { color:var(--color-text); font:600 21px Georgia,serif; }
 .bank-stat-grid { padding:18px 24px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-.bank-stat-grid article { min-height:70px; padding:11px; border:1px solid var(--p-e0ddd6); border-radius:11px; display:flex; align-items:center; gap:9px; background:var(--bank-field-bg); }
-.bank-stat-grid svg { width:17px; color:var(--p-52715f); }
+.bank-stat-grid article { min-height:70px; padding:11px; border:1px solid var(--color-border); border-radius:11px; display:flex; align-items:center; gap:9px; color:var(--color-text); background:var(--bank-field-bg); }
+.bank-stat-grid svg { width:17px; color:var(--color-primary-text); }
 .bank-stat-grid span,.bank-stat-grid strong { display:block; }
-.bank-stat-grid span { color:var(--p-838a85); font-size:9px; }
+.bank-stat-grid span { color:var(--color-text-muted); font-size:9px; }
 .bank-stat-grid strong { margin-bottom:3px; color:var(--color-text); font-size:14px; }
 .bank-practice-actions { padding:0 24px 24px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
-.bank-practice-actions button { min-height:76px; border:1px solid var(--p-dcdad3); border-radius:12px; padding:12px; display:flex; align-items:center; gap:10px; text-align:left; color:var(--p-4d5f55); background:var(--bank-field-bg); cursor:pointer; }
-.bank-practice-actions button.featured { border-color:var(--p-3c6b53); color:var(--bank-field-bg); background:var(--p-315f48); }
+.bank-practice-actions button { min-height:76px; border:1px solid var(--color-border); border-radius:12px; padding:12px; display:flex; align-items:center; gap:10px; text-align:left; color:var(--color-text); background:var(--bank-field-bg); cursor:pointer; }
+.bank-practice-actions button.featured { border-color:var(--color-primary); color:var(--p-fff); background:var(--color-primary); }
 .bank-practice-actions button:disabled { opacity:.4; cursor:not-allowed; }
 .bank-practice-actions span,.bank-practice-actions strong,.bank-practice-actions small { display:block; }
 .bank-practice-actions strong { font-size:11px; }
-.bank-practice-actions small { margin-top:4px; color:var(--p-879089); font-size:9px; }
-.bank-practice-actions .featured small { color:var(--p-c6d8ce); }
+.bank-practice-actions small { margin-top:4px; color:var(--color-text-muted); font-size:9px; }
+.bank-practice-actions .featured small { color:color-mix(in srgb,var(--p-fff) 74%,transparent); }
 
 
 /* Knowledge organization */
-.knowledge-tabs { margin-bottom:17px; border-bottom:1px solid var(--p-dcdad3); display:flex; gap:5px; }
-.knowledge-tabs button { min-height:44px; border:0; border-bottom:3px solid transparent; padding:9px 14px; display:flex; align-items:center; gap:7px; color:var(--p-737d77); background:transparent; cursor:pointer; }
-.knowledge-tabs button.active { border-bottom-color:var(--bank-accent); color:var(--p-315e47); font-weight:700; }
-.knowledge-empty { min-height:280px; padding:30px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:var(--p-839089); }
+.knowledge-tabs { margin-bottom:17px; border-bottom:1px solid var(--color-border); display:flex; gap:5px; }
+.knowledge-tabs button { min-height:44px; border:0; border-bottom:3px solid transparent; padding:9px 14px; display:flex; align-items:center; gap:7px; color:var(--color-text-muted); background:transparent; cursor:pointer; }
+.knowledge-tabs button.active { border-bottom-color:var(--color-primary); color:var(--color-primary-text); font-weight:700; }
+.knowledge-empty { min-height:280px; padding:30px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:var(--color-text-muted); }
 .knowledge-empty h2 { margin:13px 0 6px; color:var(--color-text); }
 .knowledge-empty p { max-width:420px; margin:0; color:var(--color-text-muted); font-size:10px; line-height:1.6; }
 
@@ -89,39 +89,24 @@
 .bank-profile-strip strong,.bank-profile-strip small{display:block}
 .bank-profile-strip>div strong{font-size:13px}
 .bank-profile-strip>div small{margin-top:4px;color:var(--color-text-muted);font-size:9px}
-.bank-profile-strip>span:last-child{border-radius:99px;padding:5px 9px;color:var(--p-456956);background:var(--p-e4ece6);font-size:10px;font-weight:700}
-.bank-progress-hero{min-height:185px;border-radius:18px;padding:24px;display:grid;grid-template-columns:auto minmax(0,1fr) minmax(160px,220px);align-items:center;gap:24px;color:var(--bank-field-bg);background:linear-gradient(125deg,var(--p-214b38),var(--p-3d7559));overflow:hidden;position:relative}
+.bank-profile-strip>span:last-child{border-radius:99px;padding:5px 9px;color:var(--color-primary-text);background:var(--color-primary-soft);font-size:10px;font-weight:700}
+.bank-progress-hero{min-height:185px;border-radius:18px;padding:24px;display:grid;grid-template-columns:auto minmax(0,1fr) minmax(160px,220px);align-items:center;gap:24px;color:var(--bank-progress-text);background:linear-gradient(125deg,var(--bank-progress-bg-start),var(--bank-progress-bg-end));overflow:hidden;position:relative}
 .bank-progress-hero:after{content:"";position:absolute;width:230px;height:230px;border:48px solid var(--p-ffffff0a);border-radius:50%;right:-80px;top:-80px}
-.bank-progress-ring{width:116px;height:116px;border-radius:50%;display:grid;place-items:center;box-shadow:0 8px 25px var(--p-12281d45)}
-.bank-progress-ring>span{width:86px;height:86px;border-radius:50%;display:grid;place-content:center;text-align:center;background:var(--p-2b5d45)}
+.bank-progress-ring{width:116px;height:116px;border-radius:50%;display:grid;place-items:center;box-shadow:0 8px 25px var(--shadow-color)}
+.bank-progress-ring>span{width:86px;height:86px;border-radius:50%;display:grid;place-content:center;text-align:center;background:var(--bank-progress-ring-center)}
 .bank-progress-ring strong,.bank-progress-ring small{display:block}
-.bank-progress-ring strong{font:600 27px Georgia,serif}
-.bank-progress-ring small{margin-top:3px;color:var(--p-c9dbd1);font-size:9px}
+.bank-progress-ring strong{font:600 27px Georgia,serif;color:var(--bank-progress-text)}
+.bank-progress-ring small{margin-top:3px;color:var(--bank-progress-muted);font-size:9px}
 .bank-progress-copy{min-width:0;position:relative;z-index:1}
-.bank-progress-copy .section-kicker{color:var(--p-d8ad8f)}
-.bank-progress-copy h2{margin:8px 0 6px;font:600 22px Georgia,"Noto Serif SC",serif}
-.bank-progress-copy p{margin:0;color:var(--p-c6d8ce);font-size:10px;line-height:1.6}
-.bank-progress-bar{height:6px;margin-top:17px;border-radius:99px;overflow:hidden;background:var(--p-ffffff25)}
-.bank-progress-bar i{height:100%;display:block;border-radius:99px;background:var(--p-e8d7c5)}
-.bank-progress-side{min-width:0;padding-left:20px;border-left:1px solid var(--p-ffffff26);position:relative;z-index:1}
-.bank-progress-side span,.bank-progress-side strong,.bank-progress-side small{display:block}
-.bank-progress-side span{color:var(--p-bcd0c5);font-size:9px}
-.bank-progress-side strong{margin:8px 0 5px;font-size:14px}
-.bank-progress-side small{color:var(--p-c4d5cc);font-size:9px;line-height:1.5}
-.bank-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
-.bank-kpi{min-width:0;min-height:102px;border:1px solid var(--p-dfddd6);border-radius:14px;padding:12px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:9px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer;transition:.15s}
-
-/* Progress hero is a dark surface in both themes; foreground must never follow field backgrounds. */
-.bank-progress-hero{color:var(--bank-progress-text);background:linear-gradient(125deg,var(--bank-progress-bg-start),var(--bank-progress-bg-end))}
-.bank-progress-ring>span{background:var(--bank-progress-ring-center)}
-.bank-progress-ring strong{color:var(--bank-progress-text)}
-.bank-progress-ring small{color:var(--bank-progress-muted)}
 .bank-progress-copy .section-kicker{color:var(--bank-progress-kicker)}
-.bank-progress-copy h2{color:var(--bank-progress-text)}
-.bank-progress-copy p{color:var(--bank-progress-muted)}
-.bank-progress-bar{background:var(--bank-progress-bar-track)}
-.bank-progress-bar i{background:var(--bank-progress-bar-fill)}
-.bank-progress-side{border-left-color:var(--bank-progress-divider)}
-.bank-progress-side span{color:var(--bank-progress-side-label)}
-.bank-progress-side strong{color:var(--bank-progress-text)}
-.bank-progress-side small{color:var(--bank-progress-side-muted)}
+.bank-progress-copy h2{margin:8px 0 6px;color:var(--bank-progress-text);font:600 22px Georgia,"Noto Serif SC",serif}
+.bank-progress-copy p{margin:0;color:var(--bank-progress-muted);font-size:10px;line-height:1.6}
+.bank-progress-bar{height:6px;margin-top:17px;border-radius:99px;overflow:hidden;background:var(--bank-progress-bar-track)}
+.bank-progress-bar i{height:100%;display:block;border-radius:99px;background:var(--bank-progress-bar-fill)}
+.bank-progress-side{min-width:0;padding-left:20px;border-left:1px solid var(--bank-progress-divider);position:relative;z-index:1}
+.bank-progress-side span,.bank-progress-side strong,.bank-progress-side small{display:block}
+.bank-progress-side span{color:var(--bank-progress-side-label);font-size:9px}
+.bank-progress-side strong{margin:8px 0 5px;color:var(--bank-progress-text);font-size:14px}
+.bank-progress-side small{color:var(--bank-progress-side-muted);font-size:9px;line-height:1.5}
+.bank-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.bank-kpi{min-width:0;min-height:102px;border:1px solid var(--color-border);border-radius:14px;padding:12px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:9px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer;transition:.15s}
