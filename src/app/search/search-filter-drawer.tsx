@@ -5,8 +5,8 @@ import { ArrowLeft, Check, ChevronRight, RotateCcw, Search, X } from "lucide-rea
 import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/practice/progress-scope";
-import type { BankV7 } from "@/lib/db/v7-types";
-import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope } from "@/app/search/search-matching";
+import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import { SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope } from "@/app/search/search-matching";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
 import type { TagMatchMode } from "@/lib/question/tag-filter";
 
@@ -14,11 +14,17 @@ export type SearchBankScope = "current" | "all" | "custom";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
 export type SearchNoteFilter = "all" | "with" | "without";
 
+const SEARCH_QUESTION_TYPE_OPTIONS: Array<{ value: "all" | QuestionTypeV7; label: string }> = [
+  { value: "all", label: "全部题型" },
+  ...SEARCH_TYPE_ORDER.map((type) => ({ value: type, label: type })),
+];
+
 export interface SearchFilters {
   bankScope: SearchBankScope;
   customBankIds: string[];
   keywordMode: "plain" | "regex";
   contentScope: SearchContentScope;
+  questionType: "all" | QuestionTypeV7;
   status: SearchStatus;
   tags: string[];
   tagMatch: TagMatchMode;
@@ -40,6 +46,7 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[], co
     customBankIds: [],
     keywordMode: "regex",
     contentScope,
+    questionType: "all",
     status: "all",
     tags: [],
     tagMatch: "any",
@@ -75,6 +82,7 @@ export function countActiveSearchFilters(filters: SearchFilters): number {
     filters.bankScope !== "current",
     filters.keywordMode !== "regex",
     filters.contentScope !== "all",
+    filters.questionType !== "all",
     filters.status !== "all",
     filters.tags.length > 0,
     filters.noteFilter !== "all",
@@ -202,6 +210,9 @@ export function SearchFilterDrawer({
                     <button role="radio" aria-checked={filters.keywordMode === "plain"} className={filters.keywordMode === "plain" ? "active" : ""} onClick={() => patch({ keywordMode: "plain" })}>包含关键词</button>
                   </div>
                 </div>
+              </div>
+              <div className="search-filter-select-row search-filter-select-row-single">
+                <label htmlFor="search-filter-question-type">题型<AppSelect id="search-filter-question-type" ariaLabel="题型" value={filters.questionType} onValueChange={(questionType) => patch({ questionType: questionType as SearchFilters["questionType"] })} options={SEARCH_QUESTION_TYPE_OPTIONS} /></label>
               </div>
               <div className="search-filter-tag-field"><span>用户标签</span><TagMultiSelect tags={tags} selected={filters.tags} onChange={(selectedTags) => patch({ tags: selectedTags })} matchMode={filters.tagMatch} onMatchModeChange={(tagMatch) => patch({ tagMatch })} ariaLabel="搜索筛选标签" /></div>
               <div className="search-filter-select-row search-filter-select-row-single">
