@@ -1,5 +1,3 @@
-/* Progress-scope and review-round controls are standalone so callers can place
-   them in settings, practice setup, or a future review workspace. */
 .review-scope-control,
 .review-round-manager,
 .practice-round-picker {
