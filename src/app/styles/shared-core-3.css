@@ -10,7 +10,7 @@
 @keyframes quick-sync-orbit{to{transform:rotate(270deg)}}
 .top-sync-progress{position:fixed;left:224px;right:0;top:78px;z-index:19;padding:7px clamp(22px,4vw,58px) 8px;color:var(--color-text);background:color-mix(in srgb,var(--color-surface) 94%,transparent);box-shadow:0 7px 18px color-mix(in srgb,var(--color-text) 8%,transparent);backdrop-filter:blur(14px)}
 .top-sync-progress>span{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:10px;font-weight:700}
-.top-sync-progress em{color:var(--color-primary);font-style:normal}
+.top-sync-progress em{color:var(--color-primary-text);font-style:normal}
 .top-sync-progress>i{height:4px;margin-top:5px}
 .history-filters{margin:22px 0 14px;display:flex;gap:7px;overflow:auto}
 .history-filters button{border:1px solid;border-radius:99px;padding:7px 10px;display:flex;gap:6px;cursor:pointer;white-space:nowrap}
@@ -25,14 +25,14 @@
 .history-title strong{font-size:13px}
 .history-title small{margin-left:auto;color:var(--color-text-muted)}
 .history-list h3{margin:0;font-size:12px;font-weight:500}
-.history-metrics{grid-column:1;display:flex;flex-wrap:wrap;gap:12px;color:var(--p-7a837d);font-size:10px}
+.history-metrics{grid-column:1;display:flex;flex-wrap:wrap;gap:12px;color:var(--color-text-muted);font-size:10px}
 .history-metrics b{color:var(--color-text)}
 .history-open>svg{grid-column:2;grid-row:2/4;align-self:center}
 .history-card-actions{position:absolute;right:13px;top:50%;display:flex;gap:6px;transform:translateY(-50%)}
 .history-card-actions button{width:31px;height:31px;border:1px solid;border-radius:9px;display:grid;place-items:center;cursor:pointer}
 .history-delete-action{position:absolute;right:0;top:0;width:68px;height:100%;border:0;display:grid;place-items:center;color:var(--p-fff);background:var(--p-b64d37);cursor:pointer}
 .run-status{display:inline-flex;border-radius:99px;padding:4px 8px;font-size:9px;font-style:normal}
-.history-empty{min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--p-879089);text-align:center}
+.history-empty{min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--color-text-muted);text-align:center}
 .history-empty h3{margin:13px 0 5px;color:var(--color-text)}
 .history-empty p{margin:0;font-size:11px}
 .run-result{max-width:960px;margin:0 auto}
