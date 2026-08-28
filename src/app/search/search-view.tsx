@@ -156,9 +156,6 @@ export function SearchView({
   const pageRef = useRef<HTMLDivElement>(null);
   const searchClientRef = useSearchWorkerClient();
 
-  // 吸附两阶段状态（JS 给 .search-page 加状态类，CSS 过渡接管视觉）：
-  // search-pinned：搜索框吸到视口顶部 → 上圆角压平贴顶（下边缘保持圆角）。
-  // search-stuck：批量栏贴上搜索框 → 去掉批量栏上圆角，与搜索框无缝相接。
   useEffect(() => {
     const page = pageRef.current;
     if (!page) return;
@@ -315,8 +312,6 @@ export function SearchView({
       onNotice(validationError);
       return;
     }
-    // Enter/click is an explicit search action, so bypass the typing debounce
-    // and make the just-submitted query visible in the same render cycle.
     setDebouncedQuery(query);
     if (filters.bankScope === "custom" && !filters.customBankIds.length) {
       onNotice("请至少选择一个指定题库");
