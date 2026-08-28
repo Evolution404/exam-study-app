@@ -45,7 +45,7 @@
 .search-type-tabs button { min-height:43px; border:0; border-bottom:3px solid transparent; padding:9px 13px; display:flex; align-items:center; gap:6px; color:var(--search-tab-text); background:transparent; cursor:pointer; white-space:nowrap; }
 .search-type-tabs button span { min-width:23px; padding:2px 5px; border-radius:99px; color:var(--search-tab-count-text); background:var(--search-tab-count-bg); font-size:9px; }
 .search-type-tabs button.active { border-bottom-color:var(--search-tab-active-border); color:var(--search-tab-active-text); font-weight:700; }
-.search-type-tabs button.active span { color:var(--color-surface-raised); background:var(--search-tab-active-count-bg); }
+.search-type-tabs button.active span { color:var(--search-tab-active-count-text); background:var(--search-tab-active-count-bg); }
 .search-filter-toggle { margin-bottom:8px; border:1px solid var(--color-border); border-radius:10px; padding:8px 11px; display:flex; align-items:center; gap:6px; color:var(--color-text-muted); background:var(--color-surface-muted); cursor:pointer; font-size:12px; }
 .search-trigger-button { margin-bottom:8px; border:0; border-radius:10px; padding:8px 16px; display:flex; align-items:center; gap:6px; color:white; background:var(--color-primary); cursor:pointer; font-size:12px; font-weight:700; }
 .search-filter-toggle.active { border-color:var(--color-primary); color:var(--color-primary-text); background:var(--color-primary-soft); }
