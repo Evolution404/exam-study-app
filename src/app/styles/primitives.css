@@ -30,7 +30,7 @@
 .center-panel .primary { margin-top:10px; }
 .chip-list { display:flex; flex-wrap:wrap; gap:7px; }
 .chip-list button { border:1px solid var(--color-border); background:var(--color-surface-muted); border-radius:99px; padding:7px 11px; color:var(--color-text); cursor:pointer; font-size:12px; }
-.chip-list button.selected { border-color:var(--color-primary); background:var(--color-primary-soft); color:var(--color-primary-strong); }
+.chip-list button.selected { border-color:var(--color-primary); background:var(--color-primary-soft); color:var(--color-primary-text); }
 .setup-footer>.primary{min-height:48px}
 .simple-dialog-backdrop{position:fixed;inset:0;z-index:110;padding:20px;display:grid;place-items:center;background:var(--p-13231b99);backdrop-filter:blur(4px)}
 .simple-dialog{width:min(570px,100%);border-radius:18px;overflow:hidden;background:var(--p-faf9f5);box-shadow:0 25px 80px var(--p-0c1d154a)}
@@ -54,7 +54,7 @@
 .quick-restore-dialog>footer .danger-button{color:var(--color-danger);background:var(--color-danger-soft);border-color:var(--color-danger)}
 
 .confirm-dialog-body{grid-template-columns:auto minmax(0,1fr);align-items:flex-start}
-.confirm-dialog-icon{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:var(--color-primary);background:var(--color-primary-soft)}
+.confirm-dialog-icon{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:var(--color-primary-text);background:var(--color-primary-soft)}
 .confirm-dialog-body>div{min-width:0;color:var(--color-text-muted);font-size:12px;line-height:1.7}
 .confirm-dialog-body strong{display:block;margin-bottom:4px;color:var(--color-text);font-size:14px}
 .confirm-dialog.danger .confirm-dialog-icon{color:var(--color-danger);background:var(--color-danger-soft)}
@@ -62,13 +62,13 @@
 .confirm-dialog>footer .danger-button{color:var(--color-danger);border-color:var(--color-danger);background:var(--color-danger-soft)}
 .confirm-dialog>footer .primary{color:white}
 .confirm-dialog>footer{flex-wrap:wrap}
-.simple-dialog>footer .confirm-dialog-secondary{color:var(--color-primary);border-color:var(--color-primary)}
+.simple-dialog>footer .confirm-dialog-secondary{color:var(--color-primary-text);border-color:var(--color-primary)}
 .confirm-dialog .confirm-dialog-error{margin-top:12px}
 
 .dialog-progress{margin-top:16px}
 .dialog-progress>span{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .dialog-progress>span strong{margin:0;color:var(--color-text);font-size:11px}
-.dialog-progress em{color:var(--color-primary);font-size:11px;font-style:normal;font-weight:700}
+.dialog-progress em{color:var(--color-primary-text);font-size:11px;font-style:normal;font-weight:700}
 .dialog-progress>i,.top-sync-progress>i{height:6px;margin-top:7px;border-radius:99px;display:block;overflow:hidden;background:var(--color-border)}
 .dialog-progress>i b,.top-sync-progress>i b{height:100%;display:block;border-radius:inherit;background:var(--color-primary);transition:width .2s ease}
 .confirm-dialog.danger .dialog-progress>i b{background:var(--color-danger)}
@@ -87,7 +87,7 @@
   padding: 0;
   border: 0;
   border-radius: 8px;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   background: var(--color-surface-muted);
   transition:
     color var(--motion-fast) var(--motion-ease),
