@@ -2,6 +2,7 @@
 
 import * as Select from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import type { CSSProperties } from "react";
 
 export interface AppSelectOption {
   value: string;
@@ -19,11 +20,12 @@ export interface AppSelectProps {
   className?: string;
   contentClassName?: string;
   id?: string;
+  style?: CSSProperties;
 }
 
-export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id }: AppSelectProps) {
+export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id, style }: AppSelectProps) {
   return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
-    <Select.Trigger id={id} className={["app-select-trigger", className].filter(Boolean).join(" ")} aria-label={ariaLabel}>
+    <Select.Trigger id={id} className={["app-select-trigger", className].filter(Boolean).join(" ")} aria-label={ariaLabel} style={style}>
       <Select.Value placeholder={placeholder} />
       <Select.Icon className="app-select-icon"><ChevronDown size={15} aria-hidden="true" /></Select.Icon>
     </Select.Trigger>
