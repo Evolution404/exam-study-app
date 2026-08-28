@@ -16,6 +16,8 @@
   --bank-progress-text: var(--p-fff);
   --bank-progress-muted: var(--p-c6d8ce);
   --bank-progress-kicker: var(--p-c9dbd1);
+  --bank-progress-ring-fill: var(--bank-progress-kicker);
+  --bank-progress-ring-track: var(--bank-progress-bar-track);
   --bank-progress-ring-center: var(--p-2b5d45);
   --bank-progress-bar-track: var(--p-ffffff25);
   --bank-progress-bar-fill: var(--p-e8d7c5);
@@ -40,6 +42,8 @@ html[data-theme="dark"] {
   --bank-progress-text: var(--p-fff);
   --bank-progress-muted: var(--p-c6d8ce);
   --bank-progress-kicker: var(--p-b8d8c5);
+  --bank-progress-ring-fill: var(--bank-progress-kicker);
+  --bank-progress-ring-track: var(--bank-progress-bar-track);
   --bank-progress-ring-center: var(--p-243a2e);
   --bank-progress-bar-track: var(--p-ffffff25);
   --bank-progress-bar-fill: var(--p-c9dbd1);
