@@ -110,3 +110,18 @@
 .bank-progress-side small{color:var(--p-c4d5cc);font-size:9px;line-height:1.5}
 .bank-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
 .bank-kpi{min-width:0;min-height:102px;border:1px solid var(--p-dfddd6);border-radius:14px;padding:12px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:9px;text-align:left;color:var(--color-text);background:var(--bank-field-bg);cursor:pointer;transition:.15s}
+
+/* Progress hero is a dark surface in both themes; foreground must never follow field backgrounds. */
+.bank-progress-hero{color:var(--bank-progress-text);background:linear-gradient(125deg,var(--bank-progress-bg-start),var(--bank-progress-bg-end))}
+.bank-progress-ring>span{background:var(--bank-progress-ring-center)}
+.bank-progress-ring strong{color:var(--bank-progress-text)}
+.bank-progress-ring small{color:var(--bank-progress-muted)}
+.bank-progress-copy .section-kicker{color:var(--bank-progress-kicker)}
+.bank-progress-copy h2{color:var(--bank-progress-text)}
+.bank-progress-copy p{color:var(--bank-progress-muted)}
+.bank-progress-bar{background:var(--bank-progress-bar-track)}
+.bank-progress-bar i{background:var(--bank-progress-bar-fill)}
+.bank-progress-side{border-left-color:var(--bank-progress-divider)}
+.bank-progress-side span{color:var(--bank-progress-side-label)}
+.bank-progress-side strong{color:var(--bank-progress-text)}
+.bank-progress-side small{color:var(--bank-progress-side-muted)}
