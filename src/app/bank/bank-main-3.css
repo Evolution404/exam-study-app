@@ -22,7 +22,7 @@
 .bank-dashboard-number span{margin-top:4px;color:var(--p-7e8781);font-size:8px}
 .bank-range-tabs{margin:-50px 0 18px auto;width:max-content;border-radius:9px;padding:3px;display:flex;gap:2px;background:var(--p-e8e7e1)}
 .bank-range-tabs button{border:0;border-radius:7px;padding:5px 9px;color:var(--color-text-muted);background:transparent;cursor:pointer;font-size:12px}
-.bank-range-tabs button.active{color:var(--color-primary-strong);background:var(--color-surface-raised);box-shadow:0 2px 6px color-mix(in srgb,var(--color-text) 12%,transparent)}
+.bank-range-tabs button.active{color:var(--bank-accent-strong);background:var(--color-surface-raised);box-shadow:0 2px 6px color-mix(in srgb,var(--color-text) 12%,transparent)}
 .bank-distribution{min-height:32px;display:grid;grid-template-columns:43px minmax(0,1fr) 60px;align-items:center;gap:9px;color:var(--p-657169);font-size:9px}
 .bank-distribution>div{height:7px;border-radius:99px;overflow:hidden;background:var(--p-e6e5df)}
 .bank-distribution i{height:100%;display:block;border-radius:99px}
