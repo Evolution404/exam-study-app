@@ -7,3 +7,19 @@
 .bank-enable-toggle[aria-checked="true"] .bank-enable-toggle-track>span{background:var(--color-primary);opacity:1;transform:translateX(14px)}
 .bank-enable-toggle:focus-visible{outline:0}
 .bank-enable-toggle:focus-visible .bank-enable-toggle-track{box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 18%,transparent)}
+
+/* Correct-answer letters are state controls, not ordinary editor buttons.
+   Keep the selected state visually dominant after the centralized dark-theme
+   button rule: solid brand fill + white glyph, with a small focus/state ring. */
+.question-editor .editor-options button.answer-selected{
+  border-color:var(--color-primary);
+  color:#fff;
+  background:var(--color-primary);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--color-primary) 24%,transparent);
+}
+.question-editor .editor-options button.answer-selected:hover,
+.question-editor .editor-options button.answer-selected:focus-visible{
+  border-color:var(--color-primary);
+  color:#fff;
+  background:var(--color-primary);
+}
