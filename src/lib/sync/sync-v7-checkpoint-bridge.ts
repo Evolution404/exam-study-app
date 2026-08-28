@@ -1,6 +1,7 @@
 import { dbV7, reconcileV7Projection, type V7ChangeSetQueueGuard } from "../db/db-v7";
 import type { ChangeSetV7 } from "./change-set-v7-types";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
+import { normalizeProjection } from "./change-set-v7-projection-core";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import type { SyncV7DeviceWatermark } from "./sync-v7-head-types";
 import { reclaimableTombstonesV7 } from "./sync-v7-watermark";
@@ -10,7 +11,11 @@ export async function saveQueueBase(projection: ChangeSetProjectionV7): Promise<
 }
 
 export function projectionFromCheckpoint(checkpoint: SyncCheckpointV7): Promise<ChangeSetProjectionV7> {
-  return Promise.resolve({ ...checkpoint.state, memberships: checkpoint.state.memberships, imageAssets: checkpoint.state.imageAssets });
+  return Promise.resolve(normalizeProjection({
+    ...checkpoint.state,
+    memberships: checkpoint.state.memberships,
+    imageAssets: checkpoint.state.imageAssets,
+  }));
 }
 
 export function checkpointFromProjection(
