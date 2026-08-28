@@ -147,7 +147,9 @@ assert.match(editor, /支持 Markdown 与 LaTeX 公式/, "编辑器提示文案�
 assert.match(styles, /\.note-markdown h4\{font-size:13\.5px\}/, "标题层级拉开字号");
 assert.match(styles, /\.note-markdown blockquote\{[^}]*white-space:pre-line/, "引用换行行为与段落一致");
 assert.match(styles, /\.note-panel-view\{/, "渲染态视图样式存在");
-assert.match(styles, /html\[data-theme="dark"\] :is\([^)]*\.note-markdown p/, "夜间模式并入既有选择器（不新增页面级夜间规则）");
+assert.match(styles, /\.note-markdown p\{[^}]*color:var\(--color-text-muted\)/, "解析正文使用语义辅助文字 token，昼夜自动适配");
+assert.match(styles, /\.note-markdown (?:ul|ol)[^\{]*\{[^}]*color:var\(--color-text-muted\)/, "解析列表使用语义辅助文字 token");
+assert.doesNotMatch(styles, /html\[data-theme="dark"\][^{]*\.note-markdown/, "解析渲染已 token 化，不应重新引入专属 dark patch");
 
 // --- 防回退：详情页选项样式不得穿透 markdown（bug：列表被渲染成选项盒） ------
 // .search-detail-body 的选项列表样式必须收敛到直接子级（> ol > li），
