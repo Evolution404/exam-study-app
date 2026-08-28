@@ -2,7 +2,7 @@
 
 import * as Select from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 export interface AppSelectOption {
   value: string;
@@ -24,8 +24,22 @@ export interface AppSelectProps {
 }
 
 export function AppSelect({ value, onValueChange, options, ariaLabel, placeholder, disabled, className, contentClassName, id, style }: AppSelectProps) {
-  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
-    <Select.Trigger id={id} className={["app-select-trigger", className].filter(Boolean).join(" ")} aria-label={ariaLabel} style={style}>
+  const [open, setOpen] = useState(false);
+  return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled} open={open} onOpenChange={setOpen}>
+    <Select.Trigger
+      id={id}
+      className={["app-select-trigger", className].filter(Boolean).join(" ")}
+      aria-label={ariaLabel}
+      style={style}
+      onPointerDown={(event) => {
+        if (!open) return;
+        // Radix Select opens from pointerdown. When its open trigger is tapped,
+        // the dismissable layer closes first and the trigger would immediately
+        // open it again unless we consume that same pointer interaction.
+        event.preventDefault();
+        setOpen(false);
+      }}
+    >
       <Select.Value placeholder={placeholder} />
       <Select.Icon className="app-select-icon"><ChevronDown size={15} aria-hidden="true" /></Select.Icon>
     </Select.Trigger>
