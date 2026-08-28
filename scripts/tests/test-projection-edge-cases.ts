@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
+import { normalizeProjection, runWithAnswer } from "../../src/lib/sync/change-set-v7-projection-core";
 import { type ChangeSetMutationV7 } from "../../src/lib/sync/change-set-v7-types";
 import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
 import type { BankV7, QuestionV7, PracticeRunV7, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/v7-types";
@@ -42,6 +43,37 @@ const empty: ChangeSetProjectionV7 = {
   attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [],
   practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [],
 };
+
+// ---------------------------------------------------------------------------
+// synced submitted-answer timestamp repair
+// ---------------------------------------------------------------------------
+{
+  const ANSWER_AT = "2026-08-13T01:23:45.000Z";
+  const base = structuredClone(empty);
+  const legacyRun = run("r-sync", "b1", ["q1"]);
+  legacyRun.answers.q1 = { selected: ["A"], submitted: true, correct: true };
+  base.practiceRuns.push(legacyRun);
+  base.attempts.push({
+    id: "a-sync", runId: "r-sync", questionId: "q1", selected: "A", correct: true,
+    elapsedMs: 1, createdAt: ANSWER_AT, deviceId: device,
+  });
+
+  const normalized = normalizeProjection(base);
+  assert.equal(normalized.practiceRuns[0].answers.q1.updatedAt, ANSWER_AT, "checkpoint answer uses matching latest attempt timestamp");
+  assert.equal(base.practiceRuns[0].answers.q1.updatedAt, undefined, "normalization must not mutate caller projection");
+
+  const validRun = run("r-valid", "b1", ["q1"]);
+  validRun.answers.q1 = { selected: ["A"], submitted: true, correct: true, updatedAt: ANSWER_AT };
+  const validNormalized = normalizeProjection({ ...structuredClone(empty), practiceRuns: [validRun] });
+  assert.equal(validNormalized.practiceRuns[0].answers.q1.updatedAt, ANSWER_AT, "valid answer timestamp stays unchanged");
+
+  const replayed = runWithAnswer(
+    run("r-wire", "b1", ["q1"]),
+    "q1",
+    { selected: ["A"], submitted: true, correct: true },
+  );
+  assert.equal(replayed.answers.q1.updatedAt, AT, "legacy wire answer falls back to the run clock");
+}
 
 // ---------------------------------------------------------------------------
 // bank delete
