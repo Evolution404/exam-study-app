@@ -1,8 +1,8 @@
 {
-  "totalBytes": 291365,
+  "totalBytes": 290912,
   "maxFileBytes": 13741,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 259004,
+  "totalDebtScore": 258551,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -233,7 +233,7 @@
       "important": 0
     },
     "src/app/styles/shared-core-2.css": {
-      "bytes": 11718,
+      "bytes": 11233,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 2
@@ -245,7 +245,7 @@
       "important": 0
     },
     "src/app/practice/practice-main-1.css": {
-      "bytes": 12243,
+      "bytes": 12275,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 1
