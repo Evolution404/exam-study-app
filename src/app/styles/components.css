@@ -26,8 +26,6 @@
 @import "./preferences.css";
 @import "./responsive.css";
 @import "./responsive-shared.css";
-@import "../practice/practice-short-answer.css";
-@import "../search/search-detail-layout.css";
 @import "./dark-overrides.css";
 @import "./practice-setup.css";
 @import "./content-blocks.css";
