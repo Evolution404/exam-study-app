@@ -1,5 +1,5 @@
 "use client";
-import { ChevronLeft, ChevronRight, CircleHelp, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CircleHelp, Eye, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
 import { difficultyLabel, difficultyTone, type AttemptSummary } from "@/lib/practice/practice-metrics";
 import { formatKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
@@ -52,17 +52,30 @@ export function PracticeNavigationHints({ preferences }: { preferences: Practice
   </>;
 }
 
-export function PracticeActionBar({ submitted, correct, questionType, preferences, selectedCount, shortHasAnswer, calculationInputValid, fillInputValid, autoAdvancing, index, isLast, onPrevious, onGiveUp, onSubmit, onGrade, onRetry, onFinish, onNext }: { submitted: boolean; correct: boolean; questionType: QuestionType; preferences: PracticePreferences; selectedCount: number; shortHasAnswer: boolean; calculationInputValid: boolean; fillInputValid: boolean; autoAdvancing: boolean; index: number; isLast: boolean; onPrevious: () => void; onGiveUp: () => void; onSubmit: () => void; onGrade: (outcome: AttemptOutcome) => void; onRetry: () => void; onFinish: () => void; onNext: () => void }) {
+export function PracticeActionBar({ submitted, correct, questionType, preferences, selectedCount, shortAnswerRevealed, calculationInputValid, fillInputValid, autoAdvancing, index, isLast, onPrevious, onGiveUp, onRevealAnswer, onSubmit, onGrade, onRetry, onFinish, onNext }: { submitted: boolean; correct: boolean; questionType: QuestionType; preferences: PracticePreferences; selectedCount: number; shortAnswerRevealed: boolean; calculationInputValid: boolean; fillInputValid: boolean; autoAdvancing: boolean; index: number; isLast: boolean; onPrevious: () => void; onGiveUp: () => void; onRevealAnswer: () => void; onSubmit: () => void; onGrade: (outcome: AttemptOutcome) => void; onRetry: () => void; onFinish: () => void; onNext: () => void }) {
   const submitDisabled = questionType === "计算" ? !calculationInputValid : questionType === "填空" ? !fillInputValid : selectedCount === 0;
+  const nextAction = autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" style={{ width: "100%" }} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>;
+
+  if (questionType === "简答") {
+    const rowStyle = { width: "100%", display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 } as const;
+    const actionStyle = { width: "100%", minWidth: 0, minHeight: 44, justifyContent: "center" } as const;
+    return <div className={`practice-actions short-answer-actions ${submitted ? "submitted" : ""} ${submitted && !correct && preferences.wrongReappearance === "immediate" ? "with-retry" : ""}`} style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, alignItems: "stretch" }}>
+      {!submitted && <div className="short-answer-primary-row" style={rowStyle}>
+        {!shortAnswerRevealed ? <><button className="dont-know-action" style={actionStyle} onClick={onGiveUp}><CircleHelp size={17} />不会</button><button className="primary short-reveal-answer" style={actionStyle} onClick={onRevealAnswer}><Eye size={17} />查看答案</button></> : <div className="short-grade-actions" role="group" aria-label="简答题自评" style={{ gridColumn: "1 / -1", width: "100%", display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 }}><button className="secondary short-grade-icon" style={{ ...actionStyle, padding: 0, color: "var(--color-success)" }} aria-label="标记正确" onClick={() => onGrade("correct")}><Check size={20} /></button><button className="secondary short-grade-icon" style={{ ...actionStyle, padding: 0, color: "var(--color-danger)" }} aria-label="标记错误" onClick={() => onGrade("incorrect")}><X size={20} /></button></div>}
+      </div>}
+      {submitted && !correct && preferences.wrongReappearance === "immediate" && <div className="short-answer-primary-row" style={{ ...rowStyle, gridTemplateColumns: "1fr" }}><button className="secondary retry-question" style={actionStyle} onClick={onRetry}><RefreshCw size={16} />立即重答</button></div>}
+      <div className="short-answer-nav-row" style={rowStyle}><button className="secondary practice-previous" style={actionStyle} onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button>{nextAction}</div>
+    </div>;
+  }
+
   return <div className={`practice-actions ${submitted ? "submitted" : ""} ${submitted && !correct && preferences.wrongReappearance === "immediate" ? "with-retry" : ""}`}>
     <button className="secondary practice-previous" onClick={onPrevious} disabled={index === 0}><ChevronLeft size={18} />上一题</button>
     <div>
       {!submitted && <button className="dont-know-action" onClick={onGiveUp}><CircleHelp size={17} />不会</button>}
-      {!submitted && questionType !== "多选" && questionType !== "计算" && questionType !== "填空" && questionType !== "简答" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}
-      {!submitted && (questionType === "计算" || questionType === "多选" || questionType === "填空" || (!preferences.submitOnSelect && questionType !== "简答")) && <button className="primary practice-submit" disabled={submitDisabled} onClick={onSubmit}>确认答案</button>}
-      {!submitted && questionType === "简答" && <div className="short-grade-actions"><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("correct")}>标记正确</button><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("incorrect")}>标记错误</button><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("skipped")}>跳过</button></div>}
+      {!submitted && questionType !== "多选" && questionType !== "计算" && questionType !== "填空" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}
+      {!submitted && (questionType === "计算" || questionType === "多选" || questionType === "填空" || !preferences.submitOnSelect) && <button className="primary practice-submit" disabled={submitDisabled} onClick={onSubmit}>确认答案</button>}
       {submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary retry-question" onClick={onRetry}><RefreshCw size={16} />立即重答</button>}
-      {autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>}
+      {nextAction}
     </div>
   </div>;
 }
