@@ -44,16 +44,18 @@
 /* 做错选项标记（练习结果详情）：与做题界面 .options .wrong 同语义——选项文字
    保持正文墨色，只有边框/底色/字母块/状态图标变色；全 token 昼夜自适应。 */
 .search-detail-body>ol>li.wrong{border-color:var(--color-danger);background:var(--color-danger-soft)}
-
 .search-detail-body>ol>li.wrong>span{color:white;background:var(--color-danger)}
-
 .search-detail-body>ol>li.answer>svg{color:var(--color-success)}
-
 .search-detail-body>ol>li.wrong>svg{color:var(--color-danger)}
-
 
 /* Currently-open question detail in a navigable list */
 .search-result-list article.detail-current {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
+
+/* Keep long question-detail records scrollable while navigation stays fixed. */
+.search-question-detail>.search-detail-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.search-question-detail>header,.search-question-detail>.question-detail-toolbar,.search-question-detail>footer.question-detail-pager{flex:none}
+.search-question-detail>footer.question-detail-pager{margin-top:auto;background:var(--search-detail-bg)}
+@media(max-width:760px){.search-question-detail>.search-detail-body{padding-bottom:18px}.search-question-detail>footer.question-detail-pager{padding-bottom:calc(10px + var(--app-safe-bottom))}}
