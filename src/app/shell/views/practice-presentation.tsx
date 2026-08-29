@@ -1,5 +1,5 @@
 "use client";
-import { ChevronLeft, ChevronRight, CircleHelp, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CircleHelp, Grid3X3, NotebookPen, Pencil, RefreshCw, SkipForward, Star, X } from "lucide-react";
 import { difficultyLabel, difficultyTone, type AttemptSummary } from "@/lib/practice/practice-metrics";
 import { formatKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
@@ -60,7 +60,7 @@ export function PracticeActionBar({ submitted, correct, questionType, preference
       {!submitted && <button className="dont-know-action" onClick={onGiveUp}><CircleHelp size={17} />不会</button>}
       {!submitted && questionType !== "多选" && questionType !== "计算" && questionType !== "填空" && questionType !== "简答" && preferences.submitOnSelect && <span className="answer-action-hint">选择答案后立即判定</span>}
       {!submitted && (questionType === "计算" || questionType === "多选" || questionType === "填空" || (!preferences.submitOnSelect && questionType !== "简答")) && <button className="primary practice-submit" disabled={submitDisabled} onClick={onSubmit}>确认答案</button>}
-      {!submitted && questionType === "简答" && <div className="short-grade-actions"><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("correct")}>标记正确</button><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("incorrect")}>标记错误</button><button className="secondary" disabled={!shortHasAnswer} onClick={() => onGrade("skipped")}>跳过</button></div>}
+      {!submitted && questionType === "简答" && <div className="short-grade-actions" role="group" aria-label="简答题自评"><button className="secondary short-grade-icon short-grade-correct" aria-label="标记正确" disabled={!shortHasAnswer} onClick={() => onGrade("correct")}><Check size={19} /></button><button className="secondary short-grade-icon short-grade-incorrect" aria-label="标记错误" disabled={!shortHasAnswer} onClick={() => onGrade("incorrect")}><X size={19} /></button><button className="secondary short-grade-icon short-grade-skip" aria-label="跳过" disabled={!shortHasAnswer} onClick={() => onGrade("skipped")}><SkipForward size={18} /></button></div>}
       {submitted && !correct && preferences.wrongReappearance === "immediate" && <button className="secondary retry-question" onClick={onRetry}><RefreshCw size={16} />立即重答</button>}
       {autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>}
     </div>
