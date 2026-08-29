@@ -29,6 +29,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     ? initialState?.selected ?? Array.from({ length: expectedFillSolution?.blanks.length ?? 1 }, () => "")
     : []);
   const [shortOutcome, setShortOutcome] = useState<AttemptOutcome | undefined>(initialState?.outcome);
+  const [shortAnswerRevealed, setShortAnswerRevealed] = useState(question.type === "简答" && Boolean(initialState?.submitted));
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
@@ -83,14 +84,15 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   }, [draft, note?.content]);
 
   useEffect(() => {
-    const syncTimerState = () => activeTimer.current?.setPaused(document.hidden || editing || overviewOpen || submitted, performance.now());
+    const shortAnswerPaused = question.type === "简答" && shortAnswerRevealed;
+    const syncTimerState = () => activeTimer.current?.setPaused(document.hidden || editing || overviewOpen || submitted || shortAnswerPaused, performance.now());
     syncTimerState();
     document.addEventListener("visibilitychange", syncTimerState);
     return () => {
       document.removeEventListener("visibilitychange", syncTimerState);
       activeTimer.current?.setPaused(true, performance.now());
     };
-  }, [editing, overviewOpen, submitted]);
+  }, [editing, overviewOpen, question.type, shortAnswerRevealed, submitted]);
 
   useEffect(() => () => {
     window.clearTimeout(autoNextTimer.current);
@@ -234,14 +236,18 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     const calculationValues = calculationDrafts.map((value) => value.trim());
     const fillValues = fillDrafts.map((value) => value.trim());
     const value = question.type === "计算" ? calculationValues.join("\n") : question.type === "填空" ? fillValues.join("\n") : question.type === "简答" ? valueList.join("\n") : [...valueList].sort().join("");
-    if (!value || (question.type === "计算" && !calculationInputValid) || (question.type === "填空" && !fillInputValid) || (question.type === "简答" && !manualOutcome) || submitted || answering.current) return;
+    const missingAnswer = question.type === "简答" ? false : !value;
+    if (missingAnswer || (question.type === "计算" && !calculationInputValid) || (question.type === "填空" && !fillInputValid) || (question.type === "简答" && !manualOutcome) || submitted || answering.current) return;
     answering.current = true;
     const finalSelection = question.type === "计算" ? calculationValues : question.type === "填空" ? fillValues : valueList;
     const isCorrect = isPracticeAnswerCorrect(question.canonical, finalSelection, preferences.calculationTolerancePercent, manualOutcome);
     try {
       const result = await recordPracticeAnswer({ runId, questionId: question.id, bankId: question.bankId, selected: finalSelection, correct: isCorrect, outcome: question.type === "简答" ? manualOutcome : undefined, elapsedMs: activeTimer.current?.elapsedMs(window.performance.now()) ?? 0 });
       setSelected(finalSelection);
-      if (question.type === "简答") setShortOutcome(manualOutcome);
+      if (question.type === "简答") {
+        setShortOutcome(manualOutcome);
+        setShortAnswerRevealed(true);
+      }
       setSubmitted(true);
       onStateChange(result.answer);
     } catch {
@@ -286,6 +292,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     setCalculationDrafts(Array.from({ length: expectedCalculationAnswers.length }, () => ""));
     setFillDrafts(Array.from({ length: expectedFillSolution?.blanks.length ?? 1 }, () => ""));
     setShortOutcome(undefined);
+    setShortAnswerRevealed(false);
     setSubmitted(false);
     setAutoAdvancing(false);
     onStateChange({ selected: [], submitted: false });
@@ -324,7 +331,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
           />
           {question.type === "计算" && hasInlineCalculationBlanks ? <CalculationContentRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem calculation-practice-stem" answerCount={expectedCalculationAnswers.length} values={submitted ? selected : calculationDrafts} expected={expectedCalculationAnswers} tolerancePercent={preferences.calculationTolerancePercent} disabled={submitted} idPrefix={`calculation-answer-${question.id}`} onChange={(blankIndex, value) => setCalculationDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? value : item))} onLastEnter={() => void submit()} /> : question.type === "填空" && hasInlineFillBlanks ? <FillContentRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem fill-practice-stem" blankCount={expectedFillSolution?.blanks.length ?? 0} values={submitted ? selected : fillDrafts} expected={expectedFillSolution} disabled={submitted} idPrefix={`fill-answer-${question.id}`} onChange={(blankIndex, value) => setFillDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? value : item))} onLastEnter={() => void submit()} /> : <ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} className="practice-stem" />}
           {question.type === "多选" && !submitted && <div className="multi-select-toolbar"><span>多选题</span><small>{preferences.multiSelectAllAutoSubmit ? "全选后自动确认" : "全选后可继续调整"}</small><button type="button" onClick={() => void selectAllOptions()}><CheckCheck size={15} />全选</button></div>}
-          {question.type === "计算" ? (!hasInlineCalculationBlanks && <div className={`calculation-answer manual-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>输入计算结果</strong><small>每个空分别按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定，全部正确才算答对。</small></div><div className="calculation-manual-inputs">{calculationDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`calculation-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="number" inputMode="decimal" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setCalculationDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "填空" ? (!hasInlineFillBlanks && <div className={`calculation-answer manual-grid fill-manual-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>填写答案</strong><small>每个空按标准文本答案规范化后逐空判定，全部正确才算答对。</small></div><div className="calculation-manual-inputs">{fillDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`fill-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="text" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setFillDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "简答" ? <div className="short-answer-card"><label><span>我的回答</span><textarea aria-label="简答题回答" value={selected[0] ?? ""} disabled={submitted} onChange={(event) => { const next = [event.currentTarget.value]; setSelected(next); onStateChange({ selected: next, submitted: false }); }} placeholder="先回忆要点，再参考答案自评。" rows={6} /></label>{submitted && shortSolution && <div className="short-reference"><strong>参考答案</strong><p>{shortSolution.referenceText}</p></div>}</div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const originalOptionId = optionIds[originalIndex]; const isAnswer = revealAnswer && correctOptionIds.has(originalOptionId ?? ""); const isWrong = submitted && selected.includes(originalLetter) && !correctOptionIds.has(originalOptionId ?? ""); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
+          {question.type === "计算" ? (!hasInlineCalculationBlanks && <div className={`calculation-answer manual-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>输入计算结果</strong><small>每个空分别按标准答案的相对误差 ±{preferences.calculationTolerancePercent}% 判定，全部正确才算答对。</small></div><div className="calculation-manual-inputs">{calculationDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`calculation-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="number" inputMode="decimal" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setCalculationDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "填空" ? (!hasInlineFillBlanks && <div className={`calculation-answer manual-grid fill-manual-grid ${submitted ? correct ? "correct" : "wrong" : ""}`}><div><strong>填写答案</strong><small>每个空按标准文本答案规范化后逐空判定，全部正确才算答对。</small></div><div className="calculation-manual-inputs">{fillDrafts.map((value, blankIndex) => <label key={blankIndex}>第{blankIndex + 1}空<input id={`fill-answer-${question.id}-${blankIndex + 1}`} aria-label={`第${blankIndex + 1}空答案`} type="text" value={submitted ? selected[blankIndex] ?? "" : value} disabled={submitted} onChange={(event) => setFillDrafts((current) => current.map((item, itemIndex) => itemIndex === blankIndex ? event.currentTarget.value : item))} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} /></label>)}</div></div>) : question.type === "简答" ? <div className="short-answer-card"><label><span>我的回答</span><textarea aria-label="简答题回答" value={selected[0] ?? ""} disabled={submitted || shortAnswerRevealed} onChange={(event) => { const next = [event.currentTarget.value]; setSelected(next); onStateChange({ selected: next, submitted: false }); }} placeholder="先回忆要点，再查看参考答案自评。" rows={6} /></label>{(shortAnswerRevealed || submitted) && shortSolution && <div className="short-reference"><strong>参考答案</strong><p>{shortSolution.referenceText}</p></div>}</div> : <div className="options">{displayOrder.map((originalIndex, displayIndex) => { const option = question.canonical.options[originalIndex] ?? []; const originalLetter = String.fromCharCode(65 + originalIndex); const displayLetter = String.fromCharCode(65 + displayIndex); const originalOptionId = optionIds[originalIndex]; const isAnswer = revealAnswer && correctOptionIds.has(originalOptionId ?? ""); const isWrong = submitted && selected.includes(originalLetter) && !correctOptionIds.has(originalOptionId ?? ""); return <button key={originalLetter} className={`${selected.includes(originalLetter) ? "selected" : ""} ${isAnswer ? "right" : ""} ${isWrong ? "wrong" : ""}`} onClick={() => { if (!window.getSelection()?.toString()) void choose(originalLetter); }}><span>{displayLetter}</span><ContentBlockRenderer blocks={option} loadAsset={loadImageAssetV7} className="practice-option-content" />{isAnswer && <i className="option-status option-status-right" aria-hidden="true"><Check size={18} /></i>}{isWrong && <i className="option-status option-status-wrong" aria-hidden="true"><X size={18} /></i>}</button>; })}</div>}
           <PracticeResultSummary
             submitted={submitted}
             correct={correct}
@@ -345,14 +352,15 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
           questionType={question.type}
           preferences={preferences}
           selectedCount={selected.length}
-          shortHasAnswer={Boolean(selected[0]?.trim())}
+          shortAnswerRevealed={shortAnswerRevealed}
           calculationInputValid={calculationInputValid}
           fillInputValid={fillInputValid}
           autoAdvancing={autoAdvancing}
           index={index}
           isLast={isLast}
           onPrevious={onPrevious}
-          onGiveUp={() => void giveUp()}
+          onGiveUp={() => question.type === "简答" ? void submit(selected, "incorrect") : void giveUp()}
+          onRevealAnswer={() => setShortAnswerRevealed(true)}
           onSubmit={() => void submit()}
           onGrade={(outcome) => void submit(selected, outcome)}
           onRetry={retryQuestion}
