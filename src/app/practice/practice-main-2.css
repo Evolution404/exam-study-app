@@ -37,9 +37,7 @@
 
 .preferences-view>.preference-card,.preferences-view>.desktop-shortcut-settings>.preference-card,.preferences-view>.review-round-manager{max-width:none;margin:0}
 
-/* 结果页按钮基础 border:0（无四周边框），边框/描边方案会同时改动顶边（inset 线）
-   与底部分隔线，产生上下等宽绿边。选中反馈只用主色软背景——背景本身已足够明显，
-   不再叠加任何边框或描边；夜间随 token 自动适配。 */
+/* 结果页选中态只使用主色软背景。 */
 .result-question-groups>section>div>button.detail-current {
   background: var(--color-primary-soft);
 }
@@ -54,13 +52,13 @@
 .options .wrong{border-color:var(--practice-option-wrong-border);color:var(--practice-option-wrong-text);background:var(--practice-option-wrong-bg)}
 .options .wrong>span{color:var(--practice-option-wrong-key-text);background:var(--practice-option-wrong-key-bg)}
 
-/* Practice owns question-overview colors; shared.css keeps transitional structure. */
+/* Practice owns question-overview presentation. */
 .question-overview{border-color:var(--overview-panel-border);color:var(--color-text);background:var(--overview-panel-bg)}
 .question-overview>header{background:var(--overview-section-bg)}
 .question-overview .overview-legend{border-color:var(--overview-legend-border);color:var(--overview-legend-text);background:var(--overview-legend-bg)}
-.question-overview .overview-score{border-color:var(--overview-score-border);color:var(--color-text);background:var(--overview-score-bg)}
-.overview-score span{color:var(--overview-score-metric-text);background:var(--overview-score-metric-bg)}
-.overview-score strong{color:var(--overview-score-value)}
+.question-overview .overview-score{padding:12px 24px;border-bottom:1px solid var(--overview-score-border);display:grid;grid-template-columns:repeat(4,1fr);gap:8px;color:var(--color-text);background:var(--overview-score-bg)}
+.overview-score span{min-height:54px;padding:9px;border-radius:10px;display:flex;flex-direction:column;justify-content:center;color:var(--overview-score-metric-text);background:var(--overview-score-metric-bg);font-size:9px}
+.overview-score strong{font:600 22px Georgia,serif;color:var(--overview-score-value)}
 .overview-score span:nth-child(2) strong{color:var(--overview-score-wrong-value)}
 .overview-number-grid button{border-color:var(--overview-number-border);color:var(--overview-number-text);background:var(--overview-number-bg)}
 .overview-number-grid button.current{box-shadow:var(--overview-number-current-shadow)}
