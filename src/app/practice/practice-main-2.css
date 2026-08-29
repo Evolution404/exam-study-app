@@ -98,7 +98,16 @@
 .short-reference{padding:17px 19px;border:1px solid color-mix(in srgb,var(--color-primary) 22%,var(--color-border));border-radius:14px;color:var(--color-text);background:var(--color-primary-soft)}
 .short-reference strong{display:block;margin-bottom:7px;font-size:13px}
 .short-reference p{margin:0;white-space:pre-wrap;color:var(--color-text-muted);font-size:12px;line-height:1.75}
-.short-grade-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.short-grade-actions .secondary{min-height:42px;padding:9px 13px}
-.practice-actions:has(.short-grade-actions)>div{flex-wrap:wrap;justify-content:flex-end}
-@media(max-width:760px){.short-answer-card textarea{min-height:150px;font-size:16px}.short-grade-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.short-grade-actions .secondary{width:100%;padding-inline:8px}.practice-actions:has(.short-grade-actions)>div{width:100%}}
+.practice-actions.short-answer-actions{display:grid;grid-template-columns:1fr;gap:10px;align-items:stretch}
+.short-answer-primary-row,.short-answer-nav-row{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.short-answer-primary-row>button,.short-answer-nav-row>button{width:100%;min-width:0;min-height:44px;justify-content:center}
+.short-answer-primary-row .short-reveal-answer{display:flex;align-items:center;gap:6px}
+.short-answer-nav-row .practice-next{width:100%}
+.short-grade-actions{grid-column:1/-1;width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.short-grade-actions .short-grade-icon{width:100%;min-width:0;min-height:44px;padding:0;display:grid;place-items:center}
+.short-grade-actions .short-grade-correct{color:var(--color-success)}
+.short-grade-actions .short-grade-incorrect{color:var(--color-danger)}
+.short-grade-actions .short-grade-skip{color:var(--color-text-muted)}
+.short-answer-actions .short-answer-primary-row .retry-question{grid-column:1/-1}
+.short-answer-actions .practice-auto-status{display:grid;place-items:center;text-align:center}
+@media(max-width:760px){.short-answer-card textarea{min-height:150px;font-size:16px}.practice-actions.short-answer-actions{grid-template-columns:1fr}.short-answer-primary-row,.short-answer-nav-row{gap:10px}.short-grade-actions{gap:10px}.short-grade-actions .short-grade-icon{min-height:46px}}
