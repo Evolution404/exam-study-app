@@ -1,0 +1,13 @@
+/* Short-answer action rows intentionally override the generic mobile practice-action grid. */
+.practice-actions.short-answer-actions>.short-answer-primary-row,
+.practice-actions.short-answer-actions>.short-answer-nav-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.practice-actions.short-answer-actions .short-answer-nav-row>.practice-previous,
+.practice-actions.short-answer-actions .short-answer-nav-row>.practice-next{grid-column:auto;grid-row:auto}
+.practice-actions.short-answer-actions .short-grade-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+
+@media(max-width:760px){
+  .practice-actions.short-answer-actions>.short-answer-primary-row,
+  .practice-actions.short-answer-actions>.short-answer-nav-row{display:grid}
+  .practice-actions.short-answer-actions .short-answer-nav-row>.practice-previous,
+  .practice-actions.short-answer-actions .short-answer-nav-row>.practice-next{grid-column:auto;grid-row:auto}
+}
