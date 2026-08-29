@@ -1,0 +1,29 @@
+/* Keep the shared question-detail sheet structurally stable on long records. */
+.search-question-detail>.search-detail-body{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+
+.search-question-detail>header,
+.search-question-detail>.question-detail-toolbar,
+.search-question-detail>footer.question-detail-pager{
+  flex:none;
+}
+
+.search-question-detail>footer.question-detail-pager{
+  margin-top:auto;
+  background:var(--search-detail-bg);
+}
+
+@media(max-width:760px){
+  .search-question-detail>.search-detail-body{
+    padding-bottom:18px;
+  }
+
+  .search-question-detail>footer.question-detail-pager{
+    padding-bottom:calc(10px + var(--app-safe-bottom));
+  }
+}
