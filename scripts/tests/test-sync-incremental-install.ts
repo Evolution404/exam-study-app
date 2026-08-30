@@ -227,11 +227,15 @@ try {
   const deltaDurationMs = elapsedMs(started);
   const deltaPlanRows = deltaTimings.filter((entry) => entry.phase === "plan").reduce((sum, entry) => sum + entry.scannedRows, 0);
   const deltaWriteRows = deltaTimings.filter((entry) => entry.phase === "write").reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
+  const dirtyQuestionWriteRows = deltaTimings.filter((entry) => entry.phase === "write" && entry.table === dbV7.questions.name).reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
+  const dirtyTombstoneDeleteRows = deltaTimings.filter((entry) => entry.phase === "write" && entry.table === dbV7.tombstones.name).reduce((sum, entry) => sum + entry.deleteRows, 0);
   assert.ok(deltaTimings.every((entry) => entry.mode === "dirty"), "single-question delta must stay on dirty install mode");
   assert.equal(deltaPlanRows, 0, "dirty installer must not scan installed IndexedDB tables");
   assert.equal(dirtyQuestionBulkGetCalls, 0, "dirty question install must not bulkGet the full questions table");
   assert.equal(dirtyAttemptBulkGetCalls, 0, "unrelated attempts must not be read for a question-only delta");
-  assert.equal(deltaWriteRows, 1, "single-question dirty delta should mutate exactly one persisted row");
+  assert.equal(dirtyQuestionWriteRows, 1, "single-question dirty delta must write exactly one question row");
+  assert.equal(dirtyTombstoneDeleteRows, 1, "question upsert must explicitly mirror the reducer's tombstone clear");
+  assert.equal(deltaWriteRows, 2, "single-question dirty delta is one question put plus one idempotent tombstone clear");
   assert.deepEqual((await dbV7.questions.get(changedQuestion.id))?.content, changedQuestion.content);
 
   const phaseDuration = (entries: typeof firstTimings, phase: "plan" | "write") => entries
