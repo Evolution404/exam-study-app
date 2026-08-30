@@ -4,7 +4,7 @@ import type { BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 export { questionAnswerTextV7 } from "../question/question-answer-text";
 
 /**
- * A presentation-only join.  Bank identity and ordering remain membership
+ * A presentation-only join. Bank identity and ordering remain membership
  * data; they are never copied onto the canonical QuestionV7 row.
  */
 export interface QuestionViewV7 {
@@ -12,6 +12,12 @@ export interface QuestionViewV7 {
   memberships: BankQuestionMembership[];
   banks: BankV7[];
   sourceBankId?: string;
+}
+
+export interface QuestionMembershipViewV7 {
+  questionId: string;
+  memberships: BankQuestionMembership[];
+  banks: BankV7[];
 }
 
 export interface QuestionPlainViewV7 {
@@ -48,16 +54,64 @@ export async function getQuestionViewV7(questionId: string, preferredBankId?: st
   return { question, memberships, banks, sourceBankId };
 }
 
+/** Batch membership read-model used by bank-management screens. */
+export async function listQuestionMembershipViewsV7(questionIds: readonly string[]): Promise<QuestionMembershipViewV7[]> {
+  const ids = [...new Set(questionIds.filter(Boolean))];
+  if (!ids.length) return [];
+  const memberships = await dbV7.bankQuestionMemberships.where("questionId").anyOf(ids).toArray();
+  const bankIds = [...new Set(memberships.map((membership) => membership.bankId))];
+  const bankMap = new Map((await dbV7.banks.bulkGet(bankIds)).filter(Boolean).map((bank) => [bank!.id, bank!]));
+  const grouped = new Map<string, BankQuestionMembership[]>();
+  for (const membership of memberships) grouped.set(membership.questionId, [...(grouped.get(membership.questionId) ?? []), membership]);
+  return ids.map((questionId) => {
+    const rows = [...(grouped.get(questionId) ?? [])].sort((left, right) => left.bankId.localeCompare(right.bankId) || left.sortOrder - right.sortOrder);
+    return {
+      questionId,
+      memberships: rows,
+      banks: rows.map((membership) => bankMap.get(membership.bankId)).filter((bank): bank is BankV7 => Boolean(bank)),
+    };
+  });
+}
+
 export async function listQuestionViewsForBankV7(bankId: string): Promise<QuestionViewV7[]> {
   const rows = await getBankQuestionJoinsV7(bankId);
-  const bank = await dbV7.banks.get(bankId);
-  if (!bank) return [];
-  return rows.map(({ question, membership }) => ({
-    question,
-    memberships: [membership],
-    banks: [bank],
-    sourceBankId: bankId,
-  }));
+  if (!rows.length) return [];
+  const membershipViews = await listQuestionMembershipViewsV7(rows.map((row) => row.question.id));
+  const membershipMap = new Map(membershipViews.map((view) => [view.questionId, view]));
+  return rows.map(({ question, membership }) => {
+    const view = membershipMap.get(question.id);
+    return {
+      question,
+      memberships: view?.memberships ?? [membership],
+      banks: view?.banks ?? [],
+      sourceBankId: bankId,
+    };
+  });
+}
+
+/**
+ * Questions reusable from at least one bank other than the current bank.
+ * Existing membership in the current bank is retained in each view so the UI
+ * can mark already-added questions without cloning or fuzzy matching.
+ */
+export async function listQuestionViewsAvailableFromOtherBanksV7(bankId: string): Promise<QuestionViewV7[]> {
+  const otherBanks = (await dbV7.banks.toArray()).filter((bank) => bank.id !== bankId);
+  if (!otherBanks.length) return [];
+  const sourceMemberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(otherBanks.map((bank) => bank.id)).toArray();
+  const questionIds = [...new Set(sourceMemberships.map((membership) => membership.questionId))];
+  if (!questionIds.length) return [];
+  const [questions, membershipViews] = await Promise.all([
+    dbV7.questions.bulkGet(questionIds),
+    listQuestionMembershipViewsV7(questionIds),
+  ]);
+  const membershipMap = new Map(membershipViews.map((view) => [view.questionId, view]));
+  return questions.flatMap((question) => {
+    if (!question) return [];
+    const view = membershipMap.get(question.id);
+    if (!view) return [];
+    const sourceBankId = view.memberships.find((membership) => membership.bankId !== bankId)?.bankId ?? view.memberships[0]?.bankId;
+    return [{ question, memberships: view.memberships, banks: view.banks, sourceBankId }];
+  });
 }
 
 /**
