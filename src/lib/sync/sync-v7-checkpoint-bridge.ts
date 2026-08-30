@@ -2,6 +2,7 @@ import { dbV7, reconcileV7Projection, type V7ChangeSetQueueGuard } from "../db/d
 import type { ChangeSetV7 } from "./change-set-v7-types";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { normalizeProjection } from "./change-set-v7-projection-core";
+import type { DirtyInstallKeysV7 } from "./sync-v7-dirty-install";
 import type { SyncCheckpointV7 } from "./sync-v7-checkpoint-types";
 import type { SyncV7DeviceWatermark } from "./sync-v7-head-types";
 import { reclaimableTombstonesV7 } from "./sync-v7-watermark";
@@ -91,6 +92,7 @@ export async function installProjection(
   options?: {
     queueGuard?: readonly V7ChangeSetQueueGuard[];
     clearChangeSets?: boolean;
+    dirtyKeys?: DirtyInstallKeysV7;
     onProgress?: (progress: { completed: number; total: number; label: string }) => void;
     onTiming?: (timing: {
       phase: "plan" | "write";
@@ -100,7 +102,7 @@ export async function installProjection(
       comparedRows: number;
       putRows: number;
       deleteRows: number;
-      mode: "full" | "fresh";
+      mode: "full" | "fresh" | "dirty";
     }) => void;
   },
 ): Promise<boolean> {
