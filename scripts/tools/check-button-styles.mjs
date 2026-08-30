@@ -124,6 +124,31 @@ function declarations(body, property) {
 const cssRules = styleFiles.flatMap((file) => collectCssRules(read(`src/app/styles/${file}`)).map((rule) => ({ ...rule, file })));
 const buttonRules = cssRules.flatMap((rule) => buttonSelectors(rule).map((selector) => ({ ...rule, selector })));
 
+const baseButtonRule = cssRules.find(({ file, selector }) => file === "base.css" && selector.trim() === "button");
+if (!baseButtonRule || !declarations(baseButtonRule.body, "white-space").some((value) => value === "nowrap")) {
+  fail("src/app/styles/base.css 的全局 button 规则必须声明 white-space:nowrap，按钮文案禁止换行");
+}
+
+const allCssFiles = [];
+const walkCss = (directory) => {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) walkCss(full);
+    else if (entry.name.endsWith(".css")) allCssFiles.push(full);
+  }
+};
+walkCss(path.join(root, "src/app"));
+for (const file of allCssFiles) {
+  const relative = path.relative(root, file);
+  for (const rule of collectCssRules(read(relative))) {
+    for (const selector of buttonSelectors(rule)) {
+      for (const value of declarations(rule.body, "white-space")) {
+        if (value !== "nowrap") fail(`${relative} 的 ${selector} 将 white-space 覆盖为 ${value}，按钮文案禁止换行`);
+      }
+    }
+  }
+}
+
 const shared = new Map();
 for (const rule of cssRules.filter(({ selector }) => /^\.(primary|secondary|danger-button)$/.test(selector.trim()))) {
   shared.set(rule.selector.trim(), rule);
@@ -195,4 +220,4 @@ if (shouldWrite) {
   if (previousHex !== buttonHexBudget) console.log(`按钮 hex 预算棘轮已收紧：${previousHex}→${buttonHexBudget}`);
 }
 
-console.log(`按钮样式守卫通过：共享类契约、字号下限、按钮 hex ${buttonHexCount}/${buttonHexBudget}、TSX 裸按钮棘轮均正常。`);
+console.log(`按钮样式守卫通过：按钮文案禁止换行、共享类契约、字号下限、按钮 hex ${buttonHexCount}/${buttonHexBudget}、TSX 裸按钮棘轮均正常。`);
