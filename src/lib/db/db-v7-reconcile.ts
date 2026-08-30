@@ -9,7 +9,7 @@ interface ReconcileV7ProjectionProgress {
   label: string;
 }
 
-type ReconcileV7InstallMode = "full" | "fresh";
+type ReconcileV7InstallMode = "full" | "fresh" | "dirty";
 
 interface ReconcileV7Timing {
   phase: "plan" | "write";
@@ -22,9 +22,28 @@ interface ReconcileV7Timing {
   mode: ReconcileV7InstallMode;
 }
 
+interface ReconcileV7DirtyKeys {
+  banks: readonly string[];
+  bankFolders: readonly string[];
+  questions: readonly string[];
+  memberships: readonly string[];
+  imageAssets: readonly string[];
+  attempts: readonly string[];
+  attemptStats: readonly string[];
+  attemptDailyStats: readonly string[];
+  notes: readonly string[];
+  practiceRuns: readonly string[];
+  practiceRunStats: readonly string[];
+  questionGroups: readonly string[];
+  reviewRounds: readonly string[];
+  reviewRoundProgress: readonly string[];
+  tombstones: readonly string[];
+}
+
 interface ReconcileV7ProjectionOptions {
   queueGuard?: readonly V7ChangeSetQueueGuard[];
   clearChangeSets?: boolean;
+  dirtyKeys?: ReconcileV7DirtyKeys;
   onProgress?: (progress: ReconcileV7ProjectionProgress) => void;
   onTiming?: (timing: ReconcileV7Timing) => void;
 }
@@ -105,6 +124,10 @@ async function projectionIsEmpty(): Promise<boolean> {
   return counts.every((count) => count === 0);
 }
 
+function hasDirtyKeys(keys: ReconcileV7DirtyKeys | undefined): keys is ReconcileV7DirtyKeys {
+  return Boolean(keys && Object.values(keys).some((items) => items.length > 0));
+}
+
 function freshPlan<T>(incoming: readonly T[], keyOf: (row: T) => string | undefined, tableName: string): ReconcilePlan<T> {
   const keys = new Set<string>();
   const puts = incoming.map((row) => {
@@ -117,22 +140,53 @@ function freshPlan<T>(incoming: readonly T[], keyOf: (row: T) => string | undefi
   return { puts, deletes: [], scannedRows: 0, comparedRows: 0 };
 }
 
-function freshPlanTimed<T>(
+function dirtyPlan<T>(
+  incoming: readonly T[],
+  dirtyKeys: readonly string[],
+  keyOf: (row: T) => string | undefined,
+  tableName: string,
+): ReconcilePlan<T> {
+  const wanted = new Set(dirtyKeys);
+  const found = new Set<string>();
+  const puts: T[] = [];
+  if (wanted.size) {
+    for (const row of incoming) {
+      const key = keyOf(row);
+      if (key === undefined) throw new Error(`远端 ${tableName} 存在缺少主键的记录，无法安全脏键同步。`);
+      if (!wanted.has(key)) continue;
+      if (found.has(key)) throw new Error(`远端 ${tableName} 存在重复主键 ${key}，无法安全脏键同步。`);
+      found.add(key);
+      puts.push(row);
+    }
+  }
+  return {
+    puts,
+    deletes: [...wanted].filter((key) => !found.has(key)),
+    scannedRows: 0,
+    comparedRows: 0,
+  };
+}
+
+function directPlanTimed<T>(
+  mode: "fresh" | "dirty",
   table: Table<T, string>,
   incoming: readonly T[],
   keyOf: (row: T) => string | undefined,
+  dirtyKeys: readonly string[] | undefined,
   options: ReconcileV7ProjectionOptions,
 ): ReconcilePlan<T> {
   const started = clockMs();
-  const plan = freshPlan(incoming, keyOf, table.name);
-  emitTiming(options, "fresh", {
+  const plan = mode === "fresh"
+    ? freshPlan(incoming, keyOf, table.name)
+    : dirtyPlan(incoming, dirtyKeys ?? [], keyOf, table.name);
+  emitTiming(options, mode, {
     phase: "plan",
     table: table.name,
     durationMs: Math.max(0, clockMs() - started),
     scannedRows: 0,
     comparedRows: 0,
     putRows: plan.puts.length,
-    deleteRows: 0,
+    deleteRows: plan.deletes.length,
   });
   return plan;
 }
@@ -167,12 +221,7 @@ async function planTable<T>(
   }
 
   const deletes = currentKeys.filter((key) => !incomingKeys.has(key));
-  return {
-    puts,
-    deletes,
-    scannedRows: currentKeys.length + incoming.length,
-    comparedRows: incoming.length,
-  };
+  return { puts, deletes, scannedRows: currentKeys.length + incoming.length, comparedRows: incoming.length };
 }
 
 async function planTableTimed<T>(
@@ -201,29 +250,45 @@ function canonicalImageDescriptor(asset: {
   return { id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height };
 }
 
-function freshImagePlan(incoming: V7RestoreState["imageAssets"]): ImageReconcilePlan {
-  const ids = new Set<string>();
+function directImagePlan(
+  mode: "fresh" | "dirty",
+  incoming: V7RestoreState["imageAssets"],
+  dirtyKeys: readonly string[] | undefined,
+): ImageReconcilePlan {
+  const wanted = mode === "dirty" ? new Set(dirtyKeys ?? []) : undefined;
+  const found = new Set<string>();
+  const inserts: V7RestoreState["imageAssets"] = [];
   for (const asset of incoming) {
-    if (ids.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全首次安装。`);
-    ids.add(asset.id);
+    if (wanted && !wanted.has(asset.id)) continue;
+    if (found.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全${mode === "fresh" ? "首次安装" : "脏键同步"}。`);
+    found.add(asset.id);
+    inserts.push(asset);
   }
-  return { updates: [], inserts: [...incoming], deletes: [], scannedRows: 0, comparedRows: 0 };
+  return {
+    updates: [],
+    inserts,
+    deletes: mode === "dirty" ? [...wanted!].filter((id) => !found.has(id)) : [],
+    scannedRows: 0,
+    comparedRows: 0,
+  };
 }
 
-function freshImagePlanTimed(
+function directImagePlanTimed(
+  mode: "fresh" | "dirty",
   incoming: V7RestoreState["imageAssets"],
+  dirtyKeys: readonly string[] | undefined,
   options: ReconcileV7ProjectionOptions,
 ): ImageReconcilePlan {
   const started = clockMs();
-  const plan = freshImagePlan(incoming);
-  emitTiming(options, "fresh", {
+  const plan = directImagePlan(mode, incoming, dirtyKeys);
+  emitTiming(options, mode, {
     phase: "plan",
     table: dbV7.imageAssets.name,
     durationMs: Math.max(0, clockMs() - started),
     scannedRows: 0,
     comparedRows: 0,
     putRows: plan.inserts.length,
-    deleteRows: 0,
+    deleteRows: plan.deletes.length,
   });
   return plan;
 }
@@ -318,29 +383,41 @@ export async function reconcileV7Projection(
   state: V7RestoreState,
   options: ReconcileV7ProjectionOptions = {},
 ): Promise<boolean> {
-  const memberships = state.memberships;
-  const mode: ReconcileV7InstallMode = await projectionIsEmpty() ? "fresh" : "full";
-  options.onProgress?.({ completed: 0, total: 1, label: mode === "fresh" ? "正在准备首次本机数据" : "正在比较本机数据" });
+  const fresh = await projectionIsEmpty();
+  const mode: ReconcileV7InstallMode = fresh ? "fresh" : hasDirtyKeys(options.dirtyKeys) ? "dirty" : "full";
+  options.onProgress?.({
+    completed: 0,
+    total: 1,
+    label: mode === "fresh" ? "正在准备首次本机数据" : mode === "dirty" ? "正在准备本机增量" : "正在比较本机数据",
+  });
 
-  const makePlan = <T>(table: Table<T, string>, incoming: readonly T[], keyOf: (row: T) => string | undefined) => mode === "fresh"
-    ? Promise.resolve(freshPlanTimed(table, incoming, keyOf, options))
-    : planTableTimed(table, incoming, keyOf, options);
+  const makePlan = <T>(
+    table: Table<T, string>,
+    incoming: readonly T[],
+    keyOf: (row: T) => string | undefined,
+    dirtyKeys: readonly string[] | undefined,
+  ) => mode === "full"
+    ? planTableTimed(table, incoming, keyOf, options)
+    : Promise.resolve(directPlanTimed(mode, table, incoming, keyOf, dirtyKeys, options));
 
-  const bankPlan = await makePlan(dbV7.banks, state.banks, (row) => row.id);
-  const folderPlan = await makePlan(dbV7.bankFolders, state.bankFolders, (row) => row.id);
-  const questionPlan = await makePlan(dbV7.questions, state.questions, (row) => row.id);
-  const membershipPlan = await makePlan(dbV7.bankQuestionMemberships, memberships, (row) => row.key);
-  const attemptPlan = await makePlan(dbV7.attempts, state.attempts, (row) => row.id);
-  const attemptStatsPlan = await makePlan(dbV7.attemptStats, state.attemptStats, (row) => row.questionId);
-  const dailyStatsPlan = await makePlan(dbV7.attemptDailyStats, state.attemptDailyStats, (row) => row.key);
-  const notePlan = await makePlan(dbV7.notes, state.notes, (row) => row.questionId);
-  const practiceRunPlan = await makePlan(dbV7.practiceRuns, state.practiceRuns, (row) => row.id);
-  const practiceStatsPlan = await makePlan(dbV7.practiceRunStats, state.practiceRunStats, (row) => row.key);
-  const groupPlan = await makePlan(dbV7.questionGroups, state.questionGroups, (row) => row.id);
-  const roundPlan = await makePlan(dbV7.reviewRounds, state.reviewRounds, (row) => row.id);
-  const roundProgressPlan = await makePlan(dbV7.reviewRoundProgress, state.reviewRoundProgress, (row) => row.key);
-  const tombstonePlan = await makePlan(dbV7.tombstones, state.tombstones, (row) => row.key);
-  const imagePlan = mode === "fresh" ? freshImagePlanTimed(state.imageAssets, options) : await planImageAssetsTimed(state.imageAssets, options);
+  const dirty = options.dirtyKeys;
+  const bankPlan = await makePlan(dbV7.banks, state.banks, (row) => row.id, dirty?.banks);
+  const folderPlan = await makePlan(dbV7.bankFolders, state.bankFolders, (row) => row.id, dirty?.bankFolders);
+  const questionPlan = await makePlan(dbV7.questions, state.questions, (row) => row.id, dirty?.questions);
+  const membershipPlan = await makePlan(dbV7.bankQuestionMemberships, state.memberships, (row) => row.key, dirty?.memberships);
+  const attemptPlan = await makePlan(dbV7.attempts, state.attempts, (row) => row.id, dirty?.attempts);
+  const attemptStatsPlan = await makePlan(dbV7.attemptStats, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);
+  const dailyStatsPlan = await makePlan(dbV7.attemptDailyStats, state.attemptDailyStats, (row) => row.key, dirty?.attemptDailyStats);
+  const notePlan = await makePlan(dbV7.notes, state.notes, (row) => row.questionId, dirty?.notes);
+  const practiceRunPlan = await makePlan(dbV7.practiceRuns, state.practiceRuns, (row) => row.id, dirty?.practiceRuns);
+  const practiceStatsPlan = await makePlan(dbV7.practiceRunStats, state.practiceRunStats, (row) => row.key, dirty?.practiceRunStats);
+  const groupPlan = await makePlan(dbV7.questionGroups, state.questionGroups, (row) => row.id, dirty?.questionGroups);
+  const roundPlan = await makePlan(dbV7.reviewRounds, state.reviewRounds, (row) => row.id, dirty?.reviewRounds);
+  const roundProgressPlan = await makePlan(dbV7.reviewRoundProgress, state.reviewRoundProgress, (row) => row.key, dirty?.reviewRoundProgress);
+  const tombstonePlan = await makePlan(dbV7.tombstones, state.tombstones, (row) => row.key, dirty?.tombstones);
+  const imagePlan = mode === "full"
+    ? await planImageAssetsTimed(state.imageAssets, options)
+    : directImagePlanTimed(mode, state.imageAssets, dirty?.imageAssets, options);
 
   const rowOps =
     bankPlan.puts.length + bankPlan.deletes.length
@@ -397,9 +474,6 @@ export async function reconcileV7Projection(
         armWatchdog();
         if (!queueMatches(current, options.queueGuard)) return false;
       }
-      // The out-of-transaction empty check only selects the fast path. Recheck
-      // under the same rw transaction as the writes so a local edit/cache write
-      // that landed during planning cannot be overwritten by a blind fresh put.
       if (mode === "fresh" && !await projectionIsEmpty()) return false;
 
       await applyPlan(dbV7.banks, bankPlan, { put: "更新题库", remove: "清理题库" }, progress, options, mode);
@@ -423,29 +497,39 @@ export async function reconcileV7Projection(
         await dbV7.imageAssets.bulkDelete(chunk);
         progress(chunk.length, "清理图片索引");
       }
-      for (let index = 0; index < imagePlan.updates.length; index += RECONCILE_BATCH_SIZE) {
-        const chunk = imagePlan.updates.slice(index, index + RECONCILE_BATCH_SIZE);
-        await dbV7.imageAssets.bulkUpdate(chunk.map((asset) => ({
-          key: asset.id,
-          changes: {
-            mimeType: asset.mimeType,
-            size: asset.size,
-            width: asset.width,
-            height: asset.height,
-          },
-        })));
-        progress(chunk.length, "更新图片索引");
-      }
-      for (let index = 0; index < imagePlan.inserts.length; index += RECONCILE_BATCH_SIZE) {
-        const chunk = imagePlan.inserts.slice(index, index + RECONCILE_BATCH_SIZE);
-        await dbV7.imageAssets.bulkPut(chunk);
-        progress(chunk.length, "写入图片索引");
+      if (mode === "dirty") {
+        // Re-read only the dirty image ids INSIDE the write transaction and
+        // carry forward any cache Blob. Image bytes are device-local cache data
+        // and may be populated without a sync change-set while planning runs.
+        for (let index = 0; index < imagePlan.inserts.length; index += RECONCILE_BATCH_SIZE) {
+          const chunk = imagePlan.inserts.slice(index, index + RECONCILE_BATCH_SIZE);
+          const current = await dbV7.imageAssets.bulkGet(chunk.map((asset) => asset.id));
+          await dbV7.imageAssets.bulkPut(chunk.map((asset, offset) => {
+            const blob = current[offset]?.blob;
+            return blob ? { ...asset, blob } : asset;
+          }));
+          progress(chunk.length, "更新图片索引");
+        }
+      } else {
+        for (let index = 0; index < imagePlan.updates.length; index += RECONCILE_BATCH_SIZE) {
+          const chunk = imagePlan.updates.slice(index, index + RECONCILE_BATCH_SIZE);
+          await dbV7.imageAssets.bulkUpdate(chunk.map((asset) => ({
+            key: asset.id,
+            changes: { mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height },
+          })));
+          progress(chunk.length, "更新图片索引");
+        }
+        for (let index = 0; index < imagePlan.inserts.length; index += RECONCILE_BATCH_SIZE) {
+          const chunk = imagePlan.inserts.slice(index, index + RECONCILE_BATCH_SIZE);
+          await dbV7.imageAssets.bulkPut(chunk);
+          progress(chunk.length, "写入图片索引");
+        }
       }
       emitTiming(options, mode, {
         phase: "write",
         table: dbV7.imageAssets.name,
         durationMs: Math.max(0, clockMs() - imageWriteStarted),
-        scannedRows: 0,
+        scannedRows: mode === "dirty" ? imagePlan.inserts.length : 0,
         comparedRows: 0,
         putRows: imagePlan.inserts.length + imagePlan.updates.length,
         deleteRows: imagePlan.deletes.length,
@@ -458,7 +542,9 @@ export async function reconcileV7Projection(
       options.onProgress?.({
         completed: totalOps,
         total: totalOps,
-        label: rowOps ? (mode === "fresh" ? "首次本机数据写入完成" : "本机增量更新完成") : "本机数据无需改写",
+        label: rowOps
+          ? mode === "fresh" ? "首次本机数据写入完成" : mode === "dirty" ? "本机增量更新完成" : "本机增量更新完成"
+          : "本机数据无需改写",
       });
       return true;
     } catch (error) {
