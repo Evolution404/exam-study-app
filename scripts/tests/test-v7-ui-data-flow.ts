@@ -164,7 +164,7 @@ assert.match(quickSyncController, /syncRuntime\.scheduleAutomaticSync/, "Quick S
 assert.match(syncRuntimeSource, /requestIdleCallback/, "runtime 应等浏览器空闲帧再触发自动同步，不撞答题反馈动画");
 assert.match(dashboardController, /syncApplication\.pendingCount\(\)/, "待同步计数应由 Dashboard controller 通过 application 轻量订阅，不与全表统计绑定");
 assert.match(syncApplicationSource, /changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "application 内部保留索引化轻量待同步计数");
-const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-v7-orchestrator.ts", import.meta.url), "utf8");
+const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-v7-orchestrator-core.ts", import.meta.url), "utf8");
 assert.match(syncOrchestrator, /yieldToMainIfVisible/, "本地归并应逐条让出主线程");
 assert.match(syncOrchestrator, /applyChangeSetToOwnedProjectionV7/, "本地归并应走浅信封单次派生路径（不再每条全量克隆）");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
