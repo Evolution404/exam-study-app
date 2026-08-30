@@ -178,32 +178,11 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     }
     const firstProjectionInstall = !installedHead;
     const needsInstall = !downloaded.reusedCache || projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
-    // Dirty install is only valid when the current local projection is known to
-    // match the SAME folded remote cache that downloadRemoteV7 reused. This
-    // excludes fresh installs, checkpoint compaction/identity changes, cache
-    // misses and history-range changes. Unsupported reducer cascades also return
-    // null from the derivation helper and deliberately fall back to full reconcile.
-    const dirtyBaseMatches = Boolean(
-      needsInstall
-      && installedHead
-      && cached
-      && downloaded.reusedCache
-      && excludedHistory.length === 0
-      && installedHead === installFingerprint(cached.head)
-    );
-    const dirtyKeys = dirtyBaseMatches
-      ? await deriveDirtyInstallKeysV7(rebasedProjection, [...unseen, ...localPending])
-      : null;
+    const dirtyKeys = needsInstall && installedHead && cached && downloaded.reusedCache && !excludedHistory.length && installedHead === installFingerprint(cached.head)
+      ? await deriveDirtyInstallKeysV7(rebasedProjection, [...unseen, ...localPending]) : null;
     if (needsInstall) {
-      report(
-        progress,
-        "merge",
-        dirtyKeys
-          ? `正在应用本机增量（${unseen.length + localPending.length} 组变更）`
-          : `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`,
-        bandPercent(bands.install, 0.02),
-        bands.install[1],
-      );
+      const installLabel = dirtyKeys ? `正在应用本机增量（${unseen.length + localPending.length} 组变更）` : `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`;
+      report(progress, "merge", installLabel, bandPercent(bands.install, 0.02), bands.install[1]);
       const installed = await installProjection(rebasedProjection, {
         queueGuard: queueSnapshot,
         ...(dirtyKeys ? { dirtyKeys } : {}),
