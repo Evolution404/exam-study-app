@@ -1,0 +1,110 @@
+/* Question ↔ bank membership management. */
+.question-manager>header{grid-template-columns:minmax(220px,1fr) 165px 110px auto auto auto;align-items:stretch}
+.question-manager>header>button{white-space:nowrap}
+.question-add-existing{border-color:color-mix(in srgb,var(--color-primary) 35%,var(--color-border));color:var(--color-primary-text)}
+
+.question-membership-filterbar{margin-top:11px;padding:8px;border:1px solid var(--color-border);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--color-surface-muted)}
+.question-membership-tabs{display:flex;align-items:center;gap:5px;min-width:0;flex-wrap:wrap}
+.question-membership-tabs button{min-height:34px;border:1px solid transparent;border-radius:9px;padding:6px 10px;display:flex;align-items:center;gap:6px;color:var(--color-text-muted);background:transparent;cursor:pointer;white-space:nowrap;font-size:12px}
+.question-membership-tabs button span{min-width:22px;border-radius:99px;padding:2px 6px;text-align:center;color:var(--color-text-muted);background:var(--color-surface-raised);font-size:9px}
+.question-membership-tabs button.active{border-color:var(--color-primary);color:var(--color-primary-text);background:var(--color-primary-soft);font-weight:700}
+.question-membership-tabs button.active span{color:var(--color-primary-text)}
+.question-membership-bank-filter{width:min(240px,34vw);display:flex;align-items:center;gap:7px;color:var(--color-text-muted)}
+.question-membership-bank-filter>.app-select-trigger{min-height:34px}
+
+.managed-question-membership{margin:6px 0 3px;display:flex!important;align-items:center;gap:5px!important;color:var(--color-text-muted);font-size:9px;line-height:1.4}
+.managed-question-membership.shared{color:var(--color-primary-text)}
+.managed-question-membership svg{flex:none}
+.managed-question-membership span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.managed-question-list>article>div{align-items:center}
+
+.question-detail-memberships{margin-top:14px;padding:13px 14px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface-muted)}
+.question-detail-memberships>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.question-detail-memberships>div:first-child strong{font-size:12px}
+.question-detail-memberships>div:first-child small{color:var(--color-text-muted);font-size:9px}
+.question-detail-memberships>div:last-child{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px}
+.question-detail-memberships>div:last-child span{border-radius:99px;padding:5px 8px;color:var(--color-primary-text);background:var(--color-primary-soft);font-size:10px}
+
+.membership-dialog-backdrop{position:fixed;inset:0;z-index:150;padding:24px;display:grid;place-items:center;background:var(--color-overlay);backdrop-filter:blur(5px)}
+.membership-dialog{width:min(650px,100%);max-height:calc(100dvh - 48px);border:1px solid var(--color-border);border-radius:20px;display:flex;flex-direction:column;overflow:hidden;color:var(--color-text);background:var(--color-surface);box-shadow:0 28px 90px var(--shadow-color)}
+.membership-dialog>header{padding:19px 22px;border-bottom:1px solid var(--color-border);display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.membership-dialog>header h2{margin:5px 0 4px;font:600 25px Georgia,"Noto Serif SC",serif}
+.membership-dialog>header p{margin:0;max-width:620px;color:var(--color-text-muted);font-size:10px;line-height:1.6}
+.membership-dialog>footer{padding:14px 22px;border-top:1px solid var(--color-border);display:flex;justify-content:flex-end;gap:8px;background:var(--color-surface)}
+.membership-dialog-body{padding:18px 22px;display:grid;gap:12px;overflow:auto}
+.membership-search{min-width:0;height:42px;border:1px solid var(--color-border);border-radius:10px;padding:0 11px;display:flex;align-items:center;gap:8px;color:var(--color-text-muted);background:var(--color-surface-raised)}
+.membership-search input{min-width:0;width:100%;border:0;outline:0;color:var(--color-text);background:transparent}
+.membership-bank-list{display:grid;gap:7px}
+.membership-bank-list>label{min-height:54px;border:1px solid var(--color-border);border-radius:11px;padding:9px 11px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;background:var(--color-surface-raised);cursor:pointer}
+.membership-bank-list>label.selected{border-color:var(--color-primary);background:var(--color-primary-soft)}
+.membership-bank-list input{width:17px;height:17px;accent-color:var(--color-primary)}
+.membership-bank-list strong,.membership-bank-list small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.membership-bank-list strong{font-size:12px}
+.membership-bank-list small{margin-top:3px;color:var(--color-text-muted);font-size:9px}
+.membership-bank-list>label>svg{color:var(--color-primary-text)}
+.membership-selection-summary,.membership-shared-note{padding:11px 12px;border-radius:11px;display:flex;align-items:center;gap:9px;color:var(--color-primary-text);background:var(--color-primary-soft);font-size:10px}
+.membership-empty{min-height:110px;border:1px dashed var(--color-border);border-radius:11px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--color-text-muted);font-size:10px}
+
+.membership-source-dialog{width:min(980px,100%)}
+.membership-source-controls{padding:14px 20px;border-bottom:1px solid var(--color-border);display:grid;grid-template-columns:minmax(260px,1fr) 210px 130px;gap:8px;background:var(--color-surface-muted)}
+.membership-source-controls .app-select-trigger{height:42px}
+.membership-source-select-all{padding:10px 20px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--color-text-muted);font-size:10px}
+.membership-source-select-all label{display:flex;align-items:center;gap:7px;font-weight:700;color:var(--color-text)}
+.membership-source-select-all input{width:17px;height:17px;accent-color:var(--color-primary)}
+.membership-source-list{padding:12px 20px;display:grid;gap:7px;overflow:auto}
+.membership-source-list article{min-height:78px;border:1px solid var(--color-border);border-radius:12px;padding:10px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;background:var(--color-surface-raised)}
+.membership-source-list article.selected{border-color:var(--color-primary);background:var(--color-primary-soft)}
+.membership-source-list article.already{opacity:.68;background:var(--color-surface-muted)}
+.membership-source-list article>label input{width:18px;height:18px;accent-color:var(--color-primary)}
+.membership-source-list article>div{min-width:0}
+.membership-source-list article>div>.content-block-renderer,.membership-source-list article>div>p{margin:6px 0 3px}
+.membership-source-list article>div>small{display:block;color:var(--color-text-muted);font-size:9px}
+.membership-source-list article>span{border-radius:99px;padding:5px 8px;white-space:nowrap;color:var(--color-primary-text);background:var(--color-primary-soft);font-size:9px;font-weight:700}
+.membership-source-list article.already>span{color:var(--color-text-muted);background:var(--color-surface-raised)}
+.membership-source-meta{display:flex;gap:5px;align-items:center}
+.membership-source-meta em,.membership-source-meta i{border-radius:99px;padding:3px 6px;font-size:8px;font-style:normal}
+.membership-source-meta em{color:var(--color-primary-text);background:var(--color-primary-soft)}
+.membership-source-meta i{color:var(--color-text-muted);background:var(--color-surface-muted)}
+.membership-load-more{margin:0 20px 12px;min-height:38px;border:1px solid var(--color-border);border-radius:10px;color:var(--color-primary-text);background:var(--color-surface-raised);cursor:pointer}
+.membership-source-dialog>.membership-empty{margin:14px 20px}
+.membership-shared-note{margin:0 20px 14px}
+.membership-shared-note span{min-width:0}
+.membership-shared-note strong,.membership-shared-note small{display:block}
+.membership-shared-note small{margin-top:3px;color:var(--color-text-muted);line-height:1.5}
+.membership-bulk-dialog{width:min(620px,100%)}
+
+@media(max-width:1120px){
+  .question-manager>header{grid-template-columns:minmax(220px,1fr) 150px 110px repeat(3,auto)}
+  .question-add-existing{grid-column:auto}
+}
+@media(max-width:900px){
+  .question-manager>header{grid-template-columns:minmax(0,1fr) 1fr 1fr}
+  .question-manager-search{grid-column:1/-1}
+  .question-manager>header>button{width:100%}
+  .question-membership-filterbar{align-items:stretch;flex-direction:column}
+  .question-membership-bank-filter{width:100%}
+  .membership-source-controls{grid-template-columns:1fr 1fr}
+  .membership-source-controls .membership-search{grid-column:1/-1}
+}
+@media(max-width:760px){
+  .membership-dialog-backdrop{padding:0;align-items:stretch}
+  .membership-dialog{width:100%;max-height:100dvh;border:0;border-radius:0}
+  .membership-dialog>header{padding:17px 18px}
+  .membership-dialog-body{padding:15px 18px}
+  .membership-dialog>footer{padding:12px 18px calc(12px + var(--app-safe-bottom));display:grid;grid-template-columns:1fr 1fr}
+  .membership-source-controls{padding:12px 18px;grid-template-columns:1fr}
+  .membership-source-controls .membership-search{grid-column:auto}
+  .membership-source-select-all{padding:10px 18px;align-items:flex-start;flex-direction:column}
+  .membership-source-list{padding:10px 18px}
+  .membership-source-list article{grid-template-columns:auto minmax(0,1fr)}
+  .membership-source-list article>span{grid-column:2;justify-self:start}
+  .membership-shared-note{margin:0 18px 12px}
+  .membership-load-more{margin-inline:18px}
+  .question-manager>header{grid-template-columns:1fr 1fr}
+  .question-manager>header .question-manager-search{grid-column:1/-1}
+  .question-manager>header .app-select-trigger{width:100%}
+  .question-membership-tabs{display:grid;grid-template-columns:repeat(3,1fr);width:100%}
+  .question-membership-tabs button{justify-content:center;padding-inline:6px}
+  .question-bulk-bar{align-items:stretch;flex-direction:column}
+  .question-bulk-bar>div{margin-left:0;display:grid;grid-template-columns:1fr}
+}
