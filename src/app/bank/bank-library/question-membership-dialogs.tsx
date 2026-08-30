@@ -8,7 +8,7 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { loadImageAssetV7 } from "@/app/bank/question-editor";
-import { addMembershipsV7, dbV7, setQuestionMembershipsV7 } from "@/lib/db/db-v7";
+import { addMembershipV7, addMembershipsV7, dbV7, setQuestionMembershipsV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsAvailableFromOtherBanksV7, questionPlainViewV7 } from "@/lib/db/app-data-v7";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
@@ -111,7 +111,9 @@ export function AddFromOtherBanksDialog({ bank, onClose, onAdded, onNotice }: {
     if (!selectedIds.length) return;
     try {
       setSaving(true);
-      const count = await addMembershipsV7(bank.id, selectedIds);
+      const count = selectedIds.length === 1
+        ? Number(await addMembershipV7(bank.id, selectedIds[0]))
+        : await addMembershipsV7(bank.id, selectedIds);
       setSelectedIds([]);
       onAdded(count);
       onClose();
