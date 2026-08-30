@@ -1,14 +1,14 @@
 "use client";
 
 import "../question-membership.css";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowRightLeft, Check, Library, Plus, Search, X } from "lucide-react";
 import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { loadImageAssetV7 } from "@/app/bank/question-editor";
-import { addMembershipV7, addMembershipsV7, dbV7, setQuestionMembershipsV7 } from "@/lib/db/db-v7";
+import { addMembershipsV7, dbV7, setQuestionMembershipsV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsAvailableFromOtherBanksV7, questionPlainViewV7 } from "@/lib/db/app-data-v7";
 import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
@@ -31,21 +31,26 @@ export function QuestionMembershipDialog({ questionId, currentBankId, onClose, o
     ]);
     return { view, banks };
   }, [questionId, currentBankId]);
-  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
-  const [initializedQuestionId, setInitializedQuestionId] = useState("");
+  const [selection, setSelection] = useState<{ questionId: string; bankIds: string[] }>();
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!data?.view || initializedQuestionId === questionId) return;
-    setSelectedBankIds(data.view.memberships.map((membership) => membership.bankId));
-    setInitializedQuestionId(questionId);
-  }, [data, initializedQuestionId, questionId]);
+  const selectedBankIds = selection?.questionId === questionId
+    ? selection.bankIds
+    : (data?.view?.memberships.map((membership) => membership.bankId) ?? []);
 
   const visibleBanks = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     return (data?.banks ?? []).filter((bank) => !normalized || [bankLabel(bank), bank.name, bank.description ?? ""].join(" ").toLocaleLowerCase("zh-CN").includes(normalized));
   }, [data?.banks, query]);
+
+  function toggleBank(bankId: string) {
+    setSelection({
+      questionId,
+      bankIds: selectedBankIds.includes(bankId)
+        ? selectedBankIds.filter((id) => id !== bankId)
+        : [...selectedBankIds, bankId],
+    });
+  }
 
   async function save() {
     try {
@@ -64,7 +69,7 @@ export function QuestionMembershipDialog({ questionId, currentBankId, onClose, o
     <header><div><span className="section-kicker">题目归属</span><h2 id="membership-dialog-title">管理所属题库</h2><p>勾选表示同一题目实体加入该题库；取消勾选只移除归属，不删除题目和学习记录。</p></div><button className="icon-button" aria-label="关闭所属题库管理" onClick={onClose}><X size={18} /></button></header>
     <div className="membership-dialog-body">
       <label className="membership-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="搜索题库" /></label>
-      <div className="membership-bank-list">{visibleBanks.map((bank) => { const checked = selectedBankIds.includes(bank.id); return <label key={bank.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={() => setSelectedBankIds((current) => current.includes(bank.id) ? current.filter((id) => id !== bank.id) : [...current, bank.id])} /><span><strong>{bankLabel(bank)}</strong><small>{bank.id === currentBankId ? "当前题库" : `${bank.questionCount} 道题`}</small></span>{checked && <Check size={16} />}</label>; })}</div>
+      <div className="membership-bank-list">{visibleBanks.map((bank) => { const checked = selectedBankIds.includes(bank.id); return <label key={bank.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={() => toggleBank(bank.id)} /><span><strong>{bankLabel(bank)}</strong><small>{bank.id === currentBankId ? "当前题库" : `${bank.questionCount} 道题`}</small></span>{checked && <Check size={16} />}</label>; })}</div>
       {!visibleBanks.length && <div className="membership-empty">没有符合条件的题库</div>}
       <div className="membership-selection-summary"><Library size={16} /><span>{selectedBankIds.length ? `保存后属于 ${selectedBankIds.length} 个题库` : "保存后进入未归档题目"}</span></div>
     </div>
@@ -78,7 +83,8 @@ export function AddFromOtherBanksDialog({ bank, onClose, onAdded, onNotice }: {
   onAdded: (count: number) => void;
   onNotice: (message: string) => void;
 }) {
-  const views = useLiveQuery(() => listQuestionViewsAvailableFromOtherBanksV7(bank.id), [bank.id]) ?? [];
+  const liveViews = useLiveQuery(() => listQuestionViewsAvailableFromOtherBanksV7(bank.id), [bank.id]);
+  const views = useMemo(() => liveViews ?? [], [liveViews]);
   const banks = useLiveQuery(() => dbV7.banks.orderBy("sortOrder").toArray(), [bank.id]) ?? [];
   const [query, setQuery] = useState("");
   const [sourceBankId, setSourceBankId] = useState("all");
@@ -105,9 +111,7 @@ export function AddFromOtherBanksDialog({ bank, onClose, onAdded, onNotice }: {
     if (!selectedIds.length) return;
     try {
       setSaving(true);
-      const count = selectedIds.length === 1
-        ? Number(await addMembershipV7(bank.id, selectedIds[0]))
-        : await addMembershipsV7(bank.id, selectedIds);
+      const count = await addMembershipsV7(bank.id, selectedIds);
       setSelectedIds([]);
       onAdded(count);
       onClose();
@@ -126,7 +130,7 @@ export function AddFromOtherBanksDialog({ bank, onClose, onAdded, onNotice }: {
       const already = view.memberships.some((membership) => membership.bankId === bank.id);
       const checked = selectedIds.includes(view.question.id);
       const sources = view.banks.filter((item) => item.id !== bank.id).map(bankLabel);
-      return <article key={view.question.id} className={already ? "already" : checked ? "selected" : ""}><label><input type="checkbox" disabled={already} checked={already || checked} onChange={() => setSelectedIds((current) => current.includes(view.question.id) ? current.filter((id) => id !== view.question.id) : [...current, view.question.id])} /></label><div><div className="membership-source-meta"><em>{view.question.type}</em>{view.question.tags.slice(0, 3).map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={view.question.content} loadAsset={loadImageAssetV7} /><small>{sources.slice(0, 2).join(" · ")}{sources.length > 2 ? ` · +${sources.length - 2}` : ""}</small></div><span>{already ? "当前题库已有" : "可添加"}</span></article>;
+      return <article key={view.question.id} className={already ? "already" : checked ? "selected" : ""}><label aria-label={already ? "当前题库已有" : "选择添加此题"}><input type="checkbox" disabled={already} checked={already || checked} onChange={() => setSelectedIds((current) => current.includes(view.question.id) ? current.filter((id) => id !== view.question.id) : [...current, view.question.id])} /></label><div><div className="membership-source-meta"><em>{view.question.type}</em>{view.question.tags.slice(0, 3).map((tag) => <i key={tag}>{tag}</i>)}</div><ContentBlockRenderer blocks={view.question.content} loadAsset={loadImageAssetV7} /><small>{sources.slice(0, 2).join(" · ")}{sources.length > 2 ? ` · +${sources.length - 2}` : ""}</small></div><span>{already ? "当前题库已有" : "可添加"}</span></article>;
     })}</div>
     {!filtered.length && <div className="membership-empty"><Search size={20} />没有符合条件的其他题库题目</div>}
     {visible < filtered.length && <button className="membership-load-more" onClick={() => setVisible((value) => value + 80)}>继续加载（{visible} / {filtered.length}）</button>}
