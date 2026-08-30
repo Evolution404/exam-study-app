@@ -1,8 +1,8 @@
 {
-  "totalBytes": 290901,
+  "totalBytes": 301097,
   "maxFileBytes": 13741,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 258540,
+  "totalDebtScore": 268736,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -12,6 +12,12 @@
     },
     "src/app/bank/bank-responsive.css": {
       "bytes": 6543,
+      "hexColors": 0,
+      "darkSelectors": 0,
+      "important": 0
+    },
+    "src/app/bank/question-membership.css": {
+      "bytes": 10196,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
