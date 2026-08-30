@@ -91,7 +91,7 @@
     "test:sync-download-concurrency": "tsx scripts/tests/test-sync-download-concurrency.ts",
     "test:sync-replay-perf": "tsx scripts/tests/test-sync-replay-perf.ts",
     "test:sync-install-fingerprint": "tsx scripts/tests/test-sync-install-fingerprint.ts",
-    "test:sync-incremental-install": "tsx scripts/tests/test-sync-incremental-install.ts",
+    "test:sync-incremental-install": "tsx scripts/tests/test-sync-incremental-install.ts && tsx scripts/tests/test-sync-dirty-import-membership.ts",
     "test:sync-history-range": "tsx scripts/tests/test-sync-history-range-integration.ts",
     "test:sync-tombstone-gc": "tsx scripts/tests/test-sync-tombstone-gc.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern artifacts --ignore-pattern ios/App/App/public",

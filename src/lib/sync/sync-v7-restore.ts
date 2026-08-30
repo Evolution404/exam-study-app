@@ -3,8 +3,7 @@ import type { GitHubSettings } from "../../types/types";
 import { bandPercent, monotonicProgress, remote, report, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-v7-context";
 import { saveHeadCache, saveInstalledCursors, saveInstalledHead, saveRemoteCache } from "./sync-v7-cache";
 import { downloadRemoteV7 } from "./sync-v7-download";
-import { installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-v7-checkpoint-bridge";
-import { createSyncCheckpointV7 } from "./sync-v7-checkpoint-store";
+import { checkpointFromProjection, installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-v7-checkpoint-bridge";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-v7-watermark";
 
@@ -59,10 +58,14 @@ export async function restoreFullHistoryFromGitHub(
     });
     if (!installed) throw new Error("恢复期间检测到新的本地更改，请先同步或处理后再重试。");
 
-    report(progress, "cache", "正在重建本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
+    report(progress, "cache", "正在更新本机同步状态", bandPercent(bands.cache, 0.4), bands.cache[1]);
     await dbV7.changeSets.bulkPut(downloaded.changes.map((change) => ({ ...change, state: "committed" as const, committedAt: new Date().toISOString() })));
     await saveHeadCache(settings, read.cache);
-    const checkpoint = await createSyncCheckpointV7();
+    // `projection` is the exact state that was just installed. Building the
+    // folded local cache from it avoids immediately reading every projection
+    // store back through IndexedDB (`createSyncCheckpointV7` used to do a full
+    // toArray + clone pass here after the write had already completed).
+    const checkpoint = await checkpointFromProjection(projection, read.head.cursors);
     await saveRemoteCache({ ...settings, historySyncStart: undefined }, checkpoint, read.cache);
     await saveQueueBase(projection);
     await saveInstalledHead(settings, installFingerprint(read.cache));
