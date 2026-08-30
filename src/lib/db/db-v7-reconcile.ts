@@ -3,15 +3,15 @@ import { dbV7 } from "./db-v7-core";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
 
-export interface ReconcileV7ProjectionProgress {
+interface ReconcileV7ProjectionProgress {
   completed: number;
   total: number;
   label: string;
 }
 
-export type ReconcileV7InstallMode = "full";
+type ReconcileV7InstallMode = "full";
 
-export interface ReconcileV7Timing {
+interface ReconcileV7Timing {
   phase: "plan" | "write";
   table: string;
   durationMs: number;
@@ -99,9 +99,6 @@ async function planTable<T>(
   incoming: readonly T[],
   keyOf: (row: T) => string | undefined,
 ): Promise<ReconcilePlan<T>> {
-  // Read only primary keys up front, then compare incoming rows in bounded chunks.
-  // This keeps WKWebView from materializing an entire large object store (notably
-  // attempts) in JS merely to discover that nearly every row is unchanged.
   const rawCurrentKeys = await table.toCollection().primaryKeys();
   const currentKeys = rawCurrentKeys.map((key) => {
     if (typeof key !== "string") throw new Error(`本机 ${table.name} 存在非字符串主键，无法安全增量同步。`);
@@ -130,9 +127,6 @@ async function planTable<T>(
   return {
     puts,
     deletes,
-    // primaryKeys materializes every installed key and bulkGet then reads every
-    // incoming row. Keep both counts visible so a no-op full reconcile cannot
-    // masquerade as "zero work" merely because it produces no writes.
     scannedRows: currentKeys.length + incoming.length,
     comparedRows: incoming.length,
   };
@@ -183,9 +177,6 @@ async function planImageAssets(incoming: V7RestoreState["imageAssets"]): Promise
     else inserts.push(asset);
   }
 
-  // Blob bytes remain local cache data. Compare only the small descriptor and
-  // do so in bounded chunks, so unchanged images produce zero IndexedDB writes
-  // without materializing every cached Blob at once.
   for (let index = 0; index < existing.length; index += RECONCILE_PLAN_READ_BATCH_SIZE) {
     const rows = existing.slice(index, index + RECONCILE_PLAN_READ_BATCH_SIZE);
     const current = await dbV7.imageAssets.bulkGet(rows.map((asset) => asset.id));
@@ -252,19 +243,6 @@ async function applyPlan<T>(
   });
 }
 
-/**
- * Reconcile an already-installed local projection to the exact target state.
- *
- * Planning reads happen before the write transaction so iOS/WKWebView does not
- * hold one giant read-write transaction while comparing thousands of unchanged
- * records. The queue guard is checked atomically immediately before applying
- * the small delta: a local edit that lands during planning changes the queue and
- * makes this attempt return false, so the sync loop retries from a fresh base.
- *
- * Unlike checkpoint restore this path never clears projection stores. Ordinary
- * remote deltas therefore update only changed/deleted rows and avoid the Safari
- * clear + full index rebuild behaviour that made existing-device sync stall.
- */
 export async function reconcileV7Projection(
   state: V7RestoreState,
   options: ReconcileV7ProjectionOptions = {},
