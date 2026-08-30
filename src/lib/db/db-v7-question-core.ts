@@ -146,6 +146,98 @@ export async function splitQuestionV7(
 
 export const splitQuestion = splitQuestionV7;
 
+/** Attach existing canonical questions to another bank without cloning content. */
+export async function addMembershipsV7(bankId: string, questionIds: readonly string[]): Promise<number> {
+  const uniqueIds = uniqueStrings(questionIds);
+  if (!bankId || !uniqueIds.length) return 0;
+  const [bank, questions, existingMemberships, currentMemberships] = await Promise.all([
+    dbV7.banks.get(bankId),
+    dbV7.questions.bulkGet(uniqueIds),
+    dbV7.bankQuestionMemberships.bulkGet(uniqueIds.map((questionId) => membershipKey(bankId, questionId))),
+    dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray(),
+  ]);
+  if (!bank) throw new Error("题库不存在或已被删除。");
+  if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+  const existingIds = new Set(existingMemberships.filter(Boolean).map((membership) => membership!.questionId));
+  const missingIds = uniqueIds.filter((questionId) => !existingIds.has(questionId));
+  if (!missingIds.length) return 0;
+  const timestamp = nowIso();
+  const deviceId = getV7DeviceId();
+  const sequence = await nextV7Sequence(deviceId);
+  let sortOrder = currentMemberships.reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
+  const memberships: BankQuestionMembership[] = missingIds.map((questionId) => ({
+    key: membershipKey(bankId, questionId),
+    bankId,
+    questionId,
+    sortOrder: sortOrder++,
+    addedAt: timestamp,
+    updatedAt: timestamp,
+    deviceId,
+  }));
+  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+    for (const membership of memberships) await saveMembershipInTx(membership);
+    await refreshBankQuestionCountInTx(bankId);
+    await enqueueChangeSetV7([{ kind: "membership.bulk.save", memberships }], timestamp, { localSequence: sequence });
+  });
+  return memberships.length;
+}
+
+export async function addMembershipV7(bankId: string, questionId: string): Promise<boolean> {
+  return (await addMembershipsV7(bankId, [questionId])) > 0;
+}
+
+/** Atomically replace one question's bank memberships; an empty list means unfiled. */
+export async function setQuestionMembershipsV7(questionId: string, bankIds: readonly string[]): Promise<{ added: number; removed: number }> {
+  const targetBankIds = uniqueStrings(bankIds);
+  const [question, currentMemberships, targetBanks] = await Promise.all([
+    dbV7.questions.get(questionId),
+    dbV7.bankQuestionMemberships.where("questionId").equals(questionId).toArray(),
+    dbV7.banks.bulkGet(targetBankIds),
+  ]);
+  if (!question) throw new Error("题目不存在或已被删除。");
+  if (targetBanks.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
+  const currentBankIds = new Set(currentMemberships.map((membership) => membership.bankId));
+  const targetBankIdSet = new Set(targetBankIds);
+  const removedMemberships = currentMemberships.filter((membership) => !targetBankIdSet.has(membership.bankId));
+  const addedBankIds = targetBankIds.filter((bankId) => !currentBankIds.has(bankId));
+  if (!removedMemberships.length && !addedBankIds.length) return { added: 0, removed: 0 };
+
+  const existingByAddedBank = await Promise.all(addedBankIds.map((bankId) => dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray()));
+  const timestamp = nowIso();
+  const deviceId = getV7DeviceId();
+  const sequence = await nextV7Sequence(deviceId);
+  const addedMemberships: BankQuestionMembership[] = addedBankIds.map((bankId, index) => {
+    const sortOrder = existingByAddedBank[index].reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
+    return {
+      key: membershipKey(bankId, questionId),
+      bankId,
+      questionId,
+      sortOrder,
+      addedAt: timestamp,
+      updatedAt: timestamp,
+      deviceId,
+    };
+  });
+  const affectedBankIds = uniqueStrings([...addedBankIds, ...removedMemberships.map((membership) => membership.bankId)]);
+  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+    if (removedMemberships.length) {
+      await dbV7.bankQuestionMemberships.bulkDelete(removedMemberships.map((membership) => membership.key));
+      await dbV7.tombstones.bulkPut(removedMemberships.map((membership) => ({
+        key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
+        deletedAt: timestamp, deviceId, eventId: makeV7Id("membership-delete"), sequence,
+      })));
+    }
+    for (const membership of addedMemberships) await saveMembershipInTx(membership);
+    const mutations = [
+      ...(addedMemberships.length ? [{ kind: "membership.bulk.save" as const, memberships: addedMemberships }] : []),
+      ...(removedMemberships.length ? [{ kind: "membership.bulk.remove" as const, keys: removedMemberships.map((membership) => membership.key), removedAt: timestamp }] : []),
+    ];
+    await enqueueChangeSetV7(mutations, timestamp, { localSequence: sequence });
+    for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
+  });
+  return { added: addedMemberships.length, removed: removedMemberships.length };
+}
+
 export function removeMembershipV7(bankId: string, questionId: string): Promise<boolean>;
 export function removeMembershipV7(input: Pick<BankQuestionMembership, "bankId" | "questionId">): Promise<boolean>;
 export async function removeMembershipV7(
