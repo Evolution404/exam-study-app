@@ -48,6 +48,25 @@ function projection(questions: QuestionV7[], imageAssets: ChangeSetProjectionV7[
   };
 }
 
+function benchmarkProjection(questionCount: number, attemptCount: number): ChangeSetProjectionV7 {
+  const questions = Array.from({ length: questionCount }, (_, index) => question(`bench-q-${index}`, `同步性能基准题目 ${index}：${"输电线路运行维护".repeat(4)}`));
+  const attempts = Array.from({ length: attemptCount }, (_, index) => ({
+    id: `bench-a-${index}`,
+    runId: `bench-run-${Math.floor(index / 50)}`,
+    questionId: questions[index % questions.length].id,
+    selected: index % 5 === 0 ? "" : "A",
+    correct: index % 3 !== 0,
+    elapsedMs: 1_000 + index % 30_000,
+    createdAt: new Date(Date.UTC(2026, 6, 1) + index * 1_000).toISOString(),
+    deviceId: "device-benchmark",
+  }));
+  return { ...projection(questions), attempts } as ChangeSetProjectionV7;
+}
+
+function elapsedMs(started: number): number {
+  return Math.max(0, performance.now() - started);
+}
+
 await resetV7Database();
 const first = question("q-1", "已有本地题目");
 const second = question("q-2", "远端仅新增的一道题");
@@ -137,10 +156,56 @@ try {
     dbV7.questions.bulkGet = originalQuestionBulkGet;
   }
   assert.ok(questionBulkGetCalls >= 2, "large projection planning must compare rows in bounded bulkGet chunks rather than materializing the whole table");
+
+  // Representative local-install benchmark. Current production v9 checkpoints
+  // are multi-megabyte projections; use enough nested questions + attempts here
+  // to expose full-dataset planning cost without turning CI into a wall-clock
+  // benchmark. Deterministic row-I/O assertions are the regression gate; the
+  // timings are diagnostic output for comparing phases/commits.
+  await resetV7Database();
+  const benchmark = benchmarkProjection(2_000, 10_000);
+  const firstTimings: Array<Parameters<NonNullable<NonNullable<Parameters<typeof installProjection>[1]>["onTiming"]>>[0]> = [];
+  let started = performance.now();
+  const firstBenchmarkInstall = await installProjection(benchmark, { onTiming: (timing) => firstTimings.push(timing) });
+  const firstDurationMs = elapsedMs(started);
+  assert.equal(firstBenchmarkInstall, true);
+
+  const noOpTimings: typeof firstTimings = [];
+  started = performance.now();
+  const benchmarkNoOp = await installProjection(benchmark, { onTiming: (timing) => noOpTimings.push(timing) });
+  const noOpDurationMs = elapsedMs(started);
+  assert.equal(benchmarkNoOp, true);
+  const noOpPlanRows = noOpTimings.filter((entry) => entry.phase === "plan").reduce((sum, entry) => sum + entry.scannedRows, 0);
+  const noOpWriteRows = noOpTimings.filter((entry) => entry.phase === "write").reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
+  assert.ok(noOpPlanRows >= 2 * (benchmark.questions.length + benchmark.attempts.length), "baseline benchmark must expose the full-table read/compare cost even when no rows are rewritten");
+  assert.equal(noOpWriteRows, 0, "semantic no-op benchmark must perform zero IndexedDB mutations");
+
+  const deltaQuestions = [...benchmark.questions];
+  deltaQuestions[deltaQuestions.length - 1] = question(deltaQuestions[deltaQuestions.length - 1].id, "仅修改一道题，用于测量全量 planning 放大效应");
+  const deltaProjection = { ...benchmark, questions: deltaQuestions };
+  const deltaTimings: typeof firstTimings = [];
+  started = performance.now();
+  const deltaInstalled = await installProjection(deltaProjection, { onTiming: (timing) => deltaTimings.push(timing) });
+  const deltaDurationMs = elapsedMs(started);
+  assert.equal(deltaInstalled, true);
+  const deltaPlanRows = deltaTimings.filter((entry) => entry.phase === "plan").reduce((sum, entry) => sum + entry.scannedRows, 0);
+  const deltaWriteRows = deltaTimings.filter((entry) => entry.phase === "write").reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
+  assert.ok(deltaPlanRows >= 2 * (benchmark.questions.length + benchmark.attempts.length), "single-row delta currently still scans the large installed projection; later phases must deliberately reduce this metric");
+  assert.equal(deltaWriteRows, 1, "single-question delta should mutate exactly one persisted row");
+
+  const phaseDuration = (entries: typeof firstTimings, phase: "plan" | "write") => entries
+    .filter((entry) => entry.phase === phase)
+    .reduce((sum, entry) => sum + entry.durationMs, 0);
+  console.log("sync install benchmark", JSON.stringify({
+    scale: { questions: benchmark.questions.length, attempts: benchmark.attempts.length },
+    first: { totalMs: Math.round(firstDurationMs), planMs: Math.round(phaseDuration(firstTimings, "plan")), writeMs: Math.round(phaseDuration(firstTimings, "write")) },
+    noOp: { totalMs: Math.round(noOpDurationMs), planMs: Math.round(phaseDuration(noOpTimings, "plan")), writeMs: Math.round(phaseDuration(noOpTimings, "write")), scannedRows: noOpPlanRows, writtenRows: noOpWriteRows },
+    oneQuestionDelta: { totalMs: Math.round(deltaDurationMs), planMs: Math.round(phaseDuration(deltaTimings, "plan")), writeMs: Math.round(phaseDuration(deltaTimings, "write")), scannedRows: deltaPlanRows, writtenRows: deltaWriteRows },
+  }));
 } finally {
   dbV7.questions.clear = originalQuestionClear;
   await resetV7Database();
   dbV7.close();
 }
 
-console.log("iOS incremental install regression tests passed: add/update/delete without clear, semantic no-op without rewrite");
+console.log("iOS incremental install regression tests passed: add/update/delete without clear, semantic no-op without rewrite, install timing benchmark");
