@@ -107,6 +107,16 @@ export async function installProjection(
     queueGuard?: readonly V7ChangeSetQueueGuard[];
     clearChangeSets?: boolean;
     onProgress?: (progress: { completed: number; total: number; label: string }) => void;
+    onTiming?: (timing: {
+      phase: "plan" | "write";
+      table: string;
+      durationMs: number;
+      scannedRows: number;
+      comparedRows: number;
+      putRows: number;
+      deleteRows: number;
+      mode: "full";
+    }) => void;
   },
 ): Promise<boolean> {
   // Normal sync already has the exact target projection. Reconcile that target
