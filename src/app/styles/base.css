@@ -1,4 +1,4 @@
-/* Document reset and global element defaults. */
+/* Global element defaults */
 * { box-sizing:border-box; }
 
 html,body { margin:0; min-height:100%; background:var(--color-canvas); color:var(--color-text); }
@@ -7,6 +7,6 @@ body { font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Se
 
 button,input,textarea { font:inherit; }
 
-button { color:inherit; }
+button { color:inherit; white-space:nowrap; }
 
 ::placeholder { color:var(--color-text-muted); opacity:.8; }
