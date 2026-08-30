@@ -7,6 +7,7 @@ body { font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Se
 
 button,input,textarea { font:inherit; }
 
-button { color:inherit; }
+/* Button labels are atomic actions: never let their copy split across lines. */
+button { color:inherit; white-space:nowrap; }
 
 ::placeholder { color:var(--color-text-muted); opacity:.8; }
