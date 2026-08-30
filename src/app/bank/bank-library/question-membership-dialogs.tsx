@@ -1,5 +1,6 @@
 "use client";
 
+import "../question-membership.css";
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowRightLeft, Check, Library, Plus, Search, X } from "lucide-react";
