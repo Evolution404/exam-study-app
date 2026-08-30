@@ -112,7 +112,10 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutationV7): boolea
     case "question.import":
       sets.banks.add(mutation.bank.id);
       mutation.questions.forEach((question) => addQuestionUpsert(sets, question.id));
-      mutation.memberships.forEach((membership) => sets.memberships.add(membership.key));
+      mutation.memberships.forEach((membership) => {
+        sets.memberships.add(membership.key);
+        sets.tombstones.add(tombstoneKey("membership", membership.key));
+      });
       for (const asset of mutation.images ?? []) {
         sets.imageAssets.add(asset.id);
         sets.tombstones.add(tombstoneKey("imageAsset", asset.id));
