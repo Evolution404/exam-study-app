@@ -44,12 +44,12 @@
 .topic-grid p { margin:0; color:var(--color-text-muted); font-size:12px; }
 .topic-line { height:3px; background:var(--color-border); margin-top:23px; border-radius:2px; overflow:hidden; }
 .topic-line i { display:block; height:100%; background:var(--color-primary); }
-.mode-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; margin:25px 0 11px; }
-.mode-grid button { min-height:135px; padding:18px 15px; border:1px solid var(--color-border); border-radius:15px; color:var(--color-text); background:var(--color-surface-raised); display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; cursor:pointer; }
-.mode-grid button svg { color:var(--color-primary-text); }
-.mode-grid button strong { font-size:13px; }
-.mode-grid button small { color:var(--color-text-muted); line-height:1.5; }
-.mode-grid button:disabled { opacity:.55; cursor:not-allowed; }
+.mode-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin:25px 0 11px}
+.mode-grid button{min-width:0;min-height:135px;padding:18px 15px;border:1px solid var(--color-border);border-radius:15px;color:var(--color-text);background:var(--color-surface-raised);display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;cursor:pointer}
+.mode-grid button svg{color:var(--color-primary-text)}
+.mode-grid button strong{font-size:13px}
+.mode-grid small{white-space:normal;color:var(--color-text-muted);line-height:1.5}
+.mode-grid button:disabled{opacity:.55;cursor:not-allowed}
 .filter-section { padding:19px; border:1px solid var(--color-border); border-radius:14px; color:var(--color-text); background:var(--color-surface-raised); }
 .filter-title { display:flex; align-items:center; gap:8px; margin-bottom:13px; }
 .filter-title strong { font-size:13px; }
