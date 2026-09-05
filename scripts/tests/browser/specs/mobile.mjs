@@ -61,6 +61,25 @@ export async function runMobile(page, mockServer) {
   await helpers.clickButton(page, "练习");
   await helpers.expectText(page, "练习中心");
   await helpers.selectBankOnPracticeSetup(page);
+  const practiceModeGrid = await page.locator(".mode-grid").evaluate((grid) => {
+    const gridRect = grid.getBoundingClientRect();
+    const cardOverflow = Array.from(grid.querySelectorAll("button"))
+      .filter((card) => {
+        const rect = card.getBoundingClientRect();
+        return rect.left < gridRect.left - 1 || rect.right > gridRect.right + 1;
+      })
+      .map((card) => card.textContent?.trim() ?? "");
+    return {
+      clientWidth: grid.clientWidth,
+      scrollWidth: grid.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+      right: gridRect.right,
+      cardOverflow,
+    };
+  });
+  harness.assert.ok(practiceModeGrid.right <= practiceModeGrid.viewportWidth + 1, "mobile practice mode grid must stay inside the viewport");
+  harness.assert.ok(practiceModeGrid.scrollWidth <= practiceModeGrid.clientWidth + 1, "mobile practice mode grid must not create horizontal overflow");
+  harness.assert.deepEqual(practiceModeGrid.cardOverflow, [], "every mobile practice mode card must stay inside the grid");
   await helpers.clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
   await helpers.clickButton(page, "打开题目总览");
