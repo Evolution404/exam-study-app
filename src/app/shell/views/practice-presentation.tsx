@@ -54,7 +54,7 @@ export function PracticeNavigationHints({ preferences }: { preferences: Practice
 
 export function PracticeActionBar({ submitted, correct, questionType, preferences, selectedCount, shortAnswerRevealed, calculationInputValid, fillInputValid, autoAdvancing, index, isLast, onPrevious, onGiveUp, onRevealAnswer, onSubmit, onGrade, onRetry, onFinish, onNext }: { submitted: boolean; correct: boolean; questionType: QuestionType; preferences: PracticePreferences; selectedCount: number; shortAnswerRevealed: boolean; calculationInputValid: boolean; fillInputValid: boolean; autoAdvancing: boolean; index: number; isLast: boolean; onPrevious: () => void; onGiveUp: () => void; onRevealAnswer: () => void; onSubmit: () => void; onGrade: (outcome: AttemptOutcome) => void; onRetry: () => void; onFinish: () => void; onNext: () => void }) {
   const submitDisabled = questionType === "计算" ? !calculationInputValid : questionType === "填空" ? !fillInputValid : selectedCount === 0;
-  const nextAction = autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" style={{ width: "100%" }} onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>;
+  const nextAction = autoAdvancing ? <span className="answer-action-hint practice-auto-status">正在自动前进…</span> : <button className="practice-next" onClick={isLast ? onFinish : onNext}>{isLast ? "查看本次结果" : "下一题"}<ChevronRight size={18} /></button>;
 
   if (questionType === "简答") {
     const rowStyle = { width: "100%", display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 } as const;
