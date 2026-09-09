@@ -1,6 +1,42 @@
 import * as harness from "../harness.mjs";
 import * as helpers from "../helpers.mjs";
 
+async function readStandardActionLayout(page) {
+  return page.locator(".practice-actions > div").evaluate((row) => {
+    const rowRect = row.getBoundingClientRect();
+    const visibleChildren = Array.from(row.children)
+      .filter((child) => child instanceof HTMLElement && getComputedStyle(child).display !== "none")
+      .map((child) => {
+        const rect = child.getBoundingClientRect();
+        return { text: child.textContent?.trim() ?? "", left: rect.left, right: rect.right, width: rect.width };
+      });
+    const hint = row.querySelector(".answer-action-hint");
+    const hintRect = hint instanceof HTMLElement ? hint.getBoundingClientRect() : null;
+    const hintStyle = hint instanceof HTMLElement ? getComputedStyle(hint) : null;
+    return {
+      clientWidth: row.clientWidth,
+      scrollWidth: row.scrollWidth,
+      left: rowRect.left,
+      right: rowRect.right,
+      visibleChildren,
+      hint: hintRect && hintStyle ? {
+        text: hint?.textContent?.trim() ?? "",
+        width: hintRect.width,
+        height: hintRect.height,
+        fontSize: Number.parseFloat(hintStyle.fontSize),
+      } : null,
+    };
+  });
+}
+
+function assertStandardActionLayout(layout, label) {
+  harness.assert.ok(layout.scrollWidth <= layout.clientWidth + 1, `${label} 操作区不得横向溢出`);
+  const overflow = layout.visibleChildren
+    .filter((item) => item.left < layout.left - 1 || item.right > layout.right + 1)
+    .map((item) => item.text);
+  harness.assert.deepEqual(overflow, [], `${label} 每个操作项都必须保持在动作行内`);
+}
+
 export async function runPracticeSetupComboQA(page) {
   const contextName = "practice-combo";
   await page.goto(`${harness.baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -22,6 +58,13 @@ export async function runPracticeSetupComboQA(page) {
   // 全量顺序练习答 5 题：Q1、Q2 各答错一次，Q3–Q5 答对（错题集合 = 2 道单选）。
   await helpers.clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
+  const immediateActionLayout = await readStandardActionLayout(page);
+  assertStandardActionLayout(immediateActionLayout, "单选立即判定");
+  harness.assert.equal(immediateActionLayout.hint?.text, "选择答案后立即判定", "单选立即判定提示必须存在");
+  harness.assert.ok(Boolean(immediateActionLayout.hint), "单选立即判定提示必须可测量");
+  harness.assert.ok((immediateActionLayout.hint?.height ?? Number.POSITIVE_INFINITY) <= (immediateActionLayout.hint?.fontSize ?? 0) * 2, "单选立即判定提示必须保持单行，不能被下一题按钮挤成竖排");
+  const immediateNext = immediateActionLayout.visibleChildren.find((item) => item.text.includes("下一题"));
+  harness.assert.ok(Boolean(immediateNext) && (immediateNext?.width ?? Number.POSITIVE_INFINITY) < 180, "标准练习的下一题按钮必须保持内容宽度，不能占满动作行");
   await helpers.answerCurrentQuestion(page, [1]); // Q1 导线（单选 A）→ 错
   await helpers.expectText(page, "这次没有答对");
   await helpers.clickTextButton(page, "下一题");
@@ -30,6 +73,10 @@ export async function runPracticeSetupComboQA(page) {
   await helpers.expectText(page, "这次没有答对");
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 3, 5);
+  const multiSelectActionLayout = await readStandardActionLayout(page);
+  assertStandardActionLayout(multiSelectActionLayout, "多选手动确认");
+  harness.assert.ok(multiSelectActionLayout.visibleChildren.some((item) => item.text.includes("确认答案")), "多选题必须保留确认答案操作");
+  harness.assert.ok(multiSelectActionLayout.visibleChildren.some((item) => item.text.includes("下一题")), "多选题必须保留下一题操作");
   await helpers.answerCurrentQuestion(page, [0, 1], true); // Q3 安全巡视（多选 AB）→ 对
   await helpers.expectText(page, "回答正确");
   await helpers.clickTextButton(page, "下一题");
