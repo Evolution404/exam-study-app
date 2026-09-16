@@ -17,7 +17,7 @@ import { QuestionOverview } from "./question-overview";
 import { PracticeActionBar, PracticeHeader, PracticeNavigationHints, PracticeNotePanel, PracticeQuestionHeading, PracticeResultSummary } from "./practice-presentation";
 import { PracticeShortAnswer } from "./practice-short-answer";
 
-export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
+export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, transitionPending = false, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; transitionPending?: boolean; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const solution = question.canonical.solution;
@@ -126,7 +126,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isEditingText = target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");
-      if (editing || overviewOpen || isEditingText) return;
+      if (transitionPending || editing || overviewOpen || isEditingText) return;
       const shortcut = resolveKeyboardShortcut(preferences.keyboardShortcuts, event);
       if (shortcut?.type === "option" && !event.repeat && !submitted && shortcut.optionIndex < displayOrder.length) {
         event.preventDefault();
@@ -147,7 +147,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayOrder, editing, overviewOpen, index, isLast, onNext, onPrevious, preferences.keyboardShortcuts, submitted]);
+  }, [displayOrder, editing, overviewOpen, index, isLast, onNext, onPrevious, preferences.keyboardShortcuts, submitted, transitionPending]);
 
   useEffect(() => {
     const card = questionCardRef.current;
@@ -310,7 +310,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
 
   return <>
     <div className="practice-layout">
-      <section ref={questionCardRef} className="question-card" data-no-pull-refresh>
+      <section ref={questionCardRef} className="question-card" data-question-id={question.id} data-question-index={index} data-transition-pending={transitionPending ? "true" : "false"} aria-busy={transitionPending || undefined} inert={transitionPending || undefined}>
         <PracticeHeader index={index} total={total} modeLabel={modeLabel} onExit={onExit} onOpenOverview={() => setOverviewOpen(true)} />
         <div className="question-body">
           <PracticeQuestionHeading

@@ -82,12 +82,13 @@ export async function runMobile(page, mockServer) {
   harness.assert.deepEqual(practiceModeGrid.cardOverflow, [], "every mobile practice mode card must stay inside the grid");
   await helpers.clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
-  harness.assert.equal(await page.locator(".pull-refresh").count(), 0, "practice must unmount global pull-to-refresh on mobile");
+  harness.assert.equal(await page.locator(".pull-refresh").count(), 1, "practice must keep global pull-to-refresh available on mobile web/PWA");
   const practiceUrlBeforePull = page.url();
   await page.evaluate(() => {
     const workspace = document.querySelector(".workspace");
-    const target = document.querySelector(".practice-layout");
+    const target = document.querySelector(".practice-stem");
     if (!(workspace instanceof HTMLElement) || !(target instanceof HTMLElement)) throw new Error("practice pull regression target missing");
+    document.body.dataset.practicePullMarker = "before-reload";
     workspace.scrollTop = 0;
     const touch = (clientY) => ({
       identifier: 1,
@@ -118,9 +119,13 @@ export async function runMobile(page, mockServer) {
     dispatch("touchmove", [end]);
     dispatch("touchend", [], [end]);
   });
-  await page.waitForTimeout(1_200);
-  harness.assert.equal(page.url(), practiceUrlBeforePull, "pulling down outside the question card must not navigate or reload practice");
-  harness.assert.equal(await page.locator(".question-card").count(), 1, "pulling down in practice must keep the active question visible");
+  await page.waitForFunction(() => document.body.dataset.practicePullMarker !== "before-reload", undefined, { timeout: 5_000 });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await helpers.waitForQuestion(page, 1, 5);
+  harness.assert.equal(page.url(), practiceUrlBeforePull, "practice pull refresh must reload in place");
+  harness.assert.equal(await page.evaluate(() => performance.getEntriesByType("navigation")[0]?.type), "reload", "practice pull gesture must perform a real page reload");
+  harness.assert.equal(await page.locator(".question-card").count(), 1, "practice must auto-resume from the persisted in-progress run after pull refresh");
   await helpers.clickButton(page, "打开题目总览");
   // Fresh practice starts at the first question — the overview focuses the
   // current row (第 1 题) with 0/5 answered.

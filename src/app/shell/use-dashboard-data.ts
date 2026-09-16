@@ -35,9 +35,11 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return () => { cancelled = true; };
   }, [bankRows]);
 
-  const latestPracticeRun = useLiveQuery(async () => {
-    return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1));
+  const latestPracticeRunQuery = useLiveQuery(async () => {
+    return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1) ?? null);
   }, []);
+  const latestPracticeRun = latestPracticeRunQuery ?? undefined;
+  const latestPracticeRunLoaded = latestPracticeRunQuery !== undefined;
 
   const statsBaseQuery = useLiveQuery(async () => {
     const today = calendarDate(new Date());
@@ -131,6 +133,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     enabledBanks,
     activeBankIds,
     latestPracticeRun,
+    latestPracticeRunLoaded,
     stats,
     reviewRounds,
     selectedScopeLabel,

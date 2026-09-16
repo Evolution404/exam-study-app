@@ -37,6 +37,58 @@ function assertStandardActionLayout(layout, label) {
   harness.assert.deepEqual(overflow, [], `${label} 每个操作项都必须保持在动作行内`);
 }
 
+async function installPracticeFrameAudit(page) {
+  await page.evaluate(() => {
+    const audit = { blankFrames: 0, mismatchedFrames: [], samples: [] };
+    const sample = () => {
+      const progress = document.querySelector(".practice-progress span");
+      if (!(progress instanceof HTMLElement)) return;
+      const cards = document.querySelectorAll(".question-card");
+      if (cards.length !== 1) {
+        audit.blankFrames += cards.length === 0 ? 1 : 0;
+        audit.mismatchedFrames.push(`card-count:${cards.length}`);
+        return;
+      }
+      const card = cards[0];
+      const index = Number(card.getAttribute("data-question-index"));
+      const match = progress.textContent?.trim().match(/^(\d+)\s*\//);
+      if (!match || Number(match[1]) !== index + 1) audit.mismatchedFrames.push(`index:${index}:progress:${progress.textContent?.trim() ?? ""}`);
+      audit.samples.push({ id: card.getAttribute("data-question-id"), index, stem: document.querySelector(".practice-stem")?.textContent?.trim() ?? "" });
+    };
+    sample();
+    const observer = new MutationObserver(sample);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-question-id", "data-question-index", "data-transition-pending"] });
+    window.__practiceFrameAudit = { audit, observer };
+  });
+}
+
+async function readPracticeFrameAudit(page) {
+  return page.evaluate(() => {
+    window.__practiceFrameAudit?.observer.disconnect();
+    return window.__practiceFrameAudit?.audit ?? { blankFrames: 0, mismatchedFrames: [], samples: [] };
+  });
+}
+
+async function assertDisplayedFrameMatchesRun(page) {
+  const dbModuleUrl = new URL("/src/lib/db/db-v7.ts", harness.baseUrl).href;
+  const result = await page.evaluate(async ({ dbModuleUrl }) => {
+    const card = document.querySelector(".question-card");
+    if (!(card instanceof HTMLElement)) return { ok: false, reason: "missing-card" };
+    const index = Number(card.dataset.questionIndex);
+    const questionId = card.dataset.questionId;
+    const { dbV7 } = await import(dbModuleUrl);
+    const runs = await dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt");
+    const run = runs.at(-1);
+    return {
+      ok: Boolean(run && Number.isInteger(index) && questionId && run.questionIds[index] === questionId),
+      index,
+      questionId,
+      expectedQuestionId: run?.questionIds[index],
+    };
+  }, { dbModuleUrl });
+  harness.assert.equal(result.ok, true, `displayed practice frame must match practiceRun.questionIds[index]: ${JSON.stringify(result)}`);
+}
+
 export async function runPracticeSetupComboQA(page) {
   const contextName = "practice-combo";
   await page.goto(`${harness.baseUrl}/`, { waitUntil: "domcontentloaded" });
@@ -58,6 +110,7 @@ export async function runPracticeSetupComboQA(page) {
   // 全量顺序练习答 5 题：Q1、Q2 各答错一次，Q3–Q5 答对（错题集合 = 2 道单选）。
   await helpers.clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
+  await installPracticeFrameAudit(page);
   const immediateActionLayout = await readStandardActionLayout(page);
   assertStandardActionLayout(immediateActionLayout, "单选立即判定");
   harness.assert.equal(immediateActionLayout.hint?.text, "选择答案后立即判定", "单选立即判定提示必须存在");
@@ -69,10 +122,12 @@ export async function runPracticeSetupComboQA(page) {
   await helpers.expectText(page, "这次没有答对");
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 2, 5);
+  await assertDisplayedFrameMatchesRun(page);
   await helpers.answerCurrentQuestion(page, [0]); // Q2 发现异常（单选 B）→ 错
   await helpers.expectText(page, "这次没有答对");
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 3, 5);
+  await assertDisplayedFrameMatchesRun(page);
   const multiSelectActionLayout = await readStandardActionLayout(page);
   assertStandardActionLayout(multiSelectActionLayout, "多选手动确认");
   harness.assert.ok(multiSelectActionLayout.visibleChildren.some((item) => item.text.includes("确认答案")), "多选题必须保留确认答案操作");
@@ -81,10 +136,16 @@ export async function runPracticeSetupComboQA(page) {
   await helpers.expectText(page, "回答正确");
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 4, 5);
+  await assertDisplayedFrameMatchesRun(page);
   await helpers.answerCurrentQuestion(page, [0]); // Q4 判断 → 对
   await helpers.expectText(page, "回答正确");
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 5, 5);
+  await assertDisplayedFrameMatchesRun(page);
+  const frameAudit = await readPracticeFrameAudit(page);
+  harness.assert.equal(frameAudit.blankFrames, 0, "连续切题过程中不得出现 question-card 空白帧");
+  harness.assert.deepEqual(frameAudit.mismatchedFrames, [], "切题过程中进度题号必须与 displayed practice frame 的 index 原子一致");
+  harness.assert.ok(frameAudit.samples.every((sample) => sample.id && sample.stem), "切题帧必须始终同时具备题目 ID 与题干内容");
   await page.getByRole("spinbutton", { name: "第1空答案" }).fill("10");
   await page.getByRole("spinbutton", { name: "第2空答案" }).fill("20");
   await helpers.clickTextButton(page, "确认答案");
@@ -155,6 +216,23 @@ export async function runPracticeSetupComboQA(page) {
   await page.locator('.practice-segment-row[aria-label="出题范围"]').getByRole("button", { name: "错题", exact: true }).click();
   await page.locator(".setup-footer > button.primary").click();
   await helpers.expectNotice(page, /没有符合当前条件的题目/, "连对移出后错题组合应无题可练（进度口径）");
+
+  // 快速连续切题：允许用户很快连续发出导航意图，但 displayed frame 在异步
+  // Dexie 查询交接期间必须始终是一个完整快照，不能显示旧题配新题号。
+  await helpers.clickTextButton(page, "全量顺序练习");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await installPracticeFrameAudit(page);
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll("button")].find((item) => item.textContent?.includes("下一题"));
+    if (!(button instanceof HTMLButtonElement)) throw new Error("rapid navigation next button missing");
+    button.click();
+    button.click();
+  });
+  await helpers.waitForQuestion(page, 3, 5);
+  await assertDisplayedFrameMatchesRun(page);
+  const rapidAudit = await readPracticeFrameAudit(page);
+  harness.assert.equal(rapidAudit.blankFrames, 0, "快速连续切题不得出现空白 question-card");
+  harness.assert.deepEqual(rapidAudit.mismatchedFrames, [], "快速连续切题不得出现旧题内容与新题号错配");
 }
 
 // 练习进行中删除题目/题库的竞争状态：直接经页面内 import 数据层触发删除（等价后台同步拉取删除），

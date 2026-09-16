@@ -64,6 +64,7 @@ export function AppShell() {
     enabledBanks,
     activeBankIds,
     latestPracticeRun,
+    latestPracticeRunLoaded,
     stats,
     reviewRounds,
     selectedScopeLabel,
@@ -79,7 +80,7 @@ export function AppShell() {
     discardedRun,
     finishPrompt,
     setFinishPrompt,
-    activeQuestion,
+    displayedPracticeFrame,
     discardSavedPractice,
     undoDiscardPractice,
     refreshActivePracticeAfterSync,
@@ -101,6 +102,7 @@ export function AppShell() {
     enabledBanks,
     preferences,
     latestPracticeRun,
+    latestPracticeRunLoaded,
     selectBanks,
     resultRunId,
     setResultRunId,
@@ -183,8 +185,7 @@ export function AppShell() {
   return (
     <Tooltip.Provider delayDuration={250}>
     <main className={`app-shell font-${preferences.fontSize} transition-${preferences.questionTransition} transition-${practiceTransitionDirection < 0 ? "back" : "forward"}`}>
-      {/* Protect the entire exercise, including gutters and the note panel. */}
-      {view !== "practice" && <PullToRefresh />}
+      <PullToRefresh />
       <ShellSidebar view={view} open={sidebarOpen} pending={stats.pending} onOpenView={openMainView} onClose={() => setSidebarOpen(false)} />
 
       <section ref={workspaceRef} className={`workspace ${view === "search" ? "view-search" : ""}`}>
@@ -219,8 +220,8 @@ export function AppShell() {
           {view === "settings" && <SyncView pending={stats.pending} onNotice={setNotice} onRestored={handleRestoreSuccess} />}
           {view === "search" && <SearchView key={`search-${searchRevision}`} query={query} onQueryChange={setQuery} banks={enabledBanks} currentBankIds={activeBankIds} initialContentScope={searchContentScope} focusQuestionId={searchQuestionId} onFocusHandled={() => setSearchQuestionId(undefined)} wrongRemovalStreak={preferences.wrongRemovalStreak} progressScope={preferences.progressScope} defaultShuffleOptions={preferences.shuffleOptions} onStart={(options) => startSearchPractice(options)} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} onNotice={setNotice} />}
           {view === "practiceResult" && resultRunId && <PracticeRunResult runId={resultRunId} onBack={() => { setPracticeHubTab("history"); setView("practiceSetup"); }} onContinue={(runId, index) => void resumePractice(runId, index)} onRepeat={(questions, label, previousOptionOrders) => void startSearchPractice({ questions, label, shuffleOptions: preferences.shuffleOptions }, undefined, previousOptionOrders)} onNotice={setNotice} onGroup={(questionIds) => { setGroupQuestionIds(questionIds); setView("relations"); }} progressScope={preferences.progressScope} scopeLabel={selectedScopeLabel} />}
-          {view === "practice" && practiceSession && activeQuestion && (
-            <Practice key={activeQuestion.id} runId={practiceSession.runId} question={activeQuestion} initialState={practiceSession.answers[activeQuestion.id]} optionOrder={practiceSession.optionOrders?.[activeQuestion.id]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={practiceSession.currentIndex} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} onStateChange={(state) => saveAnswerState(activeQuestion.id, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(activeQuestion.id); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onExit={exitPractice} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />
+          {view === "practice" && practiceSession && displayedPracticeFrame && (
+            <Practice key={`${displayedPracticeFrame.runId}:${displayedPracticeFrame.questionId}`} runId={practiceSession.runId} question={displayedPracticeFrame.question} initialState={practiceSession.answers[displayedPracticeFrame.questionId]} optionOrder={practiceSession.optionOrders?.[displayedPracticeFrame.questionId]} questionIds={practiceSession.questionIds} questionTypes={practiceSession.questionTypes ?? {}} answers={practiceSession.answers} index={displayedPracticeFrame.index} total={practiceSession.questionIds.length} modeLabel={practiceSession.modeLabel} preferences={preferences} transitionPending={practiceSession.currentIndex !== displayedPracticeFrame.index || practiceSession.questionIds[practiceSession.currentIndex] !== displayedPracticeFrame.questionId} onStateChange={(state) => saveAnswerState(displayedPracticeFrame.questionId, state)} onJump={jumpPractice} onFavorite={async () => { const updated = await toggleQuestionFavorite(displayedPracticeFrame.questionId); setNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }} onExit={exitPractice} onPrevious={() => movePractice(-1)} onNext={() => movePractice(1)} onFinish={() => void finishPractice()} />
           )}
         </Suspense></div>
       </section>

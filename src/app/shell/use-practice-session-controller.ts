@@ -8,7 +8,7 @@ import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
-import { clearActivePracticeIntent, loadActivePracticeIntent, saveActivePracticeIntent } from "./practice-session-intent";
+import { allowPracticeAutoResumeForSession, isPracticeAutoResumeSuppressed, suppressPracticeAutoResumeForSession } from "./practice-session-intent";
 import {
   TYPE_ORDER,
   activePracticeFromRun,
@@ -34,6 +34,7 @@ interface PracticeSessionControllerOptions {
   enabledBanks: BankV7[];
   preferences: PracticePreferences;
   latestPracticeRun?: PracticeRun;
+  latestPracticeRunLoaded: boolean;
   selectBanks: (bankIds: string[]) => void;
   resultRunId?: string;
   setResultRunId: Dispatch<SetStateAction<string | undefined>>;
@@ -46,6 +47,7 @@ export function usePracticeSessionController({
   enabledBanks,
   preferences,
   latestPracticeRun,
+  latestPracticeRunLoaded,
   selectBanks,
   resultRunId,
   setResultRunId,
@@ -55,47 +57,23 @@ export function usePracticeSessionController({
   const [practiceTransitionDirection, setPracticeTransitionDirection] = useState<1 | -1>(1);
   const [discardedRun, setDiscardedRun] = useState<PracticeRun | null>(null);
   const [finishPrompt, setFinishPrompt] = useState<number>();
-  const [initialPracticeIntent] = useState(loadActivePracticeIntent);
-  const [practiceIntentRestoreChecked, setPracticeIntentRestoreChecked] = useState(() => !initialPracticeIntent);
   const practiceSessionRef = useRef(practiceSession);
+  const viewRef = useRef(view);
   const selectBanksRef = useRef(selectBanks);
+  const startupAutoResumeHandled = useRef(false);
   practiceSessionRef.current = practiceSession;
+  viewRef.current = view;
   selectBanksRef.current = selectBanks;
 
   useEffect(() => {
-    if (!initialPracticeIntent) return;
-    let cancelled = false;
-    void dbV7.practiceRuns.get(initialPracticeIntent.runId).then((run) => {
-      if (cancelled) return;
-      if (!run || run.status !== "in_progress" || !run.questionIds.length) {
-        clearActivePracticeIntent();
-        setPracticeIntentRestoreChecked(true);
-        return;
-      }
-      const restored = activePracticeFromRun(run, initialPracticeIntent.currentIndex);
-      setPracticeSession(restored);
-      selectBanksRef.current(restored.bankIds?.length ? restored.bankIds : [restored.bankId]);
-      setView("practice");
-      setPracticeIntentRestoreChecked(true);
-    }).catch(() => {
-      if (cancelled) return;
-      // Do not keep a marker that could not be validated against IndexedDB;
-      // the persisted PracticeRun remains available through the normal resume
-      // card once the database is readable again.
-      clearActivePracticeIntent();
-      setPracticeIntentRestoreChecked(true);
-    });
-    return () => { cancelled = true; };
-  }, [initialPracticeIntent, setView]);
-
-  useEffect(() => {
-    if (!practiceIntentRestoreChecked) return;
-    if (view === "practice") {
-      if (practiceSession) saveActivePracticeIntent({ runId: practiceSession.runId, currentIndex: practiceSession.currentIndex });
-      return;
-    }
-    clearActivePracticeIntent();
-  }, [practiceIntentRestoreChecked, practiceSession, view]);
+    if (startupAutoResumeHandled.current || !latestPracticeRunLoaded) return;
+    startupAutoResumeHandled.current = true;
+    if (!latestPracticeRun || !latestPracticeRun.questionIds.length || viewRef.current !== "home" || practiceSessionRef.current || isPracticeAutoResumeSuppressed()) return;
+    const restored = activePracticeFromRun(latestPracticeRun);
+    setPracticeSession(restored);
+    selectBanksRef.current(restored.bankIds?.length ? restored.bankIds : [restored.bankId]);
+    setView("practice");
+  }, [latestPracticeRun, latestPracticeRunLoaded, setView]);
 
   function changeSession(mutator: (session: ActivePractice) => ActivePractice) {
     setPracticeSession((current) => {
@@ -109,29 +87,51 @@ export function usePracticeSessionController({
   }
 
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
-  const queriedActiveQuestion = useLiveQuery(async () => {
-    if (!activeQuestionId) return undefined;
-    const questionView = await getQuestionViewV7(activeQuestionId, practiceSession?.bankId);
-    if (!questionView) return null;
+  const requestedPracticeFrame = practiceSession && activeQuestionId ? {
+    runId: practiceSession.runId,
+    questionId: activeQuestionId,
+    index: practiceSession.currentIndex,
+    bankId: practiceSession.bankId,
+  } : undefined;
+  const requestedPracticeFrameKey = requestedPracticeFrame
+    ? `${requestedPracticeFrame.runId}|${requestedPracticeFrame.questionId}|${requestedPracticeFrame.index}|${requestedPracticeFrame.bankId}`
+    : "";
+  const queriedPracticeFrame = useLiveQuery(async () => {
+    if (!requestedPracticeFrame) return undefined;
+    const questionView = await getQuestionViewV7(requestedPracticeFrame.questionId, requestedPracticeFrame.bankId);
+    if (!questionView) return { ...requestedPracticeFrame, question: null };
     const bank = questionView.banks.find((item) => item.id === questionView.sourceBankId) ?? questionView.banks[0];
     const membership = questionView.memberships.find((item) => item.bankId === questionView.sourceBankId) ?? questionView.memberships[0];
-    return toQuestionViewModel(
-      questionView.question,
-      questionView.sourceBankId ?? "",
-      bank?.displayName || bank?.name || "未归档题目",
-      membership?.sortOrder ?? 0,
-    );
-  }, [activeQuestionId, practiceSession?.bankId]);
-  // `currentIndex` changes synchronously while useLiveQuery resolves the next
-  // question asynchronously. Dexie may briefly retain the previous query
-  // result during that hand-off. Never expose that stale question together
-  // with the new index: it would make the progress header and answer controls
-  // describe different questions and leaves the old question interactive.
-  const activeQuestion = queriedActiveQuestion?.id === activeQuestionId ? queriedActiveQuestion : undefined;
+    return {
+      ...requestedPracticeFrame,
+      question: toQuestionViewModel(
+        questionView.question,
+        questionView.sourceBankId ?? "",
+        bank?.displayName || bank?.name || "未归档题目",
+        membership?.sortOrder ?? 0,
+      ),
+    };
+  }, [requestedPracticeFrameKey]);
+  const resolvedPracticeFrame = queriedPracticeFrame
+    && queriedPracticeFrame.runId === practiceSession?.runId
+    && queriedPracticeFrame.questionId === activeQuestionId
+    && queriedPracticeFrame.index === practiceSession?.currentIndex
+    ? queriedPracticeFrame
+    : undefined;
+
+  // Dexie intentionally retains the previous live-query result while a new
+  // dependency value resolves. Because the query result already binds
+  // questionId + question + index, that retained value is exactly the stable
+  // previous frame we want during navigation. Never combine it with the new
+  // session index; replace the whole frame only when Dexie resolves the next
+  // result. A runId guard prevents a previous run's frame leaking into a new run.
+  const activePracticeFrame = queriedPracticeFrame?.question && queriedPracticeFrame.runId === practiceSession?.runId
+    ? queriedPracticeFrame
+    : null;
 
   useEffect(() => {
-    if (view !== "practice" || !practiceSession || queriedActiveQuestion !== null || !activeQuestionId) return;
-    const deletedId = activeQuestionId;
+    if (view !== "practice" || !practiceSession || !resolvedPracticeFrame || resolvedPracticeFrame.question !== null) return;
+    const deletedId = resolvedPracticeFrame.questionId;
     const survivors = practiceSession.questionIds.filter((id) => id !== deletedId);
     let cancelled = false;
     void (async () => {
@@ -153,7 +153,7 @@ export function usePracticeSessionController({
       setNotice("题目已删除，自动跳过");
     })();
     return () => { cancelled = true; };
-  }, [queriedActiveQuestion, activeQuestionId, practiceSession, setNotice, setResultRunId, setView, view]);
+  }, [resolvedPracticeFrame, practiceSession, setNotice, setResultRunId, setView, view]);
 
   const queriedActiveRun = useLiveQuery(async () => {
     const runId = practiceSession?.runId;
@@ -191,10 +191,12 @@ export function usePracticeSessionController({
   }
 
   async function refreshActivePracticeAfterSync() {
-    if (view !== "practice") return;
+    if (viewRef.current !== "practice") return;
     const session = practiceSessionRef.current;
     if (!session) return;
     const run = await dbV7.practiceRuns.get(session.runId);
+    const currentSession = practiceSessionRef.current;
+    if (viewRef.current !== "practice" || currentSession?.runId !== session.runId) return;
     if (!run) {
       setPracticeSession(null);
       setView("home");
@@ -213,14 +215,14 @@ export function usePracticeSessionController({
       }
       return;
     }
-    const incoming = run.questionIds.filter((id) => run.answers[id]?.submitted && !session.answers[id]?.submitted);
+    const incoming = run.questionIds.filter((id) => run.answers[id]?.submitted && !currentSession.answers[id]?.submitted);
     if (!incoming.length) {
-      setPracticeSession(activePracticeFromRun(run, session.currentIndex));
+      setPracticeSession(activePracticeFromRun(run, currentSession.currentIndex));
       return;
     }
     let lastAnsweredIndex = -1;
     run.questionIds.forEach((id, index) => { if (run.answers[id]?.submitted) lastAnsweredIndex = index; });
-    setPracticeTransitionDirection(lastAnsweredIndex >= session.currentIndex ? 1 : -1);
+    setPracticeTransitionDirection(lastAnsweredIndex >= currentSession.currentIndex ? 1 : -1);
     setPracticeSession(activePracticeFromRun(run, Math.max(0, lastAnsweredIndex)));
     setNotice(`已同步本练习 ${incoming.length} 道新作答，切换到最后一道做完的题`);
   }
@@ -331,6 +333,7 @@ export function usePracticeSessionController({
       revision: 1,
       ...(filter.reviewRoundId ? { reviewRoundId: filter.reviewRoundId } : {}),
     });
+    allowPracticeAutoResumeForSession();
     setPracticeSession(activePracticeFromRun(run, 0));
     setView("practice");
   }
@@ -356,6 +359,7 @@ export function usePracticeSessionController({
       updatedAt: now,
       revision: 1,
     });
+    allowPracticeAutoResumeForSession();
     setPracticeSession(activePracticeFromRun(run, Math.max(0, orderedQuestions.findIndex((question) => question.id === questionId))));
     setView("practice");
   }
@@ -377,6 +381,7 @@ export function usePracticeSessionController({
       };
       await savePracticeProgress(session);
     }
+    allowPracticeAutoResumeForSession();
     setPracticeSession(session);
     selectBanks(session.bankIds?.length ? session.bankIds : [session.bankId]);
     setView("practice");
@@ -451,6 +456,7 @@ export function usePracticeSessionController({
   }
 
   function exitPractice() {
+    suppressPracticeAutoResumeForSession();
     setPracticeSession(null);
     setView("home");
   }
@@ -467,7 +473,7 @@ export function usePracticeSessionController({
     discardedRun,
     finishPrompt,
     setFinishPrompt,
-    activeQuestion,
+    displayedPracticeFrame: activePracticeFrame,
     discardSavedPractice,
     undoDiscardPractice,
     refreshActivePracticeAfterSync,
