@@ -63,7 +63,7 @@ export async function runHistoryResult(page) {
       return resolved;
     };
     const primarySoftBg = resolveColor(root.getPropertyValue("--color-primary-soft").trim(), "backgroundColor");
-    const separator = resolveColor("#e7e4dd", "borderTopColor");
+    const separator = resolveColor(root.getPropertyValue("--color-border").trim(), "borderTopColor");
     return { background: style.backgroundColor, boxShadow: style.boxShadow, borderBottom: style.borderBottomColor, expectSoftBg: primarySoftBg, expectSeparator: separator };
   });
   harness.assert.equal(detailHighlight.background, detailHighlight.expectSoftBg, "结果页选中题目用主色软背景作选中反馈");
