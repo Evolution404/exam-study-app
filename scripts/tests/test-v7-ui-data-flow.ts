@@ -154,6 +154,8 @@ assert.match(shellHelpers, /recordPracticeAnswerV7/);
 assert.equal((shellHelpers.match(/recordPracticeAnswerV7\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v7 record API");
 assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(dashboardController, /buildScopedQuestionStats/, "Dashboard controller 应集中计算首页区间统计");
+assert.match(dashboardController, /dbV7\.bankQuestionMemberships\.where\("bankId"\)\.anyOf\(activeBankIds\)\.toArray\(\)/, "首页进度只需要 membership questionId，不得为进度数字 materialize 完整题目视图");
+assert.doesNotMatch(dashboardController, /listQuestionViewsForBanksV7/, "Dashboard controller 不应为首页统计加载完整题目 join");
 assert.match(dashboardController, /dbV7\.attemptStats\.bulkGet\(ids\)/, "首页题库范围进度不得 materialize 全量 attemptStats");
 assert.match(dashboardController, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(questionIds\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集 attempts");
 assert.match(dashboardController, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(questionIds\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集轮次进度");

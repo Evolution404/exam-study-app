@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { dbV7 } from "@/lib/db/db-v7";
-import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { isBankEnabled } from "@/lib/db/v7-types";
 import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
@@ -71,8 +70,8 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const scopeProgress = useLiveQuery(async () => {
     if (view !== "home") return { completed: 0, total: 0 };
     if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const questions = await listQuestionViewsForBanksV7(activeBankIds);
-    const ids = [...new Set(questions.map((questionView) => questionView.question.id))];
+    const memberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
+    const ids = [...new Set(memberships.map((membership) => membership.questionId))];
     const [attemptStatsRows, roundProgress] = await Promise.all([
       dbV7.attemptStats.bulkGet(ids),
       ids.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
