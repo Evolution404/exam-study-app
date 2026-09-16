@@ -81,12 +81,16 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
     gitTreeWrites: 0,
     gitCommitWrites: 0,
     gitRefUpdates: 0,
+    objectWrites: 0,
+    maxConcurrentObjectWrites: 0,
     totalRequests: 0,
   };
   let blobLatencyMs = 0;
   let assetWriteLatencyMs = 0;
+  let objectWriteLatencyMs = 0;
   let inFlightBlobReads = 0;
   let inFlightAssetWrites = 0;
+  let inFlightObjectWrites = 0;
   let putFaultFired = false;
   let getFaultFired = false;
   let corruptNextBlob = false;
@@ -175,9 +179,12 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
     stats.gitTreeWrites = 0;
     stats.gitCommitWrites = 0;
     stats.gitRefUpdates = 0;
+    stats.objectWrites = 0;
+    stats.maxConcurrentObjectWrites = 0;
     stats.totalRequests = 0;
     blobLatencyMs = 0;
     assetWriteLatencyMs = 0;
+    objectWriteLatencyMs = 0;
   }
 
   function contentPaths() {
@@ -399,6 +406,13 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             if (assetWriteLatencyMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, assetWriteLatencyMs));
             inFlightAssetWrites -= 1;
           }
+          if (logicalPath.startsWith("sync/v9/objects/")) {
+            stats.objectWrites += 1;
+            inFlightObjectWrites += 1;
+            stats.maxConcurrentObjectWrites = Math.max(stats.maxConcurrentObjectWrites, inFlightObjectWrites);
+            if (objectWriteLatencyMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, objectWriteLatencyMs));
+            inFlightObjectWrites -= 1;
+          }
           const body = parseJsonBody(await readBody(req));
           const buffer = Buffer.from(body.content, "base64");
           const sha = sha1Hex(buffer);
@@ -454,6 +468,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
         stats,
         setBlobLatency: (ms) => { blobLatencyMs = ms; },
         setAssetWriteLatency: (ms) => { assetWriteLatencyMs = ms; },
+        setObjectWriteLatency: (ms) => { objectWriteLatencyMs = ms; },
       });
     });
   });

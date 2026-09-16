@@ -131,6 +131,57 @@ const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byte
 assert.deepEqual([...loaded], [...segmentBytes]);
 await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncV7BlobIntegrityError);
 
+// Immutable paths are content-addressed and therefore safe to retry. A relay
+// 503 must not strand an object/segment upload on its first transient failure.
+const retryPayload = bytes("retryable immutable payload");
+const retryPath = `${SYNC_V9_OBJECT_PREFIX}${digest(retryPayload)}.json`;
+let immutablePutAttempts = 0;
+const retryRemote = new GitHubV7Remote({
+  owner, repo, branch, token, vaultId, apiBaseUrl: "https://retry.github.test", retryDelayMs: 0,
+  fetch: async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (String(init.method ?? "GET").toUpperCase() === "PUT" && url.pathname.endsWith(`/contents/${retryPath}`)) {
+      immutablePutAttempts += 1;
+      if (immutablePutAttempts === 1) return json({ message: "temporary relay failure" }, 503);
+    }
+    return fakeFetch(input, init);
+  },
+});
+assert.equal((await retryRemote.putImmutable({ path: retryPath, bytes: retryPayload, kind: "object" })).created, true);
+assert.equal(immutablePutAttempts, 2, "content-addressed immutable PUT should retry one transient 503");
+
+// Head CAS is intentionally not blindly retried. If the tiny PUT response is
+// lost after GitHub accepted it, a short timeout must read the head back and
+// recognize the exact committed value instead of reporting a phantom failure.
+const beforeLostResponse = await remote.readHead();
+assert.equal(beforeLostResponse.initialized, true);
+if (!beforeLostResponse.initialized) throw new Error("head must exist before lost-response regression");
+const recoveredHead: SyncHeadV7 = {
+  ...beforeLostResponse.head,
+  generatedAt: "2026-08-13T00:00:01.000Z",
+  generation: beforeLostResponse.head.generation + 1,
+};
+let swallowedHeadResponse = false;
+const headRecoveryRemote = new GitHubV7Remote({
+  owner, repo, branch, token, vaultId, apiBaseUrl: "https://head-recovery.github.test", retryDelayMs: 0, timeoutMs: 500, headTimeoutMs: 20,
+  fetch: async (input, init = {}) => {
+    const url = new URL(String(input));
+    const isHeadPut = String(init.method ?? "GET").toUpperCase() === "PUT" && url.pathname.endsWith("/contents/sync/v9/head.json");
+    if (isHeadPut && !swallowedHeadResponse) {
+      swallowedHeadResponse = true;
+      await fakeFetch(input, init); // Commit remotely, then lose only the response.
+      await new Promise<never>((_, reject) => {
+        const signal = init.signal;
+        if (!signal) return;
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    }
+    return fakeFetch(input, init);
+  },
+});
+const recoveredPublish = await headRecoveryRemote.putHead(recoveredHead, beforeLostResponse.cache);
+assert.equal(recoveredPublish.ok, true, "lost head PUT response should recover by exact remote read-back");
+
 // Streamed blob reads must expose intermediate wire-byte progress instead of
 // jumping only after response.arrayBuffer() has consumed the entire payload.
 const progressPayload = bytes("checkpoint-progress-is-streamed");

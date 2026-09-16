@@ -145,6 +145,40 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   console.log(`scenario 4 passed: 远端恢复 ${restore.reports.length} 条报告`);
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 5: 大 change-set offload — immutable object 上传不能藏在 84% 的
+// “正在发布新版索引”里；对象必须有独立进度，并采用有界并发。
+// ---------------------------------------------------------------------------
+{
+  server.reset();
+  await freshClient("device-object-upload");
+  await syncWithGitHub(settings, "qa-token");
+  const bank = await createBankV7("大对象上传题库");
+  const hugeStem = `大对象回归：${"输电线路运行维护".repeat(30_000)}`;
+  for (let index = 0; index < 3; index += 1) {
+    await createQuestionV7(bank.id, choice(`${hugeStem}-${index}`));
+  }
+  server.stats.objectWrites = 0;
+  server.stats.maxConcurrentObjectWrites = 0;
+  server.setObjectWriteLatency(40);
+  const upload = collector();
+  try {
+    await syncWithGitHub(settings, "qa-token", upload.callback);
+  } finally {
+    server.setObjectWriteLatency(0);
+  }
+  assertWellFormed(upload.reports, "大对象上传", 8);
+  assert.ok(server.stats.objectWrites >= 3, `应至少上传 3 个 immutable object（实际 ${server.stats.objectWrites}）`);
+  assert.ok(server.stats.maxConcurrentObjectWrites >= 2, `immutable object 上传应有界并发（实测峰值 ${server.stats.maxConcurrentObjectWrites}）`);
+  assert.ok(server.stats.maxConcurrentObjectWrites <= 4, `immutable object 上传并发不得超过 4（实测峰值 ${server.stats.maxConcurrentObjectWrites}）`);
+  const objectReports = upload.reports.filter((report) => /正在上传大对象/.test(report.label));
+  assert.ok(objectReports.length >= 2, "大对象上传必须有独立进度报告，不能隐藏在发布索引阶段");
+  const lastObjectReport = upload.reports.findLastIndex((report) => /正在上传大对象/.test(report.label));
+  const publishReport = upload.reports.findIndex((report) => report.label === "正在发布新版索引");
+  assert.ok(lastObjectReport >= 0 && publishReport > lastObjectReport, "所有大对象必须在发布 head 索引之前完成上传");
+  console.log(`scenario 5 passed: 大对象 ${server.stats.objectWrites} 个，并发峰值 ${server.stats.maxConcurrentObjectWrites}`);
+}
+
 console.log("sync progress tests passed");
 await server.close();
 process.exit(0);

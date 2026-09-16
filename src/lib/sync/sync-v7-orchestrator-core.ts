@@ -15,6 +15,7 @@ import {
   bandPercent,
   cursorsFor,
   descriptorPath,
+  mapWithConcurrency,
   monotonicProgress,
   remote,
   report,
@@ -57,6 +58,8 @@ import { changeSetOutsideHistoryRange, filterProjectionHistoryV7, historySyncSta
 import { assetUploadProgressLabelV7, formatTransferBytesV7, mergeActiveHistoryProjectionV7, reconcileInterruptedClaimsV7 } from "./sync-v7-orchestrator-model";
 import { initializeSyncV7Remote } from "./sync-v7-bootstrap";
 import { restoreFullHistoryFromGitHub } from "./sync-v7-restore";
+
+const SYNC_V7_OBJECT_UPLOAD_CONCURRENCY = 4;
 
 /** Yield one macrotask so input events and rendering can interleave with the
  *  rebase loop (auto-sync used to run pending-count × full-dataset clone +
@@ -241,8 +244,23 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // the object files are published alongside the segments in the same plan.
       report(progress, "upload", `正在整理 ${events.length} 组变更`, bandPercent(bands.upload!, 0.24), bandPercent(bands.upload!, 0.28));
       const offloaded = await offloadSyncV7Events(events);
-      if (offloaded.objects.length) report(progress, "upload", `已卸载 ${offloaded.objects.length} 个大对象`, bandPercent(bands.upload!, 0.28), bandPercent(bands.upload!, 0.3));
-      const objectFiles: SyncV7PublicationFile[] = offloaded.objects;
+      let objectFiles: SyncV7PublicationFile[] = offloaded.objects;
+      if (objectFiles.length) {
+        report(progress, "upload", `正在上传大对象（0/${objectFiles.length}）`, bandPercent(bands.upload!, 0.28), bandPercent(bands.upload!, 0.36));
+        let completedObjects = 0;
+        objectFiles = await mapWithConcurrency(objectFiles, SYNC_V7_OBJECT_UPLOAD_CONCURRENCY, async (file) => {
+          await client.putImmutable({ path: file.path, bytes: file.bytes, kind: file.kind ?? "object" });
+          completedObjects += 1;
+          report(
+            progress,
+            "upload",
+            `正在上传大对象（${completedObjects}/${objectFiles.length}）`,
+            bandPercent(bands.upload!, 0.28 + 0.08 * completedObjects / objectFiles.length),
+            bandPercent(bands.upload!, 0.36),
+          );
+          return { ...file, uploaded: true };
+        });
+      }
       // Paginate the (now stub-slender) events into one or more 1 MiB segments
       // that share one generation and publish together.
       const pages = paginateSyncV7Events(offloaded.events);
@@ -273,7 +291,8 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
           newSegments.push({ ...segmentBase, generation, ordinal, count: page.events.length, cursors: pageCursors, metadata });
           segmentFiles.push({ path: segmentPath, bytes: segmentBytes, kind: "segment", uploaded: true });
-          report(progress, "upload", `正在上传分段（${index + 1}/${pages.length}）`, bandPercent(bands.upload!, 0.3 + 0.4 * (index + 1) / pages.length), bandPercent(bands.upload!, 0.7));
+          const segmentStart = objectFiles.length ? 0.36 : 0.3;
+          report(progress, "upload", `正在上传分段（${index + 1}/${pages.length}）`, bandPercent(bands.upload!, segmentStart + (0.7 - segmentStart) * (index + 1) / pages.length), bandPercent(bands.upload!, 0.7));
         }
       };
       if (!compaction.required) await uploadNewSegments();

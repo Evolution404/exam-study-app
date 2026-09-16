@@ -33,6 +33,7 @@ export interface GitHubV7RemoteOptions {
   baseUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  headTimeoutMs?: number;
   retryDelayMs?: number;
 }
 
@@ -247,6 +248,7 @@ export class GitHubV7Remote {
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly headTimeoutMs: number;
   private readonly retryDelayMs: number;
 
   constructor(options: GitHubV7RemoteOptions) {
@@ -262,8 +264,10 @@ export class GitHubV7Remote {
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.headTimeoutMs = options.headTimeoutMs ?? Math.min(this.timeoutMs, 20_000);
     this.retryDelayMs = options.retryDelayMs ?? 100;
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw new TypeError("GitHub request timeout must be positive");
+    if (!Number.isFinite(this.headTimeoutMs) || this.headTimeoutMs <= 0) throw new TypeError("GitHub head request timeout must be positive");
     if (!Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) throw new TypeError("GitHub retry delay must be non-negative");
   }
 
@@ -271,9 +275,15 @@ export class GitHubV7Remote {
     if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubV7RemoteError("vault identity", 409, "v9 head vault identity does not match this remote");
   }
 
-  async request(path: string, init: RequestInit = {}, accept = GITHUB_V7_JSON_MEDIA_TYPE): Promise<Response> {
+  async request(
+    path: string,
+    init: RequestInit = {},
+    accept = GITHUB_V7_JSON_MEDIA_TYPE,
+    policy: { retry?: boolean; timeoutMs?: number } = {},
+  ): Promise<Response> {
     const method = (init.method ?? "GET").toString().toUpperCase();
-    const canRetry = method === "GET";
+    const canRetry = method === "GET" || policy.retry === true;
+    const timeoutMs = policy.timeoutMs ?? this.timeoutMs;
     for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
       const headers = new Headers(init.headers);
       headers.set("Accept", accept);
@@ -286,7 +296,7 @@ export class GitHubV7Remote {
         response = await Promise.race([
           this.fetchImpl(`${this.apiBaseUrl}${path}`, { ...init, headers, signal: controller.signal }),
           new Promise<Response>((_, reject) => {
-            timeoutTimer = setTimeout(() => { controller.abort(); reject(new GitHubV7RemoteError(`${method} ${path}`, 0, "GitHub request timed out")); }, this.timeoutMs);
+            timeoutTimer = setTimeout(() => { controller.abort(); reject(new GitHubV7RemoteError(`${method} ${path}`, 0, "GitHub request timed out")); }, timeoutMs);
           }),
         ]);
       } catch (error) {
@@ -402,7 +412,32 @@ export class GitHubV7Remote {
     if (expectedSha !== undefined) assertSha1(expectedSha, "expected head blobSha");
     const body: Record<string, unknown> = { message, content: encodeBase64(new TextEncoder().encode(JSON.stringify(head))), branch: this.branch };
     if (expectedSha) body.sha = expectedSha;
-    const response = await this.request(contentPath(this.owner, this.repo, SYNC_V9_HEAD_PATH), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let response: Response;
+    try {
+      response = await this.request(
+        contentPath(this.owner, this.repo, SYNC_V9_HEAD_PATH),
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        GITHUB_V7_JSON_MEDIA_TYPE,
+        { timeoutMs: this.headTimeoutMs },
+      );
+    } catch (error) {
+      if (!(error instanceof GitHubV7RemoteError) || error.status !== 0) throw error;
+      // A relay/client timeout can happen after GitHub already accepted the CAS.
+      // Read the tiny head back once before reporting failure; exact JSON equality
+      // is valid here because this is the same object we just serialized to the
+      // contents API, and it prevents a successful publish from being retried as
+      // a phantom local failure.
+      const recovered = await this.readHead();
+      if (!recovered.initialized || JSON.stringify(recovered.head) !== JSON.stringify(head)) throw error;
+      return {
+        ok: true,
+        status: 200,
+        head,
+        ...(recovered.blobSha ? { blobSha: recovered.blobSha } : { blobSha: recovered.cache.blobSha! }),
+        ...(recovered.etag ? { etag: recovered.etag } : {}),
+        cache: recovered.cache,
+      };
+    }
     if (response.status === 409 || response.status === 422) return { ok: false, reason: "cas-conflict", status: response.status, classification: response.status === 409 ? "head-advanced" : "head-already-exists", conflict: response.status === 409 ? "changed" : "already-exists", ...(expectedSha ? { expectedSha } : {}) };
     this.requireOk(response, "put v8 head");
     const blobSha = extractBlobSha(parseJson(await response.text(), "put v8 head"));
@@ -443,7 +478,12 @@ export class GitHubV7Remote {
     // traffic and remote storage); the descriptor above stays addressed to the
     // LOGICAL bytes, so identity is independent of the envelope format.
     const stored = isJsonSyncPath(input.path) ? await encodeSyncV7JsonBytes(content) : content;
-    const response = await this.request(contentPath(this.owner, this.repo, input.path), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v9): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) });
+    const response = await this.request(
+      contentPath(this.owner, this.repo, input.path),
+      { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v9): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) },
+      GITHUB_V7_JSON_MEDIA_TYPE,
+      { retry: true },
+    );
     if (response.status !== 422) {
       this.requireOk(response, `put immutable ${input.path}`);
       const blobSha = extractBlobSha(parseJson(await response.text(), `put immutable ${input.path}`));
