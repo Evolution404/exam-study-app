@@ -90,6 +90,8 @@ assert.match(searchViewSource, /aria-label=\{activeFilterCount \? `筛选，已�
 assert.match(knowledgeViewSource, /aria-label="关闭标签详情"/, "标签详情关闭按钮不能成为无名称图标按钮");
 assert.match(knowledgeViewSource, /dbV7\.attemptStats\.bulkGet\(questions\.map\(\(question\) => question\.id\)\)/, "知识整理标签统计必须只读取当前启用题目的 attemptStats");
 assert.doesNotMatch(knowledgeViewSource, /dbV7\.attemptStats\.toArray\(\)/, "知识整理不得为了启用题库标签统计 materialize 全库 attemptStats");
+assert.match(knowledgeViewSource, /const tagAggregates = new Map/, "知识整理标签统计必须单次遍历题目聚合，避免每个标签重新扫描全部题目");
+assert.doesNotMatch(knowledgeViewSource, /questions\.filter\(\(question\) => question\.tags\.includes\(name\)\)/, "知识整理标签统计不得恢复 标签数×题数 的重复扫描");
 assert.match(preferencesViewSource, /v9 远端协议和热窗口增量同步/, "配置页必须描述当前 v9 同步机制");
 assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v7 事件/, "配置页不得残留旧 v7/v8 同步文案");
 assert.match(searchViewSource, /搜索内容范围/, "搜索页应提供题干、选项、解析和全部范围");

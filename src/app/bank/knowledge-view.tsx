@@ -80,17 +80,27 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const tags = useMemo(() => {
     const questions = data?.questions ?? [];
     const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, { ...stats, bankId: "" }]));
-    return [...new Set(questions.flatMap((question) => question.tags))].map((name) => {
-      const tagged = questions.filter((question) => question.tags.includes(name));
-      const summary = tagged.reduce((result, question) => {
-        const stats = statsByQuestion.get(question.id);
-        result.total += stats?.total ?? 0;
-        result.correct += stats?.correct ?? 0;
-        return result;
-      }, { total: 0, correct: 0 });
-      const difficulty = tagged.length ? Math.round(tagged.reduce((total, question) => total + summarizeAttemptStats(statsByQuestion.get(question.id)).difficulty, 0) / tagged.length) : 50;
-      return { name, questions: tagged, count: tagged.length, accuracy: summary.total ? Math.round(summary.correct / summary.total * 100) : 0, difficulty };
-    }).filter((item) => item.name.toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
+    const tagAggregates = new Map<string, { questions: Question[]; total: number; correct: number; difficulty: number }>();
+    for (const question of questions) {
+      const stats = statsByQuestion.get(question.id);
+      const difficulty = summarizeAttemptStats(stats).difficulty;
+      for (const name of new Set(question.tags)) {
+        const current = tagAggregates.get(name) ?? { questions: [], total: 0, correct: 0, difficulty: 0 };
+        current.questions.push(question);
+        current.total += stats?.total ?? 0;
+        current.correct += stats?.correct ?? 0;
+        current.difficulty += difficulty;
+        tagAggregates.set(name, current);
+      }
+    }
+    const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+    return [...tagAggregates.entries()].map(([name, aggregate]) => ({
+      name,
+      questions: aggregate.questions,
+      count: aggregate.questions.length,
+      accuracy: aggregate.total ? Math.round(aggregate.correct / aggregate.total * 100) : 0,
+      difficulty: aggregate.questions.length ? Math.round(aggregate.difficulty / aggregate.questions.length) : 50,
+    })).filter((item) => item.name.toLocaleLowerCase("zh-CN").includes(normalizedQuery)).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
   }, [data, query]);
   const selected = tags.find((item) => item.name === activeTag);
 
