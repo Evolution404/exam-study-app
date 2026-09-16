@@ -8,6 +8,7 @@ import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
+import { clearActivePracticeIntent, loadActivePracticeIntent, saveActivePracticeIntent } from "./practice-session-intent";
 import {
   TYPE_ORDER,
   activePracticeFromRun,
@@ -54,8 +55,47 @@ export function usePracticeSessionController({
   const [practiceTransitionDirection, setPracticeTransitionDirection] = useState<1 | -1>(1);
   const [discardedRun, setDiscardedRun] = useState<PracticeRun | null>(null);
   const [finishPrompt, setFinishPrompt] = useState<number>();
+  const [initialPracticeIntent] = useState(loadActivePracticeIntent);
+  const [practiceIntentRestoreChecked, setPracticeIntentRestoreChecked] = useState(() => !initialPracticeIntent);
   const practiceSessionRef = useRef(practiceSession);
+  const selectBanksRef = useRef(selectBanks);
   practiceSessionRef.current = practiceSession;
+  selectBanksRef.current = selectBanks;
+
+  useEffect(() => {
+    if (!initialPracticeIntent) return;
+    let cancelled = false;
+    void dbV7.practiceRuns.get(initialPracticeIntent.runId).then((run) => {
+      if (cancelled) return;
+      if (!run || run.status !== "in_progress" || !run.questionIds.length) {
+        clearActivePracticeIntent();
+        setPracticeIntentRestoreChecked(true);
+        return;
+      }
+      const restored = activePracticeFromRun(run, initialPracticeIntent.currentIndex);
+      setPracticeSession(restored);
+      selectBanksRef.current(restored.bankIds?.length ? restored.bankIds : [restored.bankId]);
+      setView("practice");
+      setPracticeIntentRestoreChecked(true);
+    }).catch(() => {
+      if (cancelled) return;
+      // Do not keep a marker that could not be validated against IndexedDB;
+      // the persisted PracticeRun remains available through the normal resume
+      // card once the database is readable again.
+      clearActivePracticeIntent();
+      setPracticeIntentRestoreChecked(true);
+    });
+    return () => { cancelled = true; };
+  }, [initialPracticeIntent, setView]);
+
+  useEffect(() => {
+    if (!practiceIntentRestoreChecked) return;
+    if (view === "practice") {
+      if (practiceSession) saveActivePracticeIntent({ runId: practiceSession.runId, currentIndex: practiceSession.currentIndex });
+      return;
+    }
+    clearActivePracticeIntent();
+  }, [practiceIntentRestoreChecked, practiceSession, view]);
 
   function changeSession(mutator: (session: ActivePractice) => ActivePractice) {
     setPracticeSession((current) => {
@@ -115,17 +155,23 @@ export function usePracticeSessionController({
     return () => { cancelled = true; };
   }, [queriedActiveQuestion, activeQuestionId, practiceSession, setNotice, setResultRunId, setView, view]);
 
-  const activeRunExists = useLiveQuery(async () => {
-    if (!practiceSession) return undefined;
-    return Boolean(await dbV7.practiceRuns.get(practiceSession.runId));
+  const queriedActiveRun = useLiveQuery(async () => {
+    const runId = practiceSession?.runId;
+    if (!runId) return undefined;
+    return { runId, exists: Boolean(await dbV7.practiceRuns.get(runId)) };
   }, [practiceSession?.runId]);
+  const activeRunExists = queriedActiveRun && queriedActiveRun.runId === practiceSession?.runId ? queriedActiveRun.exists : undefined;
   useEffect(() => {
     if (view !== "practice" || !practiceSession || activeRunExists !== false) return;
-    queueMicrotask(() => {
+    const runId = practiceSession.runId;
+    let cancelled = false;
+    void dbV7.practiceRuns.get(runId).then((run) => {
+      if (cancelled || run || practiceSessionRef.current?.runId !== runId) return;
       setPracticeSession(null);
       setView("home");
-      setNotice("本次练习对应的题库已被删除，练习已结束");
+      setNotice("本次练习记录已被删除，练习已结束");
     });
+    return () => { cancelled = true; };
   }, [activeRunExists, practiceSession, setNotice, setView, view]);
 
   async function discardSavedPractice(runId: string) {
@@ -145,10 +191,16 @@ export function usePracticeSessionController({
   }
 
   async function refreshActivePracticeAfterSync() {
+    if (view !== "practice") return;
     const session = practiceSessionRef.current;
     if (!session) return;
     const run = await dbV7.practiceRuns.get(session.runId);
-    if (!run) return;
+    if (!run) {
+      setPracticeSession(null);
+      setView("home");
+      setNotice("本次练习记录已在其他设备删除，练习已结束");
+      return;
+    }
     if (run.status !== "in_progress") {
       setPracticeSession(null);
       if (run.status === "completed") {

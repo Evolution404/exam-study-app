@@ -11,6 +11,7 @@ const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
 const studyApp = read("src/app/shell/app-shell.tsx");
 const dashboardController = read("src/app/shell/use-dashboard-data.ts");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
+const practiceIntent = read("src/app/shell/practice-session-intent.ts");
 const quickSyncController = read("src/app/shell/use-quick-sync-controller.ts");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
@@ -44,6 +45,11 @@ assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must
 assert.match(dashboardController, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
 assert.match(practiceController, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
 assert.match(practiceController, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
+assert.match(practiceIntent, /study-v7-active-practice/, "active practice UI intent must have a dedicated local recovery marker");
+assert.match(practiceIntent, /runId: string;\s*currentIndex: number;/, "practice recovery marker may persist only run identity and cursor, not duplicate practice progress");
+assert.match(practiceController, /activePracticeFromRun\(run, initialPracticeIntent\.currentIndex\)/, "a system page rebuild must restore the exact active question from the persisted run");
+assert.match(practiceController, /queriedActiveRun && queriedActiveRun\.runId === practiceSession\?\.runId \? queriedActiveRun\.exists : undefined/, "run-existence live queries must reject stale results from a previous run");
+assert.match(practiceController, /dbV7\.practiceRuns\.get\(runId\)\.then\(\(run\) => \{[\s\S]*?if \(cancelled \|\| run \|\| practiceSessionRef\.current\?\.runId !== runId\) return;/, "a missing-run live query must be rechecked before it can close the current practice");
 assert.match(dashboardView, /<span><b>\{answeredInRun\}<\/b> \/ \{latestPracticeRun\.questionIds\.length\} 已作答<\/span>/, "home must use the same answered/total metric as practice history");
 assert.doesNotMatch(dashboardView, /停在第 \{savedSession\.currentIndex/, "home must not mix cursor position with answered count");
 assert.ok(dashboardView.indexOf("{latestPracticeRun && <section className=\"resume-card\"") < dashboardView.indexOf("{banks.length ? <section className=\"home-bank-scope\""), "latest practice card must appear above bank selection");
@@ -80,11 +86,13 @@ assert.match(styles, /\.result-question-groups>section\.collapsed \.result-group
 assert.match(styles, /\.result-filters \.result-overview-trigger\{margin-left:auto/, "题目总览入口应停在筛选行右端");
 
 assert.match(quickSyncController, /syncRuntime\.scheduleAutomaticSync\(\{/, "automatic sync must be delegated to the runtime scheduler");
-assert.match(syncRuntime, /void this\.sync\(\)\.catch\(\(error\) => options\.onError\?\.\(error\)\)/, "automatic runtime sync must remain silent by omitting the UI progress callback");
+assert.match(syncRuntime, /void this\.sync\(\)[\s\S]*?\.then\(\(result\) => options\.onResult\?\.\(result\)\)[\s\S]*?\.catch\(\(error\) => options\.onError\?\.\(error\)\)/, "automatic runtime sync must remain silent while forwarding its result to the session reconciler");
 assert.doesNotMatch(syncRuntime, /setQuickSyncing|setQuickSyncProgress|setNotice/, "sync runtime must not own visible React feedback state");
-assert.match(quickSyncController, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSync/, "quick sync must refresh the visible practice session after a pull");
+assert.match(quickSyncController, /result\.pulled \|\| result\.receivedSnapshot\) await refreshActivePracticeAfterSyncRef\.current\(\)/, "all sync entry points must refresh the visible practice session after a pull");
+assert.equal((quickSyncController.match(/onResult: refreshPracticeFromSyncResult/g) ?? []).length, 2, "automatic sync and periodic pull must both reconcile the visible practice session");
 assert.doesNotMatch(quickSyncController, /pullResult/, "periodic pull must not replace the visible practice session");
 assert.doesNotMatch(practiceController, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
+assert.match(practiceController, /async function refreshActivePracticeAfterSync\(\) \{\s*if \(view !== "practice"\) return;/, "a sync finishing after the user leaves practice must not redirect another view");
 assert.match(practiceController, /activePracticeFromRun\(run, session\.currentIndex\)/, "no new answers: keep the current question");
 assert.match(practiceController, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
 assert.match(studyApp, /\{view !== "practice" && <PullToRefresh \/>\}/, "practice must unmount global pull-to-refresh across the entire exercise surface");

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import { useLiveQuery } from "dexie-react-hooks";
 import { useSmoothProgress } from "@/app/practice/use-smooth-progress";
 import { classifyPressIntent, QUICK_RESTORE_HOLD_MS, shouldCancelQuickSyncMove } from "@/lib/practice/press-intent";
-import { syncApplication, type SyncHotWindowState, type SyncProgress } from "@/lib/sync/sync-application";
+import { syncApplication, type SyncHotWindowState, type SyncProgress, type SyncRunResult } from "@/lib/sync/sync-application";
 import { syncRuntime } from "@/lib/sync/sync-runtime";
 import type { GitHubSettings } from "@/types/types";
 import type { PracticePreferences, View } from "./helpers";
@@ -36,6 +36,15 @@ export function useQuickSyncController({
   const [quickRestorePrompt, setQuickRestorePrompt] = useState<{ settings: GitHubSettings; cachedAt: string; questionCount: number }>();
   const [quickRestoreSuccess, setQuickRestoreSuccess] = useState<string>();
   const quickSyncPress = useRef<{ timer: number; pointerId: number; startX: number; startY: number; startedAt: number; longPressed: boolean; cancelled: boolean } | null>(null);
+  const refreshActivePracticeAfterSyncRef = useRef(refreshActivePracticeAfterSync);
+
+  useEffect(() => {
+    refreshActivePracticeAfterSyncRef.current = refreshActivePracticeAfterSync;
+  }, [refreshActivePracticeAfterSync]);
+
+  const refreshPracticeFromSyncResult = useCallback(async (result: SyncRunResult) => {
+    if (result.pulled || result.receivedSnapshot) await refreshActivePracticeAfterSyncRef.current();
+  }, []);
 
   const resetQuickSyncPress = useCallback((cancelPendingRestore = true) => {
     const press = quickSyncPress.current;
@@ -82,7 +91,7 @@ export function useQuickSyncController({
       }
       const result = await syncRuntime.sync(silent ? undefined : setQuickSyncProgress);
       if (!silent) setNotice(formatQuickSyncNotice(result));
-      if (result.pulled || result.receivedSnapshot) await refreshActivePracticeAfterSync();
+      await refreshPracticeFromSyncResult(result);
     } catch (error) {
       if (!silent) setNotice(error instanceof Error ? error.message : "同步失败，请检查令牌和网络");
     } finally {
@@ -129,18 +138,20 @@ export function useQuickSyncController({
       pending,
       threshold: preferences.autoSyncEventThreshold,
       blocked: quickRestoring,
+      onResult: refreshPracticeFromSyncResult,
       onError: () => undefined,
     });
-  }, [pending, preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring]);
+  }, [pending, preferences.autoSyncEnabled, preferences.autoSyncEventThreshold, quickRestoring, refreshPracticeFromSyncResult]);
 
   useEffect(() => {
     return syncRuntime.startPeriodicPull({
       enabled: preferences.periodicPullEnabled,
       seconds: preferences.periodicPullSeconds,
       blocked: () => quickRestoring,
+      onResult: refreshPracticeFromSyncResult,
       onError: (error) => setNotice(error instanceof Error ? `定期拉取失败：${error.message}` : "定期拉取失败"),
     });
-  }, [preferences.periodicPullEnabled, preferences.periodicPullSeconds, quickRestoring, setNotice]);
+  }, [preferences.periodicPullEnabled, preferences.periodicPullSeconds, quickRestoring, refreshPracticeFromSyncResult, setNotice]);
 
   async function prepareQuickRestore(press?: { cancelled: boolean }) {
     if (quickSyncing || quickRestoring) return;

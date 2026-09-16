@@ -7,6 +7,7 @@ export interface AutomaticSyncOptions {
   blocked?: boolean;
   debounceMs?: number;
   minimumIntervalMs?: number;
+  onResult?: (result: SyncRunResult) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -14,6 +15,7 @@ export interface PeriodicPullOptions {
   enabled: boolean;
   seconds: number;
   blocked?: () => boolean;
+  onResult?: (result: SyncRunResult) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -77,7 +79,9 @@ class SyncRuntime {
     const execute = () => {
       if (cancelled || !this.appActive || this.isBusy()) return;
       this.lastAutomaticSyncAt = Date.now();
-      void this.sync().catch((error) => options.onError?.(error));
+      void this.sync()
+        .then((result) => options.onResult?.(result))
+        .catch((error) => options.onError?.(error));
     };
     const timer = window.setTimeout(() => {
       if (cancelled) return;
@@ -122,7 +126,8 @@ class SyncRuntime {
     if (!this.appActive || options.blocked?.() || this.isBusy() || !syncApplication.getConnection().ready) return;
     this.lastPeriodicPullAt = Date.now();
     try {
-      await this.pull();
+      const result = await this.pull();
+      await options.onResult?.(result);
     } catch (error) {
       options.onError?.(error);
     }
