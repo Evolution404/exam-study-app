@@ -239,7 +239,7 @@ export function dailyStatsKey(createdAt: string, questionId: string): string {
   return `${datePart(createdAt)}:${questionId}`;
 }
 
-/** Dexie schema is intentionally one declaration only. */
+/** Single current schema. Old local schemas are not supported or migrated. */
 class V7StudyDatabase extends Dexie {
   banks!: EntityTable<BankV7, "id">;
   bankFolders!: EntityTable<BankFolderV7, "id">;
@@ -262,9 +262,8 @@ class V7StudyDatabase extends Dexie {
 
   constructor() {
     super(V7_DATABASE_NAME);
-    // Fresh schema, declared once at version 1: the change-set queue replaced
-    // the old event log before this namespace ever shipped, so no upgrade
-    // path from an earlier local schema exists or is kept.
+    // Development policy: all clients move together. When this schema changes,
+    // local data is cleared and rebuilt from remote sync; do not add migrations.
     this.version(1).stores({
       banks: "id, sortOrder, folderId, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
@@ -275,7 +274,7 @@ class V7StudyDatabase extends Dexie {
       attemptStats: "questionId, latestAttemptAt",
       attemptDailyStats: "key, date, questionId",
       notes: "questionId, updatedAt",
-      practiceRuns: "id, status, updatedAt, startedAt",
+      practiceRuns: "id, status, updatedAt, startedAt, *bankIds, *questionIds",
       practiceRunStats: "key, bankId, latestUpdatedAt",
       questionGroups: "id, type, updatedAt",
       reviewRounds: "id, status, updatedAt, startedAt",

@@ -13,7 +13,8 @@ import {
 } from "./db-v7-core";
 import type { BankQuestionJoinV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
-import { runBankIds, updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { listPracticeRunsForBankV7 } from "./practice-run-read-v7";
 import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 import { sha256DigestHex } from "../crypto/sha256";
 
@@ -240,7 +241,7 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
   const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
   // Runs that target this bank are dropped with it; otherwise their bankId
   // would dangle and the checkpoint would fail referential validation.
-  const runs = (await dbV7.practiceRuns.toArray()).filter((run) => runBankIds(run).includes(bankId));
+  const runs = await listPracticeRunsForBankV7(bankId);
   const bankDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));

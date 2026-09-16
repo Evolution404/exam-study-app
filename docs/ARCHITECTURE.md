@@ -80,7 +80,7 @@ src/lib/
 
 ## 当前数据与同步格式
 
-- 客户端只使用 IndexedDB v7（`shijuan-study-v7`）；iOS 仍使用 WKWebView IndexedDB，不迁移 SQLite。
+- 客户端只使用当前唯一 IndexedDB（`shijuan-study`）；iOS 仍使用 WKWebView IndexedDB，不迁移 SQLite。schema 变更直接修改唯一 `version(1)` 并统一清空客户端后从远端重建，不保留本地迁移链。
 - 公开远端协议为 Sync v9：head 固定为 `sync/v9/head.json`，检查点、分段、对象、历史和资产位于 `sync/v9/`。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。
 - 完整恢复保持“恢复全部历史”的既有语义；设备本地 `historySyncStart` 只影响日常历史窗口安装，不允许截断远端档案。

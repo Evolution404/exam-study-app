@@ -14,6 +14,7 @@ import {
   type ChangeSetQueueRecordV7,
 } from "./db-v7-change-sets";
 import { deleteBankV7, refreshBankQuestionCountInTx } from "./db-v7-bank";
+import { listPracticeRunsForQuestionIdsV7 } from "./practice-run-read-v7";
 import type { QuestionV7, TombstoneV7 } from "./v7-types";
 
 export async function deleteQuestionsV7(questionIds: readonly string[]): Promise<number> {
@@ -115,9 +116,8 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
         }
       }
     }
-    const runs = await dbV7.practiceRuns.toArray();
+    const runs = await listPracticeRunsForQuestionIdsV7(existingIds);
     for (const run of runs) {
-      if (!run.questionIds.some((questionId) => deletingIds.has(questionId))) continue;
       const answers = Object.fromEntries(Object.entries(run.answers).filter(([questionId]) => !deletingIds.has(questionId)));
       const questionTypes = Object.fromEntries(Object.entries(run.questionTypes).filter(([questionId]) => !deletingIds.has(questionId)));
       await dbV7.practiceRuns.put({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
