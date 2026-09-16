@@ -16,6 +16,8 @@ import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/pr
 import { MathText } from "@/app/ui/math-text";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { readAttemptStatsForQuestionIdsV7 } from "@/lib/db/search-read-v7";
+import { buildKnowledgeTagSummaries } from "@/app/bank/knowledge-model";
 
 type Question = QuestionViewModel;
 type QuestionGroup = QuestionGroupV7;
@@ -74,34 +76,10 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
   const data = useLiveQuery(async () => {
     const questions = await activeQuestionViews();
-    const attemptStats = (await dbV7.attemptStats.bulkGet(questions.map((question) => question.id))).filter((row) => row !== undefined);
+    const attemptStats = await readAttemptStatsForQuestionIdsV7(questions.map((question) => question.id));
     return { questions, attemptStats };
   }, []);
-  const tags = useMemo(() => {
-    const questions = data?.questions ?? [];
-    const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, { ...stats, bankId: "" }]));
-    const tagAggregates = new Map<string, { questions: Question[]; total: number; correct: number; difficulty: number }>();
-    for (const question of questions) {
-      const stats = statsByQuestion.get(question.id);
-      const difficulty = summarizeAttemptStats(stats).difficulty;
-      for (const name of new Set(question.tags)) {
-        const current = tagAggregates.get(name) ?? { questions: [], total: 0, correct: 0, difficulty: 0 };
-        current.questions.push(question);
-        current.total += stats?.total ?? 0;
-        current.correct += stats?.correct ?? 0;
-        current.difficulty += difficulty;
-        tagAggregates.set(name, current);
-      }
-    }
-    const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-    return [...tagAggregates.entries()].map(([name, aggregate]) => ({
-      name,
-      questions: aggregate.questions,
-      count: aggregate.questions.length,
-      accuracy: aggregate.total ? Math.round(aggregate.correct / aggregate.total * 100) : 0,
-      difficulty: aggregate.questions.length ? Math.round(aggregate.difficulty / aggregate.questions.length) : 50,
-    })).filter((item) => item.name.toLocaleLowerCase("zh-CN").includes(normalizedQuery)).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
-  }, [data, query]);
+  const tags = useMemo(() => buildKnowledgeTagSummaries(data?.questions ?? [], data?.attemptStats ?? [], query), [data, query]);
   const selected = tags.find((item) => item.name === activeTag);
 
   async function replaceTag(from: string, to?: string) {
@@ -163,6 +141,8 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
     if (!detailQuestionId) return;
     document.querySelector(`.group-items article[data-question-id="${detailQuestionId}"]`)?.scrollIntoView({ block: "nearest" });
   }, [detailQuestionId]);
+
+  if (data === undefined) return <div className="knowledge-empty"><span>正在读取题组…</span></div>;
 
   function reset() { setEditingId(undefined); setName(""); setType("易混"); setDescription(""); setItems([]); setQuery(""); }
   function edit(group: QuestionGroup) { setEditingId(group.id); setName(group.name); setType(group.type); setDescription(group.description); setItems(group.items); setQuery(""); window.scrollTo({ top: 0, behavior: "smooth" }); }

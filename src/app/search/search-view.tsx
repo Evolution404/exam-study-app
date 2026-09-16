@@ -29,7 +29,7 @@ import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, t
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 import { buildSearchDerivedData } from "@/lib/question/search-read-model";
-import { readAttemptsForQuestionIdsV7, readAttemptStatsForQuestionIdsV7, readNotesForQuestionIdsV7, readReviewRoundProgressForQuestionIdsV7 } from "@/lib/db/search-read-v7";
+import { readSearchHistoryDataV7 } from "@/app/search/search-data";
 type Bank = BankV7;
 type Question = QuestionViewModel;
 type QuestionType = QuestionTypeV7;
@@ -214,19 +214,7 @@ export function SearchView({
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
   const views = useLiveQuery(() => listQuestionViewsForBanksV7(allBankIds), [bankKey]);
-  const historyData = useLiveQuery(async () => {
-    if (!showResults || views === undefined) return null;
-    const questionIds = views.map((view) => view.question.id);
-    const sourceBankByQuestion = new Map(views.map((view) => [view.question.id, view.memberships[0]?.bankId ?? ""]));
-    const [rawStats, attempts, notes, roundProgress] = await Promise.all([
-      readAttemptStatsForQuestionIdsV7(questionIds),
-      readAttemptsForQuestionIdsV7(questionIds),
-      readNotesForQuestionIdsV7(questionIds),
-      readReviewRoundProgressForQuestionIdsV7(questionIds),
-    ]);
-    const attemptStats = rawStats.map((stats) => ({ ...stats, bankId: sourceBankByQuestion.get(stats.questionId) ?? "" }));
-    return { attemptStats, attempts, notes, roundProgress };
-  }, [bankKey, showResults, views]);
+  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(views) : null, [bankKey, showResults, views]);
 
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
   const appliedQuestions = useMemo(() => questionsForFilters(views ?? [], banks, appliedBankIds), [appliedBankIds, banks, views]);

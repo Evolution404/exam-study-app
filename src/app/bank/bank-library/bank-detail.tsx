@@ -2,9 +2,6 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, ArrowLeft, BarChart3, BookOpenCheck, Bookmark, CalendarClock, CheckCircle2, ChevronRight, Clock3, Download, Edit3, FileText, Gauge, History, NotebookPen, Tag, Target, Trash2 } from "lucide-react";
-import { dbV7 } from "@/lib/db/db-v7";
-import { listQuestionViewsForBankV7 } from "@/lib/db/app-data-v7";
-import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { bankTitle, formatDateTime, formatDuration, fullDate, percent, runAccuracy, runAnswered, type ActivityRange, type AttemptStats, type Bank, type BankFolder, type Question, type QuestionPreset, type QuestionType } from "./bank-library-shared";
@@ -12,6 +9,7 @@ import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
 import { DashboardMetric, DashboardNumber, Distribution, PanelTitle, PriorityButton } from "./bank-dashboard-widgets";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
+import { readBankDetailDatasetV7 } from "./bank-detail-read";
 
 const QUESTION_TYPE_COLORS: Record<QuestionType, string> = {
   单选: "#527f67",
@@ -30,21 +28,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const defaultCustomFrom = new Date(referenceTime);
   defaultCustomFrom.setDate(defaultCustomFrom.getDate() - 6);
   const [customActivityRange, setCustomActivityRange] = useState({ from: calendarDate(defaultCustomFrom), to: calendarDate(new Date(referenceTime)) });
-  const dataset = useLiveQuery(async () => {
-    const views = await listQuestionViewsForBankV7(bank.id);
-    const questions = views.map((v) => toQuestionViewModel(v.question, bank.id, bankTitle(bank), v.memberships[0]?.sortOrder ?? 0));
-    const questionIdList = questions.map((q) => q.id);
-    const [rawStats, rawAttempts, allNotes, allRuns, runStats, roundProgress] = await Promise.all([
-      dbV7.attemptStats.bulkGet(questionIdList),
-      questionIdList.length ? dbV7.attempts.where("questionId").anyOf(questionIdList).toArray() : [],
-      dbV7.notes.bulkGet(questionIdList),
-      dbV7.practiceRuns.toArray(),
-      dbV7.practiceRunStats.get(bank.id),
-      questionIdList.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(questionIdList).toArray() : [],
-    ]);
-    const attemptStats = rawStats.filter((stats) => stats !== undefined).map((stats) => ({ ...stats, bankId: bank.id }));
-    return { questions, lifetimeAttemptStats: attemptStats, attempts: rawAttempts, notes: allNotes.flatMap((note) => note?.content.trim() ? [note] : []), runs: allRuns.filter((run) => run.bankId === bank.id || run.bankIds.includes(bank.id)), runStats, roundProgress };
-  }, [bank.id]);
+  const dataset = useLiveQuery(() => readBankDetailDatasetV7(bank), [bank.id]);
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);
   const lifetimeAttemptStats = useMemo(() => dataset?.lifetimeAttemptStats ?? [], [dataset]);
   const attempts = useMemo(() => dataset?.attempts ?? [], [dataset]);

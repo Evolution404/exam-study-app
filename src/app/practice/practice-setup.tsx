@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
 import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion as calc, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
@@ -91,8 +91,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const customCountInputRef = useRef<HTMLInputElement>(null);
   const tagSectionRef = useRef<HTMLDivElement>(null);
   const bankKey = bankIds.join("|");
-  const dataset = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey])
-    ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
+  const datasetQuery = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey]);
+  const dataset = datasetQuery ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
   const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
   const effectiveScope = normalizeProgressScope(advancedScope ?? normalizedScope);
@@ -100,7 +100,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     : effectiveScope.type === "lifetime" ? "全部时间"
       : rounds.find((round) => round.id === effectiveScope.roundId)?.name ?? "当前复习轮次";
   const [referenceTime] = useState(Date.now);
-  const doneCount = useMemo(() => calculateProgressCompletion(dataset.questions.map((question) => question.id), effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime).completed, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
+  const doneCount = useMemo(() => calc(dataset.questions.map((question) => question.id), effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime).completed, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
   // 错题/收藏卡的实时计数：错题与开始练习同一口径（进度口径 scoped + 连对移出阈值）。
   const wrongCardCount = useMemo(() => {
     const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);
@@ -180,6 +180,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     { id: "custom", label: "自定义题数" },
     { id: "all", label: "全部题目" },
   ];
+
+  if (datasetQuery === undefined) return <div className="practice-setup-loading">正在读取练习配置…</div>;
 
   return <>
     {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习方式</h1><p>进度筛选当前使用 {normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前复习轮次"}，正确率与总次数仍为终身统计。</p></div></div>}
