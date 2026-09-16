@@ -59,14 +59,14 @@ export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
 function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll }: { query: string; contentScope: SearchContentScope; bankIds: string[]; onChoose: (questionId: string) => void; onViewAll: () => void }) {
   const normalizedQuery = query.trim();
   const bankKey = bankIds.join("|");
+  const shouldLoad = Boolean(normalizedQuery && bankIds.length);
   const searchClientRef = useSearchWorkerClient();
 
   // This is the key invariant from the original caret fix: load/map the bank
-  // once per bank scope. Typing only filters the already-loaded in-memory data.
+  // once when a non-empty query starts for the current bank scope. Further
+  // keystrokes only filter the already-loaded in-memory data.
   const data = useLiveQuery(async () => {
-    if (!bankIds.length) {
-      return { questions: [] as ReturnType<typeof toQuestionViewModel>[], notes: new Map<string, string>() };
-    }
+    if (!shouldLoad) return null;
     const views = await listQuestionViewsForBanksV7(bankIds);
     const notes = await readNotesForQuestionIdsV7(views.map((view) => view.question.id));
     const questions = views.map((view) => {
@@ -75,7 +75,7 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
       return toQuestionViewModel(view.question, view.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
     });
     return { questions, notes: new Map(notes.map((note) => [note.questionId, note.content])) };
-  }, [bankKey]);
+  }, [bankKey, shouldLoad]);
 
   const index = useMemo<SearchIndexQuestion[]>(() => {
     const questions = data?.questions ?? [];
@@ -123,7 +123,7 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
   });
 
   if (!normalizedQuery) return null;
-  if (data === undefined) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
+  if (!data) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   if (searchPending) return <section className="search-results"><div className="search-state"><LoaderCircle className="spin" size={17} />正在搜索…</div></section>;
   return <section className="search-results" aria-label="搜索结果">
     <header><strong>快速正则结果</strong><span>{results.error || (results.total ? `共 ${results.total} 道匹配题目` : "没有匹配题目")}</span></header>

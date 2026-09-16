@@ -129,6 +129,9 @@ assert.match(componentStyles, /\.quick-sync-split \.sync-pill\.quick-sync \.quic
 assert.doesNotMatch(quickSearchSource, /debouncedQuery|setDebouncedQuery/, "顶栏快速搜索不得为每次按键再安排延迟结果状态更新");
 assert.doesNotMatch(quickSearchSource, /setTimeout\([^)]*setDebouncedQuery/, "顶栏快速搜索不得恢复 160ms 延迟过滤链路");
 assert.match(quickSearchSource, /const normalizedQuery = query\.trim\(\);/, "顶栏搜索词应直接来自当前 draft，而不是延迟副本");
+assert.match(quickSearchSource, /const shouldLoad = Boolean\(normalizedQuery && bankIds\.length\);/, "空 Quick Search 不得在应用启动时预加载整套题目索引");
+assert.match(quickSearchSource, /if \(!shouldLoad\) return null;/, "Quick Search 必须在首个非空搜索词出现后才读取 IndexedDB");
+assert.match(quickSearchSource, /\}, \[bankKey, shouldLoad\]\);/, "Quick Search IndexedDB 订阅只能在题库范围或空/非空边界变化时重跑，不能逐按键重查");
 assert.match(quickSearchSource, /readNotesForQuestionIdsV7\(views\.map\(\(view\) => view\.question\.id\)\)/, "Quick Search 必须按当前题目 ID 定向读取 notes");
 assert.doesNotMatch(quickSearchSource, /notes\.toArray\(\)/, "Quick Search 不得恢复 notes 全表扫描");
 assert.match(searchReadV7Source, /dbV7\.notes\.bulkGet\(ids\)/, "search read layer 必须通过 notes 主键 bulkGet 定向读取");
@@ -140,7 +143,6 @@ assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|attemptStats|attempts|revi
 assert.match(searchViewSource, /readAttemptStatsForQuestionIdsV7\(questionIds\)[\s\S]*readAttemptsForQuestionIdsV7\(questionIds\)[\s\S]*readNotesForQuestionIdsV7\(questionIds\)[\s\S]*readReviewRoundProgressForQuestionIdsV7\(questionIds\)/, "Search View 必须把同一当前题目集合传给全部 targeted readers");
 assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "顶栏结果组件不得由输入状态启停数据生命周期");
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");
-assert.match(quickSearchSource, /if \(!bankIds\.length\) \{[\s\S]*?questions: \[\][\s\S]*?notes: new Map<string, string>\(\)[\s\S]*?\}[\s\S]*?\}, \[bankKey\]\);/, "顶栏搜索应预加载当前题库范围并只在题库范围变化时刷新订阅");
 assert.match(searchViewSource, /buildSearchDerivedData\(\{/, "Search View 必须把 scope stats / note / index 派生交给纯 read-model 层");
 assert.doesNotMatch(searchViewSource, /buildScopedQuestionStats|scopedLegacyByQuestion|statsNeedWrongReview/, "Search View 不得重新内联领域派生逻辑");
 assert.match(searchViewSource, /useSearchWorkerClient/, "搜索页应通过 Worker 客户端执行大数组筛选");
