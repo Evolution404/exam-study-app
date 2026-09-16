@@ -72,7 +72,11 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [activeTag, setActiveTag] = useState<string>();
   const [renameValue, setRenameValue] = useState("");
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
-  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), attemptStats: await dbV7.attemptStats.toArray() }), []);
+  const data = useLiveQuery(async () => {
+    const questions = await activeQuestionViews();
+    const attemptStats = (await dbV7.attemptStats.bulkGet(questions.map((question) => question.id))).filter((row) => row !== undefined);
+    return { questions, attemptStats };
+  }, []);
   const tags = useMemo(() => {
     const questions = data?.questions ?? [];
     const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, { ...stats, bankId: "" }]));
