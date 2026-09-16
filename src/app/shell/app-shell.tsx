@@ -183,7 +183,8 @@ export function AppShell() {
   return (
     <Tooltip.Provider delayDuration={250}>
     <main className={`app-shell font-${preferences.fontSize} transition-${preferences.questionTransition} transition-${practiceTransitionDirection < 0 ? "back" : "forward"}`}>
-      <PullToRefresh />
+      {/* Protect the entire exercise, including gutters and the note panel. */}
+      {view !== "practice" && <PullToRefresh />}
       <ShellSidebar view={view} open={sidebarOpen} pending={stats.pending} onOpenView={openMainView} onClose={() => setSidebarOpen(false)} />
 
       <section ref={workspaceRef} className={`workspace ${view === "search" ? "view-search" : ""}`}>

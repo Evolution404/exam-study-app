@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { isNativeApp } from "@/platform/environment";
 import { updateServiceWorkerWithinTimeout } from "../helpers";
 
 export function PullToRefresh() {
+  const native = isNativeApp();
   const [distance, setDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -11,8 +13,13 @@ export function PullToRefresh() {
   const currentDistance = useRef(0);
 
   useEffect(() => {
+    // Native assets are updated by installing an IPA. Reloading WKWebView
+    // cannot update them and discards the current in-memory screen.
+    if (native) return;
     const scroller = document.querySelector<HTMLElement>(".workspace");
     if (!scroller) return;
+    let disposed = false;
+    let inFlight = false;
     const reset = () => {
       start.current = null;
       currentDistance.current = 0;
@@ -20,12 +27,15 @@ export function PullToRefresh() {
       setDistance(0);
     };
     const onStart = (event: TouchEvent) => {
+      if (inFlight) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (refreshing || scroller.scrollTop > 0 || event.touches.length !== 1 || target?.closest("button, a, input, textarea, select, [role='dialog'], [data-no-pull-refresh], .search-results, .editor-backdrop, .overview-backdrop, .search-detail-backdrop, .simple-dialog-backdrop")) return;
+      reset();
+      if (scroller.scrollTop > 0 || event.touches.length !== 1 || target?.closest("button, a, input, textarea, select, [role='dialog'], [data-no-pull-refresh], .search-results, .editor-backdrop, .overview-backdrop, .search-detail-backdrop, .simple-dialog-backdrop")) return;
       start.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
     };
     const onMove = (event: TouchEvent) => {
-      if (!start.current || scroller.scrollTop > 0) return;
+      if (!start.current) return;
+      if (scroller.scrollTop > 0 || event.touches.length !== 1) { reset(); return; }
       const dx = event.touches[0].clientX - start.current.x;
       const dy = event.touches[0].clientY - start.current.y;
       if (dy <= 0 || Math.abs(dx) >= dy) {
@@ -42,10 +52,11 @@ export function PullToRefresh() {
     const onEnd = async () => {
       start.current = null;
       setPulling(false);
-      if (currentDistance.current < 64 || refreshing) {
+      if (currentDistance.current < 64 || inFlight) {
         reset();
         return;
       }
+      inFlight = true;
       setRefreshing(true);
       setDistance(52);
       try {
@@ -53,9 +64,13 @@ export function PullToRefresh() {
         // wait forever when a browser has a stalled update request.
         await updateServiceWorkerWithinTimeout();
       } finally {
-        reset();
-        setRefreshing(false);
-        window.location.reload();
+        // Navigation into practice unmounts this component. A pending update
+        // must not finish later and reload the newly started exercise.
+        if (!disposed) {
+          reset();
+          setRefreshing(false);
+          window.location.reload();
+        }
       }
     };
     scroller.addEventListener("touchstart", onStart, { passive: true });
@@ -64,12 +79,14 @@ export function PullToRefresh() {
     scroller.addEventListener("touchend", handleEnd, { passive: true });
     scroller.addEventListener("touchcancel", reset, { passive: true });
     return () => {
+      disposed = true;
       scroller.removeEventListener("touchstart", onStart);
       scroller.removeEventListener("touchmove", onMove);
       scroller.removeEventListener("touchend", handleEnd);
       scroller.removeEventListener("touchcancel", reset);
     };
-  }, [refreshing]);
+  }, [native]);
 
+  if (native) return null;
   return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
