@@ -169,6 +169,10 @@ const syncApplicationSource = readFileSync(new URL("../../src/lib/sync/sync-appl
 assert.match(quickSyncController, /syncRuntime\.scheduleAutomaticSync/, "Quick Sync controller 应把自动同步调度委托给 runtime");
 assert.match(syncRuntimeSource, /requestIdleCallback/, "runtime 应等浏览器空闲帧再触发自动同步，不撞答题反馈动画");
 assert.match(dashboardController, /syncApplication\.pendingCount\(\)/, "待同步计数应由 Dashboard controller 通过 application 轻量订阅，不与全表统计绑定");
+assert.match(dashboardController, /const statsBaseQuery = useLiveQuery\(async \(\) => \{\s*if \(view !== "home"\) return null;/, "首页全量统计订阅必须在离开 home 后停止，避免做题时因 attemptStats 更新反复全表重算");
+assert.match(dashboardController, /\}, \[view\]\);\s*const pendingCountQuery/, "首页统计生命周期必须跟随 view，待同步计数保持独立常驻订阅");
+assert.doesNotMatch(dashboardController, /statsBaseQuery[\s\S]{0,500}attemptStats\.toArray\(\)/, "首页今日目标不得为了未使用的 lifetime 字段读取全量 attemptStats");
+assert.match(dashboardController, /attemptDailyStats\.where\("date"\)\.equals\(today\)\.toArray\(\)/, "首页常驻统计只应读取今日聚合行");
 assert.match(syncApplicationSource, /changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "application 内部保留索引化轻量待同步计数");
 const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-v7-orchestrator-core.ts", import.meta.url), "utf8");
 assert.match(syncOrchestrator, /yieldToMainIfVisible/, "本地归并应逐条让出主线程");

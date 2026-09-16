@@ -41,22 +41,15 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const latestPracticeRunLoaded = latestPracticeRunQuery !== undefined;
 
   const statsBaseQuery = useLiveQuery(async () => {
+    if (view !== "home") return null;
     const today = calendarDate(new Date());
-    const [questions, attemptStats, todayRows, notes] = await Promise.all([
-      dbV7.questions.count(),
-      dbV7.attemptStats.toArray(),
-      dbV7.attemptDailyStats.where("date").equals(today).toArray(),
-      dbV7.notes.count(),
-    ]);
-    return {
-      questions,
-      ...summarizeDashboardRows(attemptStats, todayRows),
-      notes,
-    };
-  }, []);
+    const todayRows = await dbV7.attemptDailyStats.where("date").equals(today).toArray();
+    const { todayAttempts, todayCorrect } = summarizeDashboardRows([], todayRows);
+    return { todayAttempts, todayCorrect };
+  }, [view]);
   const pendingCountQuery = useLiveQuery(() => syncApplication.pendingCount(), []);
   const stats = useMemo(() => {
-    const base = statsBaseQuery ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, notes: 0, last: undefined };
+    const base = statsBaseQuery ?? { todayAttempts: 0, todayCorrect: 0 };
     return { ...base, pending: pendingCountQuery ?? 0 };
   }, [statsBaseQuery, pendingCountQuery]);
 

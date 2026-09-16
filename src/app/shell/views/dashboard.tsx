@@ -13,7 +13,7 @@ export function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeP
   scopeProgress: { completed: number; total: number };
   scopeLabel: string;
   scopeStats: { questions: number; attempts: number; correct: number; notes: number; bankCount: number; last?: string };
-  stats: { questions: number; attempts: number; correct: number; todayAttempts: number; todayCorrect: number; pending: number; notes: number; last?: string };
+  stats: { todayAttempts: number; todayCorrect: number; pending: number };
   banks: Array<{ id: string; name: string; displayName?: string; questionCount: number }>;
   latestPracticeRun?: PracticeRun;
   selectedBankIds: string[];
