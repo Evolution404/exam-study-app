@@ -141,6 +141,8 @@ assert.match(searchReadV7Source, /dbV7\.reviewRoundProgress\.where\("questionId"
 assert.doesNotMatch(searchReadV7Source, /dbV7\.(?:notes|attemptStats)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
 assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|attemptStats|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
 assert.match(searchViewSource, /readAttemptStatsForQuestionIdsV7\(questionIds\)[\s\S]*readAttemptsForQuestionIdsV7\(questionIds\)[\s\S]*readNotesForQuestionIdsV7\(questionIds\)[\s\S]*readReviewRoundProgressForQuestionIdsV7\(questionIds\)/, "Search View 必须把同一当前题目集合传给全部 targeted readers");
+assert.match(searchViewSource, /if \(!showResults \|\| views === undefined\) return null;/, "空搜索主页不得提前 materialize 作答历史和轮次进度");
+assert.match(searchViewSource, /const searchDataReady = showResults && views !== undefined && historyData !== undefined && historyData !== null;/, "搜索 Worker 必须等待延迟历史数据完整加载后再运行");
 assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "顶栏结果组件不得由输入状态启停数据生命周期");
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");
 assert.match(searchViewSource, /buildSearchDerivedData\(\{/, "Search View 必须把 scope stats / note / index 派生交给纯 read-model 层");
