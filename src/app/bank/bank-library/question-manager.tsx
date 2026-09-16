@@ -13,7 +13,7 @@ import type { QuestionV7, ReviewRoundProgress } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
 import { statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
-import { isQuestionDoneInScope, type ProgressScope } from "@/lib/practice/progress-scope";
+import { completedQuestionIdsInScope, type ProgressScope } from "@/lib/practice/progress-scope";
 import { bankTitle, PRESET_LABELS, type AttemptStats, type Bank, type Note, type Question, type QuestionPreset, type QuestionType } from "./bank-library-shared";
 import { BankQuestionDeleteDialog } from "./bank-question-delete-dialog";
 import { BulkAddToBanksDialog, AddFromOtherBanksDialog, QuestionMembershipDialog } from "./question-membership-dialogs";
@@ -47,6 +47,7 @@ export function QuestionManager({ bank, questions, attemptStats, notes, roundPro
   const exclusiveCount = questions.length - sharedCount;
 
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((stats) => [stats.questionId, stats])), [attemptStats]);
+  const doneQuestionIds = useMemo(() => completedQuestionIdsInScope(questions.map((question) => question.id), progressScope, attemptStats, roundProgress, referenceTime), [questions, progressScope, attemptStats, roundProgress, referenceTime]);
   const noteIds = useMemo(() => new Set(notes.filter((note) => note.content.trim()).map((note) => note.questionId)), [notes]);
   const availableTags = useMemo(() => [...new Set(questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [questions]);
   const navPrefs = useMemo(() => {
@@ -69,7 +70,7 @@ export function QuestionManager({ bank, questions, attemptStats, notes, roundPro
     if (![question.stem, ...question.options, ...question.tags, ...membershipNames].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))) return false;
     const stats = statsByQuestion.get(question.id);
     const summary = summarizeAttemptStats(stats);
-    const doneInScope = isQuestionDoneInScope(question.id, progressScope, attemptStats, roundProgress, referenceTime);
+    const doneInScope = doneQuestionIds.has(question.id);
     const wrong = statsNeedWrongReview(stats, wrongRemovalStreak);
     const stale = (summary.latest ?? referenceTime) < referenceTime - 30 * 86_400_000;
     const matches: Record<QuestionPreset, boolean> = {
@@ -81,7 +82,7 @@ export function QuestionManager({ bank, questions, attemptStats, notes, roundPro
       wrongNoted: wrong && noteIds.has(question.id), staleWrong: wrong && stale,
     };
     return matches[preset];
-  }), [questions, query, type, selectedTags, tagMatch, membershipByQuestion, membershipScope, membershipBankId, preset, statsByQuestion, noteIds, wrongRemovalStreak, referenceTime, attemptStats, roundProgress, progressScope]);
+  }), [questions, query, type, selectedTags, tagMatch, membershipByQuestion, membershipScope, membershipBankId, preset, statsByQuestion, doneQuestionIds, noteIds, wrongRemovalStreak, referenceTime]);
   const visibleQuestions = filtered.slice(0, visible);
   const allFilteredSelected = filtered.length > 0 && filtered.every((question) => selectedIds.includes(question.id));
   const viewingIndex = viewing ? filtered.findIndex((question) => question.id === viewing.id) : -1;

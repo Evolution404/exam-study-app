@@ -6,7 +6,7 @@ import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBankV7 } from "@/lib/db/app-data-v7";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { bankTitle, formatDateTime, formatDuration, fullDate, percent, runAccuracy, runAnswered, type ActivityRange, type AttemptStats, type Bank, type BankFolder, type Question, type QuestionPreset, type QuestionType } from "./bank-library-shared";
 import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
@@ -59,8 +59,9 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const dashboard = useMemo(() => {
     const noteIds = new Set(notes.map((n) => n.questionId));
     const summaries = new Map(questions.map((question) => [question.id, summarizeAttemptStats(statsByQuestion.get(question.id))]));
-    const attempted = questions.filter((question) => isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime));
-    const doneByQuestion = new Map(questions.map((question) => [question.id, isQuestionDoneInScope(question.id, normalizedScope, attemptStats, roundProgress, referenceTime)]));
+    const doneQuestionIds = completedQuestionIdsInScope(questions.map((question) => question.id), normalizedScope, attemptStats, roundProgress, referenceTime);
+    const attempted = questions.filter((question) => doneQuestionIds.has(question.id));
+    const doneByQuestion = new Map(questions.map((question) => [question.id, doneQuestionIds.has(question.id)]));
     const wrong = questions.filter((question) => statsNeedWrongReview(statsByQuestion.get(question.id), wrongRemovalStreak));
     const mastered = questions.filter((question) => (statsByQuestion.get(question.id)?.currentCorrectStreak ?? 0) >= wrongRemovalStreak);
     const types = Object.fromEntries(QUESTION_TYPE_ORDER.map((type) => [type, questions.filter((question) => question.type === type).length])) as Record<QuestionType, number>;

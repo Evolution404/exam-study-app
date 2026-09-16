@@ -5,7 +5,7 @@ import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-dat
 import { readPracticeSetupHistoryForQuestionIdsV7 } from "@/lib/db/practice-setup-read-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats } from "@/lib/practice/progress-scope";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
@@ -270,14 +270,16 @@ export function usePracticeSessionController({
     const attemptRows = history.attempts;
     const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)]));
     const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
+    const referenceTime = Date.now();
+    const doneQuestionIds = completedQuestionIdsInScope(questions.map((question) => question.id), progressScope, statsRows, roundProgress, referenceTime);
     const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
     const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
     const scopedWrongStats = filter.status === "wrong"
-      ? buildScopedQuestionStats(questions.map((question) => question.id), progressScope, attemptRows, roundProgress, Date.now())
+      ? buildScopedQuestionStats(questions.map((question) => question.id), progressScope, attemptRows, roundProgress, referenceTime)
       : null;
     questions = questions.filter((question) => {
       const metric = attemptMetrics.get(question.id) ?? summarizeV7AttemptStats();
-      const doneInScope = isQuestionDoneInScope(question.id, progressScope, statsRows, roundProgress, Date.now());
+      const doneInScope = doneQuestionIds.has(question.id);
       if (filter.status === "unanswered" && doneInScope) return false;
       if (filter.status === "wrong") {
         const scoped = scopedWrongStats?.get(question.id);

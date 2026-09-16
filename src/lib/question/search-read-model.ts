@@ -1,7 +1,7 @@
 import type { AttemptStats } from "../../types/types";
 import type { AttemptV7, NoteV7, QuestionV7, ReviewRoundProgress } from "../db/v7-types";
 import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from "../practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, scopedStatsToAttemptStats, type ProgressScope, type ReferenceTime } from "../practice/progress-scope";
+import { buildScopedQuestionStats, completedQuestionIdsInScope, scopedStatsToAttemptStats, type ProgressScope, type ReferenceTime } from "../practice/progress-scope";
 import { deriveContentText } from "./question-content";
 import { questionAnswerTextV7 } from "./question-answer-text";
 import type { SearchIndexQuestion } from "./search-matching";
@@ -82,6 +82,7 @@ export function buildSearchDerivedData({
   const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, stats]));
   const notesByQuestion = new Map(notes.map((note) => [note.questionId, note.content]));
   const scopedLegacyByQuestion = new Map([...scopedStatsByQuestion.values()].map((stats) => [stats.questionId, scopedStatsToAttemptStats(stats)]));
+  const doneQuestionIds = completedQuestionIdsInScope(questionIds, progressScope, attemptStats, roundProgress, referenceTime);
   const index = questions.map((question) => {
     const stats = statsByQuestion.get(question.id);
     const metric = scopedMetricByQuestion.get(question.id) ?? summarizeAttemptStats(stats);
@@ -91,7 +92,7 @@ export function buildSearchDerivedData({
       total: metric.total,
       wrong: metric.wrong,
       latest: summarizeAttemptStats(stats).latest,
-      done: isQuestionDoneInScope(question.id, progressScope, attemptStats, roundProgress, referenceTime),
+      done: doneQuestionIds.has(question.id),
       needsWrongReview: statsNeedWrongReview(scopedLegacyByQuestion.get(question.id), wrongRemovalStreak),
     });
   });

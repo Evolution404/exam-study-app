@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
 import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
@@ -100,7 +100,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     : effectiveScope.type === "lifetime" ? "全部时间"
       : rounds.find((round) => round.id === effectiveScope.roundId)?.name ?? "当前复习轮次";
   const [referenceTime] = useState(Date.now);
-  const doneCount = useMemo(() => dataset.questions.filter((question) => isQuestionDoneInScope(question.id, effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime)).length, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
+  const doneCount = useMemo(() => calculateProgressCompletion(dataset.questions.map((question) => question.id), effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime).completed, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
   // 错题/收藏卡的实时计数：错题与开始练习同一口径（进度口径 scoped + 连对移出阈值）。
   const wrongCardCount = useMemo(() => {
     const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);

@@ -139,6 +139,48 @@ export function isQuestionDoneInScope(
   return Number.isFinite(latest) && latest >= cutoff && latest <= referenceMs;
 }
 
+/**
+ * Resolve completion for a whole question set in one pass. Hot UI paths use
+ * this helper instead of calling isQuestionDoneInScope once per question,
+ * which would repeatedly linearly scan attemptStats/roundProgress and become
+ * quadratic for large banks.
+ */
+export function completedQuestionIdsInScope(
+  questionIds: readonly string[],
+  scope: ProgressScope,
+  attemptStats: readonly ProgressAttemptStats[],
+  roundProgress: readonly ReviewRoundProgress[],
+  referenceTime: ReferenceTime,
+): Set<string> {
+  const ids = new Set(questionIds);
+  if (!ids.size) return new Set();
+  const normalized = normalizeProgressScope(scope);
+  const completed = new Set<string>();
+
+  if (normalized.type === "round") {
+    for (const row of roundProgress) {
+      if (row.roundId === normalized.roundId && ids.has(row.questionId) && hasRoundProgress(row)) completed.add(row.questionId);
+    }
+    return completed;
+  }
+
+  if (normalized.type === "lifetime") {
+    for (const stats of attemptStats) {
+      if (ids.has(stats.questionId) && stats.total > 0) completed.add(stats.questionId);
+    }
+    return completed;
+  }
+
+  const referenceMs = epochMs(referenceTime);
+  const cutoff = referenceMs - normalized.days * DAY_MS;
+  for (const stats of attemptStats) {
+    if (!ids.has(stats.questionId) || stats.total <= 0) continue;
+    const latest = new Date(stats.latestAttemptAt).getTime();
+    if (Number.isFinite(latest) && latest >= cutoff && latest <= referenceMs) completed.add(stats.questionId);
+  }
+  return completed;
+}
+
 /** Calculate deduplicated question completion for a scope as a percentage. */
 export function calculateProgressCompletion(
   questionIds: readonly string[],
@@ -148,29 +190,7 @@ export function calculateProgressCompletion(
   referenceTime: ReferenceTime,
 ): ProgressCompletion {
   const uniqueQuestionIds = [...new Set(questionIds)];
-  const normalized = normalizeProgressScope(scope);
-  let completed = 0;
-  if (normalized.type === "round") {
-    // Index round progress by its canonical key for O(1) lookups instead of a
-    // linear scan per question (the scan made this quadratic for large banks).
-    const progressByKey = new Map(roundProgress.filter((row) => row.roundId === normalized.roundId).map((row) => [row.key, row]));
-    for (const questionId of uniqueQuestionIds) {
-      const row = progressByKey.get(`${normalized.roundId}:${questionId}`);
-      if (row && hasRoundProgress(row)) completed += 1;
-    }
-    return { total: uniqueQuestionIds.length, completed, percent: uniqueQuestionIds.length ? Math.round(completed / uniqueQuestionIds.length * 100) : 0 };
-  }
-
-  const statsByQuestion = new Map(attemptStats.map((row) => [row.questionId, row]));
-  const referenceMs = epochMs(referenceTime);
-  const cutoff = normalized.type === "rolling" ? referenceMs - normalized.days * DAY_MS : null;
-  for (const questionId of uniqueQuestionIds) {
-    const stats = statsByQuestion.get(questionId);
-    if (!stats || stats.total <= 0) continue;
-    if (normalized.type === "lifetime") { completed += 1; continue; }
-    const latest = new Date(stats.latestAttemptAt).getTime();
-    if (Number.isFinite(latest) && latest >= cutoff! && latest <= referenceMs) completed += 1;
-  }
+  const completed = completedQuestionIdsInScope(uniqueQuestionIds, scope, attemptStats, roundProgress, referenceTime).size;
   return {
     total: uniqueQuestionIds.length,
     completed,
