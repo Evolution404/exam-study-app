@@ -72,6 +72,7 @@ export async function runManagementQA(page, mockServer) {
     const bankExcelInput = page.locator('input[type="file"][accept*=".xlsx"]').first();
     await bankExcelInput.setInputFiles(fixtures.excelFixtureFile);
     await helpers.expectNotice(page, /已从 Excel 导入 3 道题到「送电线路工-基础」/, "import-into-bank notice");
+    await page.waitForFunction((expected) => document.querySelectorAll(".managed-question-list article").length === expected, listCount + 3);
     const grownCount = await page.locator(".managed-question-list article").count();
     harness.assert.equal(grownCount, listCount + 3, "导入题目应把 Excel 的 3 行追加进当前题库");
     harness.assert.ok(await page.locator(".bank-detail-tabs button.active").filter({ hasText: "试题管理" }).isVisible(), "导入后应停留在试题管理 tab");
@@ -105,7 +106,10 @@ export async function runManagementQA(page, mockServer) {
   await checkboxes.nth(0).check({ force: true });
   await checkboxes.nth(1).check({ force: true });
   await helpers.expectText(page, "已选 2 道");
-  await helpers.clickTextButton(page, "从题库移除");
+  const removeFromBank = page.getByRole("button", { name: "从当前题库移除" });
+  await removeFromBank.waitFor({ state: "visible" });
+  await harness.assert.equal(await removeFromBank.isEnabled(), true, "selected questions must enable removal from the current bank");
+  await removeFromBank.click();
   await page.getByRole("alertdialog", { name: /从题库移除 \d+ 道题/ }).waitFor({ state: "visible" });
   await helpers.clickTextButton(page, "批量移除");
   await helpers.expectNotice(page, /移除 \d+ 道题/, "bulk remove notice");
@@ -147,7 +151,7 @@ export async function runManagementQA(page, mockServer) {
   await firstResult.click();
   await page.locator(".group-items input").first().fill("区分：弧垂增大时安全距离减小");
   await page.getByRole("button", { name: "保存题组" }).click();
-  await helpers.expectNotice(page, /题组“弧垂易混题组”已保存，共 1 道题/, "group save notice");
+  await helpers.expectNotice(page, /题组“弧垂易混题组”已保存，当前启用题库中 1 道题/, "group save notice");
   let groupCard = page.locator(".group-list article").filter({ hasText: "弧垂易混题组" }).first();
   await groupCard.waitFor({ state: "visible" });
   await helpers.capture(page, contextName, "group-created");
@@ -292,18 +296,25 @@ export async function runManagementQA(page, mockServer) {
   const parseGeneration = (value) => Number.parseInt(/^第 (\d+) 代$/.exec(value ?? "")?.[1] ?? "0", 10);
   const before = await readPanel(".sync-connection-card .sync-hot-window");
   harness.assert.ok(before && /^第 \d+ 代$/.test(before.generation ?? ""), `同步页面板应有当前头代数（实际 ${before?.generation}）`);
-  // 通过应用层接口制造 1 条 pending（收藏切换走完整 change-set 入队路径）。
-  await page.evaluate(async () => {
-    const { dbV7, updateQuestionV7 } = await import(["/exam-study-app/src/lib/db", "db-v7.ts"].join("/"));
-    const question = await dbV7.questions.orderBy("id").first();
-    if (!question) throw new Error("题库为空，无法制造同步事件");
-    await updateQuestionV7(question.id, { favorite: !question.favorite });
-  });
+  // 通过真实 UI 制造 1 条 pending，避免 E2E 测试硬编码 Vite 源码 URL 或直接操作 IndexedDB。
+  await helpers.clickButton(page, "题库");
+  await helpers.expectText(page, "题库管理");
+  await helpers.clickTextButton(page, "新建文件夹");
+  const refreshFolderDialog = page.locator(".simple-dialog").filter({ hasText: "文件夹名称" });
+  await refreshFolderDialog.waitFor({ state: "visible" });
+  await refreshFolderDialog.getByLabel("文件夹名称").fill("同步刷新测试");
+  await refreshFolderDialog.getByRole("button", { name: "保存文件夹" }).click();
+  await helpers.expectNotice(page, /文件夹“同步刷新测试”已保存/, "external sync refresh setup");
+  await helpers.clickButton(page, "同步");
+  await helpers.expectText(page, "GitHub 同步");
   // 抽屉内点「立即同步」（外部同步路径），完成后抽屉面板与同步页面板都必须立即更新。
   await page.locator(".sync-queue-trigger").click();
   await page.locator(".sync-event-drawer").waitFor({ state: "visible" });
-  await page.locator(".sync-event-drawer .sync-event-manager-actions button").click();
-  await helpers.expectNotice(page, /v9 同步完成/, "drawer quick sync notice");
+  const drawerSyncNow = page.locator(".sync-event-drawer").getByRole("button", { name: "立即同步" });
+  await drawerSyncNow.waitFor({ state: "visible" });
+  harness.assert.equal(await drawerSyncNow.isEnabled(), true, "drawer quick sync must be enabled when a pending event exists");
+  await drawerSyncNow.click();
+  await helpers.expectNotice(page, /同步完成：上传/, "drawer quick sync notice");
   await page.waitForTimeout(600);
   const drawerPanel = await readPanel(".sync-event-drawer .sync-hot-window");
   harness.assert.ok(drawerPanel, "抽屉面板应在同步后存在");
