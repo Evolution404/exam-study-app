@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { useLiveQuery } from "dexie-react-hooks";
 import { dbV7, createPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
+import { readPracticeSetupHistoryForQuestionIdsV7 } from "@/lib/db/practice-setup-read-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats } from "@/lib/practice/progress-scope";
@@ -263,7 +264,10 @@ export function usePracticeSessionController({
         return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
       });
     }
-    const [statsRows, roundProgress, attemptRows] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.attempts.toArray()]);
+    const history = await readPracticeSetupHistoryForQuestionIdsV7(questions.map((question) => question.id));
+    const statsRows = history.stats;
+    const roundProgress = history.roundsProgress;
+    const attemptRows = history.attempts;
     const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)]));
     const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
     const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;

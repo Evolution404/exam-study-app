@@ -93,11 +93,14 @@ assert.match(validatePracticeSetup(state({ amountChoice: "custom", requestedRand
 
 const componentSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
 const readSource = fs.readFileSync(new URL("../../src/lib/db/practice-setup-read-v7.ts", import.meta.url), "utf8");
+const sessionControllerSource = fs.readFileSync(new URL("../../src/app/shell/use-practice-session-controller.ts", import.meta.url), "utf8");
 assert.match(componentSource, /readPracticeSetupDatasetV7\(bankIds\)/, "Practice Setup 必须使用独立 canonical read-model");
 assert.doesNotMatch(componentSource, /dbV7|attemptStats\.toArray\(\)|reviewRoundProgress\.toArray\(\)/, "Practice Setup React owner 不得直接扫描 IndexedDB 历史表");
 assert.match(readSource, /dbV7\.attemptStats\.bulkGet\(ids\)/, "Practice Setup attemptStats 必须按 questionId 主键定向读取");
 assert.match(readSource, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup round progress 必须按 questionId 索引定向读取");
 assert.match(readSource, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup attempts 必须按 questionId 索引定向读取");
 assert.doesNotMatch(readSource, /dbV7\.(?:attemptStats|reviewRoundProgress|attempts)\.toArray\(\)/, "Practice Setup read-model 不得回退历史全表扫描");
+assert.match(sessionControllerSource, /readPracticeSetupHistoryForQuestionIdsV7\(questions\.map\(\(question\) => question\.id\)\)/, "开始练习必须复用定向历史读取，不能重新 materialize 全库历史");
+assert.doesNotMatch(sessionControllerSource, /dbV7\.attemptStats\.toArray\(\)[\s\S]*dbV7\.reviewRoundProgress\.toArray\(\)[\s\S]*dbV7\.attempts\.toArray\(\)/, "开始练习不得恢复全量历史三表扫描");
 
 console.log("practice setup model tests passed: canonical filter model, validation and targeted read ownership");
