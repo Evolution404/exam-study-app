@@ -4,7 +4,7 @@
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
-> 当前正在进行的性能审计见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。施工分支为 `perf/performance-audit-20260916`，PR #55；继续该任务时必须先读专项交接文档，不要从 `main` 重新开始。
+> 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。该轮已完成本地性能收口和完整回归；PR #55 进入 CI / 合并 / 发布阶段，不再追加新的性能功能。
 
 ## 1. 当前基线
 

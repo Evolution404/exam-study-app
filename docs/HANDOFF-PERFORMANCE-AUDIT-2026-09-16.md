@@ -49,14 +49,14 @@ npm run typecheck
 
 量化结果：10,000 题完成状态判断由约 `249.8ms` 降至约 `5.7ms`，约 `43.6×`，结果数量一致。
 
-## 3. 当前本地尚未推送的进一步优化
+## 3. 最终追加优化
 
 ### practiceRuns 索引
 
 当前唯一 Dexie `version(1)` 中，`practiceRuns` 直接使用最终索引：
 
 ```text
-id, status, updatedAt, startedAt, *bankIds, *questionIds
+id, status, updatedAt, startedAt, *bankIds, *questionIds, [status+updatedAt]
 ```
 
 用途：
@@ -64,9 +64,26 @@ id, status, updatedAt, startedAt, *bankIds, *questionIds
 - 题库详情按 `bankIds` 定向查相关练习；
 - 删除题库按 `bankIds` 定向查 run；
 - 删除题目按 `questionIds` 定向查受影响 run；
+- 最近进行中练习通过 `[status+updatedAt]` 直接 `.last()`，不再把全部进行中记录读出后排序；
 - 避免 `practiceRuns.toArray()` 后前端过滤。
 
-已新增 `scripts/tests/test-practice-run-index-performance.ts`，10,000 条无关 run 场景只 materialize 目标 run，避免全表扫描。
+`scripts/tests/test-practice-run-index-performance.ts` 已覆盖 10,000 条无关 run 与 2,000 条进行中 run：bank/question 查询只 materialize 目标 run，最近进行中练习只 materialize 1 条。
+
+### Dashboard / Search / Practice Setup
+
+- Dashboard 新增 scope-aware read-model：近 N 天按 `attempts.createdAt` 时间窗口读，指定复习轮次只读该 `roundId` 的 progress，只有 lifetime 全题库口径才允许读取全部 attempts；
+- 新增 `test-dashboard-read-performance.ts`：10,000 条窗口外 attempts 不会被首页近 90 天统计 materialize，轮次统计读取 0 条 attempts；
+- Search 空页面不再读取完整题目视图，只有实际搜索或打开筛选时才加载；数据未就绪时显示“正在搜索…”，禁止闪现假的“找到 0 道题”；
+- Search / 题库管理 / 未归档列表的大规模 selected-id 判断改为 `Set`；大型练习结果的 question→membership→bank join 改为 Map；知识题组排除集合改为 Set；
+- 未归档题目先读主键求差集，再 `bulkGet` 真正未归档题目，避免先 materialize 全部题目正文；
+- 开始练习时只有“错题 + 非轮次口径”才读取逐条 attempts；普通/未做/收藏/复习优先等启动路径不再重复 materialize attempts；
+- Practice Setup 快捷预设移到 `practice-setup-presets.ts`，code-size ratchet 恢复 PASS，没有上调 baseline。
+
+### Sync / 技术债
+
+- 单题删除级联的 `attemptRoundIds × attempts` 线性嵌套改为一次构建 Set；
+- 删除无人使用、会先同步再全量 `attempts.toArray()` 的 `loadAttemptHistory` 死接口；
+- 删除运行时 `study-v6-preferences` fallback，并在 architecture guard 中禁止旧本地配置 namespace 回潮；当前稳定的 `study-v7-preferences` / `shijuan-study-v7-device-id` 仍是正式键，不要机械改名。
 
 ### read-model / 纯逻辑拆分
 
@@ -113,9 +130,9 @@ id, status, updatedAt, startedAt, *bankIds, *questionIds
 
 注意：不要机械删除“当前远端数据恢复所必需的解码容错”。例如当前 v9 远端已有历史数据若仍可能包含缺字段记录，必须先用 checkpoint/history 回归证明可以删除，才能删。目标是消除旧客户端双栈，不是破坏远端数据恢复能力。
 
-## 5. 已完成验证
+## 5. 最终本地验证
 
-本地最新代码已通过：
+本地最终代码已通过：
 
 - `npm run test:architecture`
 - `npm run test:db-v7`
@@ -128,8 +145,10 @@ id, status, updatedAt, startedAt, *bankIds, *questionIds
 - `npm run test:sync-progress`
 - `npm run test:sync-fault`，12/12 场景 PASS
 - `npm run typecheck`
-- 当前修改文件 ESLint
+- `npm run test:fast`：84/84 PASS，ESLint / CSS lint / dead-code 全绿；
 - `node scripts/tools/check-code-size-growth.mjs`
+- 完整 `npm run test:browser`：desktop(22)、topbar-mobile(1)、select-toggle-mobile(1)、mobile(11)、management(20)、review(5)、search(6)、search-pin(2)、history(12)、practice-combo(3)、inflight(5)、sync-refresh(3)、dark(4)、dark-editor-selection(1) 全部 PASS；
+- `npm run test:pwa-smoke` PASS；production build 正常、Service Worker 成功控制页面。
 
 同步 transport 拆分期间测试曾抓到一次 `githubVaultIdentitiesEqual` 只 re-export、未本地 import 的 `ReferenceError`，已修复，并重新跑过 protocol / progress / fault / typecheck / lint。不要回退这一修复。
 
@@ -140,45 +159,16 @@ id, status, updatedAt, startedAt, *bankIds, *questionIds
 
 这两处不要通过放宽 Playwright 等待或增加 sleep 回退，产品侧的“数据未就绪不暴露可操作控件”就是回归修复本身。
 
-## 6. 下一步优先级
+## 6. 审计结论与保留边界
 
-### P0：先把当前 WIP 做完并推到 PR #55
+本轮规模级热点已完成收口，不再为追求“零 `.toArray()` / 零 `.find()`”机械改写。以下路径经审计后有意保留：
 
-1. headless browser 定向回归在本次交接前已完成：
+- 练习历史完整列表仍按 `runActivityAt()` 排序，不能偷换成 `updatedAt` 索引，否则排序语义改变；
+- Asset Pack 图片全量检查承担远端索引自愈，不以 pending-only 优化牺牲恢复能力；
+- bootstrap / checkpoint / compaction 的全投影读取属于明确全局操作，不是普通增量同步热点；
+- Practice Setup 为精确计算当前时间窗口内错题/连对阈值仍需要逐条 attempts；不能用 lifetime `attemptStats` 近似。
 
-```bash
-BROWSER_GROUPS=management,search,practice-combo,inflight node scripts/tests/test-browser-visible.mjs
-```
-
-当前结果：`search(6)`、`management(20)`、`practice-combo(3)`、`inflight(5)` 全部 PASS。后续若继续修改对应路径，需要重新运行。禁止真实浏览器。
-
-2. 审查 `git diff`，按职责拆成小提交，建议至少分为：
-   - schema/index + no-compat guard；
-   - IndexedDB/read-model performance；
-   - controller/UI owner decomposition；
-   - sync transport utility decomposition；
-   - docs/handoff。
-
-3. 每个提交前跑对应定向测试；全部提交后运行：
-
-```bash
-npm run test:fast
-```
-
-4. push `perf/performance-audit-20260916`，确认 PR #55 新 CI 全部重跑。旧 Governance Audit 红灯来自旧提交，不要引用旧结果判断当前状态。
-
-### P1：继续性能审计
-
-继续搜索真实规模相关热点，优先：
-
-- `practice-history.tsx` 的 `practiceRuns.toArray()` 是否可用现有索引 / 有界 recent query 替代；
-- 仍然存在的 `.toArray()` 是否是明确“全局统计”需求，还是可以按 questionId/bankId/status/index 收窄；
-- 大数组里重复 `.find()` / `.includes()` 是否随 Q/R 增长形成 O(n²)；
-- AppShell 常驻 `useLiveQuery` 是否在非所属 view 仍响应频繁写入；
-- 搜索、题库详情、练习历史是否重复 materialize 同一大对象；
-- 首屏是否加载用户可能不用的重模块/数据。
-
-只做能量化、可回归的优化，不做无意义微优化。
+因此 PR #55 后续只允许修 CI/回归问题，不再新增性能功能。
 
 ## 7. 完成标准
 
@@ -191,5 +181,5 @@ npm run test:fast
 - architecture guard PASS；
 - PR #55 GitHub CI / Governance Audit / Chromium / WebKit / storage 全绿；
 - 工作区干净，分支已 push；
-- 未经用户明确授权不要合并 main、不要发布生产。
+- 用户已明确授权：PR #55 CI 全绿后合并 `main`，随后通过统一 `make release` 发布生产。
 
