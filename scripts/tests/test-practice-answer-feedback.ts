@@ -11,6 +11,7 @@ const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
 const studyApp = read("src/app/shell/app-shell.tsx");
 const dashboardController = read("src/app/shell/use-dashboard-data.ts");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
+const practiceStartData = read("src/app/shell/practice-start-data.ts");
 const practiceIntent = read("src/app/shell/practice-session-intent.ts");
 const quickSyncController = read("src/app/shell/use-quick-sync-controller.ts");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
@@ -133,6 +134,7 @@ assert.match(practiceView, /document\.hidden \|\| editing \|\| overviewOpen \|\|
 assert.match(practiceView, /activeTimer\.current\?\.reset\((?:window\.)?performance\.now\(\)/, "立即重答必须重置有效计时器");
 assert.doesNotMatch(practiceView, /Date\.now\(\) - startedAt/, "作答耗时不得恢复为包含后台停留的墙钟时间");
 assert.match(practicePresentation, /个人难度按有效作答时间与作答间隔动态估计/, "练习页个人难度 chip 应说明有效时间与间隔估计口径");
-assert.match(practiceController, /right\?\.reviewPriority \?\? 50/, "复习优先排序必须使用独立优先级并保持未作答默认 50");
+assert.match(practiceStartData, /right\?\.reviewPriority \?\? 50/, "复习优先排序必须由练习启动 read-model 使用独立优先级并保持未作答默认 50");
+assert.doesNotMatch(practiceController, /right\?\.reviewPriority \?\? 50/, "controller 不得重新内联复习优先排序逻辑");
 
 console.log("practice UI tests passed: stable feedback, one-event submissions, custom random runs, runtime-silent sync and one-source resume cards");
