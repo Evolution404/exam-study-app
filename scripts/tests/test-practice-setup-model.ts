@@ -102,7 +102,8 @@ assert.match(readSource, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyO
 assert.match(readSource, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup attempts 必须按 questionId 索引定向读取");
 assert.doesNotMatch(readSource, /dbV7\.(?:attemptStats|reviewRoundProgress|attempts)\.toArray\(\)/, "Practice Setup read-model 不得回退历史全表扫描");
 assert.match(sessionControllerSource, /preparePracticeStartQuestionsV7\(questions, filter, preferences\)/, "开始练习筛选必须委托独立 read-model，避免 controller 重新承担历史扫描和大数组筛选");
-assert.match(practiceStartDataSource, /readPracticeSetupHistoryForQuestionIdsV7\(questionIds\)/, "练习启动 read-model 必须复用定向历史读取，不能重新 materialize 全库历史");
+assert.match(practiceStartDataSource, /readPracticeSetupHistoryForQuestionIdsV7\(questionIds, \{[\s\S]*includeAttempts: wrongRemovalStreak !== undefined && progressScope\.type !== "round"/, "练习启动 read-model 必须复用定向历史读取，并只在错题非轮次口径读取逐条 attempts");
+assert.match(readSource, /includeAttempts \? dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\) : Promise\.resolve\(\[\]\)/, "普通开始练习路径必须能跳过 attempts materialization");
 assert.match(practiceStartDataSource, /readPracticeStartDataV7\(questions\.map\(\(question\) => question\.id\)/, "练习启动筛选必须先缩小题目集合，再按候选题定向读取历史");
 assert.doesNotMatch(sessionControllerSource, /dbV7\.attemptStats\.toArray\(\)[\s\S]*dbV7\.reviewRoundProgress\.toArray\(\)[\s\S]*dbV7\.attempts\.toArray\(\)/, "开始练习不得恢复全量历史三表扫描");
 

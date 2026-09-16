@@ -145,10 +145,11 @@ export async function listQuestionViewsForBanksV7(bankIds: readonly string[]): P
 }
 
 export async function listUnfiledQuestionsV7(): Promise<QuestionV7[]> {
-  const [questions, memberships] = await Promise.all([
-    dbV7.questions.toArray(),
+  const [questionIds, memberships] = await Promise.all([
+    dbV7.questions.toCollection().primaryKeys(),
     dbV7.bankQuestionMemberships.toArray(),
   ]);
   const attached = new Set(memberships.map((item) => item.questionId));
-  return questions.filter((question) => !attached.has(question.id));
+  const unfiledIds = questionIds.filter((id): id is string => typeof id === "string" && !attached.has(id));
+  return (await dbV7.questions.bulkGet(unfiledIds)).filter((question): question is QuestionV7 => Boolean(question));
 }

@@ -205,6 +205,7 @@ export function SearchView({
   const [history, setHistory] = useState(loadSearchHistory);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   const showResults = query.trim() !== "" || searchTriggered;
+  const shouldLoadQuestionViews = showResults || advancedOpen;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 160);
@@ -213,7 +214,7 @@ export function SearchView({
 
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
-  const views = useLiveQuery(() => listQuestionViewsForBanksV7(allBankIds), [bankKey]);
+  const views = useLiveQuery(() => shouldLoadQuestionViews ? listQuestionViewsForBanksV7(allBankIds) : undefined, [bankKey, shouldLoadQuestionViews]);
   const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(views) : null, [bankKey, showResults, views]);
 
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
@@ -274,8 +275,9 @@ export function SearchView({
   const scopeLabel = scopeLabelFor(derivedSearchData.normalizedScope);
 
   const visibleEntries = resultEntries.slice(0, visibleCount);
-  const selectedQuestions = resultEntries.filter((entry) => selectedIds.includes(entry.question.id)).map((entry) => entry.question);
-  const allSelected = resultEntries.length > 0 && resultEntries.every((entry) => selectedIds.includes(entry.question.id));
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedQuestions = resultEntries.filter((entry) => selectedIdSet.has(entry.question.id)).map((entry) => entry.question);
+  const allSelected = resultEntries.length > 0 && resultEntries.every((entry) => selectedIdSet.has(entry.question.id));
 
   async function favoriteSelected() {
     const targets = selectedQuestions.filter((question) => !question.favorite);
@@ -342,13 +344,13 @@ export function SearchView({
   ].filter(Boolean);
 
   return <div className="search-page" ref={pageRef}>
-    <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认正则表达式，也可以组合题库、题型、学习状态、标签、个人难度和日期进行筛选。"}</p></div></div>
+    <div className="search-page-heading"><div><p className="eyebrow">查题、筛选与整理</p><h1>搜索题库</h1><p>{showResults ? searchPending ? "正在搜索…" : result.error || `${query.trim() ? `“${query.trim()}”` : "条件搜索"}找到 ${totalCount} 道题` : "默认正则表达式，也可以组合题库、题型、学习状态、标签、个人难度和日期进行筛选。"}</p></div></div>
     <section className="search-home-query"><Search size={20} /><input aria-label="搜索题库" value={query} onChange={(event) => { onQueryChange(event.target.value); setVisibleCount(50); }} onKeyDown={(event) => { if (event.key === "Enter") triggerSearch(); }} placeholder={filters.keywordMode === "regex" ? "正则示例：弧垂|导线" : "输入题干、答案、选项、解析"} /><AppSelect ariaLabel="搜索内容范围" className="search-content-scope" contentClassName="search-scope-select-content" style={{ width:78, justifyContent:"center", paddingInline:6 }} value={filters.contentScope} onValueChange={(contentScope) => updateFilters({ ...filters, contentScope: contentScope as SearchContentScope })} options={SEARCH_CONTENT_SCOPE_OPTIONS} /><div className="search-query-actions"><button aria-label="搜索" className="search-trigger-button" onClick={triggerSearch}><Search size={16} /><span className="search-action-label">搜索</span></button><button aria-label={activeFilterCount ? `筛选，已设置 ${activeFilterCount} 项` : "筛选"} className={`search-filter-toggle ${activeFilterCount ? "active" : ""}`} onClick={openFilters}><Filter size={16} /><span className="search-action-label">筛选</span>{activeFilterCount > 0 && <span className="search-filter-count">{activeFilterCount}</span>}</button></div></section>
     <div className="search-filter-chips" aria-label="当前筛选条件">{filterChips.map((chip) => <span key={chip}>{chip}</span>)}</div>
     {showResults && <section className="search-toolbar"><div className="search-type-tabs">{(["全部", ...TYPE_ORDER] as TypeTab[]).map((type) => <button key={type} className={typeTab === type ? "active" : ""} onClick={() => updateFilters({ ...filters, questionType: type === "全部" ? "all" : type })}>{type}<span>{type === "全部" ? totalCount : result.counts[type]}</span></button>)}</div></section>}
     {!showResults ? <section className="search-empty-page"><Search size={28} /><h2>输入关键词或按条件搜索</h2><p>支持正则表达式和普通关键词；也可以不输入关键词，设置条件后点击“搜索”。搜索只读取本地题库。</p>{history.length > 0 && <div className="search-history"><header><span><History size={15} />最近搜索</span><button onClick={clearHistory}>清除</button></header><div>{history.map((item) => <button key={item} onClick={() => onQueryChange(item)}>{item}</button>)}</div></div>}</section> : views === undefined ? <div className="search-loading"><LoaderCircle className="spin" />正在读取本地题库…</div> : searchPending ? <div className="search-loading"><LoaderCircle className="spin" />正在搜索…</div> : result.error ? <div className="search-no-result"><CircleAlert /><h2>{result.error}</h2></div> : resultEntries.length ? <>
       <section className="search-batch-bar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : resultEntries.map((entry) => entry.question.id))} />选择当前 {resultEntries.length} 道结果</label><span>已选择 {selectedQuestions.length} 道</span><div><button disabled={!selectedQuestions.length} onClick={() => void favoriteSelected()}><Star size={15} />收藏所选</button><span className="batch-tag"><input value={batchTag} onChange={(event) => setBatchTag(event.target.value)} placeholder="输入标签" /><button disabled={!selectedQuestions.length || !batchTag.trim()} onClick={() => void addTagToSelected()}><Tags size={15} />添加</button></span><button disabled={!selectedQuestions.length} onClick={() => onGroup(selectedQuestions.map((question) => question.id))}><GitBranch size={15} />加入题组</button><button disabled={!selectedQuestions.length} onClick={() => setPracticeSource({ questions: selectedQuestions, label: `搜索已选 ${selectedQuestions.length} 题` })}><ListChecks size={15} />练习已选</button><button className="primary" onClick={() => setPracticeSource({ questions: resultEntries.map((entry) => entry.question), label: `搜索“${query.trim() || "条件"}”` })}><Play size={15} />练习全部结果</button></div></section>
-      <div className="search-result-list">{visibleEntries.map(({ question, metric, hasNote }, index) => <article key={question.id} data-question-id={question.id} className={`${selectedIds.includes(question.id) ? "selected" : ""} ${(detailQuestionId ?? activeQuestionId) === question.id ? "detail-current" : ""}`}><label className="result-checkbox"><input type="checkbox" checked={selectedIds.includes(question.id)} onChange={() => setSelectedIds(selectedIds.includes(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /><span>{index + 1}</span></label><button className="search-result-main" onClick={() => { setActiveQuestionId(question.id); setDetailQuestionId(question.id); }}><div><span className="result-type">{question.type}</span><span>{question.bankName}</span>{question.tags.map((item) => <em key={item}>{item}</em>)}</div><h2><MathText text={question.stem} /></h2><p>个人难度 {metric.difficulty} · 作答 {metric.total} 次 · 错误 {metric.wrong} 次（{scopeLabel}）{hasNote ? " · 已有个人解析" : ""}</p></button><ChevronRight size={18} /></article>)}</div>
+      <div className="search-result-list">{visibleEntries.map(({ question, metric, hasNote }, index) => <article key={question.id} data-question-id={question.id} className={`${selectedIdSet.has(question.id) ? "selected" : ""} ${(detailQuestionId ?? activeQuestionId) === question.id ? "detail-current" : ""}`}><label className="result-checkbox"><input type="checkbox" checked={selectedIdSet.has(question.id)} onChange={() => setSelectedIds(selectedIdSet.has(question.id) ? selectedIds.filter((id) => id !== question.id) : [...selectedIds, question.id])} /><span>{index + 1}</span></label><button className="search-result-main" onClick={() => { setActiveQuestionId(question.id); setDetailQuestionId(question.id); }}><div><span className="result-type">{question.type}</span><span>{question.bankName}</span>{question.tags.map((item) => <em key={item}>{item}</em>)}</div><h2><MathText text={question.stem} /></h2><p>个人难度 {metric.difficulty} · 作答 {metric.total} 次 · 错误 {metric.wrong} 次（{scopeLabel}）{hasNote ? " · 已有个人解析" : ""}</p></button><ChevronRight size={18} /></article>)}</div>
       {visibleCount < resultEntries.length && <button className="search-load-more" onClick={() => setVisibleCount(visibleCount + 50)}>继续加载（已显示 {visibleEntries.length} / {resultEntries.length}）</button>}
     </> : <div className="search-no-result"><Search /><h2>没有符合条件的题目</h2><p>可以缩短关键词或减少筛选条件。</p></div>}
     {detailQuestionId && <SearchQuestionDetail questionId={detailQuestionId} entries={resultEntries} metric={scopedMetricByQuestion.get(detailQuestionId) ?? summarizeAttemptStats()} scopeLabel={scopeLabel} onClose={() => { setActiveQuestionId(detailQuestionId); setDetailQuestionId(undefined); onFocusHandled(); }} onGroup={(questionId) => onGroup([questionId])} onNavigate={(id) => { setActiveQuestionId(id); setDetailQuestionId(id); }} onNotice={onNotice} />}
@@ -364,7 +366,7 @@ function SearchQuestionDetail({ questionId, entries, metric, scopeLabel, onClose
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };

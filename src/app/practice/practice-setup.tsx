@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronUp, History, RotateCcw, Search, SlidersHorizontal, Tags } from "lucide-react";
 import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion as calc, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
@@ -20,24 +20,8 @@ import {
   type PracticeSetupFormState,
   type V7PracticeFilter,
 } from "@/lib/practice/practice-setup-model";
+import { presetCards, type PresetCard } from "./practice-setup-presets";
 export type { V7PracticeFilter, V7PracticeMode } from "@/lib/practice/practice-setup-model";
-
-// 快捷卡片的两种行为：start=点卡片立即以纯预设开始（不读取下方自定义区）；
-// configure=把预设填进下方自定义组合（或展开对应折叠区），由用户确认后开始。
-type PresetCard =
-  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "start"; combo: PracticeCombo }
-  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "configure" };
-
-const presetCards: PresetCard[] = [
-  { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "default" } },
-  { id: "randomCustom", title: "随机指定题数", detail: "本次输入题数，不修改全局配置", icon: Shuffle, kind: "configure" },
-  { id: "sequential", title: "全量顺序练习", detail: "按题库顺序练完全部题目", icon: ListOrdered, kind: "start", combo: { status: "all", order: "sequential", amount: "all" } },
-  { id: "randomAll", title: "全量随机练习", detail: "全部题目随机排列", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "all" } },
-  { id: "wrong", title: "练习错题", detail: "集中练习当前口径下的错题", icon: RotateCcw, kind: "start", combo: { status: "wrong", order: "sequential", amount: "all" } },
-  { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star, kind: "start", combo: { status: "favorite", order: "sequential", amount: "all" } },
-  { id: "difficult", title: "优先复习", detail: "综合个人难度与距上次作答时间排序", icon: Gauge, kind: "start", combo: { status: "all", order: "difficulty", amount: "all" } },
-  { id: "tag", title: "标签模式", detail: "按知识标签练习", icon: Tags, kind: "configure" },
-];
 
 const statusOptions: Array<{ id: V7PracticeFilter["status"]; label: string }> = [
   { id: "all", label: "全部" },

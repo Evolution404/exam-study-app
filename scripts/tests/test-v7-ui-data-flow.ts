@@ -135,6 +135,7 @@ assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 
 const study = source("shell/app-shell.tsx");
 const dashboardController = source("shell/use-dashboard-data.ts");
+const dashboardRead = source("shell/dashboard-read-data.ts");
 const quickSyncController = source("shell/use-quick-sync-controller.ts");
 assert.match(dashboardController, /const enabledBanks = banks\.filter\(isBankEnabled\)/, "Dashboard controller 必须集中定义学习可见题库");
 assert.match(study, /BankLibraryView banks=\{banks\}/, "题库管理必须继续接收全部题库");
@@ -157,9 +158,12 @@ assert.match(dashboardController, /buildScopedQuestionStats/, "Dashboard control
 assert.match(dashboardController, /dbV7\.bankQuestionMemberships\.where\("bankId"\)\.anyOf\(activeBankIds\)\.toArray\(\)/, "首页进度只需要 membership questionId，不得为进度数字 materialize 完整题目视图");
 assert.doesNotMatch(dashboardController, /listQuestionViewsForBanksV7/, "Dashboard controller 不应为首页统计加载完整题目 join");
 assert.match(dashboardController, /dbV7\.attemptStats\.bulkGet\(ids\)/, "首页题库范围进度不得 materialize 全量 attemptStats");
-assert.match(dashboardController, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(questionIds\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集 attempts");
-assert.match(dashboardController, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(questionIds\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集轮次进度");
-assert.match(dashboardController, /dbV7\.notes\.bulkGet\(questionIds\)/, "首页题库范围统计必须按主键读取当前题集解析");
+assert.match(dashboardController, /readDashboardScopedRowsV7\(/, "首页区间统计必须委托独立 read-model，避免 React owner 内联大表读取策略");
+assert.match(dashboardRead, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集 attempts");
+assert.match(dashboardRead, /dbV7\.attempts\.where\("createdAt"\)\.between\(/, "首页全题库滚动统计必须按 createdAt 时间窗口读取 attempts");
+assert.match(dashboardRead, /dbV7\.reviewRoundProgress\.where\("roundId"\)\.equals\(normalized\.roundId\)\.toArray\(\)/, "首页轮次统计必须只读取当前 round progress");
+assert.match(dashboardRead, /dbV7\.notes\.bulkGet\(ids\)/, "首页题库范围统计必须按主键读取当前题集解析");
+assert.doesNotMatch(dashboardController, /dbV7\.attempts\.toArray\(\)|dbV7\.reviewRoundProgress\.toArray\(\)|dbV7\.notes\.toArray\(\)/, "Dashboard controller 不得重新内联全表历史读取");
 assert.match(dashboardView, /label=\{`作答（\$\{scopeLabel\}）`\}/);
 const topbar = source("shell/topbar.tsx");
 assert.match(study, /pending=\{stats\.pending\}/, "AppShell 应把真实待同步数量传给顶部栏");

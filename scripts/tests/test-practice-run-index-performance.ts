@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { listPracticeRunsForBankV7, listPracticeRunsForQuestionIdsV7 } from "../../src/lib/db/practice-run-read-v7";
+import { latestInProgressPracticeRunV7, listPracticeRunsForBankV7, listPracticeRunsForQuestionIdsV7 } from "../../src/lib/db/practice-run-read-v7";
 import type { PracticeRunV7 } from "../../src/lib/db/v7-types";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -47,5 +47,18 @@ assert.deepEqual(bankRuns.map((item) => item.id).sort(), ["target-bank", "target
 assert.deepEqual(questionRuns.map((item) => item.id).sort(), ["target-bank", "target-shared"]);
 assert.equal(rowsRead, 4, "indexed run readers must materialize only matching rows, not 10,000 unrelated runs");
 
+const activeRuns = Array.from({ length: 2_000 }, (_, index) => ({
+  ...run(`active-${index}`, ["bank-active"], [`active-q-${index}`]),
+  status: "in_progress" as const,
+  updatedAt: new Date(Date.parse(at) + index * 1_000).toISOString(),
+}));
+await dbV7.practiceRuns.bulkPut(activeRuns);
+rowsRead = 0;
+dbV7.practiceRuns.hook("reading", readHook);
+const latest = await latestInProgressPracticeRunV7();
+dbV7.practiceRuns.hook("reading").unsubscribe(readHook);
+assert.equal(latest?.id, "active-1999", "compound status/update index must return the newest active run");
+assert.equal(rowsRead, 1, "latest active run lookup must materialize one row instead of sorting every active run");
+
 await dbV7.close();
-console.log("practice run index performance tests passed: bank/question lookups avoid full history scans");
+console.log("practice run index performance tests passed: bank/question/latest-active lookups avoid full history scans");

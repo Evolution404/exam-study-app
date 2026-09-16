@@ -274,7 +274,7 @@ class V7StudyDatabase extends Dexie {
       attemptStats: "questionId, latestAttemptAt",
       attemptDailyStats: "key, date, questionId",
       notes: "questionId, updatedAt",
-      practiceRuns: "id, status, updatedAt, startedAt, *bankIds, *questionIds",
+      practiceRuns: "id, status, updatedAt, startedAt, *bankIds, *questionIds, [status+updatedAt]",
       practiceRunStats: "key, bankId, latestUpdatedAt",
       questionGroups: "id, type, updatedAt",
       reviewRounds: "id, status, updatedAt, startedAt",

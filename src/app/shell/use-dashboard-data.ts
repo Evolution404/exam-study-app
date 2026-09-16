@@ -5,7 +5,9 @@ import { isBankEnabled } from "@/lib/db/v7-types";
 import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { syncApplication } from "@/lib/sync/sync-application";
+import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
 import { loadSelectedBankIds, type PracticePreferences, type View } from "./helpers";
+import { readDashboardScopedRowsV7 } from "./dashboard-read-data";
 import { summarizeDashboardRows } from "./shell-controller-model";
 
 export function useDashboardData(view: View, preferences: PracticePreferences) {
@@ -34,9 +36,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return () => { cancelled = true; };
   }, [bankRows]);
 
-  const latestPracticeRunQuery = useLiveQuery(async () => {
-    return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1) ?? null);
-  }, []);
+  const latestPracticeRunQuery = useLiveQuery(() => latestInProgressPracticeRunV7().then((run) => run ?? null), []);
   const latestPracticeRun = latestPracticeRunQuery ?? undefined;
   const latestPracticeRunLoaded = latestPracticeRunQuery !== undefined;
 
@@ -80,20 +80,15 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
       ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
       : await dbV7.questions.toCollection().primaryKeys();
     if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
-    const [attempts, roundProgress, noteRows] = activeBankIds.length
-      ? await Promise.all([
-          dbV7.attempts.where("questionId").anyOf(questionIds).toArray(),
-          dbV7.reviewRoundProgress.where("questionId").anyOf(questionIds).toArray(),
-          dbV7.notes.bulkGet(questionIds),
-        ])
-      : await Promise.all([
-          dbV7.attempts.toArray(),
-          dbV7.reviewRoundProgress.toArray(),
-          dbV7.notes.toArray(),
-        ]);
-    const notes = noteRows.filter((note) => note !== undefined);
+    const referenceTime = Date.now();
+    const { attempts, roundProgress, notes } = await readDashboardScopedRowsV7(
+      questionIds,
+      normalizedProgressScope,
+      referenceTime,
+      { allQuestions: activeBankIds.length === 0 },
+    );
     const questionIdSet = new Set(questionIds);
-    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, Date.now()));
+    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
     return {
       questions: questionIds.length,
       attempts: summary.attempts,

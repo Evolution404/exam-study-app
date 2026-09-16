@@ -107,9 +107,10 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   const byId = new Map(questions.map((question) => [question.id, question]));
   const visibleQuestionIds = new Set(byId.keys());
   const visibleItems = items.filter((item) => visibleQuestionIds.has(item.questionId));
+  const itemIds = new Set(items.map((item) => item.questionId));
   const detailEntries = visibleItems.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question));
   const visibleGroups = (data?.groups ?? []).map((group) => ({ group, questions: group.items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question)) })).filter((entry) => entry.questions.length > 0);
-  const results = query.trim() ? questions.filter((question) => !items.some((item) => item.questionId === question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
+  const results = query.trim() ? questions.filter((question) => !itemIds.has(question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -197,7 +198,7 @@ function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotic
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };

@@ -147,6 +147,8 @@ assert.match(searchReadV7Source, /dbV7\.reviewRoundProgress\.where\("questionId"
 assert.doesNotMatch(searchReadV7Source, /dbV7\.(?:notes|attemptStats)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
 assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|attemptStats|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
 assert.match(searchViewSource, /readSearchHistoryDataV7\(views\)/, "Search View 必须通过独立 read-model 延迟加载历史数据");
+assert.match(searchViewSource, /const shouldLoadQuestionViews = showResults \|\| advancedOpen;/, "空搜索主页不得提前加载完整题目视图；只有搜索或打开筛选时才读取");
+assert.match(searchViewSource, /shouldLoadQuestionViews \? listQuestionViewsForBanksV7\(allBankIds\) : undefined/, "Search View 题目读取必须跟随实际搜索/筛选意图延迟启动");
 assert.match(searchDataSource, /readAttemptStatsForQuestionIdsV7\(questionIds\)[\s\S]*readAttemptsForQuestionIdsV7\(questionIds\)[\s\S]*readNotesForQuestionIdsV7\(questionIds\)[\s\S]*readReviewRoundProgressForQuestionIdsV7\(questionIds\)/, "Search read-model 必须把同一当前题目集合传给全部 targeted readers");
 assert.match(searchViewSource, /showResults && views !== undefined \? readSearchHistoryDataV7\(views\) : null/, "空搜索主页不得提前 materialize 作答历史和轮次进度");
 assert.match(searchViewSource, /const searchDataReady = showResults && views !== undefined && historyData !== undefined && historyData !== null;/, "搜索 Worker 必须等待延迟历史数据完整加载后再运行");

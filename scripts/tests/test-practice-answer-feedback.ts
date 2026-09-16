@@ -10,6 +10,7 @@ const readStyles = () => readdirSync(appStylesRoot, { recursive: true })
   .join("\n");
 const studyApp = read("src/app/shell/app-shell.tsx");
 const dashboardController = read("src/app/shell/use-dashboard-data.ts");
+const practiceRunRead = read("src/lib/db/practice-run-read-v7.ts");
 const practiceController = read("src/app/shell/use-practice-session-controller.ts");
 const practiceStartData = read("src/app/shell/practice-start-data.ts");
 const practiceIntent = read("src/app/shell/practice-session-intent.ts");
@@ -20,6 +21,7 @@ const pullToRefreshView = read("src/app/shell/views/pull-to-refresh.tsx");
 const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
+const practiceSetupPresets = read("src/app/practice/practice-setup-presets.ts");
 const practiceSetupModel = read("src/lib/practice/practice-setup-model.ts");
 const practiceSetupRead = read("src/lib/db/practice-setup-read-v7.ts");
 const practiceHistory = read("src/app/practice/practice-history.tsx");
@@ -43,7 +45,8 @@ assert.match(practiceView, /await recordPracticeAnswer\(/, "answer submission mu
 assert.doesNotMatch(practiceView, /await recordAttempt\(/, "the practice UI must not create a second attempt event");
 assert.match(practiceDatabase, /export async function recordPracticeAnswerV7/, "answer submission must remain the single domain writer");
 assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
-assert.match(dashboardController, /dbV7\.practiceRuns\.where\("status"\)\.equals\("in_progress"\)\.sortBy\("updatedAt"\)/, "home must query and sort the latest in-progress v7 practiceRun");
+assert.match(dashboardController, /latestInProgressPracticeRunV7\(\)/, "home must use the indexed latest in-progress practiceRun read-model");
+assert.match(practiceRunRead, /where\("\[status\+updatedAt\]"\)[\s\S]*?\.between\(\["in_progress", Dexie\.minKey\],[\s\S]*?\.last\(\)/, "latest in-progress practice lookup must use the compound status+updatedAt index");
 assert.match(practiceController, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
 assert.match(practiceController, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
 assert.match(practiceIntent, /localStorage/, "explicit pause suppression must survive a cold browser or WKWebView restart");
@@ -66,10 +69,10 @@ assert.match(styles, /grid-template-columns:minmax\(0,1fr\) 40px/, "mobile home 
 assert.match(styles, /\.resume-card small\{color:var\(--color-text\)/, "resume card hierarchy must use readable primary text");
 assert.match(styles, /\.resume-progress>i>b/, "resume card must render a dedicated progress bar");
 
-assert.match(practiceSetup, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
+assert.match(practiceSetupPresets, /id: "randomCustom"/, "practice setup must expose a one-off custom random mode");
 assert.match(practiceSetup, /aria-label="本次随机题数"/, "custom random mode must expose a numeric question-count input");
 assert.match(practiceSetupModel, /state\.amountChoice === "custom" \? state\.requestedRandomCount/, "custom random count must be passed as this run's limit by the canonical setup model");
-assert.match(practiceSetup, /不修改全局配置/, "custom random mode must remain independent from global preferences");
+assert.match(practiceSetupPresets, /不修改全局配置/, "custom random mode must remain independent from global preferences");
 assert.match(practiceSetup, /assembleFilter\(card\.combo, \{ quick: true \}\)/, "preset cards must start immediately with a pure combo");
 assert.match(practiceSetup, /点卡片立即开始，不使用下方自定义组合/, "card row must explain that cards bypass the custom combo area");
 assert.match(practiceSetup, /aria-expanded=\{advancedOpen\}/, "advanced filters must live behind a collapsed toggle");

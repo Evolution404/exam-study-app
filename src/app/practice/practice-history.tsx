@@ -13,6 +13,7 @@ import { buildScopedQuestionStats, scopedStatsToAttemptStats, type ProgressScope
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
+import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
 
 const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
@@ -29,7 +30,7 @@ function formatTime(value: string) {
 const statusText: Record<PracticeRunV7["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
 
 export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onViewAll: () => void }) {
-  const run = useLiveQuery(() => dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((rows) => rows.at(-1)), []);
+  const run = useLiveQuery(() => latestInProgressPracticeRunV7(), []);
   if (!run) return null;
   const stats = runStats(run);
   return <section className="latest-practice-banner">
@@ -99,7 +100,9 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
     const memberships = run.questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];
     const bankIds = [...new Set(memberships.map((membership) => membership.bankId))];
     const banks = (await dbV7.banks.bulkGet(bankIds)).filter((bank) => bank !== undefined);
-    return { run, questions: questions.map((question) => { const membership = memberships.find((item) => item.questionId === question!.id); const bank = banks.find((item) => item.id === membership?.bankId); return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
+    const membershipByQuestion = new Map(memberships.map((membership) => [membership.questionId, membership]));
+    const bankById = new Map(banks.map((bank) => [bank.id, bank]));
+    return { run, questions: questions.map((question) => { const membership = membershipByQuestion.get(question!.id); const bank = membership ? bankById.get(membership.bankId) : undefined; return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
   }, [runId]);
   const [filter, setFilter] = useState<"all" | "wrong" | "unanswered">("all");
   const [detailQuestion, setDetailQuestion] = useState<QuestionViewModel>();
@@ -149,7 +152,7 @@ function ResultQuestionDetail({ question, answer, entries, progressScope, scopeL
   }, [question.id, attempts, progressScope, referenceTime]);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };

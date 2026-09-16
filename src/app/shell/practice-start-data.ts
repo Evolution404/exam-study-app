@@ -4,7 +4,9 @@ import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgres
 import { TYPE_ORDER, balancedRandomSample, shuffle, summarizeV7AttemptStats, type PracticeFilter, type PracticePreferences, type Question } from "./helpers";
 
 export async function readPracticeStartDataV7(questionIds: readonly string[], progressScope: ProgressScope, referenceTime: number, wrongRemovalStreak?: number) {
-  const history = await readPracticeSetupHistoryForQuestionIdsV7(questionIds);
+  const history = await readPracticeSetupHistoryForQuestionIdsV7(questionIds, {
+    includeAttempts: wrongRemovalStreak !== undefined && progressScope.type !== "round",
+  });
   const wrongQuestionIds = new Set<string>();
   if (wrongRemovalStreak !== undefined) {
     for (const [questionId, stats] of buildScopedQuestionStats(questionIds, progressScope, history.attempts, history.roundsProgress, referenceTime)) {
