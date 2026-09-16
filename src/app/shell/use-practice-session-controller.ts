@@ -69,7 +69,7 @@ export function usePracticeSessionController({
   }
 
   const activeQuestionId = practiceSession?.questionIds[practiceSession.currentIndex];
-  const activeQuestion = useLiveQuery(async () => {
+  const queriedActiveQuestion = useLiveQuery(async () => {
     if (!activeQuestionId) return undefined;
     const questionView = await getQuestionViewV7(activeQuestionId, practiceSession?.bankId);
     if (!questionView) return null;
@@ -82,9 +82,15 @@ export function usePracticeSessionController({
       membership?.sortOrder ?? 0,
     );
   }, [activeQuestionId, practiceSession?.bankId]);
+  // `currentIndex` changes synchronously while useLiveQuery resolves the next
+  // question asynchronously. Dexie may briefly retain the previous query
+  // result during that hand-off. Never expose that stale question together
+  // with the new index: it would make the progress header and answer controls
+  // describe different questions and leaves the old question interactive.
+  const activeQuestion = queriedActiveQuestion?.id === activeQuestionId ? queriedActiveQuestion : undefined;
 
   useEffect(() => {
-    if (view !== "practice" || !practiceSession || activeQuestion !== null || !activeQuestionId) return;
+    if (view !== "practice" || !practiceSession || queriedActiveQuestion !== null || !activeQuestionId) return;
     const deletedId = activeQuestionId;
     const survivors = practiceSession.questionIds.filter((id) => id !== deletedId);
     let cancelled = false;
@@ -107,7 +113,7 @@ export function usePracticeSessionController({
       setNotice("题目已删除，自动跳过");
     })();
     return () => { cancelled = true; };
-  }, [activeQuestion, activeQuestionId, practiceSession, setNotice, setResultRunId, setView, view]);
+  }, [queriedActiveQuestion, activeQuestionId, practiceSession, setNotice, setResultRunId, setView, view]);
 
   const activeRunExists = useLiveQuery(async () => {
     if (!practiceSession) return undefined;
