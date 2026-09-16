@@ -71,12 +71,13 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const scopeProgress = useLiveQuery(async () => {
     if (view !== "home") return { completed: 0, total: 0 };
     if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const [questions, attemptStats, roundProgress] = await Promise.all([
-      listQuestionViewsForBanksV7(activeBankIds),
-      dbV7.attemptStats.toArray(),
-      dbV7.reviewRoundProgress.toArray(),
-    ]);
+    const questions = await listQuestionViewsForBanksV7(activeBankIds);
     const ids = [...new Set(questions.map((questionView) => questionView.question.id))];
+    const [attemptStatsRows, roundProgress] = await Promise.all([
+      dbV7.attemptStats.bulkGet(ids),
+      ids.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
+    ]);
+    const attemptStats = attemptStatsRows.filter((row) => row !== undefined);
     const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), attemptStats, roundProgress, Date.now());
     return { completed: completion.completed, total: completion.total };
   }, [view, activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
@@ -86,11 +87,19 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     const questionIds = activeBankIds.length
       ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
       : await dbV7.questions.toCollection().primaryKeys();
-    const [attempts, roundProgress, notes] = await Promise.all([
-      dbV7.attempts.toArray(),
-      dbV7.reviewRoundProgress.toArray(),
-      dbV7.notes.toArray(),
-    ]);
+    if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
+    const [attempts, roundProgress, noteRows] = activeBankIds.length
+      ? await Promise.all([
+          dbV7.attempts.where("questionId").anyOf(questionIds).toArray(),
+          dbV7.reviewRoundProgress.where("questionId").anyOf(questionIds).toArray(),
+          dbV7.notes.bulkGet(questionIds),
+        ])
+      : await Promise.all([
+          dbV7.attempts.toArray(),
+          dbV7.reviewRoundProgress.toArray(),
+          dbV7.notes.toArray(),
+        ]);
+    const notes = noteRows.filter((note) => note !== undefined);
     const questionIdSet = new Set(questionIds);
     const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, Date.now()));
     return {
