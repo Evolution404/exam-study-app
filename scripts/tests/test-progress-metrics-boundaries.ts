@@ -16,6 +16,7 @@ import {
 import {
   buildScopedQuestionStats,
   calculateProgressCompletion,
+  completedQuestionIdsInScope,
   isQuestionDoneInScope,
   normalizeProgressScope,
   progressScopeCutoff,
@@ -97,6 +98,32 @@ const round = (roundId: string, questionId: string, attempts: number, correct: n
   assert.equal(isQuestionDoneInScope("q1", { type: "lifetime" }, [{ questionId: "q1", total: 2, latestAttemptAt: at(-999) }], [], T0), true, "lifetime 只要有过作答");
   assert.equal(isQuestionDoneInScope("q1", { type: "round", roundId: "r1" }, [], [round("r1", "q1", 1, 1, 0)], T0), true);
   assert.equal(isQuestionDoneInScope("q1", { type: "round", roundId: "r1" }, [], [], T0), false, "没有轮次进度行时不算完成");
+}
+
+// ---------------------------------------------------------------------------
+// completedQuestionIdsInScope bulk lookup
+// ---------------------------------------------------------------------------
+{
+  const stats = [
+    { questionId: "q1", total: 1, latestAttemptAt: at(0) },
+    { questionId: "q2", total: 1, latestAttemptAt: at(-3) },
+    { questionId: "outside", total: 1, latestAttemptAt: at(0) },
+  ];
+  assert.deepEqual(
+    [...completedQuestionIdsInScope(["q1", "q2"], { type: "rolling", days: 2 }, stats, [], T0)].sort(),
+    ["q1"],
+    "批量完成判定必须保持 rolling 窗口边界并忽略题集外记录",
+  );
+  assert.deepEqual(
+    [...completedQuestionIdsInScope(["q1", "q2"], { type: "lifetime" }, stats, [], T0)].sort(),
+    ["q1", "q2"],
+    "lifetime 批量判定应包含所有已有有效作答的目标题",
+  );
+  assert.deepEqual(
+    [...completedQuestionIdsInScope(["q1", "q2"], { type: "round", roundId: "r1" }, [], [round("r1", "q2", 1, 1, 0), round("other", "q1", 1, 1, 0)], T0)],
+    ["q2"],
+    "轮次批量判定必须只采用目标 roundId",
+  );
 }
 
 // ---------------------------------------------------------------------------

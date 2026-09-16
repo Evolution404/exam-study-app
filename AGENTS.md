@@ -30,3 +30,10 @@ These scheduling rules apply to `luna_worker` and every other custom subagent.
 - The main Agent reviews diffs before integration and resolves cross-module design questions.
 - Validate integrated behavior in proportion to risk, including focused tests first and the relevant full test/build checks before delivery.
 - Do not mark a delegated task complete solely because a worker reports success; verify its output directly.
+
+## Local database schema policy
+
+- All clients move to the current local IndexedDB schema together. The local database is disposable and is rebuilt from remote sync after a schema change.
+- Keep exactly one Dexie schema declaration at `version(1)`. Do not add `version(2+)`, `.upgrade()`, historical schema migration branches, legacy schema adapters, or compatibility-only database files/tests.
+- When changing the current schema, edit the single `version(1)` declaration directly and update current-schema tests. Do not preserve old local layouts unless the user explicitly reverses this policy.
+- `scripts/tools/check-architecture.mjs` is the CI gate for this rule. Do not weaken or bypass it to land a schema change.

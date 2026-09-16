@@ -1,10 +1,10 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarDays, ChevronDown, ChevronUp, Gauge, History, ListOrdered, RotateCcw, Search, Shuffle, SlidersHorizontal, Star, Tags } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronUp, History, RotateCcw, Search, SlidersHorizontal, Tags } from "lucide-react";
 import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, calculateProgressCompletion as calc, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
@@ -20,24 +20,8 @@ import {
   type PracticeSetupFormState,
   type V7PracticeFilter,
 } from "@/lib/practice/practice-setup-model";
+import { presetCards, type PresetCard } from "./practice-setup-presets";
 export type { V7PracticeFilter, V7PracticeMode } from "@/lib/practice/practice-setup-model";
-
-// 快捷卡片的两种行为：start=点卡片立即以纯预设开始（不读取下方自定义区）；
-// configure=把预设填进下方自定义组合（或展开对应折叠区），由用户确认后开始。
-type PresetCard =
-  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "start"; combo: PracticeCombo }
-  | { id: string; title: string; detail: string; icon: typeof Shuffle; kind: "configure" };
-
-const presetCards: PresetCard[] = [
-  { id: "random30", title: "随机一组", detail: "从已选题库随机抽取", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "default" } },
-  { id: "randomCustom", title: "随机指定题数", detail: "本次输入题数，不修改全局配置", icon: Shuffle, kind: "configure" },
-  { id: "sequential", title: "全量顺序练习", detail: "按题库顺序练完全部题目", icon: ListOrdered, kind: "start", combo: { status: "all", order: "sequential", amount: "all" } },
-  { id: "randomAll", title: "全量随机练习", detail: "全部题目随机排列", icon: Shuffle, kind: "start", combo: { status: "all", order: "random", amount: "all" } },
-  { id: "wrong", title: "练习错题", detail: "集中练习当前口径下的错题", icon: RotateCcw, kind: "start", combo: { status: "wrong", order: "sequential", amount: "all" } },
-  { id: "favorite", title: "练习收藏题", detail: "只练习自己收藏的题目", icon: Star, kind: "start", combo: { status: "favorite", order: "sequential", amount: "all" } },
-  { id: "difficult", title: "优先复习", detail: "综合个人难度与距上次作答时间排序", icon: Gauge, kind: "start", combo: { status: "all", order: "difficulty", amount: "all" } },
-  { id: "tag", title: "标签模式", detail: "按知识标签练习", icon: Tags, kind: "configure" },
-];
 
 const statusOptions: Array<{ id: V7PracticeFilter["status"]; label: string }> = [
   { id: "all", label: "全部" },
@@ -91,8 +75,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const customCountInputRef = useRef<HTMLInputElement>(null);
   const tagSectionRef = useRef<HTMLDivElement>(null);
   const bankKey = bankIds.join("|");
-  const dataset = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey])
-    ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
+  const datasetQuery = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey]);
+  const dataset = datasetQuery ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
   const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
   const effectiveScope = normalizeProgressScope(advancedScope ?? normalizedScope);
@@ -100,7 +84,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     : effectiveScope.type === "lifetime" ? "全部时间"
       : rounds.find((round) => round.id === effectiveScope.roundId)?.name ?? "当前复习轮次";
   const [referenceTime] = useState(Date.now);
-  const doneCount = useMemo(() => dataset.questions.filter((question) => isQuestionDoneInScope(question.id, effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime)).length, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
+  const doneCount = useMemo(() => calc(dataset.questions.map((question) => question.id), effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime).completed, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
   // 错题/收藏卡的实时计数：错题与开始练习同一口径（进度口径 scoped + 连对移出阈值）。
   const wrongCardCount = useMemo(() => {
     const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);
@@ -180,6 +164,8 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     { id: "custom", label: "自定义题数" },
     { id: "all", label: "全部题目" },
   ];
+
+  if (datasetQuery === undefined) return <div className="practice-setup-loading">正在读取练习配置…</div>;
 
   return <>
     {!hideHeading && <div className="page-heading compact"><div><p className="eyebrow">自由安排练习</p><h1>选择练习方式</h1><p>进度筛选当前使用 {normalizedScope.type === "rolling" ? `近 ${normalizedScope.days} 天` : normalizedScope.type === "lifetime" ? "全部时间" : "当前复习轮次"}，正确率与总次数仍为终身统计。</p></div></div>}

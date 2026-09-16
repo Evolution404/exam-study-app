@@ -223,7 +223,7 @@ CI 会显式安装与 `playwright-core` 版本匹配的 Chromium；smoke 使用 
 
 - [ ] Personal Team 能安装，Bundle ID 为 `com.evolution404.shijuan`。
 - [ ] 覆盖安装后题库和练习仍在；强杀重开正常；深色模式、横竖屏和 safe area 正常。
-- [ ] Dexie `shijuan-study-v7` 重启保持；JSON、XLSX、ZIP 导入成功；题目图片正常显示。
+- [ ] Dexie `shijuan-study` 重启保持；JSON、XLSX、ZIP 导入成功；题目图片正常显示。
 
 ### Relay 与多设备
 

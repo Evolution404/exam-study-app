@@ -98,6 +98,14 @@ assert.equal(attemptReads, targetAttempts.length, "100,000 unrelated attempts �
 assert.ok(history.attempts.every((row) => targetIds.includes(row.questionId)));
 assert.ok(history.roundsProgress.every((row) => targetIds.includes(row.questionId)));
 
+let skippedAttemptReads = 0;
+const skippedAttemptHook = (row: AttemptV7) => { skippedAttemptReads += 1; return row; };
+dbV7.attempts.hook("reading", skippedAttemptHook);
+const lightweightHistory = await readPracticeSetupHistoryForQuestionIdsV7(targetIds, { includeAttempts: false });
+dbV7.attempts.hook("reading").unsubscribe(skippedAttemptHook);
+assert.equal(lightweightHistory.attempts.length, 0, "无需逐条作答语义时 read-model 应返回空 attempts");
+assert.equal(skippedAttemptReads, 0, "普通开始练习路径不得 materialize attempts");
+
 let emptyReads = 0;
 const emptyAttemptHook = (row: AttemptV7) => { emptyReads += 1; return row; };
 dbV7.attempts.hook("reading", emptyAttemptHook);

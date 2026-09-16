@@ -1,4 +1,5 @@
 import { dbV7, getBankQuestionJoinsV7 } from "./db-v7";
+import { getBankQuestionJoinsForBanksV7 } from "./db-v7-bank";
 import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
 import type { BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 export { questionAnswerTextV7 } from "../question/question-answer-text";
@@ -121,7 +122,7 @@ export async function listQuestionViewsAvailableFromOtherBanksV7(bankId: string)
  */
 export async function listQuestionViewsForBanksV7(bankIds: readonly string[]): Promise<QuestionViewV7[]> {
   const selected = [...new Set(bankIds)];
-  const rows = (await Promise.all(selected.map((bankId) => getBankQuestionJoinsV7(bankId)))).flat();
+  const rows = await getBankQuestionJoinsForBanksV7(selected);
   const bankMap = new Map((await dbV7.banks.bulkGet(selected)).filter(Boolean).map((bank) => [bank!.id, bank!]));
   const views = new Map<string, QuestionViewV7>();
   for (const row of rows) {
@@ -144,10 +145,11 @@ export async function listQuestionViewsForBanksV7(bankIds: readonly string[]): P
 }
 
 export async function listUnfiledQuestionsV7(): Promise<QuestionV7[]> {
-  const [questions, memberships] = await Promise.all([
-    dbV7.questions.toArray(),
+  const [questionIds, memberships] = await Promise.all([
+    dbV7.questions.toCollection().primaryKeys(),
     dbV7.bankQuestionMemberships.toArray(),
   ]);
   const attached = new Set(memberships.map((item) => item.questionId));
-  return questions.filter((question) => !attached.has(question.id));
+  const unfiledIds = questionIds.filter((id): id is string => typeof id === "string" && !attached.has(id));
+  return (await dbV7.questions.bulkGet(unfiledIds)).filter((question): question is QuestionV7 => Boolean(question));
 }

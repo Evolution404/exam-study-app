@@ -10,14 +10,15 @@ import { resolveKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
 import { shouldSubmitOnChoice } from "@/lib/practice/answer-submission";
 import { derivePracticeAnswerState, isPracticeAnswerCorrect } from "@/lib/practice/practice-answer-state";
 import type { AttemptOutcome } from "@/lib/db/v7-types";
-import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats, type PracticeAnswerState, type PracticePreferences, type Question, type QuestionType } from "../helpers";
+import { displayedAnswer, playAnswerFeedback, recordPracticeAnswer, saveNote, summarizeV7AttemptStats } from "../helpers";
 import { buildQuestionCopyText, copyTextToClipboard } from "@/lib/question/question-copy";
 import { ActiveElapsedTimer } from "@/lib/practice/active-elapsed-time";
 import { QuestionOverview } from "./question-overview";
 import { PracticeActionBar, PracticeHeader, PracticeNavigationHints, PracticeNotePanel, PracticeQuestionHeading, PracticeResultSummary } from "./practice-presentation";
 import { PracticeShortAnswer } from "./practice-short-answer";
+import type { PracticeProps } from "./practice-view-types";
 
-export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, transitionPending = false, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: { runId: string; question: Question; initialState?: PracticeAnswerState; optionOrder?: number[]; questionIds: string[]; questionTypes: Record<string, QuestionType>; answers: Record<string, PracticeAnswerState>; index: number; total: number; modeLabel: string; preferences: PracticePreferences; transitionPending?: boolean; onStateChange: (state: PracticeAnswerState) => void; onJump: (index: number) => void; onFavorite: () => Promise<void>; onPrevious: () => void; onNext: () => void; onFinish: () => void; onExit: () => void }) {
+export function Practice({ runId, question, initialState, optionOrder, questionIds, questionTypes, answers, index, total, modeLabel, preferences, transitionPending = false, onStateChange, onJump, onFavorite, onPrevious, onNext, onFinish, onExit }: PracticeProps) {
   const [selected, setSelected] = useState<string[]>(initialState?.selected ?? []);
   const [submitted, setSubmitted] = useState(initialState?.submitted ?? false);
   const solution = question.canonical.solution;

@@ -1,15 +1,17 @@
 # 项目交接文档
 
-> 更新时间：2026-08-23（Asia/Shanghai）
+> 更新时间：2026-09-16（Asia/Tokyo）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
+
+> 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。该轮已完成本地性能收口和完整回归；PR #55 进入 CI / 合并 / 发布阶段，不再追加新的性能功能。
 
 ## 1. 当前基线
 
 - 分支：`main`；远端：`https://github.com/Evolution404/exam-study-app.git`
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
-- 公开客户端数据层：独立 IndexedDB `shijuan-study-v7`（首次启动自动从旧 `shijuan-study-v6` 迁移）。
+- 公开客户端数据层：唯一 IndexedDB `shijuan-study`。所有客户端同步升级；schema 变更时清空本地数据并从远端重新同步，不保留旧 schema/旧命名空间迁移代码。
 - 公开同步协议：Sync v9，唯一可变入口 `sync/v9/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
 - 图片远端布局：`sync/v9/assets/index.json` + 4 个索引 shard + immutable Asset Pack；运行时不再使用逐图 `sync/v9/assets/<sha256>.<ext>` 布局。
 - Service Worker 缓存版本：`shijuan-v10`。
@@ -49,6 +51,8 @@ docs/          # 项目文档
 
 ## 3. 数据模型与同步边界
 
+- **开发阶段禁止历史兼容层**：Dexie 只允许一个 `version(1)` 当前 schema，禁止 `version(2+)`、`.upgrade()`、schema migration/compat 文件；同步只允许当前 v9 namespace；旧本地配置键/旧 DB 命名空间不得恢复。门禁位于 `scripts/tools/check-architecture.mjs`。除非用户明确改变策略，否则不要为了“兼容旧客户端”新增分支。
+
 - `QuestionV7` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
 - 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
 - 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
@@ -70,7 +74,7 @@ docs/          # 项目文档
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。Asset Pack 发布独立使用 branch ref 的 fast-forward 检查，并在并发推进时重读后重试，不强推。
 - `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v9。
 - 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v9 wire、head CAS、Asset Pack 和合并语义不因平台改变。
-- iOS 业务数据仍写 `shijuan-study-v7` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
+- iOS 业务数据仍写唯一 `shijuan-study` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
 ## 4. 关键文件
@@ -106,7 +110,7 @@ docs/          # 项目文档
 
 `scripts/tools/check-architecture.mjs` 会检查：
 
-1. 公开页面只使用 `shijuan-study-v7`，不导入旧 `lib/db.ts`。
+1. 公开页面只使用 `shijuan-study`，不导入旧 `lib/db.ts`。
 2. 公开同步只读写 `sync/v9/*`；运行时代码不得访问已退役的 `sync/v7/*`、`sync/v8/*` 远端命名空间。
 3. 页面不得重新使用 `Question.imageUrl` 或“图片地址”导入列。
 4. `practiceRuns` 是唯一持久化练习进度；不得恢复 active session 双写。

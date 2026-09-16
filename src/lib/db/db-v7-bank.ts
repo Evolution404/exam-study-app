@@ -13,7 +13,8 @@ import {
 } from "./db-v7-core";
 import type { BankQuestionJoinV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
-import { runBankIds, updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { listPracticeRunsForBankV7 } from "./practice-run-read-v7";
 import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 import { sha256DigestHex } from "../crypto/sha256";
 
@@ -175,6 +176,29 @@ export async function getBankQuestionJoinsV7(bankId: string): Promise<BankQuesti
   });
 }
 
+/**
+ * Join multiple banks with one indexed membership read and one de-duplicated
+ * question bulkGet. The result preserves the caller's bank order and each
+ * bank's membership order, matching repeated getBankQuestionJoinsV7 calls
+ * without paying their per-bank IndexedDB round trips.
+ */
+export async function getBankQuestionJoinsForBanksV7(bankIds: readonly string[]): Promise<BankQuestionJoinV7[]> {
+  const selected = uniqueStrings(bankIds);
+  if (!selected.length) return [];
+  const bankOrder = new Map(selected.map((bankId, index) => [bankId, index]));
+  const memberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(selected).toArray();
+  memberships.sort((left, right) =>
+    (bankOrder.get(left.bankId) ?? selected.length) - (bankOrder.get(right.bankId) ?? selected.length)
+    || left.sortOrder - right.sortOrder
+    || left.questionId.localeCompare(right.questionId));
+  const questionIds = uniqueStrings(memberships.map((item) => item.questionId));
+  const questions = new Map((await dbV7.questions.bulkGet(questionIds)).filter(Boolean).map((item) => [item!.id, item!]));
+  return memberships.flatMap((membership) => {
+    const question = questions.get(membership.questionId);
+    return question ? [{ question, membership }] : [];
+  });
+}
+
 export async function getBankQuestionMembershipsV7(bankId: string): Promise<BankQuestionMembership[]> {
   return (await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray())
     .sort((left, right) => left.sortOrder - right.sortOrder || left.questionId.localeCompare(right.questionId));
@@ -188,12 +212,10 @@ export async function getBankQuestionsV7(bankId: string): Promise<QuestionV7[]> 
 export async function getQuestionsForBanksV7(bankIds: readonly string[]): Promise<QuestionV7[]> {
   const result: QuestionV7[] = [];
   const seen = new Set<string>();
-  for (const bankId of uniqueStrings(bankIds)) {
-    for (const row of await getBankQuestionJoinsV7(bankId)) {
-      if (seen.has(row.question.id)) continue;
-      seen.add(row.question.id);
-      result.push(row.question);
-    }
+  for (const row of await getBankQuestionJoinsForBanksV7(bankIds)) {
+    if (seen.has(row.question.id)) continue;
+    seen.add(row.question.id);
+    result.push(row.question);
   }
   return result;
 }
@@ -219,7 +241,7 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
   const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
   // Runs that target this bank are dropped with it; otherwise their bankId
   // would dangle and the checkpoint would fail referential validation.
-  const runs = (await dbV7.practiceRuns.toArray()).filter((run) => runBankIds(run).includes(bankId));
+  const runs = await listPracticeRunsForBankV7(bankId);
   const bankDeleteSequence = await nextV7Sequence(deviceId);
   await dbV7.transaction("rw", [dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets], async () => {
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));

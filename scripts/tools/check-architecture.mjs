@@ -18,6 +18,9 @@ for (const { file, source } of srcSources) {
   if (/@capacitor\//.test(source) || /\b(?:window\.)?Capacitor\./.test(source)) {
     fail(`${file} 不得直接依赖 Capacitor；请通过 src/platform 适配层访问原生能力`);
   }
+  if (/["'](?:study|shijuan-study)-v[0-6]-/.test(source)) {
+    fail(`${file} 不得恢复 v6 及更早的本地配置键兼容；所有客户端统一使用当前配置命名空间`);
+  }
 }
 
 for (const name of ["color-canvas", "color-surface", "color-surface-raised", "color-text", "color-text-muted", "color-border", "color-primary", "color-danger"]) {
@@ -40,6 +43,16 @@ const v7DatabaseVersions = [...dbV7Core.matchAll(/this\.version\((\d+)\)/g)].map
 if (!/V7_DATABASE_NAME\s*=\s*["']shijuan-study["']/.test(dbV7Core) || !/super\(V7_DATABASE_NAME\)/.test(dbV7Core)
   || v7DatabaseVersions.length !== 1 || v7DatabaseVersions[0] !== 1) {
   fail("公开客户端必须使用全新 shijuan-study 数据库命名空间，schema 只声明一次且从版本 1 开始");
+}
+const dbSources = fs.readdirSync(path.join(root, "src/lib/db"), { recursive: true })
+  .filter((file) => typeof file === "string" && /\.ts$/.test(file))
+  .map((file) => ({ file: `src/lib/db/${file}`, source: read(path.join("src/lib/db", file)) }));
+if (dbSources.some(({ source }) => /\.upgrade\s*\(/.test(source))) {
+  fail("本地数据库禁止 Dexie upgrade 兼容迁移；schema 变更时清空客户端本地数据并从远端重新同步");
+}
+if (dbSources.some(({ file }) => /(?:schema-)?migration|legacy-schema|schema-compat/i.test(file))
+  || fs.existsSync(path.join(root, "scripts/tests/test-db-v7-schema-migration.ts"))) {
+  fail("本地数据库不得新增历史 schema migration/compat 文件；所有客户端统一使用当前 schema");
 }
 if (/migrateLegacy|indexedDB\.open|dropLegacyLocalDatabases|["']shijuan-study-v[67]["']/.test(dbV7Core)) {
   fail("本地数据库核心不得保留旧 schema、旧命名空间或迁移清理代码");

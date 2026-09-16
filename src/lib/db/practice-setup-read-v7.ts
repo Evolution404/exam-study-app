@@ -17,13 +17,17 @@ function uniqueQuestionIds(questionIds: readonly string[]): string[] {
 }
 
 /** Read only history rows belonging to the current Practice Setup question set. */
-export async function readPracticeSetupHistoryForQuestionIdsV7(questionIds: readonly string[]): Promise<PracticeSetupHistoryV7> {
+export async function readPracticeSetupHistoryForQuestionIdsV7(
+  questionIds: readonly string[],
+  options: { includeAttempts?: boolean } = {},
+): Promise<PracticeSetupHistoryV7> {
   const ids = uniqueQuestionIds(questionIds);
   if (!ids.length) return { stats: [], roundsProgress: [], attempts: [] };
+  const includeAttempts = options.includeAttempts !== false;
   const [statsRows, roundsProgress, attempts] = await Promise.all([
     dbV7.attemptStats.bulkGet(ids),
     dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray(),
-    dbV7.attempts.where("questionId").anyOf(ids).toArray(),
+    includeAttempts ? dbV7.attempts.where("questionId").anyOf(ids).toArray() : Promise.resolve([]),
   ]);
   return {
     stats: statsRows.filter((row): row is AttemptStatsV7 => row !== undefined),

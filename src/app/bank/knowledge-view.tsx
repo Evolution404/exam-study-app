@@ -16,6 +16,8 @@ import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/pr
 import { MathText } from "@/app/ui/math-text";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
+import { readAttemptStatsForQuestionIdsV7 } from "@/lib/db/search-read-v7";
+import { buildKnowledgeTagSummaries } from "@/app/bank/knowledge-model";
 
 type Question = QuestionViewModel;
 type QuestionGroup = QuestionGroupV7;
@@ -72,22 +74,12 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [activeTag, setActiveTag] = useState<string>();
   const [renameValue, setRenameValue] = useState("");
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
-  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), attemptStats: await dbV7.attemptStats.toArray() }), []);
-  const tags = useMemo(() => {
-    const questions = data?.questions ?? [];
-    const statsByQuestion = new Map((data?.attemptStats ?? []).map((stats) => [stats.questionId, { ...stats, bankId: "" }]));
-    return [...new Set(questions.flatMap((question) => question.tags))].map((name) => {
-      const tagged = questions.filter((question) => question.tags.includes(name));
-      const summary = tagged.reduce((result, question) => {
-        const stats = statsByQuestion.get(question.id);
-        result.total += stats?.total ?? 0;
-        result.correct += stats?.correct ?? 0;
-        return result;
-      }, { total: 0, correct: 0 });
-      const difficulty = tagged.length ? Math.round(tagged.reduce((total, question) => total + summarizeAttemptStats(statsByQuestion.get(question.id)).difficulty, 0) / tagged.length) : 50;
-      return { name, questions: tagged, count: tagged.length, accuracy: summary.total ? Math.round(summary.correct / summary.total * 100) : 0, difficulty };
-    }).filter((item) => item.name.toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
-  }, [data, query]);
+  const data = useLiveQuery(async () => {
+    const questions = await activeQuestionViews();
+    const attemptStats = await readAttemptStatsForQuestionIdsV7(questions.map((question) => question.id));
+    return { questions, attemptStats };
+  }, []);
+  const tags = useMemo(() => buildKnowledgeTagSummaries(data?.questions ?? [], data?.attemptStats ?? [], query), [data, query]);
   const selected = tags.find((item) => item.name === activeTag);
 
   async function replaceTag(from: string, to?: string) {
@@ -115,9 +107,10 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   const byId = new Map(questions.map((question) => [question.id, question]));
   const visibleQuestionIds = new Set(byId.keys());
   const visibleItems = items.filter((item) => visibleQuestionIds.has(item.questionId));
+  const itemIds = new Set(items.map((item) => item.questionId));
   const detailEntries = visibleItems.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question));
   const visibleGroups = (data?.groups ?? []).map((group) => ({ group, questions: group.items.map((item) => byId.get(item.questionId)).filter((question): question is Question => Boolean(question)) })).filter((entry) => entry.questions.length > 0);
-  const results = query.trim() ? questions.filter((question) => !items.some((item) => item.questionId === question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
+  const results = query.trim() ? questions.filter((question) => !itemIds.has(question.id) && [question.stem, question.bankName, ...question.tags].join(" ").toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN"))).slice(0, 8) : [];
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -149,6 +142,8 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
     if (!detailQuestionId) return;
     document.querySelector(`.group-items article[data-question-id="${detailQuestionId}"]`)?.scrollIntoView({ block: "nearest" });
   }, [detailQuestionId]);
+
+  if (data === undefined) return <div className="knowledge-empty"><span>正在读取题组…</span></div>;
 
   function reset() { setEditingId(undefined); setName(""); setType("易混"); setDescription(""); setItems([]); setQuery(""); }
   function edit(group: QuestionGroup) { setEditingId(group.id); setName(group.name); setType(group.type); setDescription(group.description); setItems(group.items); setQuery(""); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -203,7 +198,7 @@ function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotic
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? localStorage.getItem("study-v6-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };

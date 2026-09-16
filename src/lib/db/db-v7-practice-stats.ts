@@ -2,7 +2,7 @@ import { dbV7, uniqueStrings } from "./db-v7-core";
 import type { PracticeRunV7 } from "./v7-types";
 
 /** internal：练习 run 的题库归属，按 bankIds 优先回退到 bankId。 */
-export function runBankIds(run: Pick<PracticeRunV7, "bankId" | "bankIds">): string[] {
+function runBankIds(run: Pick<PracticeRunV7, "bankId" | "bankIds">): string[] {
   return uniqueStrings(run.bankIds?.length ? run.bankIds : [run.bankId]);
 }
 

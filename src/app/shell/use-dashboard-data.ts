@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { dbV7 } from "@/lib/db/db-v7";
-import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { isBankEnabled } from "@/lib/db/v7-types";
 import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { syncApplication } from "@/lib/sync/sync-application";
+import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
 import { loadSelectedBankIds, type PracticePreferences, type View } from "./helpers";
+import { readDashboardScopedRowsV7 } from "./dashboard-read-data";
 import { summarizeDashboardRows } from "./shell-controller-model";
 
 export function useDashboardData(view: View, preferences: PracticePreferences) {
@@ -35,29 +36,20 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return () => { cancelled = true; };
   }, [bankRows]);
 
-  const latestPracticeRunQuery = useLiveQuery(async () => {
-    return dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt").then((runs) => runs.at(-1) ?? null);
-  }, []);
+  const latestPracticeRunQuery = useLiveQuery(() => latestInProgressPracticeRunV7().then((run) => run ?? null), []);
   const latestPracticeRun = latestPracticeRunQuery ?? undefined;
   const latestPracticeRunLoaded = latestPracticeRunQuery !== undefined;
 
   const statsBaseQuery = useLiveQuery(async () => {
+    if (view !== "home") return null;
     const today = calendarDate(new Date());
-    const [questions, attemptStats, todayRows, notes] = await Promise.all([
-      dbV7.questions.count(),
-      dbV7.attemptStats.toArray(),
-      dbV7.attemptDailyStats.where("date").equals(today).toArray(),
-      dbV7.notes.count(),
-    ]);
-    return {
-      questions,
-      ...summarizeDashboardRows(attemptStats, todayRows),
-      notes,
-    };
-  }, []);
+    const todayRows = await dbV7.attemptDailyStats.where("date").equals(today).toArray();
+    const { todayAttempts, todayCorrect } = summarizeDashboardRows([], todayRows);
+    return { todayAttempts, todayCorrect };
+  }, [view]);
   const pendingCountQuery = useLiveQuery(() => syncApplication.pendingCount(), []);
   const stats = useMemo(() => {
-    const base = statsBaseQuery ?? { questions: 0, attempts: 0, correct: 0, todayAttempts: 0, todayCorrect: 0, notes: 0, last: undefined };
+    const base = statsBaseQuery ?? { todayAttempts: 0, todayCorrect: 0 };
     return { ...base, pending: pendingCountQuery ?? 0 };
   }, [statsBaseQuery, pendingCountQuery]);
 
@@ -71,12 +63,13 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const scopeProgress = useLiveQuery(async () => {
     if (view !== "home") return { completed: 0, total: 0 };
     if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const [questions, attemptStats, roundProgress] = await Promise.all([
-      listQuestionViewsForBanksV7(activeBankIds),
-      dbV7.attemptStats.toArray(),
-      dbV7.reviewRoundProgress.toArray(),
+    const memberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
+    const ids = [...new Set(memberships.map((membership) => membership.questionId))];
+    const [attemptStatsRows, roundProgress] = await Promise.all([
+      dbV7.attemptStats.bulkGet(ids),
+      ids.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
     ]);
-    const ids = [...new Set(questions.map((questionView) => questionView.question.id))];
+    const attemptStats = attemptStatsRows.filter((row) => row !== undefined);
     const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), attemptStats, roundProgress, Date.now());
     return { completed: completion.completed, total: completion.total };
   }, [view, activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
@@ -86,13 +79,16 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     const questionIds = activeBankIds.length
       ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
       : await dbV7.questions.toCollection().primaryKeys();
-    const [attempts, roundProgress, notes] = await Promise.all([
-      dbV7.attempts.toArray(),
-      dbV7.reviewRoundProgress.toArray(),
-      dbV7.notes.toArray(),
-    ]);
+    if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
+    const referenceTime = Date.now();
+    const { attempts, roundProgress, notes } = await readDashboardScopedRowsV7(
+      questionIds,
+      normalizedProgressScope,
+      referenceTime,
+      { allQuestions: activeBankIds.length === 0 },
+    );
     const questionIdSet = new Set(questionIds);
-    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, Date.now()));
+    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
     return {
       questions: questionIds.length,
       attempts: summary.attempts,

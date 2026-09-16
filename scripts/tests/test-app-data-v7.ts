@@ -39,6 +39,9 @@ assert.equal(views.length, 1, "共享题跨题库只能出现一次");
 assert.equal(views[0].memberships.length, 2);
 assert.deepEqual(views[0].banks.map((bank) => bank.id), [first.id, second.id]);
 
+const reversedViews = await listQuestionViewsForBanksV7([second.id, first.id]);
+assert.deepEqual(reversedViews[0].banks.map((bank) => bank.id), [second.id, first.id], "批量读取仍必须保持调用方题库顺序");
+
 const firstBankViews = await listQuestionViewsForBankV7(first.id);
 assert.equal(firstBankViews.length, 1);
 assert.equal(firstBankViews[0].memberships.length, 2, "单题库管理页也必须读到完整所属题库关系");

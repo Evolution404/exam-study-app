@@ -3,8 +3,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { dbV7, createPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
-import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope, scopedStatsToAttemptStats } from "@/lib/practice/progress-scope";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
@@ -12,14 +10,11 @@ import { allowPracticeAutoResumeForRun, isPracticeAutoResumeSuppressed, suppress
 import {
   TYPE_ORDER,
   activePracticeFromRun,
-  balancedRandomSample,
   deletePracticeRun,
   modeLabels,
   randomOptionOrder,
   savePracticeProgress,
   setPracticeRunStatus,
-  shuffle,
-  summarizeV7AttemptStats,
   type PracticeAnswerState,
   type PracticeFilter,
   type PracticePreferences,
@@ -27,6 +22,7 @@ import {
   type View,
 } from "./helpers";
 import { removeDeletedQuestionFromSession } from "./shell-controller-model";
+import { preparePracticeStartQuestionsV7 } from "./practice-start-data";
 
 interface PracticeSessionControllerOptions {
   view: View;
@@ -248,71 +244,9 @@ export function usePracticeSessionController({
       const membership = questionView.memberships.find((item) => item.bankId === questionView.sourceBankId) ?? questionView.memberships[0];
       return toQuestionViewModel(questionView.question, questionView.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
     });
-    questions = questions.filter((question) => filter.types.includes(question.type));
-    if (filter.tags.length) questions = questions.filter((question) => filter.tagMatch === "all"
-      ? filter.tags.every((tag) => question.tags.includes(tag))
-      : filter.tags.some((tag) => question.tags.includes(tag)));
-    if (filter.keyword.trim()) {
-      const keyword = filter.keyword.trim();
-      let pattern: RegExp | null = null;
-      if (filter.keywordMode === "regex") {
-        try { pattern = new RegExp(keyword, "i"); } catch { setNotice("正则表达式格式不正确，请检查后重试"); return; }
-      }
-      questions = questions.filter((question) => {
-        const searchable = [question.stem, ...question.options, ...question.tags].join("\n");
-        return pattern ? pattern.test(searchable) : searchable.toLocaleLowerCase("zh-CN").includes(keyword.toLocaleLowerCase("zh-CN"));
-      });
-    }
-    const [statsRows, roundProgress, attemptRows] = await Promise.all([dbV7.attemptStats.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.attempts.toArray()]);
-    const attemptMetrics = new Map(statsRows.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)]));
-    const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
-    const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
-    const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
-    const scopedWrongStats = filter.status === "wrong"
-      ? buildScopedQuestionStats(questions.map((question) => question.id), progressScope, attemptRows, roundProgress, Date.now())
-      : null;
-    questions = questions.filter((question) => {
-      const metric = attemptMetrics.get(question.id) ?? summarizeV7AttemptStats();
-      const doneInScope = isQuestionDoneInScope(question.id, progressScope, statsRows, roundProgress, Date.now());
-      if (filter.status === "unanswered" && doneInScope) return false;
-      if (filter.status === "wrong") {
-        const scoped = scopedWrongStats?.get(question.id);
-        if (!statsNeedWrongReview(scoped ? scopedStatsToAttemptStats(scoped) : undefined, preferences.wrongRemovalStreak)) return false;
-      }
-      if (filter.status === "favorite" && !question.favorite) return false;
-      if (filter.totalAttemptsMin !== null && metric.total < filter.totalAttemptsMin) return false;
-      if (filter.totalAttemptsMax !== null && metric.total > filter.totalAttemptsMax) return false;
-      if (filter.wrongAttemptsMin !== null && metric.wrong < filter.wrongAttemptsMin) return false;
-      if (filter.wrongAttemptsMax !== null && metric.wrong > filter.wrongAttemptsMax) return false;
-      if (filter.difficultyMin !== null && metric.difficulty < filter.difficultyMin) return false;
-      if (filter.difficultyMax !== null && metric.difficulty > filter.difficultyMax) return false;
-      if ((lastAttemptFrom !== null || lastAttemptTo !== null) && metric.latest === null) return false;
-      if (lastAttemptFrom !== null && metric.latest !== null && metric.latest < lastAttemptFrom) return false;
-      if (lastAttemptTo !== null && metric.latest !== null && metric.latest > lastAttemptTo) return false;
-      return true;
-    });
-    let limitApplied = false;
-    if (filter.order === "random") {
-      if (filter.limit) {
-        questions = preferences.randomTypeBalance === "balanced"
-          ? balancedRandomSample(questions, filter.limit)
-          : shuffle(questions).slice(0, filter.limit);
-        limitApplied = true;
-      } else questions = shuffle(questions);
-    }
-    questions = TYPE_ORDER.flatMap((type) => {
-      const group = questions.filter((question) => question.type === type);
-      if (filter.order === "random") return shuffle(group);
-      if (filter.order === "difficulty") return group.sort((a, b) => {
-        const left = attemptMetrics.get(a.id);
-        const right = attemptMetrics.get(b.id);
-        return (right?.reviewPriority ?? 50) - (left?.reviewPriority ?? 50)
-          || (right?.personalDifficulty ?? 50) - (left?.personalDifficulty ?? 50)
-          || a.id.localeCompare(b.id);
-      });
-      return group;
-    });
-    if (filter.limit && !limitApplied) questions = questions.slice(0, filter.limit);
+    const prepared = await preparePracticeStartQuestionsV7(questions, filter, preferences);
+    if (prepared.error) { setNotice(prepared.error); return; }
+    questions = prepared.questions;
     if (!questions.length) {
       setNotice("没有符合当前条件的题目，请调整筛选条件");
       return;

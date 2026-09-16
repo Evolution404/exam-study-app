@@ -14,7 +14,8 @@ export function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, q
   projection.questions = projection.questions.filter((question) => question.id !== questionId);
   projection.memberships = projection.memberships.filter((membership) => membership.questionId !== questionId);
   projection.attempts = projection.attempts.filter((attempt) => attempt.questionId !== questionId);
-  projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([id]) => projection.attempts.some((attempt) => attempt.id === id)));
+  const remainingAttemptIds = new Set(projection.attempts.map((attempt) => attempt.id));
+  projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([id]) => remainingAttemptIds.has(id)));
   projection.notes = projection.notes.filter((note) => note.questionId !== questionId);
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => item.questionId !== questionId);
   projection.questionGroups = projection.questionGroups.flatMap((group) => {
