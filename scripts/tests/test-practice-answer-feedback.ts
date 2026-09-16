@@ -14,6 +14,7 @@ const practiceController = read("src/app/shell/use-practice-session-controller.t
 const quickSyncController = read("src/app/shell/use-quick-sync-controller.ts");
 const syncRuntime = read("src/lib/sync/sync-runtime.ts");
 const practiceView = read("src/app/shell/views/practice.tsx");
+const pullToRefreshView = read("src/app/shell/views/pull-to-refresh.tsx");
 const practicePresentation = read("src/app/shell/views/practice-presentation.tsx");
 const dashboardView = read("src/app/shell/views/dashboard.tsx");
 const practiceSetup = read("src/app/practice/practice-setup.tsx");
@@ -86,6 +87,11 @@ assert.doesNotMatch(quickSyncController, /pullResult/, "periodic pull must not r
 assert.doesNotMatch(practiceController, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
 assert.match(practiceController, /activePracticeFromRun\(run, session\.currentIndex\)/, "no new answers: keep the current question");
 assert.match(practiceController, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
+assert.match(studyApp, /\{view !== "practice" && <PullToRefresh \/>\}/, "practice must unmount global pull-to-refresh across the entire exercise surface");
+assert.match(pullToRefreshView, /const native = isNativeApp\(\)/, "pull-to-refresh must use the platform adapter instead of user-agent sniffing");
+assert.match(pullToRefreshView, /if \(native\) return;/, "native apps must never install the web pull-to-refresh listeners");
+assert.match(pullToRefreshView, /if \(native\) return null;/, "native apps must not render the web refresh affordance");
+assert.match(pullToRefreshView, /if \(!disposed\)[\s\S]*window\.location\.reload\(\)/, "a delayed web refresh must not reload after navigation unmounts the listener");
 assert.match(styles, /translate3d\(100vw,0,0\)/, "slide navigation must animate the whole page from the viewport edge");
 assert.match(styles, /\.practice-content \.practice-layout\{animation:question-page-forward/, "slide navigation must animate the whole practice layout");
 

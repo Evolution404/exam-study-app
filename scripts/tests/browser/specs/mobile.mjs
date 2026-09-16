@@ -82,6 +82,45 @@ export async function runMobile(page, mockServer) {
   harness.assert.deepEqual(practiceModeGrid.cardOverflow, [], "every mobile practice mode card must stay inside the grid");
   await helpers.clickTextButton(page, "全量顺序练习");
   await page.locator(".question-card").waitFor({ state: "visible" });
+  harness.assert.equal(await page.locator(".pull-refresh").count(), 0, "practice must unmount global pull-to-refresh on mobile");
+  const practiceUrlBeforePull = page.url();
+  await page.evaluate(() => {
+    const workspace = document.querySelector(".workspace");
+    const target = document.querySelector(".practice-layout");
+    if (!(workspace instanceof HTMLElement) || !(target instanceof HTMLElement)) throw new Error("practice pull regression target missing");
+    workspace.scrollTop = 0;
+    const touch = (clientY) => ({
+      identifier: 1,
+      target,
+      clientX: 190,
+      clientY,
+      pageX: 190,
+      pageY: clientY,
+      screenX: 190,
+      screenY: clientY,
+      radiusX: 1,
+      radiusY: 1,
+      rotationAngle: 0,
+      force: 1,
+    });
+    const dispatch = (type, touches, changedTouches = touches) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        touches: { value: touches },
+        targetTouches: { value: touches },
+        changedTouches: { value: changedTouches },
+      });
+      target.dispatchEvent(event);
+    };
+    const start = touch(110);
+    const end = touch(310);
+    dispatch("touchstart", [start]);
+    dispatch("touchmove", [end]);
+    dispatch("touchend", [], [end]);
+  });
+  await page.waitForTimeout(1_200);
+  harness.assert.equal(page.url(), practiceUrlBeforePull, "pulling down outside the question card must not navigate or reload practice");
+  harness.assert.equal(await page.locator(".question-card").count(), 1, "pulling down in practice must keep the active question visible");
   await helpers.clickButton(page, "打开题目总览");
   // Fresh practice starts at the first question — the overview focuses the
   // current row (第 1 题) with 0/5 answered.
