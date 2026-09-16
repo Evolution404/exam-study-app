@@ -2,7 +2,8 @@ import { SYNC_V9_ASSET_PREFIX, SYNC_V9_CHECKPOINT_PREFIX, SYNC_V7_MAX_DESCRIPTOR
 import { assertSyncV7Path, validateSyncHeadV7 } from "./sync-v7-head-validation";
 import type { SyncHeadV7, SyncV7Bytes, SyncV7Descriptor, SyncV7DescriptorKind, SyncV7PublicationFile, SyncV7PublicationPlan } from "./sync-v7-head-types";
 import { decodeSyncV7JsonBytes, encodeSyncV7JsonBytes } from "./sync-v7-codec";
-import { sha256DigestHex } from "../crypto/sha256";
+import { asBytes, assertSha1, assertSha256, assertSize, bytesEqual, digestHex, extractBlobSha, getString, githubVaultIdentitiesEqual } from "./github-v7-remote-utils";
+export { githubVaultIdentitiesEqual } from "./github-v7-remote-utils";
 import {
   blobPath,
   commitGitHubTreeFastForward,
@@ -157,47 +158,6 @@ export class SyncV7BlobIntegrityError extends Error {
 
 interface GitHubContentsPayload { content?: unknown; encoding?: unknown; sha?: unknown; path?: unknown; }
 
-function asBytes(value: SyncV7Bytes): Uint8Array {
-  if (typeof value === "string") return new TextEncoder().encode(value);
-  if (value instanceof Uint8Array) return value.slice();
-  if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  throw new TypeError("immutable v9 file bytes must be text, Uint8Array, or ArrayBuffer");
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return false;
-  return true;
-}
-
-function digestHex(bytes: Uint8Array): Promise<string> {
-  return sha256DigestHex(bytes);
-}
-
-function assertSha256(value: string, field: string): void {
-  if (!/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} must be a lowercase SHA-256 digest`);
-}
-
-function assertSha1(value: string, field: string): void {
-  if (!/^[a-f0-9]{40}$/.test(value)) throw new TypeError(`${field} must be a lowercase Git SHA-1 blob id`);
-}
-
-function assertSize(value: number, field: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${field} must be a non-negative safe integer`);
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function extractBlobSha(value: unknown): string | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const object = value as { content?: unknown; sha?: unknown; existingSha?: unknown };
-  if (typeof object.existingSha === "string") return object.existingSha;
-  if (object.content && typeof object.content === "object" && !Array.isArray(object.content)) return getString((object.content as { sha?: unknown }).sha);
-  return getString(object.sha);
-}
-
 function parseJson(text: string, operation: string): unknown {
   try { return JSON.parse(text) as unknown; } catch { throw new GitHubV7RemoteError(operation, 200, `GitHub ${operation} returned invalid JSON`); }
 }
@@ -221,22 +181,6 @@ function normalizeCache(cache: SyncV7HeadCache | SyncHeadV7 | undefined): SyncV7
   if (!cache) return undefined;
   if ("formatVersion" in cache) return cacheFrom(cache);
   return cacheFrom(cache.head, cache.etag, cache.blobSha);
-}
-
-function canonicalGitHubVaultIdentity(value: string): string {
-  const separator = value.lastIndexOf("@");
-  if (separator <= 0) return value;
-  const repository = value.slice(0, separator);
-  const slash = repository.indexOf("/");
-  if (slash <= 0 || slash === repository.length - 1) return value;
-  const owner = repository.slice(0, slash).toLocaleLowerCase("en-US");
-  const repo = repository.slice(slash + 1).toLocaleLowerCase("en-US");
-  return `${owner}/${repo}@${value.slice(separator + 1)}`;
-}
-
-/** GitHub owner/repository names are case-insensitive; Git ref names are not. */
-export function githubVaultIdentitiesEqual(left: string, right: string): boolean {
-  return canonicalGitHubVaultIdentity(left) === canonicalGitHubVaultIdentity(right);
 }
 
 export class GitHubV7Remote {
