@@ -40,9 +40,9 @@ export function QuestionManager({ bank, questions, attemptStats, notes, roundPro
   }, [viewing]);
 
   const questionIdsKey = useMemo(() => questions.map((question) => question.id).join("|"), [questions]);
-  const membershipViews = useLiveQuery(() => listQuestionMembershipViewsV7(questions.map((question) => question.id)), [questionIdsKey]) ?? [];
+  const membershipViews = useLiveQuery(() => listQuestionMembershipViewsV7(questions.map((question) => question.id)), [questionIdsKey]);
   const banks = useLiveQuery(() => dbV7.banks.orderBy("sortOrder").toArray(), [bank.id]) ?? [];
-  const membershipByQuestion = useMemo(() => new Map(membershipViews.map((view) => [view.questionId, view])), [membershipViews]);
+  const membershipByQuestion = useMemo(() => new Map((membershipViews ?? []).map((view) => [view.questionId, view])), [membershipViews]);
   const sharedCount = useMemo(() => questions.filter((question) => (membershipByQuestion.get(question.id)?.memberships.length ?? 1) > 1).length, [membershipByQuestion, questions]);
   const exclusiveCount = questions.length - sharedCount;
 
