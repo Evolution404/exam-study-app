@@ -7,15 +7,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { launchProjectChromium } from "../tools/chrome-executable.mjs";
+import { findAvailablePort } from "../tools/available-port.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const portText = process.env.PWA_PREVIEW_PORT?.trim() || "4173";
-const port = Number(portText);
-if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+const requestedPort = Number(portText);
+if (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535) {
   throw new Error(`PWA_PREVIEW_PORT must be an integer between 1 and 65535, got ${portText}`);
 }
 const configuredBaseUrl = process.env.PWA_BASE_URL?.trim();
-const baseUrl = (configuredBaseUrl || `http://127.0.0.1:${port}`).replace(/\/$/, "");
+let port = requestedPort;
+let baseUrl = (configuredBaseUrl || `http://127.0.0.1:${port}`).replace(/\/$/, "");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const viteCli = path.join(root, "node_modules", "vite", "bin", "vite.js");
 let previewServer;
@@ -71,6 +73,11 @@ async function buildIfNeeded() {
 
 async function runSmoke() {
   await buildIfNeeded();
+  if (!configuredBaseUrl) {
+    port = await findAvailablePort(requestedPort);
+    baseUrl = `http://127.0.0.1:${port}`;
+    if (port !== requestedPort) console.log(`[pwa-smoke] port ${requestedPort} is busy; switched to ${port}`);
+  }
   // Start Vite directly. Spawning it through `npm run preview` leaves the Vite
   // grandchild alive on some Linux CI runners after the npm parent is killed.
   previewServer = spawn(process.execPath, [viteCli, "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {

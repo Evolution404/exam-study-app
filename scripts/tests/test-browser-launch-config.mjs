@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import net from "node:net";
 import { launchProjectChromium, resolveChromeLaunchOptions } from "../tools/chrome-executable.mjs";
+import { findAvailablePort } from "../tools/available-port.mjs";
 
 const readProjectFile = (relativePath) => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
@@ -73,4 +75,24 @@ assert.match(
   "browser QA must reject unknown engines instead of silently changing coverage",
 );
 
-console.log("browser launch config tests passed: isolated Chromium remains default and WebKit is selectable");
+const occupied = net.createServer();
+await new Promise((resolve, reject) => {
+  occupied.once("error", reject);
+  occupied.listen(0, "127.0.0.1", resolve);
+});
+const occupiedAddress = occupied.address();
+const occupiedPort = typeof occupiedAddress === "object" && occupiedAddress ? occupiedAddress.port : 0;
+assert.ok(occupiedPort > 0, "port fallback test must reserve a real loopback port");
+try {
+  const fallbackPort = await findAvailablePort(occupiedPort, { maxAttempts: 20 });
+  assert.notEqual(fallbackPort, occupiedPort, "a busy preferred port must never be reused");
+  assert.ok(fallbackPort > occupiedPort, "busy-port fallback should advance to a later available port");
+} finally {
+  await new Promise((resolve, reject) => occupied.close((error) => error ? reject(error) : resolve()));
+}
+
+for (const file of ["scripts/tests/browser/harness.mjs", "scripts/tests/run-browser-local.mjs", "scripts/tests/test-pwa-preview.mjs"]) {
+  assert.match(readProjectFile(file), /findAvailablePort/, `${file} must use automatic port fallback instead of assuming a fixed local port`);
+}
+
+console.log("browser launch config tests passed: isolated Chromium, WebKit selection and automatic local port fallback are enforced");

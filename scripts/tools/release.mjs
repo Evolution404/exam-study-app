@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findAvailablePort } from "./available-port.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const dryRun = process.env.RELEASE_DRY_RUN === "1";
@@ -30,19 +30,6 @@ function run(command, args, options = {}) {
 
 const git = (args) => run("git", args, { capture: true });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function availablePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => error ? reject(error) : resolve(port));
-    });
-  });
-}
 
 function nulPaths(output) {
   return output.split("\0").filter(Boolean);
@@ -151,8 +138,8 @@ async function main() {
     console.log(`本地已有 ${ahead} 个提交待推送。`);
   }
 
-  const browserPort = String(await availablePort());
-  const pwaPort = String(await availablePort());
+  const browserPort = String(await findAvailablePort());
+  const pwaPort = String(await findAvailablePort());
   console.log(`\n发布级验证：browser=${browserPort}，pwa=${pwaPort}`);
   await run("npm", ["run", "test:full"], { env: { BROWSER_PORT: browserPort, BROWSER_HEADLESS: process.env.BROWSER_HEADLESS || "1" } });
   await run("npm", ["run", "test:pwa-smoke"], { env: { PWA_PREVIEW_PORT: pwaPort } });

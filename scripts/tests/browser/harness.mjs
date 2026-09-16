@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "playwright-core";
 import { startMockGitHubServer } from "../../tools/mock-github-server.mjs";
 import { launchProjectChromium } from "../../tools/chrome-executable.mjs";
+import { findAvailablePort } from "../../tools/available-port.mjs";
 
 export { assert, path, chromium, webkit, startMockGitHubServer, launchProjectChromium };
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -15,11 +16,12 @@ if (browserEngineName !== "chromium" && browserEngineName !== "webkit") {
 }
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const configuredPort = process.env.BROWSER_PORT?.trim() || "5173";
-const serverPort = Number(configuredPort);
-if (!configuredBaseUrl && (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65_535)) {
+const requestedServerPort = Number(configuredPort);
+if (!configuredBaseUrl && (!Number.isInteger(requestedServerPort) || requestedServerPort < 1 || requestedServerPort > 65_535)) {
   throw new Error(`BROWSER_PORT must be an integer between 1 and 65535, got ${configuredPort}`);
 }
-export const baseUrl = (configuredBaseUrl || `http://127.0.0.1:${serverPort}`).replace(/\/$/, "");
+let serverPort = requestedServerPort;
+export let baseUrl = (configuredBaseUrl || `http://127.0.0.1:${serverPort}`).replace(/\/$/, "");
 const artifactRoot = path.join(root, "artifacts", "browser-qa");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 export const runRoot = path.join(artifactRoot, runId);
@@ -54,6 +56,9 @@ async function waitForServer(url, timeoutMs = 30_000, processRef, isReady = () =
 
 export async function startDevServerIfNeeded() {
   if (configuredBaseUrl) return;
+  serverPort = await findAvailablePort(requestedServerPort);
+  baseUrl = `http://127.0.0.1:${serverPort}`;
+  if (serverPort !== requestedServerPort) console.log(`[browser-qa] port ${requestedServerPort} is busy; switched to ${serverPort}`);
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   let viteReady = false;
   devServer = spawn(npm, ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(serverPort), "--strictPort"], {

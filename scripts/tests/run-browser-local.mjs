@@ -4,12 +4,13 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findAvailablePort } from "../tools/available-port.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const configuredBaseUrl = process.env.BASE_URL?.trim();
 const portText = process.env.BROWSER_PORT?.trim() || "5173";
-const port = Number(portText);
-if (!configuredBaseUrl && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
+const requestedPort = Number(portText);
+if (!configuredBaseUrl && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)) {
   throw new Error(`BROWSER_PORT must be an integer between 1 and 65535, got ${portText}`);
 }
 
@@ -108,6 +109,8 @@ try {
   if (configuredBaseUrl) {
     await runHarness(configuredBaseUrl.replace(/\/$/, ""));
   } else {
+    const port = await findAvailablePort(requestedPort);
+    if (port !== requestedPort) console.log(`[browser-qa] port ${requestedPort} is busy; switched to ${port}`);
     // Keep local/CI runs self-contained: generate the title font before Vite,
     // then start Vite directly so cleanup cannot leave an npm grandchild alive.
     const predev = spawnSync(npm, ["run", "predev"], {
