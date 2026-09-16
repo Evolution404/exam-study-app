@@ -147,7 +147,10 @@ export async function runDesktop(page, mockServer) {
   await helpers.assertOverviewFocus(page, 5, "40.0%");
   await helpers.capture(page, contextName, "practice-overview-first-unanswered");
   await page.getByRole("button", { name: "第 2 题，单选" }).click();
-  await page.waitForFunction(() => getComputedStyle(document.querySelector(".practice-layout")).animationName === "question-page-back");
+  await page.waitForFunction(() => {
+    const layout = document.querySelector(".practice-layout");
+    return layout instanceof Element && getComputedStyle(layout).animationName === "question-page-back";
+  });
   await helpers.waitForQuestion(page, 2);
   // The app keeps the stable type grouping order (single choice, multi
   // choice, judgment), so the fourth fixture row is the second visible item.
