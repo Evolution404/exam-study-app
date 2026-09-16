@@ -384,8 +384,8 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
 }
 
-// B5: coalesce all in-realm callers of syncWithGitHub. Manual sync, auto-sync,
-// quick-sync and loadAttemptHistory all funnel here; withSyncLock additionally
+// B5: coalesce all in-realm callers of syncWithGitHub. Manual sync, auto-sync
+// and quick-sync all funnel here; withSyncLock additionally
 // serializes pull/restore and extends the critical section across tabs/workers
 // whenever Web Locks are available.
 let syncInFlight: ReturnType<typeof syncWithGitHubInternal> | null = null;
@@ -404,5 +404,3 @@ export { restoreFullHistoryFromGitHub };
 export const restoreFromGitHub = restoreFullHistoryFromGitHub;
 export const pullFromGitHub = async (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, options?: SyncWithGitHubOptions) => syncWithGitHub(settings, token, callback, options);
 export const initializeGitHubVault = (settings: GitHubSettings, token: string, callback?: SyncProgressCallback, fetchImpl?: SyncWithGitHubOptions["fetch"], transport?: SyncWithGitHubOptions["transport"]) => withSyncLock(() => initializeSyncV7Remote(settings, token, callback, { ...(fetchImpl ? { fetch: fetchImpl } : {}), ...(transport ? { transport } : {}) }));
-
-export async function loadAttemptHistory(settings: GitHubSettings, token: string, options: { month?: string; questionId?: string } = {}, syncOptions?: SyncWithGitHubOptions) { await syncWithGitHub(settings, token, undefined, syncOptions); const rows = (await dbV7.attempts.toArray()).filter((attempt) => (!options.questionId || attempt.questionId === options.questionId) && (!options.month || attempt.createdAt.startsWith(options.month))); return { loaded: rows.length, segments: 0 }; }
