@@ -8,7 +8,7 @@ import { buildScopedQuestionStats, isQuestionDoneInScope, normalizeProgressScope
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
-import { allowPracticeAutoResumeForSession, isPracticeAutoResumeSuppressed, suppressPracticeAutoResumeForSession } from "./practice-session-intent";
+import { allowPracticeAutoResumeForRun, isPracticeAutoResumeSuppressed, suppressPracticeAutoResumeForRun } from "./practice-session-intent";
 import {
   TYPE_ORDER,
   activePracticeFromRun,
@@ -68,7 +68,7 @@ export function usePracticeSessionController({
   useEffect(() => {
     if (startupAutoResumeHandled.current || !latestPracticeRunLoaded) return;
     startupAutoResumeHandled.current = true;
-    if (!latestPracticeRun || !latestPracticeRun.questionIds.length || viewRef.current !== "home" || practiceSessionRef.current || isPracticeAutoResumeSuppressed()) return;
+    if (!latestPracticeRun || !latestPracticeRun.questionIds.length || viewRef.current !== "home" || practiceSessionRef.current || isPracticeAutoResumeSuppressed(latestPracticeRun.id)) return;
     const restored = activePracticeFromRun(latestPracticeRun);
     setPracticeSession(restored);
     selectBanksRef.current(restored.bankIds?.length ? restored.bankIds : [restored.bankId]);
@@ -333,7 +333,7 @@ export function usePracticeSessionController({
       revision: 1,
       ...(filter.reviewRoundId ? { reviewRoundId: filter.reviewRoundId } : {}),
     });
-    allowPracticeAutoResumeForSession();
+    allowPracticeAutoResumeForRun(run.id);
     setPracticeSession(activePracticeFromRun(run, 0));
     setView("practice");
   }
@@ -359,7 +359,7 @@ export function usePracticeSessionController({
       updatedAt: now,
       revision: 1,
     });
-    allowPracticeAutoResumeForSession();
+    allowPracticeAutoResumeForRun(run.id);
     setPracticeSession(activePracticeFromRun(run, Math.max(0, orderedQuestions.findIndex((question) => question.id === questionId))));
     setView("practice");
   }
@@ -381,7 +381,7 @@ export function usePracticeSessionController({
       };
       await savePracticeProgress(session);
     }
-    allowPracticeAutoResumeForSession();
+    allowPracticeAutoResumeForRun(run.id);
     setPracticeSession(session);
     selectBanks(session.bankIds?.length ? session.bankIds : [session.bankId]);
     setView("practice");
@@ -456,7 +456,7 @@ export function usePracticeSessionController({
   }
 
   function exitPractice() {
-    suppressPracticeAutoResumeForSession();
+    if (practiceSession) suppressPracticeAutoResumeForRun(practiceSession.runId);
     setPracticeSession(null);
     setView("home");
   }

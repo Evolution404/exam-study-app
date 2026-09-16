@@ -86,7 +86,8 @@ export async function runInFlightDeletionQA(page) {
 
   // S1.5：系统/浏览器自行重建页面时，仍应回到用户正在进行的练习，而不是
   // 因为 React 内存态丢失就静默落回首页。先停在第 2 题，再整页 reload 验证
-  // 当前题位置也能恢复；随后显式点“暂停并返回首页”，再次 reload 必须留在首页。
+  // 当前题位置也能恢复；随后显式点“暂停并返回首页”，不仅 reload 要留在首页，
+  // 关闭当前页面再创建新页面（模拟 App/WKWebView 冷启动）也必须留在首页。
   await helpers.answerCurrentQuestion(page, [1]); // 第 1 题故意答错，避免自动前进
   await helpers.clickTextButton(page, "下一题");
   await helpers.waitForQuestion(page, 2, 5);
@@ -104,4 +105,11 @@ export async function runInFlightDeletionQA(page) {
   await page.locator(".app-shell").waitFor({ state: "visible" });
   await helpers.expectText(page, "继续上次练习");
   harness.assert.equal(await page.locator(".question-card").count(), 0, "用户显式暂停后刷新不得自动重新进入练习");
+
+  const relaunchedPage = await page.context().newPage();
+  await relaunchedPage.goto(`${harness.baseUrl}/`, { waitUntil: "domcontentloaded" });
+  await relaunchedPage.locator(".app-shell").waitFor({ state: "visible" });
+  await helpers.expectText(relaunchedPage, "继续上次练习");
+  harness.assert.equal(await relaunchedPage.locator(".question-card").count(), 0, "用户显式暂停后冷启动不得自动重新进入练习");
+  await relaunchedPage.close();
 }

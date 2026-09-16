@@ -1,33 +1,36 @@
-const PRACTICE_AUTO_RESUME_SUPPRESSION_KEY = "study-v7-practice-auto-resume-suppressed";
+const PRACTICE_AUTO_RESUME_SUPPRESSION_KEY = "study-v7-practice-auto-resume-suppressed-run-id";
 
 /**
- * Explicitly leaving practice should keep the user on the page they chose for
- * the rest of this browser/WKWebView session. The flag is intentionally stored
- * in sessionStorage: practiceRuns remains the only durable practice state.
+ * Explicitly leaving a specific practice run is a device-local navigation
+ * preference, not practice progress. Persist only that run id so a cold browser
+ * or WKWebView restart does not immediately force the user back into a run they
+ * deliberately paused. `practiceRuns` remains the only durable source for
+ * questions, answers and progress.
  */
-export function isPracticeAutoResumeSuppressed(): boolean {
+export function isPracticeAutoResumeSuppressed(runId: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.sessionStorage.getItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY) === "1";
+    return window.localStorage.getItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY) === runId;
   } catch {
     return false;
   }
 }
 
-export function suppressPracticeAutoResumeForSession(): void {
+export function suppressPracticeAutoResumeForRun(runId: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY, "1");
+    window.localStorage.setItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY, runId);
   } catch {
-    // Losing this launch-scoped preference must never affect practice data.
+    // Losing this local UI preference must never affect practice data.
   }
 }
 
-export function allowPracticeAutoResumeForSession(): void {
+export function allowPracticeAutoResumeForRun(runId?: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY);
+    const suppressed = window.localStorage.getItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY);
+    if (!runId || suppressed === runId) window.localStorage.removeItem(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY);
   } catch {
-    // practiceRuns remains the source of truth even if sessionStorage is blocked.
+    // practiceRuns remains the source of truth even if localStorage is blocked.
   }
 }

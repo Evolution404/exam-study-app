@@ -13,9 +13,6 @@ export function PullToRefresh() {
   const currentDistance = useRef(0);
 
   useEffect(() => {
-    // Native assets are updated by installing an IPA. Reloading WKWebView
-    // cannot update them and discards the current in-memory screen.
-    if (native) return;
     const scroller = document.querySelector<HTMLElement>(".workspace");
     if (!scroller) return;
     let disposed = false;
@@ -60,9 +57,11 @@ export function PullToRefresh() {
       setRefreshing(true);
       setDistance(52);
       try {
-        // A service-worker update is best-effort. Never make a pull gesture
-        // wait forever when a browser has a stalled update request.
-        await updateServiceWorkerWithinTimeout();
+        // Browser/PWA refresh also gives the service worker a best-effort
+        // update opportunity. Native WKWebView has no service worker; reload
+        // only the current React document and let persisted app data restore
+        // the screen.
+        if (!native) await updateServiceWorkerWithinTimeout();
       } finally {
         // Navigation into practice unmounts this component. A pending update
         // must not finish later and reload the newly started exercise.
@@ -87,6 +86,5 @@ export function PullToRefresh() {
     };
   }, [native]);
 
-  if (native) return null;
   return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
