@@ -125,7 +125,7 @@ export function normalizeProjection(input: ChangeSetProjectionInput): ChangeSetP
   const attempts = list(input.attempts);
   const practiceRuns = list(input.practiceRuns);
   // Current writers persist answer.updatedAt together with the matching attempt.
-  // Some already-published v9 checkpoints were produced from a run snapshot whose
+  // Some already-published checkpoints were produced from a run snapshot whose
   // submitted answers predate that invariant. Repair only that missing field from
   // canonical data already present in the same projection, so a synchronized
   // checkpoint cannot poison IndexedDB during install/reconcile.
