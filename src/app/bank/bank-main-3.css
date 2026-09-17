@@ -60,7 +60,7 @@
 .question-manager-empty p{margin:5px 0 0;color:var(--color-text-muted);font-size:9px}
 
 .bank-custom-range{margin:-8px 0 14px auto;width:min(100%,360px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:end;gap:8px}
-.bank-custom-range label{min-width:0;display:grid;gap:5px;color:var(--color-text-muted);font-size:9px}
+.bank-custom-range label{display:grid;gap:5px;color:var(--color-text-muted);font-size:9px}
 .bank-custom-range input{min-width:0;width:100%;height:36px;border:1px solid var(--color-border);border-radius:9px;padding:6px 8px;color:var(--color-text);background:var(--color-surface-raised);outline:none}
 .bank-custom-range input:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px var(--color-primary-soft)}
 .bank-custom-range>span{padding-bottom:10px;color:var(--color-text-muted);font-size:9px}
