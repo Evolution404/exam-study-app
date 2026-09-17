@@ -79,12 +79,15 @@ export async function assertSearchPinGeometry(page, label, { requireScroll = fal
   });
   harness.assert.ok(geo.queryTop !== undefined && geo.barTop !== undefined, `${label}: 搜索结果页缺少搜索框或批量栏`);
   if (geo.scrollTop < 10) {
+    // 内容不足以产生滚动：sticky 无从验证。专用组必须滚动（requireScroll），
+    // 顺路检查组（桌面 search）允许跳过。
     harness.assert.ok(!requireScroll, `${label}: 搜索结果应长于视口以验证吸附（scrollTop=${geo.scrollTop}）`);
     console.log(`  · ${label}: 内容未超出视口，跳过吸附几何断言`);
     return;
   }
   harness.assert.ok(Math.abs(geo.queryTop) <= 1, `${label}: 搜索框应钉在视口顶部（实际 top=${geo.queryTop}）`);
   harness.assert.ok((geo.topbarBottom ?? 0) <= geo.queryTop + 1, `${label}: 全局顶栏应随滚动离场、不压在搜索框上（topbar.bottom=${geo.topbarBottom}）`);
+  // 批量栏必须紧贴搜索框下方；唯一例外是内容太短、滚动到底后批量栏天然位置仍在下方。
   if (geo.barTop > geo.queryBottom + 1) {
     harness.assert.ok(geo.atScrollBottom, `${label}: 批量栏与搜索框之间不得有空隙（bar.top=${geo.barTop} vs query.bottom=${geo.queryBottom}），且未滚到底`);
   }
@@ -101,6 +104,9 @@ export async function runSearchPinMobile(page) {
   await helpers.clickButton(page, "进入搜索主页");
   await helpers.expectText(page, "搜索题库");
 
+  // 窄屏原生日期控件必须受父容器约束。Safari/WebKit 的 date input
+  // 有 intrinsic/min-content 宽度，单靠 input 自身的 min-width:0 不足以
+  // 防止 1fr grid track 被撑破，因此直接做真实几何断言。
   await page.getByRole("button", { name: /^筛选/ }).click();
   const filterDrawer = page.getByRole("dialog", { name: "筛选条件" });
   await filterDrawer.waitFor({ state: "visible" });
@@ -111,6 +117,7 @@ export async function runSearchPinMobile(page) {
   await filterDrawer.getByRole("button", { name: "关闭筛选条件" }).click();
   await filterDrawer.waitFor({ state: "hidden" });
 
+  // 空关键词条件搜索：展示全部题目，保证列表足够长可滚动。
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await helpers.expectText(page, /条件搜索找到 \d+ 道题/);
   await assertSearchPinGeometry(page, "mobile", { requireScroll: true });
