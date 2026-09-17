@@ -280,7 +280,7 @@ export class GitHubRemote {
     return sha;
   }
 
-  /** List immutable files in a bounded v8 maintenance namespace. */
+  /** List immutable files in a bounded sync maintenance namespace. */
   async listImmutableDirectory(prefix: typeof SYNC_CHECKPOINT_PREFIX | typeof SYNC_SEGMENT_PREFIX | typeof SYNC_HISTORY_PREFIX): Promise<SyncRemoteEntry[]> {
     const kind: SyncDescriptorKind = prefix === SYNC_CHECKPOINT_PREFIX ? "checkpoint" : prefix === SYNC_SEGMENT_PREFIX ? "segment" : "history";
     const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
@@ -326,17 +326,17 @@ export class GitHubRemote {
     if (previous?.etag) headers.set("If-None-Match", previous.etag);
     const response = await this.request(withRef(contentPath(this.owner, this.repo, SYNC_HEAD_PATH), this.branch), { method: "GET", headers });
     if (response.status === 304) {
-      if (!previous) throw new GitHubRemoteError("read v8 head (304 without cache)", 304);
+      if (!previous) throw new GitHubRemoteError("read sync head (304 without cache)", 304);
       const cached = cacheFrom(previous.head, response.headers.get("etag") ?? previous.etag, previous.blobSha);
       this.assertVault(cached.head);
       return { status: "not-modified", kind: "cached", initialized: true, fromCache: true, head: cached.head, ...(cached.etag ? { etag: cached.etag } : {}), ...(cached.blobSha ? { blobSha: cached.blobSha } : {}), cache: cached };
     }
     if (response.status === 404) return { status: "missing", kind: "not-initialized", initialized: false, fromCache: false, head: null, cache: null };
-    this.requireOk(response, "read v8 head");
-    const payload = parseJson(await response.text(), "read v8 head");
-    const file = parseContentsPayload(payload, "read v8 head");
+    this.requireOk(response, "read sync head");
+    const payload = parseJson(await response.text(), "read sync head");
+    const file = parseContentsPayload(payload, "read sync head");
     let head: unknown;
-    try { head = parseJson(new TextDecoder().decode(file.bytes), "decode v8 head"); } catch { throw new GitHubRemoteError("decode v8 head", 200, "GitHub v8 head content is not valid JSON"); }
+    try { head = parseJson(new TextDecoder().decode(file.bytes), "decode sync head"); } catch { throw new GitHubRemoteError("decode sync head", 200, "GitHub sync head content is not valid JSON"); }
     validateSyncHead(head);
     this.assertVault(head);
     const etag = response.headers.get("etag") ?? undefined;
@@ -383,9 +383,9 @@ export class GitHubRemote {
       };
     }
     if (response.status === 409 || response.status === 422) return { ok: false, reason: "cas-conflict", status: response.status, classification: response.status === 409 ? "head-advanced" : "head-already-exists", conflict: response.status === 409 ? "changed" : "already-exists", ...(expectedSha ? { expectedSha } : {}) };
-    this.requireOk(response, "put v8 head");
-    const blobSha = extractBlobSha(parseJson(await response.text(), "put v8 head"));
-    if (!blobSha) throw new GitHubRemoteError("put v8 head", response.status, "GitHub did not return the new head blob SHA");
+    this.requireOk(response, "put sync head");
+    const blobSha = extractBlobSha(parseJson(await response.text(), "put sync head"));
+    if (!blobSha) throw new GitHubRemoteError("put sync head", response.status, "GitHub did not return the new head blob SHA");
     assertSha1(blobSha, "returned head blobSha");
     const etag = response.headers.get("etag") ?? undefined;
     return { ok: true, status: response.status, head, blobSha, ...(etag ? { etag } : {}), cache: cacheFrom(head, etag, blobSha) };
@@ -395,10 +395,10 @@ export class GitHubRemote {
 
   private normalizeInput(inputOrPath: SyncImmutableFileInput | string, bytes?: SyncBytes, options?: Omit<SyncImmutableFileInput, "path" | "bytes">): SyncImmutableFileInput {
     if (typeof inputOrPath === "string") {
-      if (bytes === undefined) throw new TypeError("immutable v8 file bytes are required");
+      if (bytes === undefined) throw new TypeError("immutable sync file bytes are required");
       return { path: inputOrPath, bytes, ...options };
     }
-    if (!inputOrPath || typeof inputOrPath.path !== "string") throw new TypeError("immutable v8 file path is required");
+    if (!inputOrPath || typeof inputOrPath.path !== "string") throw new TypeError("immutable sync file path is required");
     return inputOrPath;
   }
 
@@ -410,14 +410,14 @@ export class GitHubRemote {
     assertSyncPath(input.path, kind);
     const content = asBytes(input.bytes);
     const size = content.byteLength;
-    assertSize(size, "immutable v8 file size");
+    assertSize(size, "immutable sync file size");
     const maximum = kind === "segment" ? SYNC_MAX_SEGMENT_BYTES : kind === "object" || kind === "checkpoint" ? SYNC_MAX_DESCRIPTOR_BYTES : SYNC_MAX_DESCRIPTOR_BYTES;
-    if (size > maximum) throw new TypeError(`immutable v8 ${kind} exceeds its byte safety limit`);
-    if (input.size !== undefined) { assertSize(input.size, "immutable v8 file size"); if (input.size !== size) throw new SyncBlobIntegrityError("size", input.size, size); }
+    if (size > maximum) throw new TypeError(`immutable sync ${kind} exceeds its byte safety limit`);
+    if (input.size !== undefined) { assertSize(input.size, "immutable sync file size"); if (input.size !== size) throw new SyncBlobIntegrityError("size", input.size, size); }
     const sha256 = await digestHex(content);
     const pathHash = /\/([a-f0-9]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(input.path)?.[1];
     if (pathHash && pathHash !== sha256) throw new SyncBlobIntegrityError("sha256", pathHash, sha256);
-    if (input.sha256 !== undefined) { assertSha256(input.sha256, "immutable v8 sha256"); if (input.sha256 !== sha256) throw new SyncBlobIntegrityError("sha256", input.sha256, sha256); }
+    if (input.sha256 !== undefined) { assertSha256(input.sha256, "immutable sync sha256"); if (input.sha256 !== sha256) throw new SyncBlobIntegrityError("sha256", input.sha256, sha256); }
     // Storage envelope: JSON objects upload DEFLATE-compressed (4–5× less wire
     // traffic and remote storage); the descriptor above stays addressed to the
     // LOGICAL bytes, so identity is independent of the envelope format.
@@ -524,7 +524,7 @@ async readBlob(blobShaOrDescriptor: string | SyncDescriptor, expectedOrOptions?:
 
   /** Publish in immutable-first order; append plans never contain checkpoints. */
   async publish(plan: SyncPublicationPlan): Promise<SyncHeadPutResult> {
-    if (plan.mode === "append" && plan.checkpoint) throw new Error("ordinary v8 append cannot upload a checkpoint");
+    if (plan.mode === "append" && plan.checkpoint) throw new Error("ordinary sync append cannot upload a checkpoint");
     if (plan.checkpoint && !plan.checkpoint.uploaded) await this.putPublicationFile(plan.checkpoint, "checkpoint");
     for (const object of plan.objects) if (!object.uploaded) await this.putPublicationFile(object, "object");
     for (const segment of plan.segments) if (!segment.uploaded) await this.putPublicationFile(segment, "segment");
@@ -546,7 +546,7 @@ function inferKind(path: string): SyncDescriptorKind {
   if (path.startsWith(SYNC_OBJECT_PREFIX)) return "object";
   if (path.startsWith(SYNC_HISTORY_PREFIX)) return "history";
   if (path.startsWith(SYNC_SEGMENT_PREFIX)) return "segment";
-  throw new TypeError("immutable v8 path must be in a known v8 namespace");
+  throw new TypeError("immutable sync path must be in a known sync namespace");
 }
 
 export function createGitHubRemote(options: GitHubRemoteOptions): GitHubRemote { return new GitHubRemote(options); }
