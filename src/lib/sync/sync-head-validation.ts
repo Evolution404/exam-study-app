@@ -13,7 +13,7 @@ const DEVICE_ID = /^[\x21-\x7e]{1,128}$/;
 const VAULT_ID = /^[\x21-\x7e]{1,256}$/;
 
 function fail(message: string): never {
-  throw new Error(`invalid v9 sync head: ${message}`);
+  throw new Error(`invalid sync head: ${message}`);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -72,7 +72,7 @@ export function digestFromPath(path: string): string | undefined {
   return /\/([0-9a-f]{64})\.(?:json|webp|jpg|jpeg|png|bin)$/.exec(path)?.[1];
 }
 
-/** Strictly validate that a path is in the exact v9 immutable namespace. */
+/** Strictly validate that a path is in the exact current immutable namespace. */
 export function assertSyncPath(value: unknown, kind: SyncDescriptorKind | "head"): asserts value is string {
   if (!isSafeRelativePath(value)) fail(`${kind} path is not a safe relative path`);
   if (kind === "head") {
@@ -139,7 +139,6 @@ export function compareSyncSegmentOrder(left: Pick<SyncSegmentDescriptor, "gener
   return left.generation - right.generation || left.ordinal - right.ordinal;
 }
 
-
 export function validateSegment(value: unknown, index: number, vaultId: string): asserts value is SyncSegmentDescriptor {
   if (!isRecord(value)) fail(`segments[${index}] must be an object`);
   validateDescriptor(value, "segment");
@@ -150,9 +149,9 @@ export function validateSegment(value: unknown, index: number, vaultId: string):
   validateMetadata(value.metadata, `segments[${index}].metadata`, vaultId);
 }
 
-/** Strict validation for a v9 mutable head. */
+/** Strict validation for the current mutable head. */
 export function validateSyncHead(value: unknown): asserts value is SyncHead {
-  if (!isRecord(value) || value.formatVersion !== SYNC_FORMAT_VERSION) fail("formatVersion must be 9");
+  if (!isRecord(value) || value.formatVersion !== SYNC_FORMAT_VERSION) fail(`formatVersion must be ${SYNC_FORMAT_VERSION}`);
   assertVaultId(value.vaultId, "vaultId");
   assertDate(value.generatedAt, "generatedAt");
   assertSafeInteger(value.generation, "generation", 0);
@@ -192,7 +191,6 @@ export function validateSyncHead(value: unknown): asserts value is SyncHead {
 export function isSyncHead(value: unknown): value is SyncHead {
   try { validateSyncHead(value); return true; } catch { return false; }
 }
-
 
 export function validateSyncDescriptor(value: unknown, kind: SyncDescriptorKind): asserts value is SyncDescriptor | SyncSegmentDescriptor {
   if (kind === "segment") validateSegment(value, 0, isRecord(value) && isRecord(value.metadata) && typeof value.metadata.vaultId === "string" ? value.metadata.vaultId : "");
