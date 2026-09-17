@@ -113,7 +113,7 @@ class MemoryTarget implements AssetShadowTarget {
   async readAssetIndex() { return this.index?.slice() ?? null; }
 }
 
-const expected = assets.map(({ blob: _blob, ...row }) => row as ImageAssetDescriptor);
+const expected: ImageAssetDescriptor[] = assets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height }));
 const source = new MemorySource();
 const plan = await buildLegacyAssetShadowPlan(source, expected);
 assert.equal(plan.packs.size, 1);
