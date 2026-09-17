@@ -91,21 +91,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertSafeInt(value: unknown, field: string): asserts value is number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`invalid remote checkpoint: ${field} must be a non-negative safe integer`);
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`checkpoint: ${field} must be a non-negative safe integer`);
 }
 
 function assertDate(value: unknown, field: string): asserts value is string {
-  if (typeof value !== "string" || !ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`invalid remote checkpoint: ${field} must be an ISO timestamp`);
+  if (typeof value !== "string" || !ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`checkpoint: ${field} must be an ISO timestamp`);
 }
 
 function assertDescriptor(value: unknown, field: string): asserts value is SyncDescriptor {
-  if (!isRecord(value)) throw new Error(`invalid remote checkpoint: ${field} must be a descriptor`);
-  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`invalid remote checkpoint: ${field}.path must be a current history path`);
-  if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`invalid remote checkpoint: ${field}.blobSha is invalid`);
-  if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`invalid remote checkpoint: ${field}.sha256 is invalid`);
+  if (!isRecord(value)) throw new Error(`checkpoint: ${field} must be a descriptor`);
+  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`checkpoint: ${field}.path must be a current history path`);
+  if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`checkpoint: ${field}.blobSha is invalid`);
+  if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);
   assertSafeInt(value.storedSize, `${field}.storedSize`);
-  if (!value.path.includes(value.sha256)) throw new Error(`invalid remote checkpoint: ${field}.path digest mismatch`);
+  if (!value.path.includes(value.sha256)) throw new Error(`checkpoint: ${field}.path digest mismatch`);
 }
 
 function chunked<T>(items: readonly T[], chunkCount: number): T[][] {
@@ -174,10 +174,10 @@ async function archivePracticeRunChunks(
 }
 
 function validateBoundedCounts(value: unknown, state: SyncCheckpointState, history: RemoteHistoryCheckpoint["history"]): asserts value is SyncCheckpointCounts {
-  if (!isRecord(value)) throw new Error("invalid remote checkpoint: counts must be an object");
+  if (!isRecord(value)) throw new Error("checkpoint: counts must be an object");
   const keys = Object.keys(value);
   if (keys.length !== COUNT_KEYS.length || keys.some((key) => !COUNT_KEYS.includes(key as keyof SyncCheckpointCounts))) {
-    throw new Error("invalid remote checkpoint: counts must contain only canonical fact counters");
+    throw new Error("checkpoint: counts must contain only canonical fact counters");
   }
   const expected = countsForHistoryState(state, {
     attempts: state.attempts.length + history.archivedAttempts,
@@ -185,16 +185,16 @@ function validateBoundedCounts(value: unknown, state: SyncCheckpointState, histo
   });
   for (const key of COUNT_KEYS) {
     assertSafeInt(value[key], `counts.${key}`);
-    if (value[key] !== expected[key]) throw new Error(`invalid remote checkpoint: counts.${key} does not match bounded state/history`);
+    if (value[key] !== expected[key]) throw new Error(`checkpoint: counts.${key} does not match bounded state/history`);
   }
 }
 
 export function validateRemoteHistoryCheckpoint(value: unknown): asserts value is RemoteHistoryCheckpoint {
-  if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error(`invalid remote checkpoint: formatVersion must be ${REMOTE_HISTORY_FORMAT}`);
+  if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error(`checkpoint: formatVersion must be ${REMOTE_HISTORY_FORMAT}`);
   assertDate(value.generatedAt, "generatedAt");
-  if (!isRecord(value.state)) throw new Error("invalid remote checkpoint: state must be an object");
-  if (!isRecord(value.cursors)) throw new Error("invalid remote checkpoint: cursors are required");
-  if (!isRecord(value.retention) || !isRecord(value.history)) throw new Error("invalid remote checkpoint: retention/history are required");
+  if (!isRecord(value.state)) throw new Error("checkpoint: state must be an object");
+  if (!isRecord(value.cursors)) throw new Error("checkpoint: cursors are required");
+  if (!isRecord(value.retention) || !isRecord(value.history)) throw new Error("checkpoint: retention/history are required");
   assertSafeInt(value.retention.recentAttemptLimit, "retention.recentAttemptLimit");
   assertSafeInt(value.retention.recentPracticeRunLimit, "retention.recentPracticeRunLimit");
   if (value.retention.oldestRecentAttemptAt !== null) assertDate(value.retention.oldestRecentAttemptAt, "retention.oldestRecentAttemptAt");
@@ -213,7 +213,7 @@ export function validateRemoteHistoryCheckpoint(value: unknown): asserts value i
   const history = value.history as unknown as RemoteHistoryCheckpoint["history"];
   validateBoundedCounts(value.counts, state, history);
   if ((history.archivedAttempts > 0 || history.archivedPracticeRuns > 0) && history.index === null) {
-    throw new Error("invalid remote checkpoint: archived history requires an index descriptor");
+    throw new Error("checkpoint: archived history requires an index descriptor");
   }
 }
 
@@ -425,7 +425,7 @@ export async function decodeRemoteCheckpoint(client: GitHubRemote, bytes: Uint8A
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
-  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("远程检查点格式不受当前客户端支持。");
+  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("远程检查点格式不受支持。");
   return hydrateRemoteHistoryCheckpointWithStats(client, parseRemoteHistoryCheckpoint(bytes), options);
 }
 
