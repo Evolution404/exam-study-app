@@ -1,82 +1,177 @@
 import { studyDb, reconcileProjection, type ChangeSetQueueGuard } from "../db/db";
+import { assemblePracticeRunRecords, decomposePracticeRun } from "../db/practice-run-store";
+import type { QuestionGroupItem, QuestionGroupRecord, ReviewRoundBank, ReviewRoundItem, ReviewRoundRecord } from "../db/types";
 import type { ChangeSet } from "./change-set-types";
-import { replayChangeSetBatch, type ChangeSetProjection } from "./change-set-projection";
-import { normalizeProjection } from "./change-set-projection-core";
+import { recomputeChangeSetProjection, replayChangeSetBatch, type ChangeSetProjection } from "./change-set-projection";
 import type { DirtyInstallKeys } from "./sync-dirty-install";
-import type { SyncCheckpoint } from "./sync-checkpoint-types";
+import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
 import type { SyncDeviceWatermark } from "./sync-head-types";
 import { reclaimableTombstones } from "./sync-watermark";
+
+function countsFor(state: SyncCheckpointState): SyncCheckpointCounts {
+  return {
+    banks: state.banks.length,
+    bankFolders: state.bankFolders.length,
+    questions: state.questions.length,
+    memberships: state.memberships.length,
+    imageAssets: state.imageAssets.length,
+    attempts: state.attempts.length,
+    notes: state.notes.length,
+    practiceRuns: state.practiceRuns.length,
+    practiceRunSources: state.practiceRunSources.length,
+    practiceRunItems: state.practiceRunItems.length,
+    questionGroups: state.questionGroups.length,
+    questionGroupItems: state.questionGroupItems.length,
+    reviewRounds: state.reviewRounds.length,
+    reviewRoundBanks: state.reviewRoundBanks.length,
+    reviewRoundItems: state.reviewRoundItems.length,
+    tombstones: state.tombstones.length,
+    totalAttempts: state.attempts.length,
+    totalPracticeRuns: state.practiceRuns.length,
+  };
+}
+
+function canonicalQuestionGroups(projection: ChangeSetProjection): {
+  records: QuestionGroupRecord[];
+  items: QuestionGroupItem[];
+} {
+  const records: QuestionGroupRecord[] = [];
+  const items: QuestionGroupItem[] = [];
+  for (const group of projection.questionGroups) {
+    const { items: groupItems, ...record } = group;
+    records.push(record);
+    groupItems.forEach((item, position) => {
+      items.push({
+        groupId: group.id,
+        questionId: item.questionId,
+        position,
+        ...(item.note ? { note: item.note } : {}),
+      });
+    });
+  }
+  return { records, items };
+}
+
+function canonicalReviewRounds(projection: ChangeSetProjection): {
+  records: ReviewRoundRecord[];
+  banks: ReviewRoundBank[];
+  items: ReviewRoundItem[];
+} {
+  const records: ReviewRoundRecord[] = [];
+  const banks: ReviewRoundBank[] = [];
+  const items: ReviewRoundItem[] = [];
+  for (const round of projection.reviewRounds) {
+    const { bankIds, finalQuestionIds, ...record } = round;
+    records.push(record);
+    bankIds.forEach((bankId, position) => banks.push({ roundId: round.id, bankId, position }));
+    (finalQuestionIds ?? []).forEach((questionId, position) => items.push({ roundId: round.id, questionId, position }));
+  }
+  return { records, banks, items };
+}
 
 export async function saveQueueBase(projection: ChangeSetProjection): Promise<void> {
   await studyDb.syncMeta.put({ key: "sync:queue-base", value: projection, updatedAt: new Date().toISOString() });
 }
 
+/**
+ * Hydrate the reducer's in-memory aggregate model from canonical checkpoint facts.
+ * The aggregate shape is internal only; no derived/projection arrays are accepted
+ * from the wire and all projections are recomputed locally.
+ */
 export function projectionFromCheckpoint(checkpoint: SyncCheckpoint): Promise<ChangeSetProjection> {
-  return Promise.resolve(normalizeProjection({
-    ...checkpoint.state,
-    memberships: checkpoint.state.memberships,
-    imageAssets: checkpoint.state.imageAssets,
+  const state = checkpoint.state;
+  const practiceRuns = assemblePracticeRunRecords(
+    state.practiceRuns,
+    state.practiceRunSources,
+    state.practiceRunItems,
+    state.attempts,
+  );
+  const questionGroups = state.questionGroups.map((group) => ({
+    ...group,
+    items: state.questionGroupItems
+      .filter((item) => item.groupId === group.id)
+      .sort((left, right) => left.position - right.position || left.questionId.localeCompare(right.questionId))
+      .map((item) => ({ questionId: item.questionId, note: item.note ?? "" })),
+  }));
+  const reviewRounds = state.reviewRounds.map((round) => {
+    const finalQuestionIds = state.reviewRoundItems
+      .filter((item) => item.roundId === round.id)
+      .sort((left, right) => left.position - right.position || left.questionId.localeCompare(right.questionId))
+      .map((item) => item.questionId);
+    return {
+      ...round,
+      bankIds: state.reviewRoundBanks
+        .filter((bank) => bank.roundId === round.id)
+        .sort((left, right) => left.position - right.position || left.bankId.localeCompare(right.bankId))
+        .map((bank) => bank.bankId),
+      ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
+    };
+  });
+  return Promise.resolve(recomputeChangeSetProjection({
+    banks: structuredClone(state.banks),
+    bankFolders: structuredClone(state.bankFolders),
+    questions: structuredClone(state.questions),
+    memberships: structuredClone(state.memberships),
+    imageAssets: structuredClone(state.imageAssets),
+    attempts: structuredClone(state.attempts),
+    attemptStats: [],
+    attemptDailyStats: [],
+    notes: structuredClone(state.notes),
+    practiceRuns,
+    practiceRunStats: [],
+    questionGroups,
+    reviewRounds,
+    reviewRoundProgress: [],
+    tombstones: structuredClone(state.tombstones),
   }));
 }
 
+/**
+ * Convert the reducer's internal aggregate model back to canonical facts only.
+ * Device-local projections are deliberately omitted from the checkpoint state.
+ */
 export function checkpointFromProjection(
   projection: ChangeSetProjection,
   cursors: Record<string, number>,
   options?: { tombstoneGc?: { devices: Record<string, SyncDeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
 ): Promise<SyncCheckpoint> {
   let tombstones = projection.tombstones;
-  if (options?.tombstoneGc) {
-    const gc = reclaimableTombstones(tombstones, options.tombstoneGc);
-    tombstones = gc.keep;
-  }
-  const checkpoint: SyncCheckpoint = {
-    formatVersion: 7,
+  if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
+
+  const runBundles = projection.practiceRuns.map((run) => decomposePracticeRun(run, projection.attempts));
+  const groups = canonicalQuestionGroups(projection);
+  const rounds = canonicalReviewRounds(projection);
+  const state: SyncCheckpointState = {
+    banks: structuredClone(projection.banks),
+    bankFolders: structuredClone(projection.bankFolders),
+    questions: structuredClone(projection.questions),
+    memberships: structuredClone(projection.memberships),
+    imageAssets: projection.imageAssets.map((asset) => ({
+      id: asset.id,
+      mimeType: asset.mimeType,
+      size: asset.size,
+      width: asset.width,
+      height: asset.height,
+    })),
+    attempts: structuredClone(projection.attempts),
+    notes: structuredClone(projection.notes),
+    practiceRuns: runBundles.map((bundle) => bundle.record),
+    practiceRunSources: runBundles.flatMap((bundle) => bundle.sources),
+    practiceRunItems: runBundles.flatMap((bundle) => bundle.items),
+    questionGroups: groups.records,
+    questionGroupItems: groups.items,
+    reviewRounds: rounds.records,
+    reviewRoundBanks: rounds.banks,
+    reviewRoundItems: rounds.items,
+    tombstones: structuredClone(tombstones),
+  };
+  return Promise.resolve({
+    formatVersion: SYNC_CHECKPOINT_FORMAT,
     generatedAt: new Date().toISOString(),
     cursors: { ...cursors },
-    state: {
-      banks: projection.banks,
-      bankFolders: projection.bankFolders,
-      questions: projection.questions,
-      memberships: projection.memberships,
-      imageAssets: projection.imageAssets.map((asset) => ({
-        id: asset.id,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-      })),
-      attempts: projection.attempts,
-      attemptStats: projection.attemptStats,
-      attemptDailyStats: projection.attemptDailyStats,
-      notes: projection.notes,
-      practiceRuns: projection.practiceRuns,
-      practiceRunStats: projection.practiceRunStats,
-      questionGroups: projection.questionGroups,
-      reviewRounds: projection.reviewRounds,
-      reviewRoundProgress: projection.reviewRoundProgress,
-      tombstones,
-    },
-    counts: {
-      banks: projection.banks.length,
-      bankFolders: projection.bankFolders.length,
-      questions: projection.questions.length,
-      memberships: projection.memberships.length,
-      imageAssets: projection.imageAssets.length,
-      attempts: projection.attempts.length,
-      attemptStats: projection.attemptStats.length,
-      attemptDailyStats: projection.attemptDailyStats.length,
-      notes: projection.notes.length,
-      practiceRuns: projection.practiceRuns.length,
-      practiceRunStats: projection.practiceRunStats.length,
-      questionGroups: projection.questionGroups.length,
-      reviewRounds: projection.reviewRounds.length,
-      reviewRoundProgress: projection.reviewRoundProgress.length,
-      tombstones: tombstones.length,
-      totalAttempts: projection.attempts.length,
-      totalPracticeRuns: projection.practiceRuns.length,
-    },
-  };
-  return Promise.resolve(checkpoint);
+    state,
+    counts: countsFor(state),
+  });
 }
 
 export function replayInWireOrder(projection: ChangeSetProjection, changes: readonly ChangeSet[], onStep?: (done: number, total: number) => void): ChangeSetProjection {
