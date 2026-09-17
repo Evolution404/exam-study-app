@@ -4,8 +4,8 @@ import { getPlatformEnvironment } from "./environment";
 
 const PERSISTENT_CONFIG_KEYS = [
   "github-settings",
-  "study-v7-preferences",
-  "shijuan-study-v7-device-id",
+  "study-preferences",
+  "shijuan-study-device-id",
 ] as const;
 
 export type PersistentConfigKey = (typeof PERSISTENT_CONFIG_KEYS)[number];

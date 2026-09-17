@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV7, createQuestionV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { restoreFullHistoryFromGitHub, SYNC_V7_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../src/lib/sync/github-sync-v7";
+import { createBank, createQuestion, resetDatabase } from "../../src/lib/db/db";
+import { restoreFullHistoryFromGitHub, SYNC_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../src/lib/sync/github-sync-engine";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
-// 同步进度报告按当前 v7 协议重新设计后，进度必须是「工作量加权 + 单调不减 +
+// 同步进度报告按当前协议重新设计后，进度必须是「工作量加权 + 单调不减 +
 // 阶段终点 to」的。本测试在 mock 后端上跑真实的推送 / 多分段拉取 / 纯拉取 /
 // 远端恢复四种运行，逐条断言报告序列的形状。
 
@@ -12,9 +12,9 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-device-id") currentDeviceId = value;
     },
   },
 });
@@ -24,7 +24,7 @@ const settings = { owner: "qa", repo: "progress-vault", branch: "main", apiBaseU
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV7Database();
+  await resetDatabase();
 }
 
 function collector() {
@@ -32,7 +32,7 @@ function collector() {
   return { reports, callback: (progress: SyncProgress) => reports.push({ ...progress }) };
 }
 
-function choice(stem: string): Parameters<typeof createQuestionV7>[1] {
+function choice(stem: string): Parameters<typeof createQuestion>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -68,9 +68,9 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   await syncWithGitHub(settings, "qa-token", init.callback);
   assertWellFormed(init.reports, "初始化", 3);
 
-  const bank = await createBankV7("进度题库");
-  await createQuestionV7(bank.id, choice("进度测试第 1 题"));
-  await createQuestionV7(bank.id, choice("进度测试第 2 题"));
+  const bank = await createBank("进度题库");
+  await createQuestion(bank.id, choice("进度测试第 1 题"));
+  await createQuestion(bank.id, choice("进度测试第 2 题"));
   const push = collector();
   await syncWithGitHub(settings, "qa-token", push.callback);
   assertWellFormed(push.reports, "推送", 6);
@@ -84,16 +84,16 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
 // Scenario 2: 多分段拉取 — 新设备一次拉下多个热窗口分段
 // ---------------------------------------------------------------------------
 {
-  const bankId = (await createBankV7("多段题库")).id;
+  const bankId = (await createBank("多段题库")).id;
   const smallSyncs = 5;
   for (let index = 0; index < smallSyncs; index += 1) {
-    await createQuestionV7(bankId, choice(`多段拉取第 ${index + 1} 题`));
+    await createQuestion(bankId, choice(`多段拉取第 ${index + 1} 题`));
     await syncWithGitHub(settings, "qa-token");
   }
   await freshClient("device-b");
   const pull = collector();
   // 注入延迟让并发可观测：分段下载必须多路并发（防退化为 for...await 串行），
-  // 且并发受 SYNC_V7_DOWNLOAD_CONCURRENCY 封顶。
+  // 且并发受 SYNC_DOWNLOAD_CONCURRENCY 封顶。
   server.setBlobLatency(20);
   server.stats.blobReads = 0;
   server.stats.maxConcurrentBlobReads = 0;
@@ -103,7 +103,7 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
     server.setBlobLatency(0);
   }
   assert.ok(server.stats.maxConcurrentBlobReads >= 2, `多段拉取应并发下载（实测峰值 ${server.stats.maxConcurrentBlobReads}）`);
-  assert.ok(server.stats.maxConcurrentBlobReads <= SYNC_V7_DOWNLOAD_CONCURRENCY, `并发峰值不得超过 ${SYNC_V7_DOWNLOAD_CONCURRENCY}`);
+  assert.ok(server.stats.maxConcurrentBlobReads <= SYNC_DOWNLOAD_CONCURRENCY, `并发峰值不得超过 ${SYNC_DOWNLOAD_CONCURRENCY}`);
   assertWellFormed(pull.reports, "多分段拉取", 10);
   const segmentReports = pull.reports.filter((report) => report.phase === "download" && /热窗口分段/.test(report.label));
   assert.ok(segmentReports.length >= smallSyncs, `多分段拉取应逐分段报告下载（期望 ≥ ${smallSyncs}，实际 ${segmentReports.length}）`);
@@ -153,10 +153,10 @@ function assertWellFormed(reports: SyncProgress[], name: string, minimumReports:
   server.reset();
   await freshClient("device-object-upload");
   await syncWithGitHub(settings, "qa-token");
-  const bank = await createBankV7("大对象上传题库");
+  const bank = await createBank("大对象上传题库");
   const hugeStem = `大对象回归：${"输电线路运行维护".repeat(30_000)}`;
   for (let index = 0; index < 3; index += 1) {
-    await createQuestionV7(bank.id, choice(`${hugeStem}-${index}`));
+    await createQuestion(bank.id, choice(`${hugeStem}-${index}`));
   }
   server.stats.objectWrites = 0;
   server.stats.maxConcurrentObjectWrites = 0;

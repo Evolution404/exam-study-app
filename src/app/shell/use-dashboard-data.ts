@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { dbV7 } from "@/lib/db/db-v7";
-import { isBankEnabled } from "@/lib/db/v7-types";
+import { studyDb } from "@/lib/db/db";
+import { isBankEnabled } from "@/lib/db/types";
 import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { syncApplication } from "@/lib/sync/sync-application";
-import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
+import { latestInProgressPracticeRun } from "@/lib/db/practice-run-read";
+import { listReviewRounds } from "@/lib/db/review-round-store";
 import { loadSelectedBankIds, type PracticePreferences, type View } from "./helpers";
-import { readDashboardScopedRowsV7, summarizeDashboardLifetimeStatsV7 } from "./dashboard-read-data";
+import { readDashboardScopedRows, summarizeDashboardLifetimeStats } from "./dashboard-read-data";
 import { summarizeDashboardRows } from "./shell-controller-model";
 
 export function useDashboardData(view: View, preferences: PracticePreferences) {
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const bankRows = useLiveQuery(
-    async () => (await dbV7.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)),
+    async () => (await studyDb.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)),
     [],
   );
   const banks = bankRows ?? [];
@@ -36,14 +37,14 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return () => { cancelled = true; };
   }, [bankRows]);
 
-  const latestPracticeRunQuery = useLiveQuery(() => latestInProgressPracticeRunV7().then((run) => run ?? null), []);
+  const latestPracticeRunQuery = useLiveQuery(() => latestInProgressPracticeRun().then((run) => run ?? null), []);
   const latestPracticeRun = latestPracticeRunQuery ?? undefined;
   const latestPracticeRunLoaded = latestPracticeRunQuery !== undefined;
 
   const statsBaseQuery = useLiveQuery(async () => {
     if (view !== "home") return null;
     const today = calendarDate(new Date());
-    const todayRows = await dbV7.attemptDailyStats.where("date").equals(today).toArray();
+    const todayRows = await studyDb.questionDailyProgress.where("date").equals(today).toArray();
     const { todayAttempts, todayCorrect } = summarizeDashboardRows([], todayRows);
     return { todayAttempts, todayCorrect };
   }, [view]);
@@ -53,7 +54,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return { ...base, pending: pendingCountQuery ?? 0 };
   }, [statsBaseQuery, pendingCountQuery]);
 
-  const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
+  const reviewRounds = useLiveQuery(() => listReviewRounds(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
     ? reviewRounds.find((round) => round.id === normalizedProgressScope.roundId)?.name || "当前复习轮次"
@@ -63,11 +64,11 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const scopeProgress = useLiveQuery(async () => {
     if (view !== "home") return { completed: 0, total: 0 };
     if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const memberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
+    const memberships = await studyDb.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
     const ids = [...new Set(memberships.map((membership) => membership.questionId))];
     const [attemptStatsRows, roundProgress] = await Promise.all([
-      dbV7.attemptStats.bulkGet(ids),
-      ids.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
+      studyDb.questionProgress.bulkGet(ids),
+      ids.length ? studyDb.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
     ]);
     const attemptStats = attemptStatsRows.filter((row) => row !== undefined);
     const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), attemptStats, roundProgress, Date.now());
@@ -77,11 +78,11 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const scopeStats = useLiveQuery(async () => {
     if (view !== "home") return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: 0 };
     const questionIds = activeBankIds.length
-      ? [...new Set((await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
-      : await dbV7.questions.toCollection().primaryKeys();
+      ? [...new Set((await studyDb.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
+      : await studyDb.questions.toCollection().primaryKeys();
     if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
     const referenceTime = Date.now();
-    const { attempts, attemptStats, roundProgress, notes } = await readDashboardScopedRowsV7(
+    const { attempts, attemptStats, roundProgress, notes } = await readDashboardScopedRows(
       questionIds,
       normalizedProgressScope,
       referenceTime,
@@ -89,7 +90,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     );
     const questionIdSet = new Set(questionIds);
     const summary = normalizedProgressScope.type === "lifetime"
-      ? summarizeDashboardLifetimeStatsV7(attemptStats)
+      ? summarizeDashboardLifetimeStats(attemptStats)
       : summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
     return {
       questions: questionIds.length,

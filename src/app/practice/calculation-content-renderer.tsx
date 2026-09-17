@@ -1,10 +1,10 @@
 import { Fragment } from "react";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { MathText } from "@/app/ui/math-text";
-import type { ContentBlock, TextContentBlock } from "@/lib/db/v7-types";
+import type { ContentBlock, TextContentBlock } from "@/lib/db/types";
 import { CALCULATION_BLANK_PATTERN, isCalculationAnswerCorrect } from "@/lib/question/question-utils";
 import { fillAnswersAreCorrect } from "@/lib/question/question-utils";
-import type { QuestionSolution } from "@/lib/db/v7-types";
+import type { QuestionSolution } from "@/lib/db/types";
 import type { LoadAsset } from "@/app/ui/asset-image";
 
 interface CalculationContentRendererProps {

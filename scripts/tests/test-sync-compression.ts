@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
-import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
+import { createBank, createQuestion, studyDb, resetDatabase } from "../../src/lib/db/db";
+import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { createGitHubRemote } from "../../src/lib/sync/github-remote";
 import {
-  decodeSyncV7Json,
-  encodeSyncV7Json,
+  decodeSyncJson,
+  encodeSyncJson,
   isZlibEnvelope,
-  syncV7CompressionEnabled,
-} from "../../src/lib/sync/sync-v7-codec";
+  syncCompressionEnabled,
+} from "../../src/lib/sync/sync-codec";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 传输层压缩（deflate 信封）当前能力套件：
@@ -22,19 +22,19 @@ let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-device-id") currentDeviceId = value;
     },
   },
 });
 
 async function freshClient(deviceId: string): Promise<void> {
   currentDeviceId = deviceId;
-  await resetV7Database();
+  await resetDatabase();
 }
 
-function question(stem: string): Parameters<typeof createQuestionV7>[1] {
+function question(stem: string): Parameters<typeof createQuestion>[1] {
   return {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: stem }],
@@ -47,15 +47,15 @@ function question(stem: string): Parameters<typeof createQuestionV7>[1] {
 
 // --- 1. codec 单元 ---------------------------------------------------------
 {
-  assert.equal(typeof syncV7CompressionEnabled(), "boolean");
+  assert.equal(typeof syncCompressionEnabled(), "boolean");
   const json = JSON.stringify({ 题: "弧垂与安全距离反向变化", data: "重复文本".repeat(5000), n: 42 });
-  const encoded = await encodeSyncV7Json(json);
-  if (syncV7CompressionEnabled()) {
+  const encoded = await encodeSyncJson(json);
+  if (syncCompressionEnabled()) {
     assert.equal(isZlibEnvelope(encoded), true, "可用环境下编码产物应是 zlib 信封");
     assert.ok(encoded.byteLength < json.length / 2, `压缩比应显著（${encoded.byteLength} vs ${json.length}）`);
   }
-  assert.equal(await decodeSyncV7Json(encoded), json, "压缩→解压文本逐字节一致");
-  assert.equal(await decodeSyncV7Json(new TextEncoder().encode(json)), json, "纯 JSON 能力路径可直接解码");
+  assert.equal(await decodeSyncJson(encoded), json, "压缩→解压文本逐字节一致");
+  assert.equal(await decodeSyncJson(new TextEncoder().encode(json)), json, "纯 JSON 能力路径可直接解码");
   // 嗅探不得误判：图片头 / JSON 头 / 过短字节 / FDICT 位。
   assert.equal(isZlibEnvelope(new Uint8Array([0x89, 0x50, 0x4e, 0x47])), false, "PNG 不得误判");
   assert.equal(isZlibEnvelope(new Uint8Array([0xff, 0xd8, 0xff])), false, "JPEG 不得误判");
@@ -72,12 +72,12 @@ function question(stem: string): Parameters<typeof createQuestionV7>[1] {
   delete (globalThis as { CompressionStream?: unknown }).CompressionStream;
   delete (globalThis as { DecompressionStream?: unknown }).DecompressionStream;
   try {
-    assert.equal(syncV7CompressionEnabled(), false, "无压缩流时报告不可用");
+    assert.equal(syncCompressionEnabled(), false, "无压缩流时报告不可用");
     const json = JSON.stringify({ 环境: "纯 JSON", data: "x".repeat(9999) });
-    const encoded = await encodeSyncV7Json(json);
+    const encoded = await encodeSyncJson(json);
     assert.equal(isZlibEnvelope(encoded), false, "纯 JSON 产物不是 zlib 信封");
     assert.deepEqual(Array.from(encoded), Array.from(new TextEncoder().encode(json)), "纯 JSON 产物 = 原始 UTF-8 字节");
-    assert.equal(await decodeSyncV7Json(encoded), json, "纯 JSON 产物可解码");
+    assert.equal(await decodeSyncJson(encoded), json, "纯 JSON 产物可解码");
   } finally {
     Object.defineProperty(globalThis, "CompressionStream", compressionDescriptor!);
     Object.defineProperty(globalThis, "DecompressionStream", decompressionDescriptor!);
@@ -107,10 +107,10 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
   await freshClient("device-a");
   await sync();
-  const bank = await createBankV7("压缩题库");
+  const bank = await createBank("压缩题库");
   // 体积可观的题干让压缩收益可观测（真实数据里中文 JSON 压缩比 ~5-10×）。
   for (let index = 0; index < 6; index += 1) {
-    await createQuestionV7(bank.id, question(`压缩信封第 ${index} 题：` + "弧垂增大时安全距离随之调整。".repeat(120)));
+    await createQuestion(bank.id, question(`压缩信封第 ${index} 题：` + "弧垂增大时安全距离随之调整。".repeat(120)));
   }
   putBodies.length = 0;
   await syncWithGitHub(settings, "qa-token", undefined, { fetch: spyFetch });
@@ -118,7 +118,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   assert.ok(segmentPuts.length >= 1, "应至少上传一个分段");
 
   // 直接读取远端存储的 blob：验证 mock 端存的是压缩信封，且逻辑读回一致。
-  const remote = createGitHubV7Remote({ owner: "qa", repo: "compression-vault", token: "t", apiBaseUrl: server.url });
+  const remote = createGitHubRemote({ owner: "qa", repo: "compression-vault", token: "t", apiBaseUrl: server.url });
   const head = await remote.readHead();
   assert.ok(head.initialized);
   for (const descriptor of head.head.segments) {
@@ -146,14 +146,14 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   await freshClient("plain-json-a");
   const plainSync = () => syncWithGitHub(mixedSettings, "qa-token");
   await plainSync();
-  const plainBank = await createBankV7("纯 JSON 环境题库");
-  await createQuestionV7(plainBank.id, question("无压缩流环境写入的题目"));
+  const plainBank = await createBank("纯 JSON 环境题库");
+  await createQuestion(plainBank.id, question("无压缩流环境写入的题目"));
   await plainSync();
   Object.defineProperty(globalThis, "CompressionStream", compressionDescriptor!);
   Object.defineProperty(globalThis, "DecompressionStream", decompressionDescriptor!);
 
   // 远端确实存有纯 JSON 分段。
-  const remote = createGitHubV7Remote({ owner: "qa", repo: "compression-mixed-vault", token: "t", apiBaseUrl: server.url });
+  const remote = createGitHubRemote({ owner: "qa", repo: "compression-mixed-vault", token: "t", apiBaseUrl: server.url });
   const plainHead = await remote.readHead();
   assert.ok(plainHead.initialized);
   const plainSegment = plainHead.head.segments[0]!;
@@ -164,21 +164,21 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   await freshClient("compressed-b");
   const mixedSync = () => syncWithGitHub(mixedSettings, "qa-token");
   await mixedSync();
-  assert.ok(await dbV7.questions.count() >= 1, "压缩环境应拉到纯 JSON 环境的题目");
-  const compressedBank = await createBankV7("压缩环境题库");
-  await createQuestionV7(compressedBank.id, question("压缩环境写入的题目：".concat("跨环境格式验证。".repeat(200))));
+  assert.ok(await studyDb.questions.count() >= 1, "压缩环境应拉到纯 JSON 环境的题目");
+  const compressedBank = await createBank("压缩环境题库");
+  await createQuestion(compressedBank.id, question("压缩环境写入的题目：".concat("跨环境格式验证。".repeat(200))));
   await mixedSync();
 
   // 第一环境恢复压缩能力后也能读到压缩对象。
   await freshClient("plain-json-a");
   await plainSync();
-  const stems = (await dbV7.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
+  const stems = (await studyDb.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
   assert.ok(stems.includes("压缩环境写入的题目"), "恢复压缩能力后应能读到压缩格式的新数据");
 
   // 全新设备一次拉取跨环境 vault，全部题目齐备。
   await freshClient("fresh-c");
   await mixedSync();
-  const allStems = (await dbV7.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
+  const allStems = (await studyDb.questions.toArray()).flatMap((row) => row.content.map((block) => block.type === "text" ? block.text : "")).join("\n");
   assert.ok(allStems.includes("无压缩流环境写入的题目") && allStems.includes("压缩环境写入的题目"), "全新设备应能读取两种当前环境能力产物");
 }
 
@@ -187,7 +187,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 {
   const casServer = await startMockGitHubServer({ cas: true });
   try {
-    const remote = createGitHubV7Remote({ owner: "qa", repo: "idempotent-vault", token: "t", apiBaseUrl: casServer.url });
+    const remote = createGitHubRemote({ owner: "qa", repo: "idempotent-vault", token: "t", apiBaseUrl: casServer.url });
     const json = new TextEncoder().encode(JSON.stringify({ formatVersion: 1, events: ["幂等重放".repeat(200)] }));
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", json as BufferSource)), (v) => v.toString(16).padStart(2, "0")).join("");
     const path = `sync/v9/segments/${digest}.json`;
@@ -207,11 +207,11 @@ const sync = () => syncWithGitHub(settings, "qa-token");
 
 // --- 5. 退役维护 API 不得重新暴露 -----------------------------------------
 {
-  const syncFacade = await import("../../src/lib/sync/github-sync-v7");
+  const syncFacade = await import("../../src/lib/sync/github-sync-engine");
   assert.equal("migrateVaultToCompressed" in syncFacade, false, "一次性压缩迁移 API 已退役，不得回到运行时 facade");
   assert.equal("backfillVaultStoredSizes" in syncFacade, false, "一次性 storedSize 补填 API 已退役，不得回到运行时 facade");
 }
 
 await server.close();
-dbV7.close();
+studyDb.close();
 console.log("sync compression tests passed: codec/当前环境纯 JSON 路径、线上压缩信封、跨环境共存、幂等读回、head 纯 JSON、退役维护 API 防回潮");

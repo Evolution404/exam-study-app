@@ -1,10 +1,22 @@
 # 数据库架构重构执行计划（2026-09-17）
 
-> 状态：待实施。本文是下一轮数据库重构的唯一执行基线。
+> 状态：Phase 0–2 已实施并完成收口；Phase 3+ 未开始，等待用户明确授权。本文继续作为数据库重构执行基线。
 >
 > 目标分支：`refactor/database-facts-projections-20260917`
 >
-> 前置条件：当前审计 PR 必须先合并到 `main`，再从最新 `origin/main` 创建实施分支。不要从旧 `main` 重做本轮已完成修复。
+> 前置条件已满足：PR #57 已合并，实施分支已从当时最新 `origin/main`（`863b1a8`）创建。当前停在 PR #58 Phase 2 收口边界。
+
+## 0. Phase 0 执行记录
+
+2026-09-17 已完成 Phase 0 基线冻结与语义审计：
+
+- PR #57 已先合并，实施分支 `refactor/database-facts-projections-20260917` 从最新 `origin/main` merge commit `863b1a8` 创建，没有从旧 main 开工。
+- 改动前 `make test` 通过（84/84），`make test-browser-headless` 通过全部浏览器组。
+- `attempt.update` / `practice.answer.updated` 在产品运行时代码中没有真实写入入口。当前 `recordPracticeAnswer` 每次提交都会生成新的 attempt ID，并只发出 `practice.answer.submitted`；两种 update mutation 只残留于 sync 类型、codec、reducer、dirty-install、事件文案和测试夹具。因此本轮 cutover **直接删除这两种兼容 mutation，不引入 supersede 模型，也不保留 runtime 兼容分支**。如果未来产品需要“修正历史作答”，必须作为新的独立领域需求重新设计。
+- 新 schema contract 已由 `scripts/tests/test-database-schema-contract.ts` 锁定，并已确认旧 schema 会失败。该测试明确要求：关系表使用复合主键；`PracticeRun` 拆为 run/source/item；图片 descriptor/blob cache 分表；attempt 增加 round provenance 与关键复合时间索引；旧 `attemptStats` / `attemptDailyStats` / `practiceRunActivity` / `practiceRunStats` store 退出当前 schema。
+- Draft PR #58 已创建；Phase 0 的 contract commit 为 `e6c8bdd`。在 Phase 1 完成前，该新 contract 测试预期为红，不得通过削弱 contract 或恢复旧 store 来让它变绿。
+
+Phase 0 已完成；Phase 1 与 Phase 2 也已在 PR #58 完成。当前必须停在 Phase 2 边界，未经用户明确授权不得进入 Phase 3。
 
 ## 1. 为什么现在要重构
 
@@ -13,7 +25,7 @@
 1. `attemptStats`、`attemptDailyStats`、`practiceRunStats`、`reviewRoundProgress` 都能从 canonical facts 重建，却同时存在于本地持久化、projection、checkpoint 校验等多层状态中。
 2. `PracticeRun` 同时保存 `questionIds`、`questionTypes`、`answers`、`optionOrders` 大型映射，而 `attempts` 又保存已提交答案事实，形成双事实源和删除/同步竞态。
 3. `ReviewRound.bankIds`、`ReviewRound.finalQuestionIds`、`QuestionGroup.items` 等关系以内嵌数组存在，删除一个实体会迫使系统扫描并改写大量父对象。
-4. `AttemptV7` 不直接建模复习轮次归属，reducer 通过 reducer-only `attemptRoundIds` 补充 provenance，说明 canonical model 缺字段。
+4. `Attempt` 过去未直接建模复习轮次归属，reducer 通过 reducer-only `attemptRoundIds` 补充 provenance，说明 canonical model 缺字段。
 5. 查询需要的复合维度没有直接建模，例如 `questionId + createdAt`，导致运行时只能在单列索引之间选择或全量 materialize 后过滤。
 6. `imageAssets` 同时承担同步 descriptor 和本地 Blob cache，事实与缓存生命周期耦合。
 7. 远端 Sync v9 已经在 bounded checkpoint 中主动清空 derived arrays，历史 hydration 后再重建统计。这证明同步层本身已经把这些统计视为派生数据，本地模型应与这一事实统一。
@@ -390,6 +402,18 @@ install canonical checkpoint
 每个入口必须测试：事务边界、并发删除、Safari IndexedDB、change-set sequence。
 
 退出条件：所有领域写路径不再写旧数组/Map schema。
+
+#### Phase 2 收口记录（2026-09-17）
+
+- current schema/types 与领域写路径已切换到正常化模型；group/review/run 关系不再以内嵌数组或大 Map 作为持久化事实。
+- PracticeRun/source/item 已拆分，已提交答案事实归 `Attempt`；Attempt 已持有 round provenance；图片 descriptor/blob cache 已分离。
+- 旧 `attempt.update` / `practice.answer.updated` 兼容 mutation 与 V7/V8 业务 API/type/source filename 已删除，不保留 alias 或 runtime compatibility 分支。
+- architecture guard 已加入 version-neutral 命名门禁，并继续强制单一 Dexie `version(1)`、禁止 `.upgrade()` 与历史 schema compatibility。
+- Sync v9 仍是当前真实 remote wire；`sync/v9/...` / `formatVersion: 9` 不改写成业务名称，也不作为兼容层。
+- Phase 2 最终验收要求：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 在同一最新 HEAD 全绿。
+- 已验证代码基线 `1402459`：上述全部门禁通过，依赖审计 0 vulnerabilities；后续仅允许文档性收尾，仍不得进入 Phase 3。
+
+> **STOP：Phase 3 尚未开始。等待用户明确授权后才能继续。**
 
 ### Phase 3 — Projection engine
 

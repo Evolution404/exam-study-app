@@ -1,14 +1,14 @@
 import type { AttemptStats } from "../../types/types";
-import type { AttemptV7, NoteV7, QuestionV7, ReviewRoundProgress } from "../db/v7-types";
+import type { Attempt, Note, Question, ReviewRoundProgress } from "../db/types";
 import { statsNeedWrongReview, summarizeAttemptStats, type AttemptSummary } from "../practice/practice-metrics";
 import { buildScopedQuestionStats, completedQuestionIdsInScope, scopedStatsToAttemptStats, type ProgressScope, type ReferenceTime } from "../practice/progress-scope";
 import { deriveContentText } from "./question-content";
-import { questionAnswerTextV7 } from "./question-answer-text";
+import { questionAnswerText } from "./question-answer-text";
 import type { SearchIndexQuestion } from "./search-matching";
 
 /**
  * Runtime-only fields that enrich a canonical question for search filters.
- * The canonical searchable content itself is always derived from QuestionV7
+ * The canonical searchable content itself is always derived from Question
  * in this module so Quick Search and Search View cannot drift apart.
  */
 export interface SearchIndexContext {
@@ -26,13 +26,13 @@ export interface SearchIndexContext {
  * Keep this layer pure: callers supply note/stats/progress context and this
  * module owns every canonical searchable question field.
  */
-export function buildSearchIndexQuestion(question: QuestionV7, context: SearchIndexContext = {}): SearchIndexQuestion {
+export function buildSearchIndexQuestion(question: Question, context: SearchIndexContext = {}): SearchIndexQuestion {
   return {
     id: question.id,
     type: question.type,
     stem: deriveContentText(question.content),
     options: question.options.map((blocks) => deriveContentText(blocks)),
-    answer: questionAnswerTextV7(question),
+    answer: questionAnswerText(question),
     tags: [...question.tags],
     explanation: context.explanation ?? "",
     favorite: Boolean(question.favorite),
@@ -67,10 +67,10 @@ export function buildSearchDerivedData({
   referenceTime,
   wrongRemovalStreak,
 }: {
-  questions: readonly QuestionV7[];
+  questions: readonly Question[];
   attemptStats: readonly AttemptStats[];
-  attempts: readonly AttemptV7[];
-  notes: readonly NoteV7[];
+  attempts: readonly Attempt[];
+  notes: readonly Note[];
   roundProgress: readonly ReviewRoundProgress[];
   progressScope: ProgressScope;
   referenceTime: ReferenceTime;

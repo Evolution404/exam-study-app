@@ -9,8 +9,8 @@ import {
 import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { MathText } from "@/app/ui/math-text";
 import { QuestionDetail } from "@/app/bank/question-detail";
-import { dbV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
-import { getQuestionViewV7, listQuestionViewsForBanksV7, type QuestionViewV7 } from "@/lib/db/app-data-v7";
+import { studyDb, updateQuestions, updateQuestion } from "@/lib/db/db";
+import { getQuestionView, listQuestionViewsForBanks, type QuestionView } from "@/lib/db/app-data";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { AppSelect } from "@/app/ui/app-select";
 import {
@@ -24,15 +24,15 @@ import {
 import { summarizeAttemptStats, type AttemptSummary } from "@/lib/practice/practice-metrics";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
-import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { Bank as DbBank, QuestionType as DbQuestionType } from "@/lib/db/types";
 import { createSearchMatcher, SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope, type SearchFilterProjection, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 import { buildSearchDerivedData } from "@/lib/question/search-read-model";
-import { readSearchHistoryDataV7 } from "@/app/search/search-data";
-type Bank = BankV7;
+import { readSearchHistoryData } from "@/app/search/search-data";
+type Bank = DbBank;
 type Question = QuestionViewModel;
-type QuestionType = QuestionTypeV7;
+type QuestionType = DbQuestionType;
 
 const TYPE_ORDER: QuestionType[] = [...SEARCH_TYPE_ORDER];
 type TypeTab = "全部" | QuestionType;
@@ -87,7 +87,7 @@ function scopeLabelFor(scope: ProgressScope): string {
   return "当前复习轮次";
 }
 
-function questionsForFilters(views: readonly QuestionViewV7[], banks: readonly Bank[], bankIds: readonly string[]): Question[] {
+function questionsForFilters(views: readonly QuestionView[], banks: readonly Bank[], bankIds: readonly string[]): Question[] {
   const selected = new Set(bankIds);
   const bankMap = new Map(banks.map((bank) => [bank.id, bank]));
   return views.flatMap((view) => {
@@ -214,10 +214,10 @@ export function SearchView({
 
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
-  const views = useLiveQuery(() => shouldLoadQuestionViews ? listQuestionViewsForBanksV7(allBankIds) : undefined, [bankKey, shouldLoadQuestionViews]);
+  const views = useLiveQuery(() => shouldLoadQuestionViews ? listQuestionViewsForBanks(allBankIds) : undefined, [bankKey, shouldLoadQuestionViews]);
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
   const appliedQuestions = useMemo(() => questionsForFilters(views ?? [], banks, appliedBankIds), [appliedBankIds, banks, views]);
-  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(appliedQuestions) : null, [showResults, views, appliedQuestions]);
+  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryData(appliedQuestions) : null, [showResults, views, appliedQuestions]);
   const tags = useMemo(() => [...new Set(appliedQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [appliedQuestions]);
   const [referenceTime] = useState(Date.now);
   const normalizedSearchScope = useMemo(() => effectiveSearchProgressScope(filters, progressScope), [filters, progressScope]);
@@ -280,14 +280,14 @@ export function SearchView({
 
   async function favoriteSelected() {
     const targets = selectedQuestions.filter((question) => !question.favorite);
-    await updateQuestionsV7(targets.map((question) => question.id), { favorite: true });
+    await updateQuestions(targets.map((question) => question.id), { favorite: true });
     onNotice(`已收藏 ${targets.length} 道题`);
   }
 
   async function addTagToSelected() {
     const nextTag = batchTag.trim();
     if (!nextTag) return;
-    await updateQuestionsV7(selectedQuestions.map((question) => question.id), (question) => ({ tags: [...new Set([...question.tags, nextTag])] }));
+    await updateQuestions(selectedQuestions.map((question) => question.id), (question) => ({ tags: [...new Set([...question.tags, nextTag])] }));
     setBatchTag("");
     onNotice(`已给 ${selectedQuestions.length} 道题添加标签“${nextTag}”`);
   }
@@ -359,13 +359,13 @@ export function SearchView({
 }
 
 function SearchQuestionDetail({ questionId, entries, metric, scopeLabel, onClose, onGroup, onNavigate, onNotice }: { questionId: string; entries: Array<{ question: Question }>; metric: AttemptSummary; scopeLabel: string; onClose: () => void; onGroup: (questionId: string) => void; onNavigate: (questionId: string) => void; onNotice: (message: string) => void }) {
-  const view = useLiveQuery(() => getQuestionViewV7(questionId), [questionId]);
+  const view = useLiveQuery(() => getQuestionView(questionId), [questionId]);
   const question = view ? toQuestionViewModel(view.question, view.sourceBankId, view.banks[0]?.displayName || view.banks[0]?.name || "未归档题目", view.memberships[0]?.sortOrder ?? 0) : undefined;
-  const note = useLiveQuery(() => dbV7.notes.get(questionId), [questionId]);
+  const note = useLiveQuery(() => studyDb.notes.get(questionId), [questionId]);
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };
@@ -381,7 +381,7 @@ function SearchQuestionDetail({ questionId, entries, metric, scopeLabel, onClose
     keyboardShortcuts: navPrefs.keyboardShortcuts,
     swipeNavigation: navPrefs.swipeNavigation,
   } : undefined;
-  return <><QuestionDetail question={question} metric={metric} scopeLabel={scopeLabel} note={note?.content} onClose={onClose} footer={<><button onClick={async () => { const updated = await updateQuestionV7(question.id, { favorite: !question.favorite }); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button><button onClick={() => onGroup(question.id)}><GitBranch size={16} />加入题组</button></>} nav={nav} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice("题目和标签已保存"); }} />}</>;
+  return <><QuestionDetail question={question} metric={metric} scopeLabel={scopeLabel} note={note?.content} onClose={onClose} footer={<><button onClick={async () => { const updated = await updateQuestion(question.id, { favorite: !question.favorite }); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button><button onClick={() => onGroup(question.id)}><GitBranch size={16} />加入题组</button></>} nav={nav} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice("题目和标签已保存"); }} />}</>;
 }
 
 function SearchPracticeDialog({ source, defaultShuffleOptions, onClose, onStart }: { source: { questions: Question[]; label: string }; defaultShuffleOptions: boolean; onClose: () => void; onStart: (options: SearchPracticeOptions) => Promise<void> }) {

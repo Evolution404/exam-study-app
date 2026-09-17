@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FileText, FileUp, FolderPlus, Library, Plus } from "lucide-react";
-import { dbV7 } from "@/lib/db/db-v7";
-import { listUnfiledQuestionsV7 } from "@/lib/db/app-data-v7";
+import { studyDb } from "@/lib/db/db";
+import { listUnfiledQuestions } from "@/lib/db/app-data";
 import { ExcelTemplateAction } from "@/app/bank/excel-import";
 import { AppSelect } from "@/app/ui/app-select";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
@@ -21,7 +21,7 @@ export type { BankQuickMode } from "./bank-library/bank-library-shared";
 type BankFilter = "all" | "enabled" | "disabled";
 
 export function BankLibraryView({ banks, progressScope = { type: "rolling", days: 90 }, progressScopeLabel = "近 90 天", wrongRemovalStreak, onImport, onImportInto, onOpenRun, onNotice }: { banks: Bank[]; progressScope?: ProgressScope; progressScopeLabel?: string; wrongRemovalStreak: number; onImport: () => void; onImportInto: (bankId: string) => void; onOpenRun: (runId: string) => void; onNotice: (message: string) => void }) {
-  const folders = useLiveQuery(() => dbV7.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
+  const folders = useLiveQuery(() => studyDb.bankFolders.orderBy("sortOrder").toArray(), []) ?? [];
   const [activeBankId, setActiveBankId] = useState<string>();
   const [tab, setTab] = useState<"overview" | "questions">("overview");
   const [editingBank, setEditingBank] = useState<Bank>();
@@ -41,7 +41,7 @@ export function BankLibraryView({ banks, progressScope = { type: "rolling", days
   const visibleUnfiledBanks = visibleOrdered.filter((bank) => !bank.folderId || !folders.some((folder) => folder.id === bank.folderId));
   const reorderEnabled = bankFilter === "all";
   const activeBank = banks.find((bank) => bank.id === activeBankId);
-  const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestionsV7() : Promise.resolve([]), [showUnfiled]) ?? [];
+  const unfiledQuestions = useLiveQuery(() => showUnfiled ? listUnfiledQuestions() : Promise.resolve([]), [showUnfiled]) ?? [];
 
   async function placeBank(bankId: string, folderId: string | undefined, beforeId?: string) {
     console.log("[drag-debug] place-bank start", { bankId, folderId, beforeId, allBanks: banks.map((bank) => `${bank.id}:${bank.folderId ?? "none"}`) });

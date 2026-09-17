@@ -18,8 +18,8 @@ import { importQuestionBankFile } from "../../src/lib/question/question-bank-fil
 import { sniffImageDimensions } from "../../src/lib/io/image-dimensions";
 import { sha256Bytes } from "../../src/lib/io/image-assets";
 import { IMPORT_LIMITS } from "../../src/lib/io/import-limits";
-import { dbV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { ContentBlock, QuestionV7 } from "../../src/lib/db/v7-types";
+import { studyDb, getImageAssetBlob, importQuestionBank, resetDatabase } from "../../src/lib/db/db";
+import type { ContentBlock, Question } from "../../src/lib/db/types";
 
 // ---------------------------------------------------------------------------
 // Fixture builders
@@ -145,13 +145,13 @@ function zipEntryNames(bytes: Uint8Array): string[] {
   return names;
 }
 
-async function bankQuestions(bankId: string): Promise<QuestionV7[]> {
-  const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  const questions = await dbV7.questions.bulkGet(memberships.map((membership) => membership.questionId));
-  return questions.filter((question): question is QuestionV7 => Boolean(question));
+async function bankQuestions(bankId: string): Promise<Question[]> {
+  const memberships = await studyDb.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
+  const questions = await studyDb.questions.bulkGet(memberships.map((membership) => membership.questionId));
+  return questions.filter((question): question is Question => Boolean(question));
 }
 
-await resetV7Database();
+await resetDatabase();
 
 // ---------------------------------------------------------------------------
 // 1. Excel 导出：占位符、动态图片列、cellimages 部件
@@ -213,8 +213,8 @@ await resetV7Database();
   assert.equal(bank.questionCount, 3, "三道题全部导入");
 
   const questions = await bankQuestions(bank.id);
-  const byOrder = (await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
-  const ordered = await dbV7.questions.bulkGet(byOrder.map((membership) => membership.questionId));
+  const byOrder = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = await studyDb.questions.bulkGet(byOrder.map((membership) => membership.questionId));
 
   const q1 = ordered[0]!;
   assert.deepEqual(
@@ -235,14 +235,14 @@ await resetV7Database();
     "选项内的占位符还原为选项图片块",
   );
 
-  const assets = await dbV7.imageAssets.toArray();
+  const assets = await studyDb.imageAssets.toArray();
   assert.equal(assets.length, 3, "三张图片全部物化为资产");
   const assetA = assets.find((asset) => asset.id === idA)!;
   assert.equal(assetA.width, 640);
   assert.equal(assetA.height, 480);
   assert.equal(assetA.mimeType, "image/png");
-  assert.equal(assetA.blob?.size, pngA.byteLength, "资产字节与源图片一致");
-  const importRecord = (await dbV7.changeSets.toArray()).find((record) => record.mutations.some((mutation) => mutation.kind === "question.import" && mutation.bank.id === bank.id));
+  assert.equal((await getImageAssetBlob(assetA.id))?.size, pngA.byteLength, "资产字节与源图片一致");
+  const importRecord = (await studyDb.changeSets.toArray()).find((record) => record.mutations.some((mutation) => mutation.kind === "question.import" && mutation.bank.id === bank.id));
   assert.ok(importRecord, "Excel 导入应立即创建固定的导入事件");
   const importMutation = importRecord.mutations.find((mutation) => mutation.kind === "question.import");
   assert.equal(importMutation?.kind, "question.import");
@@ -254,8 +254,8 @@ await resetV7Database();
   // 重复导入同一文件：内容寻址去重，题数不变、资产不重复。
   const again = await importQuestionBankFile(new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: file.type }));
   assert.equal(again.bank.questionCount, 3, "重复导入不应增加题目");
-  assert.equal((await dbV7.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
-  assert.equal(await dbV7.questions.count(), 3, "全局题目按指纹去重");
+  assert.equal((await studyDb.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
+  assert.equal(await studyDb.questions.count(), 3, "全局题目按指纹去重");
 
   // WPS 拆分工作簿常残留源文件的全部媒体；只物化题目实际引用的图片。
   const residueWorkbook = buildXlsx([{ name: "题库", rows: [
@@ -266,7 +266,7 @@ await resetV7Database();
     { id: "ID_UNUSED", bytes: pngD, extension: "png", width: 80, height: 80 },
   ]);
   await importQuestionBankFile(new File([toArrayBuffer(residueWorkbook)], "含残留媒体.xlsx", { type: file.type }));
-  assert.equal(await dbV7.imageAssets.get(idD), undefined, "未被题目引用的 Excel 残留媒体不应物化或上传");
+  assert.equal(await studyDb.imageAssets.get(idD), undefined, "未被题目引用的 Excel 残留媒体不应物化或上传");
   console.log("2. Excel 导入闭环（DISPIMG 读回 / 资产物化 / 选项图片 / 去重）通过");
 }
 
@@ -291,14 +291,14 @@ await resetV7Database();
   assert.equal(type, "zip");
   assert.equal(bank.name, "压缩包题库", "题库名取自 bank.json 而非文件名");
   assert.equal(bank.questionCount, 3);
-  const memberships = (await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
-  const ordered = await dbV7.questions.bulkGet(memberships.map((membership) => membership.questionId));
+  const memberships = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = await studyDb.questions.bulkGet(memberships.map((membership) => membership.questionId));
   assert.deepEqual(
     ordered[0]!.content.map((block) => block.type === "text" ? `text:${block.text}` : `image:${block.assetId.slice(0, 8)}`),
     ["text:图中①处部件是", `image:${idA.slice(0, 8)}`, "text:？"],
     "zip 内容块结构精确还原",
   );
-  const note = await dbV7.notes.get(ordered[0]!.id);
+  const note = await studyDb.notes.get(ordered[0]!.id);
   assert.equal(note?.content, "看绝缘子串的位置", "解析随压缩包往返");
 
   const viewModelQuestions = imageQuestions.map(({ content, optionBlocks, ...question }) => ({
@@ -373,10 +373,10 @@ await resetV7Database();
 // 5. 占位符边界：悬空占位符剥离、无图纯 JSON 回归
 // ---------------------------------------------------------------------------
 {
-  await importQuestionBankV7("悬空占位符.json", [
+  await importQuestionBank("悬空占位符.json", [
     { stem: "题干【图1】中间【图2】结尾", options: ["甲", "乙"], optionIds: ["a", "b"], solution: { kind: "choice", correctOptionIds: ["a"] }, type: "单选" },
   ]);
-  const all = await dbV7.questions.toArray();
+  const all = await studyDb.questions.toArray();
   const dangling = all.find((question) => question.content.some((block) => block.type === "text" && block.text.includes("题干")));
   assert.ok(dangling, "悬空占位符题应导入");
   assert.equal(dangling!.content.filter((block) => block.type === "image").length, 0, "无图片数据时不产生图片块");
@@ -499,10 +499,10 @@ await resetV7Database();
   assert.equal(degradedPlan.rows[3][9], `=DISPIMG("ID_${idB}",1)`, "仍在缓存的 B 图保留");
   assert.ok(!degradedPlan.rows[3][6]?.includes("【图"), "缺失图片的占位符应消失");
   const exportDialogSource = readFileSync(new URL("../../src/app/bank/bank-library/bank-export-dialog.tsx", import.meta.url), "utf8");
-  assert.match(exportDialogSource, /dbV7\.imageAssets\.bulkGet\(ids\)/, "UI 导出应先批量读取当前题库图片 descriptor");
+  assert.match(exportDialogSource, /studyDb\.imageAssets\.bulkGet\(ids\)/, "UI 导出应先批量读取当前题库图片 descriptor");
   assert.match(exportDialogSource, /syncApplication\.downloadImageAssets\(missingIds\)/, "UI 导出遇到缓存缺失时必须通过同步边界一次批量补回图片");
   assert.match(exportDialogSource, /collectImageAssetIds\(questions\)/, "UI 导出只应解析当前题库实际引用的图片");
-  assert.doesNotMatch(exportDialogSource, /loadImageAssetV7/, "UI 导出不得回退为逐图远端解析");
+  assert.doesNotMatch(exportDialogSource, /\bloadImageAsset\b/, "UI 导出不得回退为逐图远端解析");
   assert.match(exportDialogSource, /if \(missing\.length\) throw new Error/, "仍有缺图时必须取消导出，不能生成不完整 Excel");
   assert.match(exportDialogSource, /target: "bundle"/, "便携 ZIP 必须走保留原图的收集路径");
   assert.match(exportDialogSource, /questionPortableExportFormat\(questions\)/, "UI 必须复用可单测的 JSON/ZIP 决策规则");

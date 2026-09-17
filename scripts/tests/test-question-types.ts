@@ -26,8 +26,8 @@ const searchReadModel = read("src/lib/question/search-read-model.ts");
 const searchView = read("src/app/search/search-view.tsx");
 const quickSearch = read("src/app/search/quick-search.tsx");
 const bankDetail = read("src/app/bank/bank-library/bank-detail.tsx");
-const questionImport = read("src/lib/db/db-v7-question-import.ts");
-const questionDraft = read("src/lib/db/db-v7-question-draft.ts");
+const questionImport = read("src/lib/db/db-question-import.ts");
+const questionDraft = read("src/lib/db/db-question-draft.ts");
 
 assert.equal(normalizeCalculationAnswer(" 12.50 "), "12.50");
 assert.equal(normalizeCalculationAnswer([" 11.0 ", "968.0"]), "11.0\n968.0");
@@ -194,11 +194,11 @@ assert.doesNotMatch(searchView, /answer: question\.solution/, "搜索主页不�
 assert.doesNotMatch(quickSearch, /answer: question\.solution/, "顶栏快速搜索不得再自行投影 canonical answer");
 
 assert.deepEqual([...QUESTION_TYPE_ORDER], ["单选", "多选", "判断", "计算", "填空", "简答"], "all question type surfaces must share the canonical order");
-assert.match(editor, /const questionTypes: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
-assert.match(practiceSetupModel, /PRACTICE_QUESTION_TYPES: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup model must use the canonical question type order");
-assert.match(practiceSetup, /const questionTypes: QuestionTypeV7\[\] = PRACTICE_QUESTION_TYPES/, "practice setup UI must consume the canonical setup-model question type order");
+assert.match(editor, /const questionTypes: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "question editor must use the canonical question type order");
+assert.match(practiceSetupModel, /PRACTICE_QUESTION_TYPES: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice setup model must use the canonical question type order");
+assert.match(practiceSetup, /const questionTypes: QuestionType\[\] = PRACTICE_QUESTION_TYPES/, "practice setup UI must consume the canonical setup-model question type order");
 assert.match(helpers, /export const TYPE_ORDER: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice overview and balanced sampling must use the canonical order");
-assert.match(history, /const TYPE_ORDER: QuestionTypeV7\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice history grouping must use the canonical order");
+assert.match(history, /const TYPE_ORDER: QuestionType\[\] = \[\.\.\.QUESTION_TYPE_ORDER\]/, "practice history grouping must use the canonical order");
 assert.match(searchMatching, /SEARCH_TYPE_ORDER: readonly SearchQuestionType\[\] = QUESTION_TYPE_ORDER/, "search tabs and result grouping must use the canonical order");
 assert.match(questionManager, /options=\{\["全部", \.\.\.QUESTION_TYPE_ORDER\]\.map/, "question manager filter must put 全部 before the canonical type order");
 assert.match(bankDetail, /QUESTION_TYPE_ORDER\.map\(\(type\) => <Distribution/, "bank type distribution must include every question type in canonical order");
@@ -211,7 +211,7 @@ const duplicateOrderFiles = readdirSync(srcRoot, { recursive: true, withFileType
   .filter((file) => !file.endsWith(path.join("src", "types", "types.ts")) && literalTypeArray.test(readFileSync(file, "utf8")));
 assert.deepEqual(duplicateOrderFiles, [], "full question-type lists must not duplicate or diverge from QUESTION_TYPE_ORDER");
 assert.match(editor, /optimizeImageFile/, "question editor must optimize selected local images");
-assert.match(editor, /putImageAssetV7/, "question editor must store content-addressed image assets");
+assert.match(editor, /putImageAsset/, "question editor must store content-addressed image assets");
 assert.match(contentEditor, /accept="image\/\*"/, "rich content editor must select a local image file");
 assert.match(contentEditor, /insertImageAtSelection/, "rich content editor must insert images at the current text selection");
 assert.doesNotMatch(editor, /题目图片地址|imageUrl/, "question editor must not accept public image URLs");

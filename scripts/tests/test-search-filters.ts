@@ -17,7 +17,7 @@ import {
 } from "../../src/lib/question/search-matching";
 import { createSearchWorkerClient, type SearchWorkerLike } from "../../src/app/search/search-worker-client";
 import type { SearchWorkerMessage } from "../../src/app/search/search-worker-protocol";
-import type { BankV7 } from "../../src/lib/db/v7-types";
+import type { Bank } from "../../src/lib/db/types";
 import { filterTagOptions, matchesTagSelection } from "../../src/lib/question/tag-filter";
 
 const searchViewSource = fs.readFileSync(new URL("../../src/app/search/search-view.tsx", import.meta.url), "utf8");
@@ -43,14 +43,14 @@ const questionDetailSource = fs.readFileSync(new URL("../../src/app/bank/questio
 const practiceViewSource = fs.readFileSync(new URL("../../src/app/shell/views/practice.tsx", import.meta.url), "utf8");
 const practicePresentationSource = fs.readFileSync(new URL("../../src/app/shell/views/practice-presentation.tsx", import.meta.url), "utf8");
 const searchWorkerSource = fs.readFileSync(new URL("../../src/app/search/search-worker.ts", import.meta.url), "utf8");
-const searchReadV7Source = fs.readFileSync(new URL("../../src/lib/db/search-read-v7.ts", import.meta.url), "utf8");
+const searchReadSource = fs.readFileSync(new URL("../../src/lib/db/search-read.ts", import.meta.url), "utf8");
 const searchDataSource = fs.readFileSync(new URL("../../src/app/search/search-data.ts", import.meta.url), "utf8");
 
 const banks = [
   { id: "a", name: "甲题库", displayName: "甲题库" },
   { id: "b", name: "乙题库", displayName: "乙题库" },
   { id: "c", name: "丙题库", displayName: "丙题库" },
-] as BankV7[];
+] as Bank[];
 
 const defaults = createDefaultSearchFilters(["a", "b"]);
 assert.equal(defaults.bankScope, "current", "有首页已选题库时默认使用已选题库");
@@ -90,15 +90,15 @@ assert.match(createSearchMatcher("x".repeat(257), "plain").error, /不能超过/
 assert.match(searchViewSource, /aria-label="搜索" className="search-trigger-button"/, "手机图标搜索按钮必须保留可访问名称");
 assert.match(searchViewSource, /aria-label=\{activeFilterCount \? `筛选，已设置 \$\{activeFilterCount\} 项` : "筛选"\}/, "手机图标筛选按钮必须说明已设置条件数");
 assert.match(knowledgeViewSource, /aria-label="关闭标签详情"/, "标签详情关闭按钮不能成为无名称图标按钮");
-assert.match(knowledgeViewSource, /readAttemptStatsForQuestionIdsV7\(questions\.map\(\(question\) => question\.id\)\)/, "知识整理标签统计必须只读取当前启用题目的 attemptStats");
-assert.doesNotMatch(knowledgeViewSource, /dbV7\.attemptStats\.toArray\(\)/, "知识整理不得为了启用题库标签统计 materialize 全库 attemptStats");
+assert.match(knowledgeViewSource, /readAttemptStatsForQuestionIds\(questions\.map\(\(question\) => question\.id\)\)/, "知识整理标签统计必须只读取当前启用题目的 attemptStats");
+assert.doesNotMatch(knowledgeViewSource, /studyDb\.attemptStats\.toArray\(\)/, "知识整理不得为了启用题库标签统计 materialize 全库 attemptStats");
 assert.match(knowledgeModelSource, /const aggregates = new Map/, "知识整理标签统计必须单次遍历题目聚合，避免每个标签重新扫描全部题目");
 assert.doesNotMatch(knowledgeModelSource, /questions\.filter\(\(question\) => question\.tags\.includes\(name\)\)/, "知识整理标签统计不得恢复 标签数×题数 的重复扫描");
 assert.match(preferencesViewSource, /v9 远端协议和热窗口增量同步/, "配置页必须描述当前 v9 同步机制");
-assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v7 事件/, "配置页不得残留旧 v7/v8 同步文案");
+assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v[7] 事件/, "配置页不得残留旧版本同步文案");
 assert.match(searchViewSource, /搜索内容范围/, "搜索页应提供题干、选项、解析和全部范围");
 assert.match(quickSearchSource, /快速搜索范围/, "顶栏快速搜索应提供内容范围选择");
-assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏搜索范围不得退回操作系统原生下拉框");
+assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏范围不得退回操作系统原生下拉框");
 assert.doesNotMatch(searchViewSource, /<select[^>]*className="search-content-scope"/, "搜索页范围不得退回操作系统原生下拉框");
 assert.match(appSelectSource, /contentClassName\?: string/, "通用下拉框应允许场景化调整弹层尺寸而不重造原生控件");
 assert.match(quickSearchSource, /<AppSelect[^>]*className="quick-search-scope"[^>]*contentClassName="search-scope-select-content quick-search-scope-content"/, "顶栏范围应复用项目通用下拉框样式");
@@ -138,19 +138,19 @@ assert.match(quickSearchSource, /const normalizedQuery = query\.trim\(\);/, "顶
 assert.match(quickSearchSource, /const shouldLoad = Boolean\(normalizedQuery && bankIds\.length\);/, "空 Quick Search 不得在应用启动时预加载整套题目索引");
 assert.match(quickSearchSource, /if \(!shouldLoad\) return null;/, "Quick Search 必须在首个非空搜索词出现后才读取 IndexedDB");
 assert.match(quickSearchSource, /\}, \[bankKey, shouldLoad\]\);/, "Quick Search IndexedDB 订阅只能在题库范围或空/非空边界变化时重跑，不能逐按键重查");
-assert.match(quickSearchSource, /readNotesForQuestionIdsV7\(views\.map\(\(view\) => view\.question\.id\)\)/, "Quick Search 必须按当前题目 ID 定向读取 notes");
+assert.match(quickSearchSource, /readNotesForQuestionIds\(views\.map\(\(view\) => view\.question\.id\)\)/, "Quick Search 必须按当前题目 ID 定向读取 notes");
 assert.doesNotMatch(quickSearchSource, /notes\.toArray\(\)/, "Quick Search 不得恢复 notes 全表扫描");
-assert.match(searchReadV7Source, /dbV7\.notes\.bulkGet\(ids\)/, "search read layer 必须通过 notes 主键 bulkGet 定向读取");
-assert.match(searchReadV7Source, /dbV7\.attemptStats\.bulkGet\(ids\)/, "Search View 必须通过 attemptStats 主键 bulkGet 定向读取");
-assert.match(searchReadV7Source, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 attempts.questionId 索引定向读取");
-assert.match(searchReadV7Source, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 reviewRoundProgress.questionId 索引定向读取");
-assert.doesNotMatch(searchReadV7Source, /dbV7\.(?:notes|attemptStats)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
-assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|attemptStats|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
-assert.match(searchViewSource, /readSearchHistoryDataV7\(appliedQuestions\)/, "Search View 历史数据读取必须跟随实际筛选后的题目集合，而不是所有题库 views");
+assert.match(searchReadSource, /studyDb\.notes\.bulkGet\(ids\)/, "search read layer 必须通过 notes 主键 bulkGet 定向读取");
+assert.match(searchReadSource, /studyDb\.questionProgress\.bulkGet\(ids\)/, "Search View 必须通过 questionProgress 主键 bulkGet 定向读取");
+assert.match(searchReadSource, /studyDb\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 attempts.questionId 索引定向读取");
+assert.match(searchReadSource, /studyDb\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 reviewRoundProgress.questionId 索引定向读取");
+assert.doesNotMatch(searchReadSource, /studyDb\.(?:notes|questionProgress)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
+assert.doesNotMatch(searchViewSource, /studyDb\.(?:notes|questionProgress|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
+assert.match(searchViewSource, /readSearchHistoryData\(appliedQuestions\)/, "Search View 历史数据读取必须跟随实际筛选后的题目集合，而不是所有题库 views");
 assert.match(searchViewSource, /const shouldLoadQuestionViews = showResults \|\| advancedOpen;/, "空搜索主页不得提前加载完整题目视图；只有搜索或打开筛选时才读取");
-assert.match(searchViewSource, /shouldLoadQuestionViews \? listQuestionViewsForBanksV7\(allBankIds\) : undefined/, "Search View 题目读取必须跟随实际搜索/筛选意图延迟启动");
-assert.match(searchDataSource, /readAttemptStatsForQuestionIdsV7\(questionIds\)[\s\S]*readAttemptsForQuestionIdsV7\(questionIds\)[\s\S]*readNotesForQuestionIdsV7\(questionIds\)[\s\S]*readReviewRoundProgressForQuestionIdsV7\(questionIds\)/, "Search read-model 必须把同一当前题目集合传给全部 targeted readers");
-assert.match(searchViewSource, /showResults && views !== undefined \? readSearchHistoryDataV7\(appliedQuestions\) : null/, "空搜索主页不得提前 materialize 作答历史和轮次进度，且搜索后只能读取当前筛选范围");
+assert.match(searchViewSource, /shouldLoadQuestionViews \? listQuestionViewsForBanks\(allBankIds\) : undefined/, "Search View 题目读取必须跟随实际搜索/筛选意图延迟启动");
+assert.match(searchDataSource, /readAttemptStatsForQuestionIds\(questionIds\)[\s\S]*readAttemptsForQuestionIds\(questionIds\)[\s\S]*readNotesForQuestionIds\(questionIds\)[\s\S]*readReviewRoundProgressForQuestionIds\(questionIds\)/, "Search read-model 必须把同一当前题目集合传给全部 targeted readers");
+assert.match(searchViewSource, /showResults && views !== undefined \? readSearchHistoryData\(appliedQuestions\) : null/, "空搜索主页不得提前 materialize 作答历史和轮次进度，且搜索后只能读取当前筛选范围");
 assert.match(searchViewSource, /const searchDataReady = showResults && views !== undefined && historyData !== undefined && historyData !== null;/, "搜索 Worker 必须等待延迟历史数据完整加载后再运行");
 assert.doesNotMatch(quickSearchSource, /enabled=\{open && Boolean\(draft\.trim\(\)\)\}/, "顶栏结果组件不得由输入状态启停数据生命周期");
 assert.doesNotMatch(quickSearchSource, /\[bankKey,\s*enabled\]/, "顶栏搜索数据查询只能跟随题库范围");

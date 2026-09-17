@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { readBankDetailDatasetV7 } from "../../src/app/bank/bank-library/bank-detail-read";
-import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { AttemptV7, BankV7, PracticeRunV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import { readBankDetailDataset } from "../../src/app/bank/bank-library/bank-detail-read";
+import { createBank, createQuestion, studyDb, resetDatabase } from "../../src/lib/db/db";
+import { decomposePracticeRun } from "../../src/lib/db/practice-run-store";
+import type { Attempt, Bank, PracticeRunRecord, PracticeRun, ReviewRoundProgress } from "../../src/lib/db/types";
 import type { ProgressScope } from "../../src/lib/practice/progress-scope";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -10,12 +11,12 @@ Object.defineProperty(globalThis, "localStorage", {
   value: { getItem: () => null, setItem: () => undefined },
 });
 
-await resetV7Database();
+await resetDatabase();
 const referenceTime = Date.parse("2026-09-17T00:00:00.000Z");
 const oldAt = "2025-01-01T00:00:00.000Z";
 const recentAt = "2026-09-16T00:00:00.000Z";
-const bank = await createBankV7("题库详情性能");
-const question = await createQuestionV7(bank.id, {
+const bank = await createBank("题库详情性能");
+const question = await createQuestion(bank.id, {
   type: "判断",
   stem: "性能题",
   options: ["对", "错"],
@@ -23,7 +24,7 @@ const question = await createQuestionV7(bank.id, {
   solution: { kind: "choice", correctOptionIds: ["opt-0"] },
 });
 
-const attempt = (id: string, createdAt: string): AttemptV7 => ({
+const attempt = (id: string, createdAt: string): Attempt => ({
   id,
   runId: "bank-detail-perf",
   questionId: question.id,
@@ -33,13 +34,13 @@ const attempt = (id: string, createdAt: string): AttemptV7 => ({
   createdAt,
   deviceId: "bank-detail-perf",
 });
-await dbV7.attempts.bulkPut([
+await studyDb.attempts.bulkPut([
   ...Array.from({ length: 1_000 }, (_, index) => attempt(`old-${index}`, oldAt)),
   attempt("recent-1", recentAt),
   attempt("recent-2", recentAt),
   attempt("recent-3", recentAt),
 ]);
-await dbV7.attemptStats.put({
+await studyDb.questionProgress.put({
   questionId: question.id,
   total: 1_003,
   correct: 1_003,
@@ -54,7 +55,9 @@ await dbV7.attemptStats.put({
   currentCorrectStreak: 1_003,
   recentOutcomes: [],
 });
-await dbV7.practiceRuns.bulkPut(Array.from({ length: 1_000 }, (_, index) => ({
+const historyRuns: PracticeRun[] = Array.from({ length: 1_000 }, (_, index) => {
+  const activityAt = new Date(Date.parse(oldAt) + index * 1_000).toISOString();
+  return {
   id: `history-run-${index}`,
   bankId: bank.id,
   bankIds: [bank.id],
@@ -66,41 +69,48 @@ await dbV7.practiceRuns.bulkPut(Array.from({ length: 1_000 }, (_, index) => ({
   answers: {},
   shuffleOptions: false,
   optionOrders: {},
-  startedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
-  updatedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
+  startedAt: activityAt,
+  updatedAt: activityAt,
+  completedAt: activityAt,
   status: "completed" as const,
   revision: 1,
-})));
-await dbV7.practiceRunStats.put({
-  key: bank.id,
+  };
+});
+const historyBundles = historyRuns.map((run) => decomposePracticeRun(run, []));
+await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems], async () => {
+  await studyDb.practiceRuns.bulkPut(historyBundles.map((bundle) => bundle.record));
+  await studyDb.practiceRunSources.bulkPut(historyBundles.flatMap((bundle) => bundle.sources));
+  await studyDb.practiceRunItems.bulkPut(historyBundles.flatMap((bundle) => bundle.items));
+});
+await studyDb.bankPracticeStats.put({
   bankId: bank.id,
   total: 1_000,
   completed: 1_000,
   inProgress: 0,
   abandoned: 0,
-  latestUpdatedAt: new Date(Date.parse(oldAt) + 999_000).toISOString(),
+  latestActivityAt: new Date(Date.parse(oldAt) + 999_000).toISOString(),
 });
 
-type ScopedReader = (bank: BankV7, scope: ProgressScope, referenceTime: number) => ReturnType<typeof readBankDetailDatasetV7>;
-const scopedReader = readBankDetailDatasetV7 as unknown as ScopedReader;
+type ScopedReader = (bank: Bank, scope: ProgressScope, referenceTime: number) => ReturnType<typeof readBankDetailDataset>;
+const scopedReader = readBankDetailDataset as unknown as ScopedReader;
 let attemptReads = 0;
 let runReads = 0;
-const attemptHook = (row: AttemptV7) => { attemptReads += 1; return row; };
-const runHook = (row: PracticeRunV7) => { runReads += 1; return row; };
-dbV7.attempts.hook("reading", attemptHook);
-dbV7.practiceRuns.hook("reading", runHook);
+const attemptHook = (row: Attempt) => { attemptReads += 1; return row; };
+const runHook = (row: PracticeRunRecord) => { runReads += 1; return row; };
+studyDb.attempts.hook("reading", attemptHook);
+studyDb.practiceRuns.hook("reading", runHook);
 const rolling = await scopedReader(bank, { type: "rolling", days: 90 }, referenceTime);
-dbV7.attempts.hook("reading").unsubscribe(attemptHook);
-dbV7.practiceRuns.hook("reading").unsubscribe(runHook);
+studyDb.attempts.hook("reading").unsubscribe(attemptHook);
+studyDb.practiceRuns.hook("reading").unsubscribe(runHook);
 assert.equal(rolling.attempts.length, 3, "滚动统计只需要窗口内 attempts");
 assert.equal(attemptReads, 3, "1,000 条窗口外历史不得被题库详情 materialize");
 assert.equal(rolling.runs.length, 5, "题库详情只需要最近 5 条练习记录");
 assert.equal(runReads, 5, "1,000 条历史 run 不得被题库详情全部 materialize");
 
 attemptReads = 0;
-dbV7.attempts.hook("reading", attemptHook);
+studyDb.attempts.hook("reading", attemptHook);
 const lifetime = await scopedReader(bank, { type: "lifetime" }, referenceTime);
-dbV7.attempts.hook("reading").unsubscribe(attemptHook);
+studyDb.attempts.hook("reading").unsubscribe(attemptHook);
 assert.equal(lifetime.attempts.length, 0, "全部时间题库统计应直接复用 attemptStats");
 assert.equal(attemptReads, 0, "全部时间题库统计不得重新读取 immutable attempts");
 
@@ -121,17 +131,17 @@ const progress = (roundId: string): ReviewRoundProgress => ({
   correctStreakAfterWrong: 0,
   recentOutcomes: [],
 });
-await dbV7.reviewRoundProgress.bulkPut([
+await studyDb.reviewRoundProgress.bulkPut([
   ...Array.from({ length: 1_000 }, (_, index) => progress(`other-${index}`)),
   progress("target-round"),
 ]);
 let roundReads = 0;
 const roundHook = (row: ReviewRoundProgress) => { roundReads += 1; return row; };
-dbV7.reviewRoundProgress.hook("reading", roundHook);
+studyDb.reviewRoundProgress.hook("reading", roundHook);
 const round = await scopedReader(bank, { type: "round", roundId: "target-round" }, referenceTime);
-dbV7.reviewRoundProgress.hook("reading").unsubscribe(roundHook);
+studyDb.reviewRoundProgress.hook("reading").unsubscribe(roundHook);
 assert.equal(round.roundProgress.length, 1, "轮次统计只需要当前轮次 progress");
 assert.equal(roundReads, 1, "其他轮次 progress 不得被题库详情 materialize");
 
-await dbV7.close();
+await studyDb.close();
 console.log("bank detail read performance tests passed: scoped reads avoid full attempt and round history scans");

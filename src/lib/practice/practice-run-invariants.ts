@@ -1,6 +1,6 @@
-import type { PracticeRunV7 } from "../db/v7-types";
+import type { PracticeRun } from "../db/types";
 
-type PracticeRunMappings = Pick<PracticeRunV7, "questionTypes" | "answers" | "optionOrders"> & { questionIds: readonly string[] };
+type PracticeRunMappings = Pick<PracticeRun, "questionTypes" | "answers" | "optionOrders"> & { questionIds: readonly string[] };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -12,7 +12,7 @@ function validDate(value: unknown): boolean {
   return typeof value === "string" && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value));
 }
 
-export function restrictPracticeRunMappingsV7(run: PracticeRunV7): PracticeRunV7 {
+export function restrictPracticeRunMappings(run: PracticeRun): PracticeRun {
   const questionIds = new Set(run.questionIds);
   return {
     ...run,
@@ -22,7 +22,7 @@ export function restrictPracticeRunMappingsV7(run: PracticeRunV7): PracticeRunV7
   };
 }
 
-export function practiceRunMappingIssueV7(run: PracticeRunMappings): { field: "questionTypes" | "answers" | "optionOrders"; questionId: string } | undefined {
+export function practiceRunMappingIssue(run: PracticeRunMappings): { field: "questionTypes" | "answers" | "optionOrders"; questionId: string } | undefined {
   const questionIds = new Set(run.questionIds);
   for (const field of ["questionTypes", "answers", "optionOrders"] as const) {
     for (const questionId of Object.keys(run[field])) if (!questionIds.has(questionId)) return { field, questionId };
@@ -30,15 +30,15 @@ export function practiceRunMappingIssueV7(run: PracticeRunMappings): { field: "q
   return undefined;
 }
 
-export function practiceRunPayloadIssueV7(value: Record<string, unknown>, questionIds: readonly string[]): string | undefined {
+export function practiceRunPayloadIssue(value: Record<string, unknown>, questionIds: readonly string[]): string | undefined {
   if (!isRecord(value.questionTypes)) return "questionTypes must be an object";
   if (!isRecord(value.answers)) return "answers must be an object";
   if (typeof value.shuffleOptions !== "boolean" || !isRecord(value.optionOrders)) return "option state is invalid";
-  const mappingIssue = practiceRunMappingIssueV7({
+  const mappingIssue = practiceRunMappingIssue({
     questionIds,
-    questionTypes: value.questionTypes as PracticeRunV7["questionTypes"],
-    answers: value.answers as PracticeRunV7["answers"],
-    optionOrders: value.optionOrders as PracticeRunV7["optionOrders"],
+    questionTypes: value.questionTypes as PracticeRun["questionTypes"],
+    answers: value.answers as PracticeRun["answers"],
+    optionOrders: value.optionOrders as PracticeRun["optionOrders"],
   });
   if (mappingIssue) return `${mappingIssue.field} key ${mappingIssue.questionId} is outside questionIds`;
   if (!validDate(value.startedAt)) return "startedAt must be an ISO timestamp";

@@ -2,7 +2,7 @@
 import { Check, ChevronLeft, ChevronRight, CircleHelp, Eye, Grid3X3, NotebookPen, Pencil, RefreshCw, Star, X } from "lucide-react";
 import { difficultyLabel, difficultyTone, type AttemptSummary } from "@/lib/practice/practice-metrics";
 import { formatKeyboardShortcut } from "@/lib/practice/keyboard-shortcuts";
-import type { AttemptOutcome } from "@/lib/db/v7-types";
+import type { AttemptOutcome } from "@/lib/db/types";
 import type { PracticePreferences, Question, QuestionType } from "../helpers";
 import { Hint } from "@/app/ui/hint";
 import { NoteMarkdown } from "@/app/ui/note-markdown";

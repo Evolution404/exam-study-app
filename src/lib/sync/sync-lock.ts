@@ -22,7 +22,7 @@ export async function withSyncLock<T>(operation: () => Promise<T>): Promise<T> {
   await previous;
   try {
     const locks = browserLocks();
-    if (locks) return await locks.request("shijuan-study-v7-sync", { mode: "exclusive" }, operation);
+    if (locks) return await locks.request("shijuan-study-sync", { mode: "exclusive" }, operation);
     return await operation();
   } finally {
     release();

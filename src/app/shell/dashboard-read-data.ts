@@ -1,8 +1,8 @@
-import { dbV7 } from "@/lib/db/db-v7";
-import type { AttemptStatsV7 } from "@/lib/db/v7-types";
+import { studyDb } from "@/lib/db/db";
+import type { AttemptStats } from "@/lib/db/types";
 import { normalizeProgressScope, progressScopeCutoff, type ProgressScope } from "@/lib/practice/progress-scope";
 
-export function summarizeDashboardLifetimeStatsV7(attemptStats: readonly AttemptStatsV7[]) {
+export function summarizeDashboardLifetimeStats(attemptStats: readonly AttemptStats[]) {
   let attempts = 0;
   let correct = 0;
   let lastAttemptAt: string | undefined;
@@ -14,7 +14,7 @@ export function summarizeDashboardLifetimeStatsV7(attemptStats: readonly Attempt
   return { attempts, correct, lastAttemptAt };
 }
 
-export async function readDashboardScopedRowsV7(
+export async function readDashboardScopedRows(
   questionIds: readonly string[],
   scope: ProgressScope,
   referenceTime: number,
@@ -26,12 +26,12 @@ export async function readDashboardScopedRowsV7(
   const idSet = new Set(ids);
 
   const notesPromise = options.allQuestions
-    ? dbV7.notes.toArray()
-    : dbV7.notes.bulkGet(ids).then((rows) => rows.filter((row) => row !== undefined));
+    ? studyDb.notes.toArray()
+    : studyDb.notes.bulkGet(ids).then((rows) => rows.filter((row) => row !== undefined));
 
   if (normalized.type === "round") {
     const [roundRows, notes] = await Promise.all([
-      dbV7.reviewRoundProgress.where("roundId").equals(normalized.roundId).toArray(),
+      studyDb.reviewRoundProgress.where("roundId").equals(normalized.roundId).toArray(),
       notesPromise,
     ]);
     return {
@@ -44,18 +44,18 @@ export async function readDashboardScopedRowsV7(
 
   if (normalized.type === "lifetime") {
     const [attemptStatsRows, notes] = await Promise.all([
-      dbV7.attemptStats.bulkGet(ids),
+      studyDb.questionProgress.bulkGet(ids),
       notesPromise,
     ]);
     return {
       attempts: [],
-      attemptStats: attemptStatsRows.filter((row): row is AttemptStatsV7 => row !== undefined),
+      attemptStats: attemptStatsRows.filter((row): row is AttemptStats => row !== undefined),
       roundProgress: [],
       notes,
     };
   }
 
-  const attemptsPromise = dbV7.attempts.where("createdAt").between(
+  const attemptsPromise = studyDb.attempts.where("createdAt").between(
     new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
     new Date(referenceTime).toISOString(),
     true,

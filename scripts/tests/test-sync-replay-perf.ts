@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { AttemptV7, BankV7, PracticeRunV7, QuestionV7 } from "../../src/lib/db/v7-types";
-import { type ChangeSetV7 } from "../../src/lib/sync/change-set-v7-types";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
+import { createBank, createQuestion, studyDb, resetDatabase } from "../../src/lib/db/db";
+import type { Attempt, Bank, PracticeRun, Question } from "../../src/lib/db/types";
+import { type ChangeSet } from "../../src/lib/sync/change-set-types";
+import { createChangeSet } from "../../src/lib/sync/change-set-codec";
 import {
-  applyChangeSetToOwnedProjectionV7,
-  finalizeRebasedProjectionV7,
-  reduceChangeSetsV7,
-  replayChangeSetBatchV7,
-  type ChangeSetProjectionV7,
-} from "../../src/lib/sync/change-set-v7-projection";
-import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
+  applyChangeSetToOwnedProjection,
+  finalizeRebasedProjection,
+  reduceChangeSets,
+  replayChangeSetBatch,
+  type ChangeSetProjection,
+} from "../../src/lib/sync/change-set-projection";
+import { discardManagedChangeSet, ensureChangeSetQueueBase } from "../../src/lib/sync/change-set-queue";
 
 // 批量重放提速套件（Part C 防回退）：
 //   1. 等价性 —— 批量重放与逐条 reduce 的最终投影 deepEqual（含 bulk.delete、
@@ -20,15 +20,15 @@ import { discardManagedChangeSetV7, ensureChangeSetQueueBaseV7 } from "../../src
 //      （浅信封回滚安全）；
 //   3. strict 模式 —— onConflict:"throw" 首个失败即抛；
 //   4. 性能 —— 大投影 × 100 条 change 的批量重放明显快于逐条路径；
-//   5. 队列删除 discardManagedChangeSetV7 在 60 条 pending 下正确。
+//   5. 队列删除 discardManagedChangeSet 在 60 条 pending 下正确。
 
 let currentDeviceId = "device-a";
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    getItem: (key: string) => (key === "shijuan-study-v7-device-id" ? currentDeviceId : null),
+    getItem: (key: string) => (key === "shijuan-study-device-id" ? currentDeviceId : null),
     setItem: (key: string, value: string) => {
-      if (key === "shijuan-study-v7-device-id") currentDeviceId = value;
+      if (key === "shijuan-study-device-id") currentDeviceId = value;
     },
   },
 });
@@ -37,18 +37,18 @@ const at = "2026-08-01T00:00:00.000Z";
 const deviceId = "device-perf";
 let sequence = 0;
 
-async function cs(mutations: Parameters<typeof createChangeSetV7>[0]["mutations"]): Promise<ChangeSetV7> {
-  return createChangeSetV7({ deviceId, localSequence: ++sequence, createdAt: at, mutations });
+async function cs(mutations: Parameters<typeof createChangeSet>[0]["mutations"]): Promise<ChangeSet> {
+  return createChangeSet({ deviceId, localSequence: ++sequence, createdAt: at, mutations });
 }
 
-function emptyProjection(): ChangeSetProjectionV7 {
+function emptyProjection(): ChangeSetProjection {
   return { banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [], practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [] };
 }
 
 // 构造一个有分量的投影：500 题 + 一个进行中的 run（答案逐题提交会触发 copy-on-write）。
-function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
+function bigProjection(seedQuestions: number): ChangeSetProjection {
   const projection = emptyProjection();
-  const bank: BankV7 = { id: "bank-1", name: "性能题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId };
+  const bank: Bank = { id: "bank-1", name: "性能题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId };
   projection.banks.push(bank);
   const questionIds: string[] = [];
   for (let index = 0; index < seedQuestions; index += 1) {
@@ -62,15 +62,15 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
       optionIds,
       solution: { kind: "choice" as const, correctOptionIds: [optionIds[0]!] },
       tags: ["性能"], favorite: false, contentFingerprint: `fp-${index}`, updatedAt: at, deviceId,
-    } satisfies QuestionV7;
+    } satisfies Question;
     projection.questions.push(question);
     projection.memberships.push({ key: `bank-1:${id}`, bankId: "bank-1", questionId: id, sortOrder: 0, addedAt: at, updatedAt: at, deviceId });
   }
   const questionTypes = Object.fromEntries(questionIds.map((id) => [id, "单选"]));
-  const run = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "性能题库", mode: "sequential" as const, modeLabel: "练习", questionIds, questionTypes, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress" as const, revision: 0 } satisfies PracticeRunV7;
+  const run = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "性能题库", mode: "sequential" as const, modeLabel: "练习", questionIds, questionTypes, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress" as const, revision: 0 } satisfies PracticeRun;
   projection.practiceRuns.push(run);
   for (const [index, questionId] of questionIds.entries()) {
-    const attempt = { id: `a-${index}`, runId: "run-1", questionId, selected: "A", correct: index % 3 !== 0, elapsedMs: 100, createdAt: at, deviceId } satisfies AttemptV7;
+    const attempt = { id: `a-${index}`, runId: "run-1", questionId, selected: "A", correct: index % 3 !== 0, elapsedMs: 100, createdAt: at, deviceId } satisfies Attempt;
     projection.attempts.push(attempt);
   }
   return projection;
@@ -81,7 +81,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   const base = bigProjection(500);
   // 100 条混合 change：80 条作答提交（触发 runWithAnswer copy-on-write）、
   // 10 条 bulk.delete（每批 5 题）、10 条解析写入。
-  const changes: ChangeSetV7[] = [];
+  const changes: ChangeSet[] = [];
   for (let index = 0; index < 80; index += 1) {
     const questionId = `q-${index}`;
     changes.push(await cs([
@@ -104,10 +104,10 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   assert.equal(changes.length, 100);
 
   const sequentialStarted = performance.now();
-  const sequential = reduceChangeSetsV7(base, changes);
+  const sequential = reduceChangeSets(base, changes);
   const sequentialElapsed = performance.now() - sequentialStarted;
   const batchStarted = performance.now();
-  const batch = replayChangeSetBatchV7(base, changes);
+  const batch = replayChangeSetBatch(base, changes);
   const batchElapsed = performance.now() - batchStarted;
 
   assert.deepEqual(batch.skipped, [], "等价性场景中不应有跳过记录");
@@ -134,7 +134,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
   ]);
   const after = await cs([{ kind: "note.upserted" as const, note: { questionId: "q-3", content: "毒后写入", revision: 1, updatedAt: at, deviceId } }]);
 
-  const batch = replayChangeSetBatchV7(base, [good, poison, after]);
+  const batch = replayChangeSetBatch(base, [good, poison, after]);
   assert.deepEqual(batch.skipped, [poison.id], "只有毒记录被跳过");
   assert.ok(batch.projection.notes.some((note) => note.questionId === "q-1" && note.content === "先写入"), "毒前的写入保留");
   assert.ok(!batch.projection.notes.some((note) => note.content === "毒记录部分写入"), "毒记录的部分写入必须整体回滚（信封丢弃）");
@@ -146,7 +146,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 {
   const base = bigProjection(10);
   const poison = await cs([{ kind: "question.delete" as const, questionId: "missing", cascade: true, deletedAt: at }]);
-  assert.throws(() => replayChangeSetBatchV7(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
+  assert.throws(() => replayChangeSetBatch(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
 }
 
 // --- 4. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
@@ -155,7 +155,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
 // 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
 {
   const base = bigProjection(50);
-  const good: ChangeSetV7[] = [];
+  const good: ChangeSet[] = [];
   for (let index = 0; index < 8; index += 1) {
     const questionId = `q-${index}`;
     good.push(await cs([
@@ -171,32 +171,32 @@ function bigProjection(seedQuestions: number): ChangeSetProjectionV7 {
     good.push(await cs([{ kind: "note.upserted" as const, note: { questionId: `q-${index + 10}`, content: `归并解析 ${index}`, revision: 1, updatedAt: at, deviceId } }]));
   }
 
-  const sequential = reduceChangeSetsV7(base, good);
-  let owned = base as ChangeSetProjectionV7;
-  for (const change of good) owned = applyChangeSetToOwnedProjectionV7(owned, change);
-  owned = finalizeRebasedProjectionV7(owned);
+  const sequential = reduceChangeSets(base, good);
+  let owned = base as ChangeSetProjection;
+  for (const change of good) owned = applyChangeSetToOwnedProjection(owned, change);
+  owned = finalizeRebasedProjection(owned);
   assert.deepEqual(owned, sequential, "owned 逐条 apply + 一次 finalize 必须与逐条 reduce 等价");
 
   const poison = await cs([
     { kind: "note.upserted" as const, note: { questionId: "q-20", content: "毒记录部分写入", revision: 1, updatedAt: at, deviceId } },
     { kind: "question.delete" as const, questionId: "does-not-exist", cascade: true, deletedAt: at },
   ]);
-  assert.throws(() => applyChangeSetToOwnedProjectionV7(owned, poison), /不存在/, "毒记录应抛出而非静默");
+  assert.throws(() => applyChangeSetToOwnedProjection(owned, poison), /不存在/, "毒记录应抛出而非静默");
   assert.ok(!owned.notes.some((note) => note.content === "毒记录部分写入"), "毒记录的部分写入必须整体回滚（owned 输入投影不受影响）");
   assert.equal(owned.questions.length, sequential.questions.length, "抛出后投影保持等价结果");
 }
 
 // --- 5. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
-const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-v7");
+const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-engine");
 const server = await startMockGitHubServer();
 const settings = { owner: "qa", repo: "replay-perf-vault", branch: "main", apiBaseUrl: server.url };
-await resetV7Database();
+await resetDatabase();
 currentDeviceId = "device-a";
 await syncWithGitHub(settings, "qa-token");
-const queueBank = await createBankV7("队列删除题库");
+const queueBank = await createBank("队列删除题库");
 for (let index = 0; index < 60; index += 1) {
-  await createQuestionV7(queueBank.id, {
+  await createQuestion(queueBank.id, {
     type: "单选",
     content: [{ id: `s-${index}`, type: "text", text: `队列题 ${index}` }],
     options: [[{ id: "o1", type: "text", text: "甲" }], [{ id: "o2", type: "text", text: "乙" }]],
@@ -205,16 +205,16 @@ for (let index = 0; index < 60; index += 1) {
     tags: [],
   });
 }
-await ensureChangeSetQueueBaseV7();
-const beforeCount = await dbV7.changeSets.count();
+await ensureChangeSetQueueBase();
+const beforeCount = await studyDb.changeSets.count();
 assert.ok(beforeCount >= 60, `应积累至少 60 条 pending（实际 ${beforeCount}，含建库事件）`);
-const records = await dbV7.changeSets.toArray();
+const records = await studyDb.changeSets.toArray();
 const discardTarget = records[30]!;
-await discardManagedChangeSetV7(discardTarget.id, { cascadeDependents: true });
-assert.equal(await dbV7.changeSets.count(), beforeCount - 1, "删除一条后队列恰好少一条");
-const remaining = await dbV7.changeSets.toArray();
+await discardManagedChangeSet(discardTarget.id, { cascadeDependents: true });
+assert.equal(await studyDb.changeSets.count(), beforeCount - 1, "删除一条后队列恰好少一条");
+const remaining = await studyDb.changeSets.toArray();
 assert.ok(!remaining.some((record) => record.id === discardTarget.id), "目标记录已移除");
 await server.close();
-dbV7.close();
+studyDb.close();
 
 console.log("sync replay perf tests passed: 批量/逐条 deepEqual、poison-skip 回滚安全、strict 模式、60 条队列删除");

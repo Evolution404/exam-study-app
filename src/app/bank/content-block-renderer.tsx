@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { MathText } from "@/app/ui/math-text";
-import type { ContentBlock, TextContentBlock } from "@/lib/db/v7-types";
+import type { ContentBlock, TextContentBlock } from "@/lib/db/types";
 import { AssetImage, type LoadAsset, type RetryAsset } from "@/app/ui/asset-image";
 
 export interface ContentBlockRendererProps {

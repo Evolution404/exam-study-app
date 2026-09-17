@@ -9,7 +9,7 @@ import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
 import { DashboardMetric, DashboardNumber, Distribution, PanelTitle, PriorityButton } from "./bank-dashboard-widgets";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
-import { readBankDetailDatasetV7 } from "./bank-detail-read";
+import { readBankDetailDataset } from "./bank-detail-read";
 
 const QUESTION_TYPE_COLORS: Record<QuestionType, string> = {
   单选: "#527f67",
@@ -38,7 +38,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
     return calendarDate(cutoff);
   })();
   const dataset = useLiveQuery(
-    () => readBankDetailDatasetV7(bank, normalizedScope, referenceTime, { from: activityFrom, to: activityTo }),
+    () => readBankDetailDataset(bank, normalizedScope, referenceTime, { from: activityFrom, to: activityTo }),
     [bank.id, normalizedScope.type, normalizedScope.type === "rolling" ? normalizedScope.days : normalizedScope.type === "round" ? normalizedScope.roundId : "", referenceTime, activityFrom, activityTo],
   );
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);

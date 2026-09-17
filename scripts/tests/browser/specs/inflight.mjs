@@ -3,7 +3,7 @@ import * as helpers from "../helpers.mjs";
 
 export async function runInFlightDeletionQA(page) {
   const contextName = "inflight";
-  const dbModuleUrl = new URL("/src/lib/db/db-v7.ts", harness.baseUrl).href;
+  const dbModuleUrl = new URL("/src/lib/db/db.ts", harness.baseUrl).href;
   await page.goto(`${harness.baseUrl}/`, { waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
   await helpers.importFixture(page);
@@ -20,15 +20,15 @@ export async function runInFlightDeletionQA(page) {
 
   // S1.1a：删除「当前题」→ 自动跳过到下一道存活题（skip-effect）
   const currentId = await page.evaluate(async ({ stemText, dbModuleUrl }) => {
-    const { dbV7 } = await import(dbModuleUrl);
-    const all = await dbV7.questions.toArray();
+    const { studyDb } = await import(dbModuleUrl);
+    const all = await studyDb.questions.toArray();
     const hit = all.find((q) => q.content.some((b) => b.type === "text" && b.text === stemText));
     return hit ? hit.id : null;
   }, { stemText: firstStem, dbModuleUrl });
   harness.assert.ok(currentId, "应能定位当前题 id");
   await page.evaluate(async ({ id, dbModuleUrl }) => {
-    const { deleteQuestionsV7 } = await import(dbModuleUrl);
-    await deleteQuestionsV7([id]);
+    const { deleteQuestions } = await import(dbModuleUrl);
+    await deleteQuestions([id]);
   }, { id: currentId, dbModuleUrl });
   await helpers.expectNotice(page, /题目已删除，自动跳过/, "delete-current-question skip notice");
   await page.waitForTimeout(400);
@@ -38,9 +38,9 @@ export async function runInFlightDeletionQA(page) {
 
   // S1.1b：一次性删除剩余全部题 → 优雅结束进结果页（练习中题目被删光）
   await page.evaluate(async (dbModuleUrl) => {
-    const { dbV7, deleteQuestionsV7 } = await import(dbModuleUrl);
-    const all = await dbV7.questions.toArray();
-    await deleteQuestionsV7(all.map((q) => q.id));
+    const { studyDb, deleteQuestions } = await import(dbModuleUrl);
+    const all = await studyDb.questions.toArray();
+    await deleteQuestions(all.map((q) => q.id));
   }, dbModuleUrl);
   await helpers.expectNotice(page, /练习中的题目已被删除，本次练习结束/, "all-questions-deleted end notice");
   await page.locator(".run-result").waitFor({ state: "visible" });
@@ -56,14 +56,14 @@ export async function runInFlightDeletionQA(page) {
   await page.locator(".question-card").waitFor({ state: "visible" });
   await page.waitForTimeout(300);
   const bankId = await page.evaluate(async (dbModuleUrl) => {
-    const { dbV7 } = await import(dbModuleUrl);
-    const bank = (await dbV7.banks.toArray())[0];
+    const { studyDb } = await import(dbModuleUrl);
+    const bank = (await studyDb.banks.toArray())[0];
     return bank?.id;
   }, dbModuleUrl);
   harness.assert.ok(bankId, "应能定位练习题库 id");
   await page.evaluate(async ({ id, dbModuleUrl }) => {
-    const { deleteBankV7 } = await import(dbModuleUrl);
-    await deleteBankV7(id);
+    const { deleteBank } = await import(dbModuleUrl);
+    await deleteBank(id);
   }, { id: bankId, dbModuleUrl });
   await helpers.expectNotice(page, /题库已被删除|练习已结束/, "bank-deleted-during-practice notice (E3)");
   await page.waitForTimeout(400);

@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Cloud } from "lucide-react";
-import { getImageCacheSizeV7 } from "@/lib/db/db-v7";
+import { getImageCacheSize } from "@/lib/db/db";
 import { syncApplication } from "@/lib/sync/sync-application";
 import type { ImageCacheDownloadProgress } from "@/lib/sync/image-asset-cache";
 
 export function ImageCacheSetting({ onNotice }: { onNotice: (message: string) => void }) {
-  const cachedBytes = useLiveQuery(() => getImageCacheSizeV7(), []) ?? 0;
+  const cachedBytes = useLiveQuery(() => getImageCacheSize(), []) ?? 0;
   const [busy, setBusy] = useState(false);
   const [assetCount, setAssetCount] = useState<number | undefined>();
   const [progress, setProgress] = useState<ImageCacheDownloadProgress>();

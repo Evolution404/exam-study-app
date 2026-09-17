@@ -1,6 +1,6 @@
 import type { GitHubSettings } from "../../types/types";
-import { recomputeChangeSetProjectionV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
-import type { ChangeSetV7 } from "./change-set-v7-types";
+import { recomputeChangeSetProjection, type ChangeSetProjection } from "./change-set-projection";
+import type { ChangeSet } from "./change-set-types";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -20,7 +20,7 @@ export function historyTimestampIncluded(timestamp: string, start?: string): boo
 
 /** Old, unsent history-only events are deliberately dropped when a device
  * narrows its range. Content edits and explicit deletes are never suppressed. */
-export function changeSetOutsideHistoryRange(change: ChangeSetV7, start?: string): boolean {
+export function changeSetOutsideHistoryRange(change: ChangeSet, start?: string): boolean {
   const normalized = normalizeHistorySyncStart(start);
   if (!normalized) return false;
   const timestamps = change.mutations.map((mutation): string | undefined => {
@@ -37,11 +37,11 @@ export function changeSetOutsideHistoryRange(change: ChangeSetV7, start?: string
  * Active local runs are retained even when they started before the selected
  * date; their attempts stay with them so an in-flight session remains usable.
  */
-export function filterProjectionHistoryV7(projection: ChangeSetProjectionV7, start?: string): ChangeSetProjectionV7 {
+export function filterProjectionHistory(projection: ChangeSetProjection, start?: string): ChangeSetProjection {
   const normalized = normalizeHistorySyncStart(start);
-  if (!normalized) return recomputeChangeSetProjectionV7(projection);
+  if (!normalized) return recomputeChangeSetProjection(projection);
   const practiceRuns = projection.practiceRuns.filter((run) => run.status === "in_progress" || historyTimestampIncluded(run.startedAt, normalized));
   const activeRunIds = new Set(practiceRuns.filter((run) => run.status === "in_progress").map((run) => run.id));
   const attempts = projection.attempts.filter((attempt) => activeRunIds.has(attempt.runId) || historyTimestampIncluded(attempt.createdAt, normalized));
-  return recomputeChangeSetProjectionV7({ ...projection, attempts, practiceRuns });
+  return recomputeChangeSetProjection({ ...projection, attempts, practiceRuns });
 }

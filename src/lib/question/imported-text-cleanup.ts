@@ -1,4 +1,4 @@
-import type { ContentBlock, QuestionV7 } from "../db/v7-types";
+import type { ContentBlock, Question } from "../db/types";
 
 const VISUAL_WRAP_EXTRACTION_SOURCE = /原图提取版/i;
 
@@ -19,7 +19,7 @@ function cleanBlocks(blocks: readonly ContentBlock[]): ContentBlock[] {
 }
 
 /** Presentation cleanup for an affected workbook that is already in IndexedDB. */
-export function cleanVisualWrapQuestion(question: QuestionV7, sourceName: string): QuestionV7 {
+export function cleanVisualWrapQuestion(question: Question, sourceName: string): Question {
   if (!isVisualWrapExtractionSource(sourceName)) return question;
   return {
     ...question,

@@ -92,19 +92,19 @@ assert.match(validatePracticeSetup(state({ types: [] }), 100).typeError, /至少
 assert.match(validatePracticeSetup(state({ amountChoice: "custom", requestedRandomCount: 101 }), 100).customRandomError, /1–100/);
 
 const componentSource = fs.readFileSync(new URL("../../src/app/practice/practice-setup.tsx", import.meta.url), "utf8");
-const readSource = fs.readFileSync(new URL("../../src/lib/db/practice-setup-read-v7.ts", import.meta.url), "utf8");
+const readSource = fs.readFileSync(new URL("../../src/lib/db/practice-setup-read.ts", import.meta.url), "utf8");
 const sessionControllerSource = fs.readFileSync(new URL("../../src/app/shell/use-practice-session-controller.ts", import.meta.url), "utf8");
 const practiceStartDataSource = fs.readFileSync(new URL("../../src/app/shell/practice-start-data.ts", import.meta.url), "utf8");
-assert.match(componentSource, /readPracticeSetupDatasetV7\(bankIds\)/, "Practice Setup 必须使用独立 canonical read-model");
-assert.doesNotMatch(componentSource, /dbV7|attemptStats\.toArray\(\)|reviewRoundProgress\.toArray\(\)/, "Practice Setup React owner 不得直接扫描 IndexedDB 历史表");
-assert.match(readSource, /dbV7\.attemptStats\.bulkGet\(ids\)/, "Practice Setup attemptStats 必须按 questionId 主键定向读取");
-assert.match(readSource, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup round progress 必须按 questionId 索引定向读取");
-assert.match(readSource, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup attempts 必须按 questionId 索引定向读取");
-assert.doesNotMatch(readSource, /dbV7\.(?:attemptStats|reviewRoundProgress|attempts)\.toArray\(\)/, "Practice Setup read-model 不得回退历史全表扫描");
-assert.match(sessionControllerSource, /preparePracticeStartQuestionsV7\(questions, filter, preferences\)/, "开始练习筛选必须委托独立 read-model，避免 controller 重新承担历史扫描和大数组筛选");
-assert.match(practiceStartDataSource, /readPracticeSetupHistoryForQuestionIdsV7\(questionIds, \{[\s\S]*includeAttempts: wrongRemovalStreak !== undefined && progressScope\.type !== "round"/, "练习启动 read-model 必须复用定向历史读取，并只在错题非轮次口径读取逐条 attempts");
-assert.match(readSource, /includeAttempts \? dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\) : Promise\.resolve\(\[\]\)/, "普通开始练习路径必须能跳过 attempts materialization");
-assert.match(practiceStartDataSource, /readPracticeStartDataV7\(questions\.map\(\(question\) => question\.id\)/, "练习启动筛选必须先缩小题目集合，再按候选题定向读取历史");
-assert.doesNotMatch(sessionControllerSource, /dbV7\.attemptStats\.toArray\(\)[\s\S]*dbV7\.reviewRoundProgress\.toArray\(\)[\s\S]*dbV7\.attempts\.toArray\(\)/, "开始练习不得恢复全量历史三表扫描");
+assert.match(componentSource, /readPracticeSetupDataset\(bankIds\)/, "Practice Setup 必须使用独立 canonical read-model");
+assert.doesNotMatch(componentSource, /studyDb|attemptStats\.toArray\(\)|reviewRoundProgress\.toArray\(\)/, "Practice Setup React owner 不得直接扫描 IndexedDB 历史表");
+assert.match(readSource, /studyDb\.questionProgress\.bulkGet\(ids\)/, "Practice Setup questionProgress 必须按 questionId 主键定向读取");
+assert.match(readSource, /studyDb\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup round progress 必须按 questionId 索引定向读取");
+assert.match(readSource, /studyDb\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup attempts 必须按 questionId 索引定向读取");
+assert.doesNotMatch(readSource, /studyDb\.(?:questionProgress|reviewRoundProgress|attempts)\.toArray\(\)/, "Practice Setup read-model 不得回退历史全表扫描");
+assert.match(sessionControllerSource, /preparePracticeStartQuestions\(questions, filter, preferences\)/, "开始练习筛选必须委托独立 read-model，避免 controller 重新承担历史扫描和大数组筛选");
+assert.match(practiceStartDataSource, /readPracticeSetupHistoryForQuestionIds\(questionIds, \{[\s\S]*includeAttempts: wrongRemovalStreak !== undefined && progressScope\.type !== "round"/, "练习启动 read-model 必须复用定向历史读取，并只在错题非轮次口径读取逐条 attempts");
+assert.match(readSource, /includeAttempts \? studyDb\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\) : Promise\.resolve\(\[\]\)/, "普通开始练习路径必须能跳过 attempts materialization");
+assert.match(practiceStartDataSource, /readPracticeStartData\(questions\.map\(\(question\) => question\.id\)/, "练习启动筛选必须先缩小题目集合，再按候选题定向读取历史");
+assert.doesNotMatch(sessionControllerSource, /studyDb\.questionProgress\.toArray\(\)[\s\S]*studyDb\.reviewRoundProgress\.toArray\(\)[\s\S]*studyDb\.attempts\.toArray\(\)/, "开始练习不得恢复全量历史三表扫描");
 
 console.log("practice setup model tests passed: canonical filter model, validation and targeted read ownership");

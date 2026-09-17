@@ -1,14 +1,14 @@
-import type { QuestionTypeV7 } from "../db/v7-types";
+import type { QuestionType } from "../db/types";
 import { normalizeProgressScope, type ProgressScope } from "./progress-scope";
 import { QUESTION_TYPE_ORDER } from "../../types/types";
 
-export type V7PracticeMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
+export type PracticeSetupMode = "random30" | "randomCustom" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult" | "tag" | "advanced";
 export type PracticeAmountChoice = "default" | "custom" | "all";
 
-export interface V7PracticeFilter {
+export interface PracticeSetupFilter {
   bankIds: string[];
-  mode: V7PracticeMode;
-  types: QuestionTypeV7[];
+  mode: PracticeSetupMode;
+  types: QuestionType[];
   tags: string[];
   tagMatch: "any" | "all";
   status: "all" | "unanswered" | "wrong" | "favorite";
@@ -30,22 +30,22 @@ export interface V7PracticeFilter {
 }
 
 export interface PracticeCombo {
-  status: V7PracticeFilter["status"];
-  order: V7PracticeFilter["order"];
+  status: PracticeSetupFilter["status"];
+  order: PracticeSetupFilter["order"];
   amount: PracticeAmountChoice;
 }
 
 export interface PracticeSetupFormState {
   bankIds: readonly string[];
-  types: readonly QuestionTypeV7[];
+  types: readonly QuestionType[];
   selectedTags: readonly string[];
-  tagMatch: V7PracticeFilter["tagMatch"];
-  status: V7PracticeFilter["status"];
-  order: V7PracticeFilter["order"];
+  tagMatch: PracticeSetupFilter["tagMatch"];
+  status: PracticeSetupFilter["status"];
+  order: PracticeSetupFilter["order"];
   amountChoice: PracticeAmountChoice;
   requestedRandomCount: number;
   keyword: string;
-  keywordMode: V7PracticeFilter["keywordMode"];
+  keywordMode: PracticeSetupFilter["keywordMode"];
   totalAttemptsMin: string;
   totalAttemptsMax: string;
   wrongAttemptsMin: string;
@@ -69,7 +69,7 @@ export interface PracticeSetupValidation {
   disabled: boolean;
 }
 
-export const PRACTICE_QUESTION_TYPES: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
+export const PRACTICE_QUESTION_TYPES: QuestionType[] = [...QUESTION_TYPE_ORDER];
 
 function metricValue(value: string): number | null {
   return value === "" ? null : Math.max(0, Math.floor(Number(value)));
@@ -88,7 +88,7 @@ export function countAdvancedPracticeFilters(state: Pick<PracticeSetupFormState,
   ].filter(Boolean).length;
 }
 
-function advancedFieldsActive(filter: V7PracticeFilter, scopeOverridden: boolean): boolean {
+function advancedFieldsActive(filter: PracticeSetupFilter, scopeOverridden: boolean): boolean {
   return filter.types.length < PRACTICE_QUESTION_TYPES.length
     || Boolean(filter.keyword.trim())
     || filter.totalAttemptsMin !== null || filter.totalAttemptsMax !== null
@@ -98,7 +98,7 @@ function advancedFieldsActive(filter: V7PracticeFilter, scopeOverridden: boolean
     || scopeOverridden;
 }
 
-function derivePracticeMode(filter: V7PracticeFilter, groupSize: number, advancedActive: boolean): V7PracticeMode {
+function derivePracticeMode(filter: PracticeSetupFilter, groupSize: number, advancedActive: boolean): PracticeSetupMode {
   if (advancedActive || filter.status === "unanswered") return "advanced";
   if (filter.tags.length) return "tag";
   if (filter.status === "wrong") return "wrong";
@@ -109,7 +109,7 @@ function derivePracticeMode(filter: V7PracticeFilter, groupSize: number, advance
   return "sequential";
 }
 
-function composePracticeModeLabel(filter: V7PracticeFilter, amount: PracticeAmountChoice, requestedRandomCount: number, groupSize: number): string {
+function composePracticeModeLabel(filter: PracticeSetupFilter, amount: PracticeAmountChoice, requestedRandomCount: number, groupSize: number): string {
   const parts: string[] = [];
   if (filter.tags.length) parts.push(`标签 ${filter.tags.length} 个`);
   if (filter.status === "wrong") parts.push("错题");
@@ -125,13 +125,13 @@ function composePracticeModeLabel(filter: V7PracticeFilter, amount: PracticeAmou
 export function assemblePracticeFilter(
   state: PracticeSetupFormState,
   options: { combo?: PracticeCombo | null; quick?: boolean; groupSize: number },
-): V7PracticeFilter {
+): PracticeSetupFilter {
   const quick = options.quick ?? false;
   const combo = options.combo ?? null;
   const amount = quick && combo ? combo.amount : state.amountChoice;
   const quickLimit = combo?.amount === "default" ? options.groupSize : null;
   const comboLimit = state.amountChoice === "custom" ? state.requestedRandomCount : state.amountChoice === "default" ? options.groupSize : null;
-  const filter: V7PracticeFilter = {
+  const filter: PracticeSetupFilter = {
     bankIds: [...state.bankIds],
     mode: "sequential",
     types: quick ? [...PRACTICE_QUESTION_TYPES] : [...state.types],

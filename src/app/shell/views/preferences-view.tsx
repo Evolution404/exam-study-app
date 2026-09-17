@@ -1,10 +1,10 @@
 "use client";
 import { ListFilter, Moon, Settings2, Target } from "lucide-react";
-import { archiveReviewRoundV7, completeReviewRoundV7, createReviewRoundV7, updateReviewRoundV7 } from "@/lib/db/db-v7";
+import { archiveReviewRound, completeReviewRound, createReviewRound, updateReviewRound } from "@/lib/db/db";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ReviewRoundManager } from "@/app/practice/review-round-manager";
 import { ShortcutSetting } from "@/app/ui/shortcut-setting";
-import type { BankV7, ReviewRound } from "@/lib/db/v7-types";
+import type { Bank, ReviewRound } from "@/lib/db/types";
 import { SyncView, type PracticePreferences } from "../helpers";
 import { ThemeSetting } from "./theme-setting";
 import { GroupSizeSetting } from "./group-size-setting";
@@ -15,7 +15,7 @@ import { ImageCacheSetting } from "./image-cache-setting";
 import { SyncAutomationSetting } from "./sync-automation-setting";
 import { BuildVersionCard } from "./build-version-card";
 
-export function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly BankV7[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
+export function PreferencesView({ preferences, rounds, banks, pendingSync, onNotice, onChange, onRestored }: { preferences: PracticePreferences; rounds: readonly ReviewRound[]; banks: readonly Bank[]; pendingSync: number; onNotice: (message: string) => void; onChange: (value: PracticePreferences) => void; onRestored: (message: string) => void }) {
   const interactionItems: Array<{ key: "submitOnSelect" | "autoNextCorrect" | "showAnswerOnWrong" | "swipeNavigation" | "shuffleOptions" | "multiSelectAllAutoSubmit"; title: string; detail: string }> = [
     { key: "submitOnSelect", title: "选择后立即提交", detail: "默认开启，仅用于单选题和判断题；关闭后选择只会高亮，需要点击“确认答案”或按回车提交。" },
     { key: "autoNextCorrect", title: "答对后自动下一题", detail: "单选题和判断题选对后自动前进；多选题确认答案正确后自动前进。" },
@@ -54,10 +54,10 @@ export function PreferencesView({ preferences, rounds, banks, pendingSync, onNot
     <ReviewRoundManager
       rounds={rounds}
       banks={banks}
-      onCreate={async (name, bankIds) => { await createReviewRoundV7({ name, bankIds }); onNotice(`已创建复习轮次「${name}」`); }}
-      onUpdate={async (roundId, name, bankIds) => { await updateReviewRoundV7(roundId, { name, bankIds }); onNotice("复习轮次已更新"); }}
-      onComplete={async (roundId) => { await completeReviewRoundV7(roundId); onNotice("复习轮次已完成并保存最终快照"); }}
-      onArchive={async (roundId) => { await archiveReviewRoundV7(roundId); onNotice("复习轮次已归档"); }}
+      onCreate={async (name, bankIds) => { await createReviewRound({ name, bankIds }); onNotice(`已创建复习轮次「${name}」`); }}
+      onUpdate={async (roundId, name, bankIds) => { await updateReviewRound(roundId, { name, bankIds }); onNotice("复习轮次已更新"); }}
+      onComplete={async (roundId) => { await completeReviewRound(roundId); onNotice("复习轮次已完成并保存最终快照"); }}
+      onArchive={async (roundId) => { await archiveReviewRound(roundId); onNotice("复习轮次已归档"); }}
     />
     <ImageCacheSetting onNotice={onNotice} />
     <section className="preference-card"><div className="settings-title"><span><Target /></span><div><h2>阅读、反馈与目标</h2><p>调整显示密度，设置每天的练习目标。</p></div></div><div className="preference-list">

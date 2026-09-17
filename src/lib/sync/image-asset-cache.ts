@@ -3,9 +3,9 @@
 // Runtime image reads are pack-index based: one mutable index pointer locates a
 // small shard, and the shard locates an immutable multi-image Pack. Neither UI
 // nor export code ever performs one GitHub request per image anymore.
-import { clearImageCacheV7, dbV7, getImageAssetDescriptorV7, putImageAssetBlobV7 } from "../db/db-v7";
+import { clearImageCache as clearLocalImageCache, studyDb, getImageAssetDescriptor, putImageAssetBlob } from "../db/db";
 import { sha256Blob } from "../io/image-assets";
-import { createGitHubV7Remote } from "./github-v7-remote";
+import { createGitHubRemote } from "./github-remote";
 import { readImageAssetFromPack, readImageAssetsFromPacks } from "./image-asset-pack";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
@@ -25,19 +25,19 @@ export interface ImageCacheDownloadProgress {
 
 export type ImageCacheDownloadProgressCallback = (progress: ImageCacheDownloadProgress) => void;
 
-async function getImageCacheStatsV7() {
-  const assets = await dbV7.imageAssets.toArray();
+export async function getImageCacheStats() {
+  const [assets, cached] = await Promise.all([studyDb.imageAssets.toArray(), studyDb.imageBlobs.toArray()]);
   return {
     total: assets.length,
-    cached: assets.filter((asset) => Boolean(asset.blob)).length,
-    bytes: assets.reduce((sum, asset) => sum + (asset.blob?.size ?? 0), 0),
+    cached: cached.length,
+    bytes: cached.reduce((sum, asset) => sum + asset.blob.size, 0),
     totalBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
   };
 }
 
 function clientFor(settings: GitHubSettings, token: string, options: { fetch?: typeof fetch; transport?: GitHubTransport }) {
   const transport = options.transport ?? getGitHubTransport();
-  return createGitHubV7Remote({
+  return createGitHubRemote({
     owner: settings.owner,
     repo: settings.repo,
     branch: settings.branch?.trim() || "main",
@@ -53,26 +53,26 @@ async function verifiedRemoteBlob(asset: { id: string; mimeType: string; size: n
   return blob;
 }
 
-export async function downloadImageAssetV7(
+export async function downloadImageAsset(
   settings: GitHubSettings,
   token: string,
   assetId: string,
   options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal } = {},
 ): Promise<Blob> {
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
-  const descriptor = await getImageAssetDescriptorV7(assetId);
+  const descriptor = await getImageAssetDescriptor(assetId);
   if (!descriptor) throw new Error("图片 descriptor 不存在。");
   const bytes = await readImageAssetFromPack(clientFor(settings, token, options), assetId);
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
   const blob = await verifiedRemoteBlob(descriptor, bytes);
-  await putImageAssetBlobV7(assetId, blob);
+  await putImageAssetBlob(assetId, blob);
   return blob;
 }
 
 /** Resolve only the requested assets. Cached blobs stay local; all cache misses
  * are resolved through one index/shard/Pack batch so callers such as bank export
  * do not accidentally reintroduce one remote request chain per image. */
-export async function downloadImageAssetsV7(
+export async function downloadImageAssets(
   settings: GitHubSettings,
   token: string,
   assetIds: readonly string[],
@@ -83,10 +83,16 @@ export async function downloadImageAssetsV7(
   if (!ids.length) return result;
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
 
-  const descriptors = await dbV7.imageAssets.bulkGet(ids);
-  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !asset.blob));
+  const [descriptors, cachedRows] = await Promise.all([
+    studyDb.imageAssets.bulkGet(ids),
+    studyDb.imageBlobs.bulkGet(ids),
+  ]);
+  const cachedById = new Map(cachedRows.flatMap((row) => row ? [[row.assetId, row.blob] as const] : []));
+  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !cachedById.has(asset.id)));
   for (const asset of descriptors) {
-    if (asset?.blob) result.set(asset.id, asset.blob);
+    if (!asset) continue;
+    const blob = cachedById.get(asset.id);
+    if (blob) result.set(asset.id, blob);
   }
   if (!pending.length) return result;
 
@@ -96,19 +102,20 @@ export async function downloadImageAssetsV7(
     const bytes = bytesById.get(asset.id);
     if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
     const blob = await verifiedRemoteBlob(asset, bytes);
-    await putImageAssetBlobV7(asset.id, blob);
+    await putImageAssetBlob(asset.id, blob);
     result.set(asset.id, blob);
   }
   return result;
 }
 
-async function downloadAllImageAssetsV7(
+export async function downloadAllImageAssets(
   settings: GitHubSettings,
   token: string,
   options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {},
 ): Promise<number> {
-  const assets = await dbV7.imageAssets.toArray();
-  const pending = assets.filter((asset) => !asset.blob);
+  const assets = await studyDb.imageAssets.toArray();
+  const cachedIds = new Set((await studyDb.imageBlobs.bulkGet(assets.map((asset) => asset.id))).flatMap((row) => row ? [row.assetId] : []));
+  const pending = assets.filter((asset) => !cachedIds.has(asset.id));
   const total = pending.length;
   const totalBytes = pending.reduce((sum, asset) => sum + asset.size, 0);
   let completed = 0;
@@ -137,16 +144,13 @@ async function downloadAllImageAssetsV7(
     const bytes = bytesById.get(asset.id);
     if (!bytes) throw new Error(`图片 ${asset.id} 未从 Asset Pack 返回。`);
     const blob = await verifiedRemoteBlob(asset, bytes);
-    await putImageAssetBlobV7(asset.id, blob);
+    await putImageAssetBlob(asset.id, blob);
     completed += 1;
     completedBytes += blob.size;
     report();
   }
   return completed;
 }
-
-export const downloadImageAsset = downloadImageAssetV7;
-export const downloadImageAssets = downloadImageAssetsV7;
-export const downloadAllImageAssets = downloadAllImageAssetsV7;
-export const getImageCacheStats = getImageCacheStatsV7;
-export const clearImageCache = clearImageCacheV7;
+export async function clearImageCache(): Promise<number> {
+  return clearLocalImageCache();
+}

@@ -4,15 +4,26 @@
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
-> **下一阶段最高优先级：数据库架构整体重构。** 完整执行基线见 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`。不要继续为当前 schema 增加页面级查询补丁、兼容层或临时复合读取 helper。当前审计分支 `audit/code-audit-20260917` 已完成一轮正确性与规模性能修复；其 PR 合并后，从最新 `origin/main` 新建 `refactor/database-facts-projections-20260917` 实施数据库 cutover。
+> **当前工作面：PR #58 的 Phase 2 已完成收口，保持 Draft，禁止进入 Phase 3。** 实施分支 `refactor/database-facts-projections-20260917` 已完成 current schema/types、canonical facts 与关系化写路径、PracticeRun 正常化、图片 descriptor/blob cache 分离，以及 version-neutral 业务 API/type/file-name 清理。除非用户明确授权，不开始 Phase 3 projection engine，不合并、不发布、不执行 production remote cutover。
 
 > 2026-09-17 Bug / 性能审计记录见 `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`；后续又在 `audit/code-audit-20260917` 完成数据库写入竞态、删除引用完整性与 Bank Detail / Practice Detail 大历史读取优化。不要从 `main` 重复定位这些问题。
 >
 > 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。PR #55 已合并并发布，生产基线 merge commit 为 `694cb5ecb2edb4eab55da50eaa50af2640a61a61`。
 
+## 0.5 Phase 2 收口状态
+
+- PR #58 已完成 Phase 2：关系事实拆为 `questionGroupItems`、`reviewRoundBanks`、`reviewRoundItems`、`practiceRunSources`、`practiceRunItems`；`Attempt` 持有提交答案与复习轮次 provenance；`imageAssets` descriptor 与本地 `imageBlobs` cache 分离。
+- `PracticeRun` 主记录只保留会话元数据；已提交答案只以 `Attempt` 为事实，删除题库仍保留历史 run attribution snapshot。
+- 当前 Dexie schema 继续只有一个 `version(1)`；禁止 `version(2+)`、`.upgrade()`、旧 store、旧 API alias、双读/双写 compatibility layer。
+- `V7/v7/V8/v8` 业务 API、type、source filename 与旧 runtime/test 标签已清理；`scripts/tools/check-architecture.mjs` 负责阻止重新引入。真实 Sync v9 wire 继续保留。
+- iOS 原生偏好键已改为 version-neutral `CapacitorStorage.study-preferences`；同步 CI/package scripts 已切换到 version-neutral 名称。
+- PR CI 的主测试 job 直接执行 `make test`；Chromium/WebKit 浏览器 smoke、Sync storage CI、Governance Audit、PR Preview 都是 Phase 2 最终门禁的一部分。
+- 2026-09-17 Phase 2 代码验收基线 `1402459`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部通过；依赖审计为 0 vulnerabilities。
+- **停止线：Phase 3 尚未开始。除非用户明确授权，不实现 projection engine 后续阶段，不合并 PR #58，不发布。**
+
 ## 1. 当前基线
 
-- 分支：`main`；远端：`https://github.com/Evolution404/exam-study-app.git`
+- 当前实施分支：`refactor/database-facts-projections-20260917`；Draft PR #58，base 为 `main`。Phase 2 已收口，Phase 3 未开始。远端：`https://github.com/Evolution404/exam-study-app.git`
 - 线上：<https://evolution404.github.io/exam-study-app/>
 - 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
 - 公开客户端数据层：唯一 IndexedDB `shijuan-study`。所有客户端同步升级；schema 变更时清空本地数据并从远端重新同步，不保留旧 schema/旧命名空间迁移代码。
@@ -57,10 +68,10 @@ docs/          # 项目文档
 
 - **开发阶段禁止历史兼容层**：Dexie 只允许一个 `version(1)` 当前 schema，禁止 `version(2+)`、`.upgrade()`、schema migration/compat 文件；同步只允许当前 v9 namespace；旧本地配置键/旧 DB 命名空间不得恢复。门禁位于 `scripts/tools/check-architecture.mjs`。除非用户明确改变策略，否则不要为了“兼容旧客户端”新增分支。
 
-- `QuestionV7` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
+- `Question` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
 - 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
 - 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
-- 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。
+- 一次提交只创建一条 `Attempt` canonical fact 并发出一条 `practice.answer.submitted`；`practiceRunItems` 只保存 `submittedAttemptId` 与必要 draft，已提交答案不再复制到 PracticeRun 大 Map。
 - 个人难度以有效作答时间、作答间隔和本机成熟历史校准；后台、编辑器、题目总览不计时，速度基线只吸收有效正确作答。未作答固定为 50。
 - `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
 - 图片为私有资产：逻辑身份固定为 `assetId = SHA-256(image bytes)`；本地只存 Blob，不保存公开 URL。
@@ -76,18 +87,18 @@ docs/          # 项目文档
 - 冷启动恢复同时下载检查点和热窗口分段，总并发上限保持为 6；检查点按响应流字节持续上报下载进度，全部下载完成后仍按检查点再分段的确定顺序安装。
 - `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v9 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
 - head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。Asset Pack 发布独立使用 branch ref 的 fast-forward 检查，并在并发推进时重读后重试，不强推。
-- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v9。
+- UI/业务同步只通过 `sync-application.ts` / `sync-runtime.ts` 等公开边界进入同步层；业务 API/type/source filename 保持 version-neutral。远端 wire 仍明确为 Sync v9，`sync/v9/...` 与 `formatVersion: 9` 属于真实协议版本，不属于业务命名技术债。
 - 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v9 wire、head CAS、Asset Pack 和合并语义不因平台改变。
 - iOS 业务数据仍写唯一 `shijuan-study` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
 - GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
 
 ## 4. 关键文件
 
-- 数据模型：`src/lib/db/v7-types.ts`, `src/lib/db/db-v7.ts`, `src/lib/db/app-data-v7.ts`
-- 同步协议：`src/lib/sync/sync-v7-head.ts`, `src/lib/sync/sync-v7-codec.ts`, `src/lib/sync/sync-v7-payload.ts`,
-  `src/lib/sync/change-set-v7.ts`, `src/lib/sync/change-set-v7-projection.ts`, `src/lib/sync/change-set-v7-queue.ts`,
-  `src/lib/sync/github-v7-remote.ts`, `src/lib/sync/github-sync-v7.ts`, `src/lib/sync/github-sync.ts`
-- 图片 Pack：`src/lib/sync/image-asset-pack.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/sync/sync-v7-upload.ts`,
+- 数据模型：`src/lib/db/types.ts`, `src/lib/db/db-core.ts`, `src/lib/db/db.ts`, `src/lib/db/practice-run-store.ts`, `src/lib/db/review-round-store.ts`
+- 同步协议：`src/lib/sync/sync-head-types.ts`, `src/lib/sync/sync-codec.ts`, `src/lib/sync/sync-payload.ts`,
+  `src/lib/sync/change-set-types.ts`, `src/lib/sync/change-set-codec.ts`, `src/lib/sync/change-set-projection.ts`, `src/lib/sync/change-set-queue.ts`,
+  `src/lib/sync/github-remote.ts`, `src/lib/sync/github-sync.ts`, `src/lib/sync/sync-application.ts`, `src/lib/sync/sync-runtime.ts`
+- 图片 Pack：`src/lib/sync/image-asset-pack.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/sync/sync-upload.ts`,
   `scripts/tools/mock-github-server.mjs`, `scripts/tests/test-sync-mock-backend.ts`
 - 进度与轮次：`src/lib/practice/progress-scope.ts`, `src/app/practice/progress-scope-setting.tsx`,
   `src/app/practice/review-round-manager.tsx`, `src/app/practice/practice-setup.tsx`

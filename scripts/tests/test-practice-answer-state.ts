@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { derivePracticeAnswerState, isPracticeAnswerCorrect } from "../../src/lib/practice/practice-answer-state";
-import type { QuestionV7 } from "../../src/lib/db/v7-types";
+import type { Question } from "../../src/lib/db/types";
 
-const base = (overrides: Partial<QuestionV7>): QuestionV7 => ({
+const base = (overrides: Partial<Question>): Question => ({
   id: "q",
   type: "单选",
   content: [{ id: "stem", type: "text", text: "题目" }],

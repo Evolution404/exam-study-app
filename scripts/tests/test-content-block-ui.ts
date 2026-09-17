@@ -16,7 +16,7 @@ import {
   stepImageZoomIndex,
   stepImageZoomScale,
 } from "../../src/app/ui/asset-image";
-import type { ContentBlock } from "../../src/lib/db/v7-types";
+import type { ContentBlock } from "../../src/lib/db/types";
 
 const read = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
 const assetImage = read("src/app/ui/asset-image.tsx");

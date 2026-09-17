@@ -1,4 +1,4 @@
-const PRACTICE_AUTO_RESUME_SUPPRESSION_KEY = "study-v7-practice-auto-resume-suppressed-run-id";
+const PRACTICE_AUTO_RESUME_SUPPRESSION_KEY = "study-practice-auto-resume-suppressed-run-id";
 
 /**
  * Explicitly leaving a specific practice run is a device-local navigation

@@ -2,14 +2,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarDays, ChevronDown, ChevronUp, History, RotateCcw, Search, SlidersHorizontal, Tags } from "lucide-react";
-import { readPracticeSetupDatasetV7 } from "@/lib/db/practice-setup-read-v7";
+import { readPracticeSetupDataset } from "@/lib/db/practice-setup-read";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion as calc, normalizeProgressScope, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
-import type { BankV7, QuestionTypeV7, ReviewRound } from "@/lib/db/v7-types";
+import type { Bank, QuestionType, ReviewRound } from "@/lib/db/types";
 import {
   assemblePracticeFilter,
   countAdvancedPracticeFilters,
@@ -18,48 +18,48 @@ import {
   type PracticeAmountChoice,
   type PracticeCombo,
   type PracticeSetupFormState,
-  type V7PracticeFilter,
+  type PracticeSetupFilter,
 } from "@/lib/practice/practice-setup-model";
 import { presetCards, type PresetCard } from "./practice-setup-presets";
-export type { V7PracticeFilter, V7PracticeMode } from "@/lib/practice/practice-setup-model";
+export type { PracticeSetupFilter, PracticeSetupMode } from "@/lib/practice/practice-setup-model";
 
-const statusOptions: Array<{ id: V7PracticeFilter["status"]; label: string }> = [
+const statusOptions: Array<{ id: PracticeSetupFilter["status"]; label: string }> = [
   { id: "all", label: "全部" },
   { id: "unanswered", label: "未做过" },
   { id: "wrong", label: "错题" },
   { id: "favorite", label: "收藏" },
 ];
 
-const orderOptions: Array<{ id: V7PracticeFilter["order"]; label: string }> = [
+const orderOptions: Array<{ id: PracticeSetupFilter["order"]; label: string }> = [
   { id: "sequential", label: "题库顺序" },
   { id: "random", label: "随机" },
   { id: "difficulty", label: "复习优先" },
 ];
 
-const questionTypes: QuestionTypeV7[] = PRACTICE_QUESTION_TYPES;
+const questionTypes: QuestionType[] = PRACTICE_QUESTION_TYPES;
 
 export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart, hideHeading = false, groupSize = 30, defaultOrder = "sequential", progressScope = { type: "rolling", days: 90 }, wrongRemovalStreak = 3, rounds = [] }: {
-  banks: BankV7[];
+  banks: Bank[];
   currentBankIds: string[];
   onBankChange: (bankIds: string[]) => void;
-  onStart: (filter: V7PracticeFilter) => void;
+  onStart: (filter: PracticeSetupFilter) => void;
   hideHeading?: boolean;
   groupSize?: number;
-  defaultOrder?: V7PracticeFilter["order"];
+  defaultOrder?: PracticeSetupFilter["order"];
   progressScope?: ProgressScope;
   wrongRemovalStreak?: number;
   rounds?: readonly ReviewRound[];
 }) {
   const [bankIds, setBankIds] = useState(currentBankIds);
-  const [types, setTypes] = useState<QuestionTypeV7[]>(questionTypes);
+  const [types, setTypes] = useState<QuestionType[]>(questionTypes);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
-  const [status, setStatus] = useState<V7PracticeFilter["status"]>("all");
-  const [order, setOrder] = useState<V7PracticeFilter["order"]>(defaultOrder);
+  const [status, setStatus] = useState<PracticeSetupFilter["status"]>("all");
+  const [order, setOrder] = useState<PracticeSetupFilter["order"]>(defaultOrder);
   const [amountChoice, setAmountChoice] = useState<PracticeAmountChoice>("all");
   const [customRandomCount, setCustomRandomCount] = useState(String(groupSize));
   const [keyword, setKeyword] = useState("");
-  const [keywordMode, setKeywordMode] = useState<V7PracticeFilter["keywordMode"]>("plain");
+  const [keywordMode, setKeywordMode] = useState<PracticeSetupFilter["keywordMode"]>("plain");
   const [totalAttemptsMin, setTotalAttemptsMin] = useState("");
   const [totalAttemptsMax, setTotalAttemptsMax] = useState("");
   const [wrongAttemptsMin, setWrongAttemptsMin] = useState("");
@@ -75,7 +75,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const customCountInputRef = useRef<HTMLInputElement>(null);
   const tagSectionRef = useRef<HTMLDivElement>(null);
   const bankKey = bankIds.join("|");
-  const datasetQuery = useLiveQuery(() => readPracticeSetupDatasetV7(bankIds), [bankKey]);
+  const datasetQuery = useLiveQuery(() => readPracticeSetupDataset(bankIds), [bankKey]);
   const dataset = datasetQuery ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
   const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
@@ -99,7 +99,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
     if (amountChoice === "custom") customCountInputRef.current?.focus();
   }, [amountChoice]);
 
-  function toggleType(type: QuestionTypeV7) { setTypes(types.includes(type) ? types.filter((item) => item !== type) : [...types, type]); }
+  function toggleType(type: QuestionType) { setTypes(types.includes(type) ? types.filter((item) => item !== type) : [...types, type]); }
   function toggleBank(bankId: string) {
     const next = bankIds.includes(bankId) ? bankIds.filter((id) => id !== bankId) : [...bankIds, bankId];
     setBankIds(next);
@@ -133,7 +133,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const advancedFilterCount = countAdvancedPracticeFilters(setupState);
 
   // filter 组装的唯一出口：quick 卡片不读取自定义区；组合路径使用 canonical pure model。
-  function assembleFilter(combo: PracticeCombo | null, { quick = false } = {}): V7PracticeFilter {
+  function assembleFilter(combo: PracticeCombo | null, { quick = false } = {}): PracticeSetupFilter {
     return assemblePracticeFilter(setupState, { combo, quick, groupSize });
   }
 
@@ -224,7 +224,7 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
               <header><Search size={15} /><span><strong>关键词</strong><small>题干、选项、图片说明</small></span></header>
               <div className="advanced-keyword-row">
                 <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder={keywordMode === "regex" ? "例如：弧垂|导线|杆塔" : "输入关键词"} />
-                <AppSelect className="advanced-keyword-mode" ariaLabel="关键词方式" value={keywordMode} onValueChange={(value) => setKeywordMode(value as V7PracticeFilter["keywordMode"])} options={[{ value: "plain", label: "包含关键词" }, { value: "regex", label: "正则表达式" }]} />
+                <AppSelect className="advanced-keyword-mode" ariaLabel="关键词方式" value={keywordMode} onValueChange={(value) => setKeywordMode(value as PracticeSetupFilter["keywordMode"])} options={[{ value: "plain", label: "包含关键词" }, { value: "regex", label: "正则表达式" }]} />
               </div>
               {regexError && <p className="filter-error">{regexError}</p>}
             </section>

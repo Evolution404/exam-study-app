@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, BookOpenCheck, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Grid3X3, History, Pencil, Play, RotateCcw, Star, Trash2, XCircle } from "lucide-react";
-import { dbV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { studyDb, getPracticeRun, updateQuestion } from "@/lib/db/db";
 import { MathText } from "@/app/ui/math-text";
 import { formatCalculationAnswers, solutionAnswerText } from "@/lib/question/question-utils";
 import { Hint } from "@/app/ui/hint";
@@ -11,14 +11,14 @@ import { QuestionOverview } from "@/app/shell/views/question-overview";
 import { runActivityAt, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
-import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { PracticeRun, QuestionType } from "@/lib/db/types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
-import { latestInProgressPracticeRunV7, readPracticeHistoryV7 } from "@/lib/db/practice-run-read-v7";
-import { readDashboardScopedRowsV7 } from "@/app/shell/dashboard-read-data";
+import { latestInProgressPracticeRun, readPracticeHistory } from "@/lib/db/practice-run-read";
+import { readDashboardScopedRows } from "@/app/shell/dashboard-read-data";
 
-const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
+const TYPE_ORDER: QuestionType[] = [...QUESTION_TYPE_ORDER];
 
-function runStats(run: PracticeRunV7) {
+function runStats(run: PracticeRun) {
   const submitted = Object.values(run.answers).filter((answer) => answer.submitted);
   const correct = submitted.filter((answer) => answer.correct).length;
   return { answered: submitted.length, correct, wrong: submitted.length - correct, accuracy: submitted.length ? Math.round(correct / submitted.length * 100) : 0 };
@@ -28,10 +28,10 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-const statusText: Record<PracticeRunV7["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
+const statusText: Record<PracticeRun["status"], string> = { in_progress: "进行中", completed: "已完成", abandoned: "已放弃" };
 
 export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onViewAll: () => void }) {
-  const run = useLiveQuery(() => latestInProgressPracticeRunV7(), []);
+  const run = useLiveQuery(() => latestInProgressPracticeRun(), []);
   if (!run) return null;
   const stats = runStats(run);
   return <section className="latest-practice-banner">
@@ -40,7 +40,7 @@ export function LatestPracticeBanner({ onContinue, onAbandon, onViewAll }: { onC
   </section>;
 }
 
-function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRunV7; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
+function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run: PracticeRun; onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
   const stats = runStats(run);
   const [offset, setOffset] = useState(0);
   const drag = useRef<{ x: number; y: number; offset: number; horizontal: boolean } | null>(null);
@@ -77,9 +77,9 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
 }
 
 export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
-  const [status, setStatus] = useState<"all" | PracticeRunV7["status"]>("all");
+  const [status, setStatus] = useState<"all" | PracticeRun["status"]>("all");
   const [visibleLimit, setVisibleLimit] = useState(50);
-  const history = useLiveQuery(() => readPracticeHistoryV7(status, visibleLimit), [status, visibleLimit]);
+  const history = useLiveQuery(() => readPracticeHistory(status, visibleLimit), [status, visibleLimit]);
   const visible = history?.runs ?? [];
   const counts = history?.counts ?? { in_progress: 0, completed: 0, abandoned: 0 };
   return <section className="practice-history-card">
@@ -92,12 +92,12 @@ export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { o
 
 export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotice, onGroup, progressScope = { type: "lifetime" }, scopeLabel = "全部时间" }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: QuestionViewModel[], label: string, previousOptionOrders: Record<string, number[]>) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void; progressScope?: ProgressScope; scopeLabel?: string }) {
   const data = useLiveQuery(async () => {
-    const run = await dbV7.practiceRuns.get(runId);
+    const run = await getPracticeRun(runId);
     if (!run) return undefined;
-    const questions = (await dbV7.questions.bulkGet(run.questionIds)).filter(Boolean);
-    const memberships = run.questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];
+    const questions = (await studyDb.questions.bulkGet(run.questionIds)).filter(Boolean);
+    const memberships = run.questionIds.length ? await studyDb.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];
     const bankIds = [...new Set(memberships.map((membership) => membership.bankId))];
-    const banks = (await dbV7.banks.bulkGet(bankIds)).filter((bank) => bank !== undefined);
+    const banks = (await studyDb.banks.bulkGet(bankIds)).filter((bank) => bank !== undefined);
     const runBankRank = new Map(run.bankIds.map((bankId, index) => [bankId, index]));
     const membershipByQuestion = new Map<string, (typeof memberships)[number]>();
     const fallbackMembershipByQuestion = new Map<string, (typeof memberships)[number]>();
@@ -115,7 +115,7 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
   const [detailQuestion, setDetailQuestion] = useState<QuestionViewModel>();
   const [activeResultQuestionId, setActiveResultQuestionId] = useState<string>();
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const [collapsedTypes, setCollapsedTypes] = useState<Set<QuestionTypeV7>>(() => new Set());
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<QuestionType>>(() => new Set());
   const ordered = useMemo(() => {
     if (!data) return [];
     const index = new Map(data.run.questionIds.map((id, itemIndex) => [id, itemIndex]));
@@ -149,11 +149,11 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
   </section>;
 }
 
-function ResultQuestionDetail({ question, answer, entries, progressScope, scopeLabel, onClose, onNavigate, onNotice, onGroup }: { question: QuestionViewModel; answer?: PracticeRunV7["answers"][string]; entries: QuestionViewModel[]; progressScope: ProgressScope; scopeLabel: string; onClose: () => void; onNavigate: (id: string) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
+function ResultQuestionDetail({ question, answer, entries, progressScope, scopeLabel, onClose, onNavigate, onNotice, onGroup }: { question: QuestionViewModel; answer?: PracticeRun["answers"][string]; entries: QuestionViewModel[]; progressScope: ProgressScope; scopeLabel: string; onClose: () => void; onNavigate: (id: string) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
   const scopeKey = progressScopeKey(progressScope);
   const [referenceTime] = useState(() => Date.now());
   const scopedRows = useLiveQuery(
-    () => readDashboardScopedRowsV7([question.id], progressScope, referenceTime, { allQuestions: false }),
+    () => readDashboardScopedRows([question.id], progressScope, referenceTime, { allQuestions: false }),
     [question.id, scopeKey, referenceTime],
   );
   const note = scopedRows?.notes[0];
@@ -164,7 +164,7 @@ function ResultQuestionDetail({ question, answer, entries, progressScope, scopeL
   }, [question.id, progressScope, referenceTime, scopedRows]);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };
@@ -173,5 +173,5 @@ function ResultQuestionDetail({ question, answer, entries, progressScope, scopeL
   const index = entries.findIndex((entry) => entry.id === question.id);
   const nav = index >= 0 ? { index, total: entries.length, onPrevious: () => onNavigate(entries[index - 1].id), onNext: () => onNavigate(entries[index + 1].id), keyboardShortcuts: navPrefs.keyboardShortcuts, swipeNavigation: navPrefs.swipeNavigation } : undefined;
   const [editing, setEditing] = useState(false);
-  return <><QuestionDetail question={question} metric={metric} scopeLabel={scopeLabel} note={note?.content} answer={answer} onClose={onClose} nav={nav} footer={<><button onClick={async () => { const updated = await updateQuestionV7(question.id, { favorite: !question.favorite }); onNotice?.(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button>{onGroup && <button onClick={() => onGroup([question.id])}><GitBranch size={16} />加入题组</button>}</>} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice?.("题目和标签已保存"); }} />}</>;
+  return <><QuestionDetail question={question} metric={metric} scopeLabel={scopeLabel} note={note?.content} answer={answer} onClose={onClose} nav={nav} footer={<><button onClick={async () => { const updated = await updateQuestion(question.id, { favorite: !question.favorite }); onNotice?.(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button>{onGroup && <button onClick={() => onGroup([question.id])}><GitBranch size={16} />加入题组</button>}</>} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice?.("题目和标签已保存"); }} />}</>;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
+import { createBank, studyDb, resetDatabase } from "../../src/lib/db/db";
+import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 const memoryLocalStorage = new Map<string, string>();
@@ -19,11 +19,11 @@ try {
   const settings = { owner: "qa", repo: "watermark-cache-vault", branch: "main", apiBaseUrl: server.url };
   const token = "qa-token";
 
-  await resetV7Database();
-  await createBankV7("第一个题库");
+  await resetDatabase();
+  await createBank("第一个题库");
   await syncWithGitHub(settings, token);
 
-  await createBankV7("第二个题库");
+  await createBank("第二个题库");
   await syncWithGitHub(settings, token);
 
   let headGets = 0;
@@ -45,5 +45,5 @@ try {
   console.log("sync watermark cache tests passed");
 } finally {
   await server.close();
-  dbV7.close();
+  studyDb.close();
 }

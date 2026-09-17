@@ -176,7 +176,7 @@ export function AppShell() {
   async function updatePreferences(value: PracticePreferences): Promise<void> {
     setPreferences(value);
     try {
-      await persistConfigValue("study-v7-preferences", JSON.stringify(value));
+      await persistConfigValue("study-preferences", JSON.stringify(value));
     } catch (error) {
       setNotice(error instanceof Error ? `配置保存失败：${error.message}` : "配置保存失败");
     }

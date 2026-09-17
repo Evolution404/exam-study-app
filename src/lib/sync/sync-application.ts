@@ -1,4 +1,4 @@
-import { dbV7 } from "../db/db-v7";
+import { studyDb } from "../db/db";
 import { questionContentFingerprint } from "../question/question-content";
 import { solutionFromInput, stableQuestionOptionIds } from "../question/question-utils";
 import type { GitHubSettings } from "../../types/types";
@@ -29,21 +29,21 @@ import {
 } from "./github-credentials";
 import { getGitHubTransport } from "../../platform/github-transport";
 import type { ImageCacheDownloadProgressCallback } from "./image-asset-cache";
-import { type ChangeSetMutationV7, type ChangeSetV7 } from "./change-set-v7-types";
-import { dependentChangeSetIdsV7 } from "./change-set-v7-planning";
+import { type ChangeSetMutation, type ChangeSet } from "./change-set-types";
+import { dependentChangeSetIds } from "./change-set-planning";
 import {
-  discardManagedChangeSetV7,
-  ensureChangeSetQueueBaseV7,
-  reviseManagedChangeSetV7,
-} from "./change-set-v7-queue";
+  discardManagedChangeSet,
+  ensureChangeSetQueueBase,
+  reviseManagedChangeSet,
+} from "./change-set-queue";
 
-export type { ChangeSetMutationV7, ChangeSetV7, SyncHotWindowState, SyncProgress };
+export type { ChangeSetMutation, ChangeSet, SyncHotWindowState, SyncProgress };
 export type { SyncProgressCallback };
 
 export type SyncChangeSetState = "pending" | "claimed" | "blocked" | "committed";
 
 export interface SyncQueueItem {
-  changeSet: ChangeSetV7;
+  changeSet: ChangeSet;
   state: SyncChangeSetState;
   blockers?: readonly string[];
   dependentChangeSetIds?: readonly string[];
@@ -67,12 +67,12 @@ export type SyncRunResult = Awaited<ReturnType<typeof syncWithGitHub>>;
 export type SyncRestoreResult = Awaited<ReturnType<typeof restoreFullHistoryFromGitHub>>;
 export type SyncCacheRestoreResult = Awaited<ReturnType<typeof restoreLastRemoteCache>>;
 
-function queueItemFor(record: ChangeSetV7 & { state: SyncChangeSetState; blockedReason?: string }, manageable: readonly (ChangeSetV7 & { state: SyncChangeSetState })[]): SyncQueueItem {
+function queueItemFor(record: ChangeSet & { state: SyncChangeSetState; blockedReason?: string }, manageable: readonly (ChangeSet & { state: SyncChangeSetState })[]): SyncQueueItem {
   return {
     changeSet: record,
     state: record.state,
     blockers: record.blockedReason ? [record.blockedReason] : undefined,
-    dependentChangeSetIds: dependentChangeSetIdsV7(record, manageable),
+    dependentChangeSetIds: dependentChangeSetIds(record, manageable),
     editable: record.state === "pending" || record.state === "blocked",
     cancellable: record.state === "pending" || record.state === "blocked",
   };
@@ -157,25 +157,25 @@ class SyncApplication {
   }
 
   ensureQueueBase(): Promise<void> {
-    return ensureChangeSetQueueBaseV7();
+    return ensureChangeSetQueueBase();
   }
 
   pendingCount(): Promise<number> {
-    return dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count();
+    return studyDb.changeSets.where("state").anyOf(["pending", "blocked"]).count();
   }
 
   async listQueueItems(limit = 500): Promise<SyncQueueItem[]> {
-    const records = await dbV7.changeSets.orderBy("createdAt").reverse().limit(limit).toArray();
+    const records = await studyDb.changeSets.orderBy("createdAt").reverse().limit(limit).toArray();
     const manageable = records.filter((record) => record.state === "pending" || record.state === "blocked");
     return records.map((record) => queueItemFor(record, manageable));
   }
 
   async editPendingChange(id: string, edit: SyncPendingChangeEdit): Promise<void> {
-    const current = await dbV7.changeSets.get(id);
+    const current = await studyDb.changeSets.get(id);
     if (!current || (current.state !== "pending" && current.state !== "blocked")) {
       throw new Error("该变更已进入同步流程，不能继续修改。");
     }
-    const mutations = current.mutations.map((mutation, index): ChangeSetMutationV7 => {
+    const mutations = current.mutations.map((mutation, index): ChangeSetMutation => {
       if (index !== edit.mutationIndex || mutation.kind !== edit.kind) return mutation;
       if (edit.kind === "note.upserted" && mutation.kind === "note.upserted") {
         return { ...mutation, note: { ...mutation.note, content: edit.content, revision: mutation.note.revision + 1, updatedAt: new Date().toISOString() } };
@@ -201,11 +201,11 @@ class SyncApplication {
       }
       return mutation;
     });
-    await reviseManagedChangeSetV7(id, mutations);
+    await reviseManagedChangeSet(id, mutations);
   }
 
   discardPendingChange(id: string, options: { cascadeDependents: boolean }): Promise<void> {
-    return discardManagedChangeSetV7(id, options);
+    return discardManagedChangeSet(id, options);
   }
 }
 

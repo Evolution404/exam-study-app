@@ -70,15 +70,16 @@ async function readPracticeFrameAudit(page) {
 }
 
 async function assertDisplayedFrameMatchesRun(page) {
-  const dbModuleUrl = new URL("/src/lib/db/db-v7.ts", harness.baseUrl).href;
+  const dbModuleUrl = new URL("/src/lib/db/db.ts", harness.baseUrl).href;
   const result = await page.evaluate(async ({ dbModuleUrl }) => {
     const card = document.querySelector(".question-card");
     if (!(card instanceof HTMLElement)) return { ok: false, reason: "missing-card" };
     const index = Number(card.dataset.questionIndex);
     const questionId = card.dataset.questionId;
-    const { dbV7 } = await import(dbModuleUrl);
-    const runs = await dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt");
-    const run = runs.at(-1);
+    const { studyDb, getPracticeRun } = await import(dbModuleUrl);
+    const records = await studyDb.practiceRuns.where("status").equals("in_progress").toArray();
+    const record = records.sort((left, right) => left.activityAt.localeCompare(right.activityAt)).at(-1);
+    const run = record ? await getPracticeRun(record.id) : undefined;
     return {
       ok: Boolean(run && Number.isInteger(index) && questionId && run.questionIds[index] === questionId),
       index,

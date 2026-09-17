@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import type { Bank } from "@/types/types";
-import { isBankEnabled, type ReviewRound, type ReviewRoundStatus } from "@/lib/db/v7-types";
+import { isBankEnabled, type ReviewRound, type ReviewRoundStatus } from "@/lib/db/types";
 
 export interface ReviewRoundMetrics {
   /** Current number of distinct questions in the round. */
