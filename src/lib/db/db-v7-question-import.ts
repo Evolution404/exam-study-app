@@ -161,67 +161,75 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
   if (!rows.length) throw new Error("题库中没有可导入的有效题目。");
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();
-  let bank: BankV7;
-  if (options?.targetBankId) {
-    const existingBank = await dbV7.banks.get(options.targetBankId);
-    if (!existingBank) throw new Error("目标题库不存在，可能已被删除，请刷新后重试。");
-    bank = { ...existingBank, updatedAt: timestamp, deviceId };
-  } else {
-    const sourceName = (parsed.name?.trim() || fileName.replace(/\.(json|txt)$/i, "").trim());
-    if (!sourceName) throw new Error("题库名称不能为空。");
-    const bankId = `bank_${(await sha256Text(sourceName)).slice(0, 48)}`;
-    const existingBank = await dbV7.banks.get(bankId);
-    bank = existingBank ? {
-      ...existingBank,
-      name: existingBank.name || sourceName,
-      updatedAt: timestamp,
-      deviceId,
-    } : {
-      id: bankId,
-      name: sourceName,
-      sortOrder: await dbV7.banks.count(),
-      questionCount: 0,
-      enabled: true,
-      importedAt: timestamp,
-      updatedAt: timestamp,
-      deviceId,
-    };
-  }
-  const seenInImport = new Set<string>();
-  const materialised: Array<{ question: QuestionV7; membership: BankQuestionMembership; isNewMembership: boolean }> = [];
-  const materialisedNotes: NoteV7[] = [];
-  let sortOrder = await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).count();
-  for (const draft of rows) {
-    const provisional = questionFromDraft(makeV7Id("question"), draft, timestamp, deviceId);
-    const existing = await findQuestionByFingerprint(provisional.contentFingerprint);
-    const question = existing ?? provisional;
-    if (seenInImport.has(question.id)) continue;
-    seenInImport.add(question.id);
-    const existingMembership = await dbV7.bankQuestionMemberships.get(membershipKey(bank.id, question.id));
-    const membership: BankQuestionMembership = existingMembership ?? {
-      key: membershipKey(bank.id, question.id),
-      bankId: bank.id,
-      questionId: question.id,
-      sortOrder: sortOrder++,
-      addedAt: timestamp,
-      updatedAt: timestamp,
-      deviceId,
-    };
-    materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId }, isNewMembership: !existingMembership });
-    if (draft.note?.trim() && !(await dbV7.notes.get(question.id))) {
-      materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
+  const sourceName = options?.targetBankId ? undefined : (parsed.name?.trim() || fileName.replace(/\.(json|txt)$/i, "").trim());
+  if (!options?.targetBankId && !sourceName) throw new Error("题库名称不能为空。");
+  const generatedBankId = sourceName ? `bank_${(await sha256Text(sourceName)).slice(0, 48)}` : undefined;
+  const prepared = rows.map((draft) => ({
+    draft,
+    provisional: questionFromDraft(makeV7Id("question"), draft, timestamp, deviceId),
+  }));
+
+  return dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes, dbV7.syncMeta], async () => {
+    let bank: BankV7;
+    if (options?.targetBankId) {
+      const existingBank = await dbV7.banks.get(options.targetBankId);
+      if (!existingBank) throw new Error("目标题库不存在，可能已被删除，请刷新后重试。");
+      bank = { ...existingBank, updatedAt: timestamp, deviceId };
+    } else {
+      const bankId = generatedBankId!;
+      const existingBank = await dbV7.banks.get(bankId);
+      bank = existingBank ? {
+        ...existingBank,
+        name: existingBank.name || sourceName!,
+        updatedAt: timestamp,
+        deviceId,
+      } : {
+        id: bankId,
+        name: sourceName!,
+        sortOrder: await dbV7.banks.count(),
+        questionCount: 0,
+        enabled: true,
+        importedAt: timestamp,
+        updatedAt: timestamp,
+        deviceId,
+      };
     }
-  }
-  const referencedAssetIds = new Set(materialised.flatMap(({ question }) => [...question.content, ...question.options.flat()]
-    .filter((block) => block.type === "image")
-    .map((block) => block.assetId)));
-  const importImages = (options?.imageAssets ?? [])
-    .filter((asset) => referencedAssetIds.has(asset.id))
-    .map(({ blob: _blob, ...descriptor }) => {
-      void _blob;
-      return descriptor;
-    });
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.tombstones, dbV7.changeSets, dbV7.notes, dbV7.syncMeta], async () => {
+
+    const seenInImport = new Set<string>();
+    const materialised: Array<{ question: QuestionV7; membership: BankQuestionMembership; isNewMembership: boolean }> = [];
+    const materialisedNotes: NoteV7[] = [];
+    let sortOrder = await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).count();
+    for (const { draft, provisional } of prepared) {
+      const existing = await findQuestionByFingerprint(provisional.contentFingerprint);
+      const question = existing ?? provisional;
+      if (seenInImport.has(question.id)) continue;
+      seenInImport.add(question.id);
+      const existingMembership = await dbV7.bankQuestionMemberships.get(membershipKey(bank.id, question.id));
+      const membership: BankQuestionMembership = existingMembership ?? {
+        key: membershipKey(bank.id, question.id),
+        bankId: bank.id,
+        questionId: question.id,
+        sortOrder: sortOrder++,
+        addedAt: timestamp,
+        updatedAt: timestamp,
+        deviceId,
+      };
+      materialised.push({ question, membership: { ...membership, updatedAt: timestamp, deviceId }, isNewMembership: !existingMembership });
+      if (draft.note?.trim() && !(await dbV7.notes.get(question.id))) {
+        materialisedNotes.push({ questionId: question.id, content: draft.note.trim(), revision: 1, updatedAt: timestamp, deviceId });
+      }
+    }
+
+    const referencedAssetIds = new Set(materialised.flatMap(({ question }) => [...question.content, ...question.options.flat()]
+      .filter((block) => block.type === "image")
+      .map((block) => block.assetId)));
+    const importImages = (options?.imageAssets ?? [])
+      .filter((asset) => referencedAssetIds.has(asset.id))
+      .map(({ blob: _blob, ...descriptor }) => {
+        void _blob;
+        return descriptor;
+      });
+
     await dbV7.banks.put(bank);
     for (const item of materialised) {
       if (!(await dbV7.questions.get(item.question.id))) await dbV7.questions.put(item.question);
@@ -241,7 +249,6 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
     if (materialisedNotes.length) {
       await enqueueChangeSetV7(materialisedNotes.map((note) => ({ kind: "note.upserted" as const, note })), timestamp);
     }
+    return { ...bankSnapshot, importedCount: materialised.filter((item) => item.isNewMembership).length };
   });
-  const imported = await dbV7.banks.get(bank.id);
-  return { ...imported!, importedCount: materialised.filter((item) => item.isNewMembership).length };
 }

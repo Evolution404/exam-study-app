@@ -22,6 +22,7 @@ import {
   reorderBanksV7,
   putImageAssetBlobV7,
   putImageAssetV7,
+  importQuestionBankV7,
   saveBankFolderV7,
   saveNoteV7,
   savePracticeRunV7,
@@ -534,6 +535,40 @@ const txSnapshot = (): TxSnapshot | undefined => {
   assert.equal(groupRead?.active, true);
   assert.equal(groupRead?.mode, "readwrite");
   for (const store of ["questionGroups", "tombstones", "changeSets", "syncMeta"]) assert.ok(groupRead?.storeNames.includes(store), `deleteQuestionGroupV7 事务必须包含 ${store}`);
+}
+
+// R26：题库导入必须在同一写事务内确认目标题库、membership 与 note，避免并发删除后复活题库或覆盖新写入解析。
+{
+  const target = await createBankV7("R26导入目标题库");
+  const originalBankGet = dbV7.banks.get.bind(dbV7.banks);
+  const originalMembershipGet = dbV7.bankQuestionMemberships.get.bind(dbV7.bankQuestionMemberships);
+  const originalNoteGet = dbV7.notes.get.bind(dbV7.notes);
+  const snapshots: TxSnapshot[] = [];
+  dbV7.banks.get = (async (key) => {
+    if (key === target.id) snapshots.push(txSnapshot() ?? { active: false, mode: "none", storeNames: [] });
+    return originalBankGet(key);
+  }) as typeof dbV7.banks.get;
+  dbV7.bankQuestionMemberships.get = (async (key) => {
+    if (String(key).startsWith(`${target.id}:`)) snapshots.push(txSnapshot() ?? { active: false, mode: "none", storeNames: [] });
+    return originalMembershipGet(key);
+  }) as typeof dbV7.bankQuestionMemberships.get;
+  dbV7.notes.get = (async (key) => {
+    snapshots.push(txSnapshot() ?? { active: false, mode: "none", storeNames: [] });
+    return originalNoteGet(key);
+  }) as typeof dbV7.notes.get;
+  try {
+    const imported = await importQuestionBankV7("R26.json", [{ stem: "R26导入题", type: "单选", options: ["甲", "乙"], answer: "A", note: "R26解析" }], { targetBankId: target.id });
+    assert.equal(imported.importedCount, 1);
+  } finally {
+    dbV7.banks.get = originalBankGet as typeof dbV7.banks.get;
+    dbV7.bankQuestionMemberships.get = originalMembershipGet as typeof dbV7.bankQuestionMemberships.get;
+    dbV7.notes.get = originalNoteGet as typeof dbV7.notes.get;
+  }
+  assert.ok(snapshots.length >= 3);
+  assert.ok(snapshots.every((snapshot) => snapshot.active && snapshot.mode === "readwrite"), "题库导入的数据库决策读取必须全部位于写事务内");
+  for (const store of ["banks", "questions", "bankQuestionMemberships", "notes", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(snapshots.every((snapshot) => snapshot.storeNames.includes(store)), `题库导入事务必须包含 ${store}`);
+  }
 }
 
 await dbV7.close();
