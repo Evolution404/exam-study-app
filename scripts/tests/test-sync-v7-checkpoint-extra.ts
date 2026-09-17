@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { createBankV7, createQuestionV7, dbV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
+import { createBankV7, createPracticeRunV7, createQuestionV7, dbV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
 import { isSyncCheckpointV7, validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
 import { createSyncCheckpointV7, encodeSyncCheckpointV7, parseSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-store";
 import type { SyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-types";
@@ -87,6 +87,35 @@ await createQuestionV7(typeBank.id, {
   const withBlob = structuredClone(current) as SyncCheckpointV7 & { state: { imageAssets: Array<Record<string, unknown>> } };
   (withBlob.state.imageAssets[0] as Record<string, unknown>).blob = new Blob(["x"], { type: "image/webp" });
   assert.throws(() => validateSyncCheckpointV7(withBlob), /must not contain a Blob/);
+}
+
+// 7) run 内部映射只能引用 run.questionIds，禁止同步脏快照携带幽灵答案/题型/选项顺序。
+{
+  const runBank = await createBankV7("run结构校验");
+  const runQuestion = await createQuestionV7(runBank.id, {
+    type: "单选",
+    stem: "run结构题",
+    options: ["甲", "乙"],
+    optionIds: ["opt-a", "opt-b"],
+    solution: { kind: "choice", correctOptionIds: ["opt-a"] },
+  });
+  const run = await createPracticeRunV7({ bankId: runBank.id, questionIds: [runQuestion.id] });
+  const current = await createSyncCheckpointV7();
+  const target = current.state.practiceRuns.find((item) => item.id === run.id)!;
+  const answerInvalid = structuredClone(current);
+  answerInvalid.state.practiceRuns.find((item) => item.id === run.id)!.answers.question_missing = {
+    selected: ["A"], submitted: true, correct: true,
+  };
+  assert.throws(() => validateSyncCheckpointV7(answerInvalid), /answers.*questionIds/, "checkpoint must reject answer keys outside run.questionIds");
+
+  const typeInvalid = structuredClone(current);
+  typeInvalid.state.practiceRuns.find((item) => item.id === run.id)!.questionTypes.question_missing = "单选";
+  assert.throws(() => validateSyncCheckpointV7(typeInvalid), /questionTypes.*questionIds/, "checkpoint must reject questionTypes keys outside run.questionIds");
+
+  const orderInvalid = structuredClone(current);
+  orderInvalid.state.practiceRuns.find((item) => item.id === run.id)!.optionOrders.question_missing = [0, 1];
+  assert.throws(() => validateSyncCheckpointV7(orderInvalid), /optionOrders.*questionIds/, "checkpoint must reject optionOrders keys outside run.questionIds");
+  assert.deepEqual(target.questionIds, [runQuestion.id]);
 }
 
 dbV7.close();

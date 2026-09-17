@@ -10,6 +10,7 @@ import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
 import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { restrictPracticeRunMappingsV7 } from "../practice/practice-run-invariants";
 import type { BankV7, PracticeRunV7 } from "./v7-types";
 
 type PracticeRunReferences = Pick<PracticeRunV7, "bankId" | "bankIds" | "questionIds" | "reviewRoundId">;
@@ -63,7 +64,7 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
       { requireActiveRound: true },
     );
     const questionTypes = input.questionTypes ?? Object.fromEntries(questions.map((question) => [question!.id, question!.type]));
-    const run: PracticeRunV7 = {
+    const run = restrictPracticeRunMappingsV7({
       id: input.id ?? makeV7Id("run"),
       bankId,
       bankIds,
@@ -81,7 +82,7 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
       revision: input.revision ?? 0,
       lastAnsweredIndex: input.lastAnsweredIndex,
       reviewRoundId: input.reviewRoundId,
-    };
+    });
     await putPracticeRunInTx(run);
     await updatePracticeRunStatsInTx(undefined, run);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run }], timestamp);

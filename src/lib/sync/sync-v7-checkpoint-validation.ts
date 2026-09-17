@@ -1,5 +1,6 @@
 import { QUESTION_TYPE_ORDER } from "../../types/types";
 import type { AttemptV7, BankQuestionMembership, BankV7, ImageAsset, PracticeRunV7, QuestionSolution, QuestionV7 } from "../db/v7-types";
+import { practiceRunPayloadIssueV7 } from "../practice/practice-run-invariants";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -198,15 +199,8 @@ function validateRun(value: unknown, banks: Set<string>, questions: Set<string>,
     assertString(questionId, `state.practiceRuns[${index}].questionIds[${questionIndex}]`);
     if (!questions.has(questionId)) fail(`state.practiceRuns[${index}] references missing question ${questionId}`);
   });
-  if (!isRecord(value.questionTypes)) fail(`state.practiceRuns[${index}].questionTypes must be an object`);
-  if (!isRecord(value.answers)) fail(`state.practiceRuns[${index}].answers must be an object`);
-  if (typeof value.shuffleOptions !== "boolean" || !isRecord(value.optionOrders)) fail(`state.practiceRuns[${index}] option state is invalid`);
-  assertDate(value.startedAt, `state.practiceRuns[${index}].startedAt`);
-  assertDate(value.updatedAt, `state.practiceRuns[${index}].updatedAt`);
-  if (!["in_progress", "completed", "abandoned"].includes(String(value.status))) fail(`state.practiceRuns[${index}].status is invalid`);
-  assertSafeInt(value.revision, `state.practiceRuns[${index}].revision`);
-  if (value.completedAt !== undefined) assertDate(value.completedAt, `state.practiceRuns[${index}].completedAt`);
-  if (value.abandonedAt !== undefined) assertDate(value.abandonedAt, `state.practiceRuns[${index}].abandonedAt`);
+  const payloadIssue = practiceRunPayloadIssueV7(value, value.questionIds as string[]);
+  if (payloadIssue) fail(`state.practiceRuns[${index}].${payloadIssue}`);
   if (value.reviewRoundId !== undefined) {
     assertString(value.reviewRoundId, `state.practiceRuns[${index}].reviewRoundId`);
     if (!rounds.has(value.reviewRoundId)) fail(`state.practiceRuns[${index}] references missing round ${value.reviewRoundId}`);

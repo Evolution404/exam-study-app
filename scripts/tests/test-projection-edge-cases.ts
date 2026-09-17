@@ -228,6 +228,16 @@ const empty: ChangeSetProjectionV7 = {
     /已被删除/,
   );
 
+  const cleanRun = run("r-map", "b1", ["q1"]);
+  const withRun = await reduce(base, { kind: "practice.run.saved", run: cleanRun });
+  const dirtyRun = { ...cleanRun, answers: { ghost: { selected: ["A"], submitted: true, correct: true } }, revision: 1 };
+  await assert.rejects(
+    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.run.status.changed", run: dirtyRun } })
+      .then((change) => reduceChangeSetV7(withRun, change)),
+    /answers.*outside questionIds/,
+    "同步 run 状态事件不得写入 questionIds 范围外的答案",
+  );
+
   const withRound = structuredClone(empty);
   withRound.banks.push(bank("b1"));
   withRound.questions.push(question("q1"));

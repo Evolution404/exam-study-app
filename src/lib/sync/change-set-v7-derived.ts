@@ -11,6 +11,7 @@ import type {
   PracticeRunV7,
   ReviewRoundProgress,
 } from "../db/v7-types";
+import { practiceRunMappingIssueV7 } from "../practice/practice-run-invariants";
 import {
   dailyKey,
   datePart,
@@ -206,6 +207,8 @@ export function projectionValidationIssuesV7(input: ChangeSetProjectionInputV7, 
   for (const run of projection.practiceRuns) {
     for (const bankId of runBankIds(run)) if (!banks.has(bankId)) pushIssue(issues, `practiceRuns.${run.id}.bankIds`, `missing bank ${bankId}`);
     for (const questionId of run.questionIds) if (!questions.has(questionId)) pushIssue(issues, `practiceRuns.${run.id}.questionIds`, `missing question ${questionId}`);
+    const mappingIssue = practiceRunMappingIssueV7(run);
+    if (mappingIssue) pushIssue(issues, `practiceRuns.${run.id}.${mappingIssue.field}`, `question ${mappingIssue.questionId} is outside questionIds`);
   }
   try {
     if (!verifyDerived) return issues;

@@ -16,6 +16,7 @@ import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { deriveRunQuestions, validatePracticeRunReferencesInTx } from "./db-v7-practice-run-create";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
+import { restrictPracticeRunMappingsV7 } from "../practice/practice-run-invariants";
 import { stableQuestionOptionIds } from "../question/question-utils";
 import type {
   AttemptDailyStatsV7,
@@ -40,7 +41,7 @@ function stableOptionIdForAnswer(question: QuestionV7, letter: string): string |
 }
 
 export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRunV7> {
-  const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
+  const updated = restrictPracticeRunMappingsV7({ ...run, updatedAt: run.updatedAt || nowIso() });
   return dbV7.transaction("rw", [
     dbV7.banks,
     dbV7.questions,
@@ -200,7 +201,7 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
     const current = await dbV7.practiceRuns.get(runId);
     if (!current) return undefined;
     const updatedAt = nowIso();
-    const updated: PracticeRunV7 = {
+    const updated = restrictPracticeRunMappingsV7({
       ...current,
       answers: answers ?? current.answers,
       status,
@@ -208,7 +209,7 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
       completedAt: status === "completed" ? updatedAt : current.completedAt,
       abandonedAt: status === "abandoned" ? updatedAt : undefined,
       revision: current.revision + 1,
-    };
+    });
     await updatePracticeRunStatsInTx(current, updated);
     await putPracticeRunInTx(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
