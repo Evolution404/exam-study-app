@@ -21,9 +21,9 @@ assert.equal(githubVaultIdentitiesEqual("Evolution404/Exam-Study-Vault@main", "e
 assert.equal(githubVaultIdentitiesEqual("Evolution404/exam-study-vault@Main", "evolution404/exam-study-vault@main"), false, "Git branch identity remains case-sensitive");
 assert.equal(githubVaultIdentitiesEqual("vault:one", "vault:ONE"), false, "opaque non-GitHub vault identities remain exact");
 
-const owner = "v7-owner";
-const repo = "v7-repo";
-const vaultId = "vault:remote-v7";
+const owner = "sync-owner";
+const repo = "sync-repo";
+const vaultId = "vault:remote-current";
 const branch = "main";
 const token = "token-must-not-leak";
 const generatedAt = "2026-08-13T00:00:00.000Z";
@@ -117,7 +117,7 @@ const conflict = await remote.putHead(head, sha1("f"));
 assert.equal(conflict.ok, false);
 if (!conflict.ok) assert.deepEqual([conflict.status, conflict.classification], [409, "head-advanced"]);
 
-const segmentBytes = bytes("v7 segment payload");
+const segmentBytes = bytes("current segment payload");
 const segmentPath = `${SYNC_SEGMENT_PREFIX}${digest(segmentBytes)}.json`;
 const uploaded = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes, kind: "segment", sha256: digest(segmentBytes), size: segmentBytes.byteLength });
 assert.equal(uploaded.created, true);
@@ -126,7 +126,7 @@ assert.ok(uploaded.storedSize > 0, "storedSize 应为正数");
 const retry = await remote.putImmutable({ path: segmentPath, bytes: segmentBytes, kind: "segment", sha256: digest(segmentBytes), size: segmentBytes.byteLength });
 assert.equal(retry.idempotent, true);
 await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("different"), kind: "segment" }), SyncBlobIntegrityError);
-await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("v7 segment payload"), kind: "segment", sha256: digest("different") }), SyncBlobIntegrityError);
+await assert.rejects(remote.putImmutable({ path: segmentPath, bytes: bytes("current segment payload"), kind: "segment", sha256: digest("different") }), SyncBlobIntegrityError);
 const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath });
 assert.deepEqual([...loaded], [...segmentBytes]);
 await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncBlobIntegrityError);
@@ -169,7 +169,7 @@ const headRecoveryRemote = new GitHubRemote({
     const isHeadPut = String(init.method ?? "GET").toUpperCase() === "PUT" && url.pathname.endsWith("/contents/sync/v9/head.json");
     if (isHeadPut && !swallowedHeadResponse) {
       swallowedHeadResponse = true;
-      await fakeFetch(input, init); // Commit remotely, then lose only the response.
+      await fakeFetch(input, init);
       await new Promise<never>((_, reject) => {
         const signal = init.signal;
         if (!signal) return;
@@ -222,4 +222,4 @@ files.set(conflictingObjectPath, { bytes: bytes("bad"), sha: sha1("d") });
 blobs.set(sha1("d"), bytes("bad"));
 await assert.rejects(remote.putImmutable({ path: conflictingObjectPath, bytes: bytes("object"), kind: "object" }), (error: unknown) => error instanceof SyncImmutableConflictError || error instanceof SyncBlobIntegrityError);
 
-console.log("github v7 remote tests passed: explicit vault identity, ETag/CAS, immutable path/blob integrity, idempotency and token-safe errors");
+console.log("github remote tests passed: explicit vault identity, ETag/CAS, immutable path/blob integrity, idempotency and token-safe errors");
