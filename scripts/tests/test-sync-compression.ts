@@ -10,6 +10,7 @@ import {
   syncCompressionEnabled,
 } from "../../src/lib/sync/sync-codec";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { SYNC_HEAD_PATH, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
 
 // 传输层压缩（deflate 信封）当前能力套件：
 //   1. codec 单元 —— 往返、格式嗅探、误判排除、CompressionStream 不可用时的纯 JSON 路径；
@@ -88,6 +89,7 @@ const server = await startMockGitHubServer();
 const settings = { owner: "qa", repo: "compression-vault", branch: "main", apiBaseUrl: server.url };
 const mixedSettings = { owner: "qa", repo: "compression-mixed-vault", branch: "main", apiBaseUrl: server.url };
 const sync = () => syncWithGitHub(settings, "qa-token");
+const syncNamespace = SYNC_HEAD_PATH.slice(0, -"head.json".length);
 
 // --- 2. remote 层：线上字节是压缩信封、体积显著缩小、读回一致 ---------------
 {
@@ -97,7 +99,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
   const spyFetch: typeof fetch = async (input, init) => {
     if (init?.method === "PUT") {
       const url = typeof input === "string" ? input : (input as URL).toString?.() ?? "";
-      if (url.includes("/contents/sync/v9/")) {
+      if (url.includes(`/contents/${syncNamespace}`)) {
         const body = JSON.parse(String(init.body)) as { content: string; message?: string };
         putBodies.push({ path: url, wireBytes: body.content.length });
       }
@@ -130,7 +132,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
     assert.equal(digest, descriptor.sha256, "读回逻辑字节 digest 与描述符一致（内容寻址不因信封改变）");
   }
   // head.json 永远是纯 JSON。
-  const headRaw = await (await fetch(`${server.url}/repos/qa/compression-vault/contents/sync/v9/head.json`)).json() as { content: string };
+  const headRaw = await (await fetch(`${server.url}/repos/qa/compression-vault/contents/${SYNC_HEAD_PATH}`)).json() as { content: string };
   const headBytes = Buffer.from(headRaw.content, "base64");
   assert.equal(isZlibEnvelope(new Uint8Array(headBytes)), false, "head.json 保持纯 JSON");
   JSON.parse(new TextDecoder().decode(headBytes));
@@ -190,7 +192,7 @@ const sync = () => syncWithGitHub(settings, "qa-token");
     const remote = createGitHubRemote({ owner: "qa", repo: "idempotent-vault", token: "t", apiBaseUrl: casServer.url });
     const json = new TextEncoder().encode(JSON.stringify({ formatVersion: 1, events: ["幂等重放".repeat(200)] }));
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", json as BufferSource)), (v) => v.toString(16).padStart(2, "0")).join("");
-    const path = `sync/v9/segments/${digest}.json`;
+    const path = `${SYNC_SEGMENT_PREFIX}${digest}.json`;
     const first = await remote.putImmutable({ path, bytes: json, kind: "segment" });
     assert.equal(first.created, true, "首次上传应 created");
     const second = await remote.putImmutable({ path, bytes: json, kind: "segment" });
