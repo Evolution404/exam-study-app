@@ -10,7 +10,7 @@ import {
   type LegacySyncRemoteSource,
   type LegacySyncSegmentDescriptor,
 } from "../tools/sync-remote-reader";
-import type { LegacySyncCheckpoint } from "../tools/sync-v9-to-v10-converter";
+import type { LegacySyncCheckpoint } from "../tools/sync-remote-converter";
 
 const encoder = new TextEncoder();
 const vaultId = "qa/converter@main";
