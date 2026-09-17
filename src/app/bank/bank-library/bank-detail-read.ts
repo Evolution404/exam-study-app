@@ -1,6 +1,6 @@
 import { dbV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBankV7 } from "@/lib/db/app-data-v7";
-import { listPracticeRunsForBankV7 } from "@/lib/db/practice-run-read-v7";
+import { listRecentPracticeRunsForBankV7 } from "@/lib/db/practice-run-read-v7";
 import { normalizeProgressScope, progressScopeCutoff, type ProgressScope } from "@/lib/practice/progress-scope";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import { bankTitle, type Bank } from "./bank-library-shared";
@@ -36,7 +36,7 @@ export async function readBankDetailDatasetV7(
     dbV7.attemptStats.bulkGet(questionIds),
     rollingAttempts,
     dbV7.notes.bulkGet(questionIds),
-    listPracticeRunsForBankV7(bank.id),
+    listRecentPracticeRunsForBankV7(bank.id, 5),
     dbV7.practiceRunStats.get(bank.id),
     roundRows,
     dailyRows,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { readBankDetailDatasetV7 } from "../../src/app/bank/bank-library/bank-detail-read";
 import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { AttemptV7, BankV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import type { AttemptV7, BankV7, PracticeRunV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
 import type { ProgressScope } from "../../src/lib/practice/progress-scope";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -54,16 +54,48 @@ await dbV7.attemptStats.put({
   currentCorrectStreak: 1_003,
   recentOutcomes: [],
 });
+await dbV7.practiceRuns.bulkPut(Array.from({ length: 1_000 }, (_, index) => ({
+  id: `history-run-${index}`,
+  bankId: bank.id,
+  bankIds: [bank.id],
+  bankName: bank.name,
+  mode: "sequential" as const,
+  modeLabel: "练习",
+  questionIds: [question.id],
+  questionTypes: { [question.id]: "判断" as const },
+  answers: {},
+  shuffleOptions: false,
+  optionOrders: {},
+  startedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
+  updatedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
+  status: "completed" as const,
+  revision: 1,
+})));
+await dbV7.practiceRunStats.put({
+  key: bank.id,
+  bankId: bank.id,
+  total: 1_000,
+  completed: 1_000,
+  inProgress: 0,
+  abandoned: 0,
+  latestUpdatedAt: new Date(Date.parse(oldAt) + 999_000).toISOString(),
+});
 
 type ScopedReader = (bank: BankV7, scope: ProgressScope, referenceTime: number) => ReturnType<typeof readBankDetailDatasetV7>;
 const scopedReader = readBankDetailDatasetV7 as unknown as ScopedReader;
 let attemptReads = 0;
+let runReads = 0;
 const attemptHook = (row: AttemptV7) => { attemptReads += 1; return row; };
+const runHook = (row: PracticeRunV7) => { runReads += 1; return row; };
 dbV7.attempts.hook("reading", attemptHook);
+dbV7.practiceRuns.hook("reading", runHook);
 const rolling = await scopedReader(bank, { type: "rolling", days: 90 }, referenceTime);
 dbV7.attempts.hook("reading").unsubscribe(attemptHook);
+dbV7.practiceRuns.hook("reading").unsubscribe(runHook);
 assert.equal(rolling.attempts.length, 3, "滚动统计只需要窗口内 attempts");
 assert.equal(attemptReads, 3, "1,000 条窗口外历史不得被题库详情 materialize");
+assert.equal(rolling.runs.length, 5, "题库详情只需要最近 5 条练习记录");
+assert.equal(runReads, 5, "1,000 条历史 run 不得被题库详情全部 materialize");
 
 attemptReads = 0;
 dbV7.attempts.hook("reading", attemptHook);
