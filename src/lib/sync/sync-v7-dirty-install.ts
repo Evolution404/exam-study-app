@@ -57,6 +57,12 @@ function membershipKey(bankId: string, questionId: string): string {
   return `${bankId}:${questionId}`;
 }
 
+function compoundPrimaryKey(key: string): [string, string] {
+  const separator = key.indexOf(":");
+  if (separator <= 0 || separator >= key.length - 1) throw new Error(`无效复合关系键：${key}`);
+  return [key.slice(0, separator), key.slice(separator + 1)];
+}
+
 function addQuestionUpsert(sets: DirtySets, questionId: string): void {
   sets.questions.add(questionId);
   // Successful upserts cannot coexist with a live tombstone, but include the
@@ -265,7 +271,7 @@ export async function deriveDirtyInstallKeysV7(
   if (sets.memberships.size) {
     const keys = [...sets.memberships];
     const [current, targetByKey] = await Promise.all([
-      dbV7.bankQuestionMemberships.bulkGet(keys),
+      dbV7.bankQuestionMemberships.bulkGet(keys.map(compoundPrimaryKey)),
       Promise.resolve(targetMembershipMap(target, sets.memberships)),
     ]);
     keys.forEach((key, index) => {
@@ -323,11 +329,11 @@ export async function deriveDirtyInstallKeysV7(
     const questionIds = [...sets.attemptStats];
     const questionSet = sets.attemptStats;
     const [localDailyKeys, localRoundKeys] = await Promise.all([
-      dbV7.attemptDailyStats.where("questionId").anyOf(questionIds).primaryKeys(),
+      dbV7.questionDailyProgress.where("questionId").anyOf(questionIds).primaryKeys(),
       dbV7.reviewRoundProgress.where("questionId").anyOf(questionIds).primaryKeys(),
     ]);
-    localDailyKeys.forEach((key) => sets.attemptDailyStats.add(String(key)));
-    localRoundKeys.forEach((key) => sets.reviewRoundProgress.add(String(key)));
+    localDailyKeys.forEach((key) => sets.attemptDailyStats.add(`${String(key[0])}:${String(key[1])}`));
+    localRoundKeys.forEach((key) => sets.reviewRoundProgress.add(`${String(key[0])}:${String(key[1])}`));
     for (const row of target.attemptDailyStats) if (questionSet.has(row.questionId)) sets.attemptDailyStats.add(row.key);
     for (const row of target.reviewRoundProgress) if (questionSet.has(row.questionId)) sets.reviewRoundProgress.add(row.key);
   }

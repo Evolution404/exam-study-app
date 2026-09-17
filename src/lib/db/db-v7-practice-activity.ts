@@ -1,27 +1,26 @@
 import { runActivityAt } from "../practice/practice-metrics";
 import { dbV7 } from "./db-v7-core";
-import type { PracticeRunActivityV7, PracticeRunV7 } from "./v7-types";
+import type { PracticeRunV7 } from "./v7-types";
 
-/** Device-local derived row; this table is deliberately excluded from sync/checkpoints. */
-export function practiceRunActivityRowV7(run: PracticeRunV7): PracticeRunActivityV7 {
-  return { runId: run.id, status: run.status, activityAt: runActivityAt(run) };
+export type PersistedPracticeRunV7 = PracticeRunV7 & { activityAt: string };
+
+/** Persist activity directly on the run; there is no second activity table. */
+export function practiceRunWithActivityV7(run: PracticeRunV7): PersistedPracticeRunV7 {
+  return { ...run, activityAt: runActivityAt(run) };
 }
 
-/** Internal: caller must include practiceRuns + practiceRunActivity in its transaction. */
+/** Internal: caller must include practiceRuns in its transaction. */
 export async function putPracticeRunInTx(run: PracticeRunV7): Promise<void> {
-  await dbV7.practiceRuns.put(run);
-  await dbV7.practiceRunActivity.put(practiceRunActivityRowV7(run));
+  await dbV7.practiceRuns.put(practiceRunWithActivityV7(run));
 }
 
-/** Internal: caller must include practiceRuns + practiceRunActivity in its transaction. */
+/** Internal: caller must include practiceRuns in its transaction. */
 export async function bulkPutPracticeRunsInTx(runs: readonly PracticeRunV7[]): Promise<void> {
   if (!runs.length) return;
-  await dbV7.practiceRuns.bulkPut([...runs]);
-  await dbV7.practiceRunActivity.bulkPut(runs.map(practiceRunActivityRowV7));
+  await dbV7.practiceRuns.bulkPut(runs.map(practiceRunWithActivityV7));
 }
 
-/** Internal: caller must include practiceRuns + practiceRunActivity in its transaction. */
+/** Internal: caller must include practiceRuns in its transaction. */
 export async function deletePracticeRunInTx(runId: string): Promise<void> {
   await dbV7.practiceRuns.delete(runId);
-  await dbV7.practiceRunActivity.delete(runId);
 }

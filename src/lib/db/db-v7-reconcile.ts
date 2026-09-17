@@ -1,9 +1,8 @@
-import Dexie, { type Table } from "dexie";
+import Dexie, { type IndexableType, type Table } from "dexie";
 import { dbV7 } from "./db-v7-core";
-import { practiceRunActivityRowV7 } from "./db-v7-practice-activity";
+import { practiceRunWithActivityV7 } from "./db-v7-practice-activity";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
-import type { PracticeRunV7 } from "./v7-types";
 
 interface ReconcileV7ProjectionProgress {
   completed: number;
@@ -50,9 +49,9 @@ interface ReconcileV7ProjectionOptions {
   onTiming?: (timing: ReconcileV7Timing) => void;
 }
 
-interface ReconcilePlan<T> {
+interface ReconcilePlan<T, K extends IndexableType = string> {
   puts: T[];
-  deletes: string[];
+  deletes: K[];
   scannedRows: number;
   comparedRows: number;
 }
@@ -119,8 +118,8 @@ function equivalent(left: unknown, right: unknown): boolean {
 async function projectionIsEmpty(): Promise<boolean> {
   const counts = await Promise.all([
     dbV7.banks.count(), dbV7.bankFolders.count(), dbV7.questions.count(), dbV7.bankQuestionMemberships.count(),
-    dbV7.imageAssets.count(), dbV7.attempts.count(), dbV7.attemptStats.count(), dbV7.attemptDailyStats.count(),
-    dbV7.notes.count(), dbV7.practiceRuns.count(), dbV7.practiceRunStats.count(), dbV7.questionGroups.count(),
+    dbV7.imageAssets.count(), dbV7.attempts.count(), dbV7.questionProgress.count(), dbV7.questionDailyProgress.count(),
+    dbV7.notes.count(), dbV7.practiceRuns.count(), dbV7.bankPracticeStats.count(), dbV7.questionGroups.count(),
     dbV7.reviewRounds.count(), dbV7.reviewRoundProgress.count(), dbV7.tombstones.count(),
   ]);
   return counts.every((count) => count === 0);
@@ -224,6 +223,69 @@ async function planTable<T>(
 
   const deletes = currentKeys.filter((key) => !incomingKeys.has(key));
   return { puts, deletes, scannedRows: currentKeys.length + incoming.length, comparedRows: incoming.length };
+}
+
+function keyIdentity(key: IndexableType): string {
+  return typeof key === "string" ? `s:${key}` : `j:${JSON.stringify(key)}`;
+}
+
+async function planCompoundTable<T, K extends IndexableType>(
+  table: Table<T, K>,
+  incoming: readonly T[],
+  primaryKeyOf: (row: T) => K,
+): Promise<ReconcilePlan<T, K>> {
+  const currentKeys = await table.toCollection().primaryKeys();
+  const incomingKeyIds = new Set<string>();
+  const puts: T[] = [];
+  for (let index = 0; index < incoming.length; index += RECONCILE_PLAN_READ_BATCH_SIZE) {
+    const rows = incoming.slice(index, index + RECONCILE_PLAN_READ_BATCH_SIZE);
+    const keys = rows.map((row) => {
+      const key = primaryKeyOf(row);
+      const identity = keyIdentity(key);
+      if (incomingKeyIds.has(identity)) throw new Error(`远端 ${table.name} 存在重复复合主键 ${identity}，无法安全增量同步。`);
+      incomingKeyIds.add(identity);
+      return key;
+    });
+    const current = await table.bulkGet(keys);
+    for (let offset = 0; offset < rows.length; offset += 1) {
+      if (current[offset] === undefined || !equivalent(current[offset], rows[offset])) puts.push(rows[offset]);
+    }
+  }
+  return {
+    puts,
+    deletes: currentKeys.filter((key) => !incomingKeyIds.has(keyIdentity(key))),
+    scannedRows: currentKeys.length + incoming.length,
+    comparedRows: incoming.length,
+  };
+}
+
+function directCompoundPlan<T, K extends IndexableType>(
+  mode: "fresh" | "dirty",
+  table: Table<T, K>,
+  incoming: readonly T[],
+  primaryKeyOf: (row: T) => K,
+  syncKeyOf: (row: T) => string,
+  dirtyKeys: readonly string[] | undefined,
+  primaryKeyFromSyncKey: (key: string) => K,
+): ReconcilePlan<T, K> {
+  const wanted = mode === "dirty" ? new Set(dirtyKeys ?? []) : undefined;
+  const seen = new Set<string>();
+  const puts: T[] = [];
+  for (const row of incoming) {
+    const syncKey = syncKeyOf(row);
+    if (wanted && !wanted.has(syncKey)) continue;
+    const identity = keyIdentity(primaryKeyOf(row));
+    if (seen.has(identity)) throw new Error(`远端 ${table.name} 存在重复复合主键 ${identity}。`);
+    seen.add(identity);
+    puts.push(row);
+  }
+  const foundSyncKeys = new Set(puts.map(syncKeyOf));
+  return {
+    puts,
+    deletes: mode === "dirty" ? [...wanted!].filter((key) => !foundSyncKeys.has(key)).map(primaryKeyFromSyncKey) : [],
+    scannedRows: 0,
+    comparedRows: 0,
+  };
 }
 
 async function planTableTimed<T>(
@@ -351,9 +413,9 @@ async function planImageAssetsTimed(
   return plan;
 }
 
-async function applyPlan<T>(
-  table: Table<T, string>,
-  plan: ReconcilePlan<T>,
+async function applyPlan<T, K extends IndexableType>(
+  table: Table<T, K>,
+  plan: ReconcilePlan<T, K>,
   labels: { put: string; remove: string },
   progress: (count: number, label: string) => void,
   options: ReconcileV7ProjectionOptions,
@@ -402,20 +464,62 @@ export async function reconcileV7Projection(
     ? planTableTimed(table, incoming, keyOf, options)
     : Promise.resolve(directPlanTimed(mode, table, incoming, keyOf, dirtyKeys, options));
 
+  const compoundKeyFromSyncKey = (key: string): [string, string] => {
+    const separator = key.indexOf(":");
+    if (separator <= 0 || separator >= key.length - 1) throw new Error(`无效复合关系键：${key}`);
+    return [key.slice(0, separator), key.slice(separator + 1)];
+  };
+  const makeCompoundPlan = async <T>(
+    table: Table<T, [string, string]>,
+    incoming: readonly T[],
+    primaryKeyOf: (row: T) => [string, string],
+    syncKeyOf: (row: T) => string,
+    dirtyKeys: readonly string[] | undefined,
+  ): Promise<ReconcilePlan<T, [string, string]>> => mode === "full"
+    ? planCompoundTable(table, incoming, primaryKeyOf)
+    : directCompoundPlan(mode, table, incoming, primaryKeyOf, syncKeyOf, dirtyKeys, compoundKeyFromSyncKey);
+
   const dirty = options.dirtyKeys;
   const bankPlan = await makePlan(dbV7.banks, state.banks, (row) => row.id, dirty?.banks);
   const folderPlan = await makePlan(dbV7.bankFolders, state.bankFolders, (row) => row.id, dirty?.bankFolders);
   const questionPlan = await makePlan(dbV7.questions, state.questions, (row) => row.id, dirty?.questions);
-  const membershipPlan = await makePlan(dbV7.bankQuestionMemberships, state.memberships, (row) => row.key, dirty?.memberships);
+  const membershipPlan = await makeCompoundPlan(
+    dbV7.bankQuestionMemberships,
+    state.memberships,
+    (row) => [row.bankId, row.questionId],
+    (row) => row.key,
+    dirty?.memberships,
+  );
   const attemptPlan = await makePlan(dbV7.attempts, state.attempts, (row) => row.id, dirty?.attempts);
-  const attemptStatsPlan = await makePlan(dbV7.attemptStats, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);
-  const dailyStatsPlan = await makePlan(dbV7.attemptDailyStats, state.attemptDailyStats, (row) => row.key, dirty?.attemptDailyStats);
+  const attemptStatsPlan = await makePlan(dbV7.questionProgress, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);
+  const dailyStatsPlan = await makeCompoundPlan(
+    dbV7.questionDailyProgress,
+    state.attemptDailyStats,
+    (row) => [row.date, row.questionId],
+    (row) => row.key,
+    dirty?.attemptDailyStats,
+  );
   const notePlan = await makePlan(dbV7.notes, state.notes, (row) => row.questionId, dirty?.notes);
-  const practiceRunPlan = await makePlan(dbV7.practiceRuns, state.practiceRuns, (row) => row.id, dirty?.practiceRuns);
-  const practiceStatsPlan = await makePlan(dbV7.practiceRunStats, state.practiceRunStats, (row) => row.key, dirty?.practiceRunStats);
+  const practiceRuns = state.practiceRuns.map(practiceRunWithActivityV7);
+  const practiceRunPlan = await makePlan(dbV7.practiceRuns, practiceRuns, (row) => row.id, dirty?.practiceRuns);
+  const bankPracticeStats = state.practiceRunStats.map((row) => ({
+    bankId: row.bankId,
+    total: row.total,
+    completed: row.completed,
+    inProgress: row.inProgress,
+    abandoned: row.abandoned,
+    latestActivityAt: row.latestUpdatedAt,
+  }));
+  const practiceStatsPlan = await makePlan(dbV7.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);
   const groupPlan = await makePlan(dbV7.questionGroups, state.questionGroups, (row) => row.id, dirty?.questionGroups);
   const roundPlan = await makePlan(dbV7.reviewRounds, state.reviewRounds, (row) => row.id, dirty?.reviewRounds);
-  const roundProgressPlan = await makePlan(dbV7.reviewRoundProgress, state.reviewRoundProgress, (row) => row.key, dirty?.reviewRoundProgress);
+  const roundProgressPlan = await makeCompoundPlan(
+    dbV7.reviewRoundProgress,
+    state.reviewRoundProgress,
+    (row) => [row.roundId, row.questionId],
+    (row) => row.key,
+    dirty?.reviewRoundProgress,
+  );
   const tombstonePlan = await makePlan(dbV7.tombstones, state.tombstones, (row) => row.key, dirty?.tombstones);
   const imagePlan = mode === "full"
     ? await planImageAssetsTimed(state.imageAssets, options)
@@ -441,8 +545,8 @@ export async function reconcileV7Projection(
 
   const transactionTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
-    dbV7.imageAssets, dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats,
-    dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.questionGroups,
+    dbV7.imageAssets, dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress,
+    dbV7.notes, dbV7.practiceRuns, dbV7.bankPracticeStats, dbV7.questionGroups,
     dbV7.reviewRounds, dbV7.reviewRoundProgress, dbV7.tombstones, dbV7.changeSets,
   ];
 
@@ -483,13 +587,11 @@ export async function reconcileV7Projection(
       await applyPlan(dbV7.questions, questionPlan, { put: "更新题目", remove: "清理题目" }, progress, options, mode);
       await applyPlan(dbV7.bankQuestionMemberships, membershipPlan, { put: "更新题库关系", remove: "清理题库关系" }, progress, options, mode);
       await applyPlan(dbV7.attempts, attemptPlan, { put: "更新作答记录", remove: "清理作答记录" }, progress, options, mode);
-      await applyPlan(dbV7.attemptStats, attemptStatsPlan, { put: "更新学习统计", remove: "清理学习统计" }, progress, options, mode);
-      await applyPlan(dbV7.attemptDailyStats, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);
+      await applyPlan(dbV7.questionProgress, attemptStatsPlan, { put: "更新学习统计", remove: "清理学习统计" }, progress, options, mode);
+      await applyPlan(dbV7.questionDailyProgress, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);
       await applyPlan(dbV7.notes, notePlan, { put: "更新解析笔记", remove: "清理解析笔记" }, progress, options, mode);
       await applyPlan(dbV7.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
-      if (practiceRunPlan.deletes.length) await dbV7.practiceRunActivity.bulkDelete(practiceRunPlan.deletes);
-      if (practiceRunPlan.puts.length) await dbV7.practiceRunActivity.bulkPut(practiceRunPlan.puts.map((run) => practiceRunActivityRowV7(run as PracticeRunV7)));
-      await applyPlan(dbV7.practiceRunStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);
+      await applyPlan(dbV7.bankPracticeStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);
       await applyPlan(dbV7.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
       await applyPlan(dbV7.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);
       await applyPlan(dbV7.reviewRoundProgress, roundProgressPlan, { put: "更新轮次进度", remove: "清理轮次进度" }, progress, options, mode);

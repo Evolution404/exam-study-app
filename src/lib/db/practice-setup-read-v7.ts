@@ -25,7 +25,7 @@ export async function readPracticeSetupHistoryForQuestionIdsV7(
   if (!ids.length) return { stats: [], roundsProgress: [], attempts: [] };
   const includeAttempts = options.includeAttempts !== false;
   const [statsRows, roundsProgress, attempts] = await Promise.all([
-    dbV7.attemptStats.bulkGet(ids),
+    dbV7.questionProgress.bulkGet(ids),
     dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray(),
     includeAttempts ? dbV7.attempts.where("questionId").anyOf(ids).toArray() : Promise.resolve([]),
   ]);

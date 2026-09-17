@@ -17,7 +17,7 @@ export async function readNotesForQuestionIdsV7(questionIds: readonly string[]):
 export async function readAttemptStatsForQuestionIdsV7(questionIds: readonly string[]): Promise<AttemptStatsV7[]> {
   const ids = uniqueQuestionIds(questionIds);
   if (!ids.length) return [];
-  const rows = await dbV7.attemptStats.bulkGet(ids);
+  const rows = await dbV7.questionProgress.bulkGet(ids);
   return rows.filter((row): row is AttemptStatsV7 => row !== undefined);
 }
 

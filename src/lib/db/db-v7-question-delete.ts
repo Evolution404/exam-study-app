@@ -13,7 +13,7 @@ import {
   type ChangeSetMutationV7,
   type ChangeSetQueueRecordV7,
 } from "./db-v7-change-sets";
-import { deleteBankV7, refreshBankQuestionCountInTx } from "./db-v7-bank";
+import { deleteBankV7, membershipPrimaryKey, refreshBankQuestionCountInTx } from "./db-v7-bank";
 import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { listPracticeRunsForQuestionIdsV7 } from "./practice-run-read-v7";
 import type { QuestionV7, TombstoneV7 } from "./v7-types";
@@ -22,9 +22,9 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
   const uniqueIds = [...new Set(questionIds.filter(Boolean))];
   if (!uniqueIds.length) return 0;
   return dbV7.transaction("rw", [
-    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
-    dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
-    dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.banks, dbV7.tombstones,
+    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.questionProgress,
+    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.practiceRuns, dbV7.banks, dbV7.tombstones,
     dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const questions = (await dbV7.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV7 => Boolean(question));
@@ -92,14 +92,14 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
       await dbV7.changeSets.put(rebuilt);
     }
     await dbV7.questions.bulkDelete(existingIds);
-    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
+    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membershipPrimaryKey(membership.bankId, membership.questionId)));
     await dbV7.tombstones.bulkPut(memberships.filter((membership) => publishedMembershipKeys.has(membership.key)).map((membership) => ({
         key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
         deletedAt: timestamp, deviceId, eventId: makeV7Id("question-delete"), sequence: deleteSequence,
       })));
     await dbV7.attempts.where("questionId").anyOf(existingIds).delete();
-    await dbV7.attemptStats.bulkDelete(existingIds);
-    await dbV7.attemptDailyStats.where("questionId").anyOf(existingIds).delete();
+    await dbV7.questionProgress.bulkDelete(existingIds);
+    await dbV7.questionDailyProgress.where("questionId").anyOf(existingIds).delete();
     await dbV7.reviewRoundProgress.where("questionId").anyOf(existingIds).delete();
     const reviewRounds = await dbV7.reviewRounds.toArray();
     for (const round of reviewRounds) {
@@ -162,10 +162,10 @@ export const deleteQuestionGlobalV7 = deleteQuestionV7;
 
 export async function deleteBankWithExclusiveQuestionsV7(bankId: string): Promise<{ bankDeleted: boolean; deletedQuestions: number }> {
   return dbV7.transaction("rw", [
-    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
-    dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds,
-    dbV7.reviewRoundProgress, dbV7.practiceRuns, dbV7.practiceRunActivity,
-    dbV7.practiceRunStats, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.questionProgress,
+    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds,
+    dbV7.reviewRoundProgress, dbV7.practiceRuns,
+    dbV7.bankPracticeStats, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
     const questionIds = memberships.map((membership) => membership.questionId);

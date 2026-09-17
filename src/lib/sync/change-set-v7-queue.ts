@@ -15,14 +15,23 @@ export async function ensureChangeSetQueueBaseV7(): Promise<void> {
   if (await dbV7.changeSets.count()) return;
   const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones] = await Promise.all([
     dbV7.banks.toArray(), dbV7.bankFolders.toArray(), dbV7.questions.toArray(), dbV7.bankQuestionMemberships.toArray(),
-    dbV7.imageAssets.toArray(), dbV7.attempts.toArray(), dbV7.attemptStats.toArray(), dbV7.attemptDailyStats.toArray(),
-    dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.practiceRunStats.toArray(), dbV7.questionGroups.toArray(),
+    dbV7.imageAssets.toArray(), dbV7.attempts.toArray(), dbV7.questionProgress.toArray(), dbV7.questionDailyProgress.toArray(),
+    dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.bankPracticeStats.toArray(), dbV7.questionGroups.toArray(),
     dbV7.reviewRounds.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(),
   ]);
   const projection: ChangeSetProjectionV7 = {
     banks, bankFolders, questions, memberships,
     imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height })),
-    attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats,
+    attempts, attemptStats, attemptDailyStats, notes, practiceRuns,
+    practiceRunStats: practiceRunStats.map((stats) => ({
+      key: stats.bankId,
+      bankId: stats.bankId,
+      total: stats.total,
+      completed: stats.completed,
+      inProgress: stats.inProgress,
+      abandoned: stats.abandoned,
+      latestUpdatedAt: stats.latestActivityAt,
+    })),
     questionGroups, reviewRounds, reviewRoundProgress, tombstones,
   };
   await dbV7.syncMeta.put({ key: "v7:queue-base", value: projection, updatedAt: new Date().toISOString() });

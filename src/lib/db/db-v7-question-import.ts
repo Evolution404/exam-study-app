@@ -3,6 +3,7 @@ import { dbV7, getV7DeviceId, makeV7Id, nowIso, uniqueStrings } from "./db-v7-co
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import {
   membershipKey,
+  membershipPrimaryKey,
   refreshBankQuestionCountInTx,
   saveMembershipInTx,
   sha256Text,
@@ -204,7 +205,7 @@ export async function importQuestionBankV7(fileName: string, raw: unknown, optio
       const question = existing ?? provisional;
       if (seenInImport.has(question.id)) continue;
       seenInImport.add(question.id);
-      const existingMembership = await dbV7.bankQuestionMemberships.get(membershipKey(bank.id, question.id));
+      const existingMembership = await dbV7.bankQuestionMemberships.get(membershipPrimaryKey(bank.id, question.id));
       const membership: BankQuestionMembership = existingMembership ?? {
         key: membershipKey(bank.id, question.id),
         bankId: bank.id,

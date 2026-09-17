@@ -47,8 +47,7 @@ export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRun
     dbV7.questions,
     dbV7.reviewRounds,
     dbV7.practiceRuns,
-    dbV7.practiceRunActivity,
-    dbV7.practiceRunStats,
+    dbV7.bankPracticeStats,
     dbV7.changeSets,
     dbV7.syncMeta,
   ], async () => {
@@ -78,7 +77,7 @@ export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRun
  * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
 export async function savePracticeProgressV7(run: PracticeRunV7): Promise<PracticeRunV7 | undefined> {
-  return withSyncLock(() => dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats], async () => {
+  return withSyncLock(() => dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.bankPracticeStats], async () => {
     const current = await dbV7.practiceRuns.get(run.id);
     if (!current) return undefined;
     const liveQuestionIds = new Set(current.questionIds);
@@ -197,7 +196,7 @@ export async function archiveReviewRoundV7(roundId: string): Promise<ReviewRound
 export const archiveRoundV7 = archiveReviewRoundV7;
 
 export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV7["status"], answers?: PracticeRunV7["answers"]): Promise<PracticeRunV7 | undefined> {
-  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.bankPracticeStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     const current = await dbV7.practiceRuns.get(runId);
     if (!current) return undefined;
     const updatedAt = nowIso();
@@ -283,7 +282,7 @@ function addDailyStatsV7(current: AttemptDailyStatsV7 | undefined, attempt: Atte
 
 async function progressForAnswerInTx(roundId: string, questionId: string, attempt: AttemptV7): Promise<void> {
   const key = `${roundId}:${questionId}`;
-  const current = await dbV7.reviewRoundProgress.get(key);
+  const current = await dbV7.reviewRoundProgress.get([roundId, questionId]);
   const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
@@ -323,8 +322,8 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
   if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw new Error("当前作答必须提供有效 elapsedMs。");
   const selectedAnswer = selected.join("");
   return dbV7.transaction("rw", [
-    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.practiceRuns,
-    dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.practiceRuns,
+    dbV7.bankPracticeStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     // Re-read the authoritative run after the write transaction has acquired
@@ -363,6 +362,7 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
       id: makeV7Id("attempt"),
       runId: input.runId,
       questionId: input.questionId,
+      ...(reviewRoundId ? { reviewRoundId } : {}),
       selected: selectedAnswer,
       correct: Boolean(input.correct),
       elapsedMs: input.elapsedMs,
@@ -395,9 +395,8 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
       lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : run.lastAnsweredIndex,
     };
     await dbV7.attempts.put(attempt);
-    await dbV7.attemptStats.put(addAttemptToStatsV7(await dbV7.attemptStats.get(input.questionId), attempt));
-    const key = dailyStatsKey(timestamp, input.questionId);
-    await dbV7.attemptDailyStats.put(addDailyStatsV7(await dbV7.attemptDailyStats.get(key), attempt));
+    await dbV7.questionProgress.put(addAttemptToStatsV7(await dbV7.questionProgress.get(input.questionId), attempt));
+    await dbV7.questionDailyProgress.put(addDailyStatsV7(await dbV7.questionDailyProgress.get([datePart(timestamp), input.questionId]), attempt));
     await updatePracticeRunStatsInTx(run, nextRun);
     await putPracticeRunInTx(nextRun);
     if (reviewRoundId) {

@@ -4,7 +4,7 @@
  * import change-set creation, image hashing or question content helpers so it
  * stays free of business logic and can be imported by every sibling module.
  */
-import Dexie, { type EntityTable } from "dexie";
+import Dexie, { type EntityTable, type Table } from "dexie";
 import { queueConfigMirror } from "../../platform/persistent-config";
 import type { ChangeSetQueueRecordV7 } from "./db-v7-change-sets";
 import type {
@@ -13,17 +13,23 @@ import type {
   AttemptV7,
   BankFolderV7,
   BankQuestionMembership,
+  BankPracticeStatsV7,
   BankV7,
   ContentBlock,
   ImageAsset,
+  ImageBlobV7,
   NoteV7,
+  PracticeRunItemV7,
+  PracticeRunSourceV7,
   PracticeRunStatsV7,
-  PracticeRunActivityV7,
   PracticeRunV7,
+  QuestionGroupItemV7,
   QuestionGroupV7,
   QuestionTypeV7,
   QuestionV7,
   ReviewRound,
+  ReviewRoundBankV7,
+  ReviewRoundItemV7,
   ReviewRoundProgress,
   SyncFileV7,
   SyncMetaV7,
@@ -245,18 +251,23 @@ class V7StudyDatabase extends Dexie {
   banks!: EntityTable<BankV7, "id">;
   bankFolders!: EntityTable<BankFolderV7, "id">;
   questions!: EntityTable<QuestionV7, "id">;
-  bankQuestionMemberships!: EntityTable<BankQuestionMembership, "key">;
+  bankQuestionMemberships!: Table<BankQuestionMembership, [string, string]>;
   imageAssets!: EntityTable<ImageAsset, "id">;
+  imageBlobs!: EntityTable<ImageBlobV7, "assetId">;
   attempts!: EntityTable<AttemptV7, "id">;
-  attemptStats!: EntityTable<AttemptStatsV7, "questionId">;
-  attemptDailyStats!: EntityTable<AttemptDailyStatsV7, "key">;
+  questionProgress!: EntityTable<AttemptStatsV7, "questionId">;
+  questionDailyProgress!: Table<AttemptDailyStatsV7, [string, string]>;
   notes!: EntityTable<NoteV7, "questionId">;
   practiceRuns!: EntityTable<PracticeRunV7, "id">;
-  practiceRunActivity!: EntityTable<PracticeRunActivityV7, "runId">;
-  practiceRunStats!: EntityTable<PracticeRunStatsV7, "key">;
+  practiceRunSources!: Table<PracticeRunSourceV7, [string, string]>;
+  practiceRunItems!: Table<PracticeRunItemV7, [string, string]>;
+  bankPracticeStats!: EntityTable<BankPracticeStatsV7, "bankId">;
   questionGroups!: EntityTable<QuestionGroupV7, "id">;
+  questionGroupItems!: Table<QuestionGroupItemV7, [string, string]>;
   reviewRounds!: EntityTable<ReviewRound, "id">;
-  reviewRoundProgress!: EntityTable<ReviewRoundProgress, "key">;
+  reviewRoundBanks!: Table<ReviewRoundBankV7, [string, string]>;
+  reviewRoundItems!: Table<ReviewRoundItemV7, [string, string]>;
+  reviewRoundProgress!: Table<ReviewRoundProgress, [string, string]>;
   changeSets!: EntityTable<ChangeSetQueueRecordV7, "id">;
   syncFiles!: EntityTable<SyncFileV7, "path">;
   tombstones!: EntityTable<TombstoneV7, "key">;
@@ -270,18 +281,23 @@ class V7StudyDatabase extends Dexie {
       banks: "id, sortOrder, folderId, importedAt, updatedAt",
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, contentFingerprint, type, updatedAt, *tags",
-      bankQuestionMemberships: "key, bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder], [bankId+questionId]",
+      bankQuestionMemberships: "[bankId+questionId], bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder]",
       imageAssets: "id, mimeType, size",
-      attempts: "id, runId, questionId, sourceBankId, createdAt, deviceId",
-      attemptStats: "questionId, latestAttemptAt",
-      attemptDailyStats: "key, date, questionId",
+      imageBlobs: "assetId, cachedAt, lastUsedAt",
+      attempts: "id, runId, questionId, reviewRoundId, sourceBankId, createdAt, deviceId, [questionId+createdAt], [runId+createdAt], [reviewRoundId+createdAt], [reviewRoundId+questionId+createdAt]",
+      questionProgress: "questionId, latestAttemptAt",
+      questionDailyProgress: "[date+questionId], date, questionId",
       notes: "questionId, updatedAt",
-      practiceRuns: "id, status, updatedAt, startedAt, *bankIds, *questionIds, [status+updatedAt]",
-      practiceRunActivity: "runId, status, activityAt, [status+activityAt]",
-      practiceRunStats: "key, bankId, latestUpdatedAt",
+      practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
+      practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",
+      practiceRunItems: "[runId+questionId], runId, questionId, submittedAttemptId, [runId+position]",
+      bankPracticeStats: "bankId, latestActivityAt",
       questionGroups: "id, type, updatedAt",
+      questionGroupItems: "[groupId+questionId], groupId, questionId, [groupId+position]",
       reviewRounds: "id, status, updatedAt, startedAt",
-      reviewRoundProgress: "key, roundId, questionId, latestAttemptAt",
+      reviewRoundBanks: "[roundId+bankId], roundId, bankId, [roundId+position]",
+      reviewRoundItems: "[roundId+questionId], roundId, questionId, [roundId+position]",
+      reviewRoundProgress: "[roundId+questionId], roundId, questionId, latestAttemptAt",
       changeSets: "id, state, createdAt, deviceId, localSequence, claimId, committedAt, [state+createdAt]",
       syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",

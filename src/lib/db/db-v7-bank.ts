@@ -35,6 +35,11 @@ export function membershipKey(bankId: string, questionId: string): string {
   return `${bankId}:${questionId}`;
 }
 
+/** IndexedDB primary key for the normalized membership relation. */
+export function membershipPrimaryKey(bankId: string, questionId: string): [string, string] {
+  return [bankId, questionId];
+}
+
 /** internal，供兄弟模块使用 */
 export function normalizeMembership(input: BankQuestionMembership): BankQuestionMembership {
   return { ...input, key: input.key || membershipKey(input.bankId, input.questionId) };
@@ -238,8 +243,8 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 /** Delete only the bank and its joins; content and all learning history stay. */
 export async function deleteBankV7(bankId: string): Promise<boolean> {
   return dbV7.transaction("rw", [
-    dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunActivity,
-    dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+    dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns,
+    dbV7.bankPracticeStats, dbV7.reviewRounds, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const bank = await dbV7.banks.get(bankId);
     if (!bank) return false;
@@ -251,7 +256,7 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
     const runs = await listPracticeRunsForBankV7(bankId);
     const rounds = (await dbV7.reviewRounds.toArray()).filter((round) => round.bankIds.includes(bankId));
     const bankDeleteSequence = await nextV7Sequence(deviceId);
-    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
+    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membershipPrimaryKey(membership.bankId, membership.questionId)));
     await dbV7.banks.delete(bankId);
     for (const run of runs) {
       await updatePracticeRunStatsInTx(run, undefined);

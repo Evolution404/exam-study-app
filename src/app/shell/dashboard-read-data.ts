@@ -44,7 +44,7 @@ export async function readDashboardScopedRowsV7(
 
   if (normalized.type === "lifetime") {
     const [attemptStatsRows, notes] = await Promise.all([
-      dbV7.attemptStats.bulkGet(ids),
+      dbV7.questionProgress.bulkGet(ids),
       notesPromise,
     ]);
     return {

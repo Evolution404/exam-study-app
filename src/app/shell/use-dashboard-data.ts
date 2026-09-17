@@ -43,7 +43,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
   const statsBaseQuery = useLiveQuery(async () => {
     if (view !== "home") return null;
     const today = calendarDate(new Date());
-    const todayRows = await dbV7.attemptDailyStats.where("date").equals(today).toArray();
+    const todayRows = await dbV7.questionDailyProgress.where("date").equals(today).toArray();
     const { todayAttempts, todayCorrect } = summarizeDashboardRows([], todayRows);
     return { todayAttempts, todayCorrect };
   }, [view]);
@@ -66,7 +66,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     const memberships = await dbV7.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
     const ids = [...new Set(memberships.map((membership) => membership.questionId))];
     const [attemptStatsRows, roundProgress] = await Promise.all([
-      dbV7.attemptStats.bulkGet(ids),
+      dbV7.questionProgress.bulkGet(ids),
       ids.length ? dbV7.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
     ]);
     const attemptStats = attemptStatsRows.filter((row) => row !== undefined);

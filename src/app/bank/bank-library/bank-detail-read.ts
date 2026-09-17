@@ -29,15 +29,15 @@ export async function readBankDetailDatasetV7(
       .then((rows) => rows.filter((row) => questionIdSet.has(row.questionId)))
     : Promise.resolve([]);
   const dailyRows = activityWindow && questionIds.length
-    ? dbV7.attemptDailyStats.where("date").between(activityWindow.from, activityWindow.to, true, true).toArray()
+    ? dbV7.questionDailyProgress.where("date").between(activityWindow.from, activityWindow.to, true, true).toArray()
       .then((rows) => rows.filter((row) => questionIdSet.has(row.questionId)))
     : Promise.resolve([]);
   const [rawStats, attempts, notes, runs, runStats, roundProgress, activityDailyStats] = await Promise.all([
-    dbV7.attemptStats.bulkGet(questionIds),
+    dbV7.questionProgress.bulkGet(questionIds),
     rollingAttempts,
     dbV7.notes.bulkGet(questionIds),
     listRecentPracticeRunsForBankV7(bank.id, 5),
-    dbV7.practiceRunStats.get(bank.id),
+    dbV7.bankPracticeStats.get(bank.id),
     roundRows,
     dailyRows,
   ]);

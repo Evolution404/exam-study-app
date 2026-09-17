@@ -53,8 +53,7 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
     dbV7.questions,
     dbV7.reviewRounds,
     dbV7.practiceRuns,
-    dbV7.practiceRunActivity,
-    dbV7.practiceRunStats,
+    dbV7.bankPracticeStats,
     dbV7.changeSets,
     dbV7.syncMeta,
   ], async () => {

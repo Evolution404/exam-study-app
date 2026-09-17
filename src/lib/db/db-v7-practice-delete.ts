@@ -15,8 +15,7 @@ import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 export async function deletePracticeRunV7(runId: string): Promise<boolean> {
   return dbV7.transaction("rw", [
     dbV7.practiceRuns,
-    dbV7.practiceRunActivity,
-    dbV7.practiceRunStats,
+    dbV7.bankPracticeStats,
     dbV7.tombstones,
     dbV7.changeSets,
     dbV7.syncMeta,

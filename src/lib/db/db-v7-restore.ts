@@ -79,8 +79,8 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
   // ordinary sync was the main iOS/WKWebView write-path pressure point.
   const replaceTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
-    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunActivity,
-    dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns,
+    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.tombstones,
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
@@ -160,11 +160,18 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
       await writeChunks(state.questions, (chunk) => dbV7.questions.bulkPut(chunk), "写入题目");
       await writeChunks(state.memberships, (chunk) => dbV7.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");
       await writeChunks(state.attempts, (chunk) => dbV7.attempts.bulkPut(chunk), "写入作答记录");
-      await writeChunks(state.attemptStats, (chunk) => dbV7.attemptStats.bulkPut(chunk), "写入学习统计");
-      await writeChunks(state.attemptDailyStats, (chunk) => dbV7.attemptDailyStats.bulkPut(chunk), "写入每日统计");
+      await writeChunks(state.attemptStats, (chunk) => dbV7.questionProgress.bulkPut(chunk), "写入学习统计");
+      await writeChunks(state.attemptDailyStats, (chunk) => dbV7.questionDailyProgress.bulkPut(chunk), "写入每日统计");
       await writeChunks(state.notes, (chunk) => dbV7.notes.bulkPut(chunk), "写入解析笔记");
       await writeChunks(state.practiceRuns, (chunk) => bulkPutPracticeRunsInTx(chunk), "写入练习记录");
-      await writeChunks(state.practiceRunStats, (chunk) => dbV7.practiceRunStats.bulkPut(chunk), "写入练习统计");
+      await writeChunks(state.practiceRunStats, (chunk) => dbV7.bankPracticeStats.bulkPut(chunk.map((stats) => ({
+        bankId: stats.bankId,
+        total: stats.total,
+        completed: stats.completed,
+        inProgress: stats.inProgress,
+        abandoned: stats.abandoned,
+        latestActivityAt: stats.latestUpdatedAt,
+      }))), "写入练习统计");
       await writeChunks(state.questionGroups, (chunk) => dbV7.questionGroups.bulkPut(chunk), "写入题组");
       await writeChunks(state.reviewRounds, (chunk) => dbV7.reviewRounds.bulkPut(chunk), "写入复习轮次");
       await writeChunks(state.reviewRoundProgress, (chunk) => dbV7.reviewRoundProgress.bulkPut(chunk), "写入轮次进度");

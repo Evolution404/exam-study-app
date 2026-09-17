@@ -196,7 +196,7 @@ function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotic
 }) {
   const question = entries.find((entry) => entry.id === questionId);
   const note = useLiveQuery(() => dbV7.notes.get(questionId), [questionId]);
-  const stats = useLiveQuery(() => dbV7.attemptStats.get(questionId), [questionId]);
+  const stats = useLiveQuery(() => dbV7.questionProgress.get(questionId), [questionId]);
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {

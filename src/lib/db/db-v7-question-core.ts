@@ -12,6 +12,7 @@ import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import {
   getBankQuestionMembershipsV7,
   membershipKey,
+  membershipPrimaryKey,
   refreshBankQuestionCountInTx,
   saveMembershipInTx,
 } from "./db-v7-bank";
@@ -43,7 +44,7 @@ export async function createQuestionV7(bankId: string, draft: StructuredQuestion
       deviceId,
     };
     if (!existing) await dbV7.questions.put(question);
-    const currentMembership = await dbV7.bankQuestionMemberships.get(membership.key);
+    const currentMembership = await dbV7.bankQuestionMemberships.get(membershipPrimaryKey(bankId, question.id));
     await saveMembershipInTx(currentMembership ? { ...currentMembership, updatedAt: timestamp, deviceId } : membership);
     await refreshBankQuestionCountInTx(bankId);
     await enqueueChangeSetV7([
@@ -162,7 +163,7 @@ export async function splitQuestionV7(
     const splitSequence = await nextV7Sequence(deviceId);
     await dbV7.questions.put(clone);
     for (const membership of selected) {
-      await dbV7.bankQuestionMemberships.delete(membership.key);
+      await dbV7.bankQuestionMemberships.delete(membershipPrimaryKey(membership.bankId, membership.questionId));
       await dbV7.tombstones.put({
         key: tombstoneKey("membership", membership.key), entityType: "membership", entityId: membership.key,
         deletedAt: timestamp, deviceId, eventId: makeV7Id("membership-split"), sequence: splitSequence,
@@ -189,7 +190,7 @@ export async function addMembershipsV7(bankId: string, questionIds: readonly str
     const [bank, questions, existingMemberships, currentMemberships] = await Promise.all([
       dbV7.banks.get(bankId),
       dbV7.questions.bulkGet(uniqueIds),
-      dbV7.bankQuestionMemberships.bulkGet(uniqueIds.map((questionId) => membershipKey(bankId, questionId))),
+      dbV7.bankQuestionMemberships.bulkGet(uniqueIds.map((questionId) => membershipPrimaryKey(bankId, questionId))),
       dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray(),
     ]);
     if (!bank) throw new Error("题库不存在或已被删除。");
@@ -259,7 +260,7 @@ export async function setQuestionMembershipsV7(questionId: string, bankIds: read
     });
     const affectedBankIds = uniqueStrings([...addedBankIds, ...removedMemberships.map((membership) => membership.bankId)]);
     if (removedMemberships.length) {
-      await dbV7.bankQuestionMemberships.bulkDelete(removedMemberships.map((membership) => membership.key));
+      await dbV7.bankQuestionMemberships.bulkDelete(removedMemberships.map((membership) => membershipPrimaryKey(membership.bankId, membership.questionId)));
       await dbV7.tombstones.bulkPut(removedMemberships.map((membership) => ({
         key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
         deletedAt: timestamp, deviceId, eventId: makeV7Id("membership-delete"), sequence,
@@ -287,12 +288,12 @@ export async function removeMembershipV7(
   if (!bankId || !questionId) return false;
   const key = membershipKey(bankId, questionId);
   return dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
-    const current = await dbV7.bankQuestionMemberships.get(key);
+    const current = await dbV7.bankQuestionMemberships.get(membershipPrimaryKey(bankId, questionId));
     if (!current) return false;
     const timestamp = nowIso();
     const deviceId = getV7DeviceId();
     const membershipDeleteSequence = await nextV7Sequence(deviceId);
-    await dbV7.bankQuestionMemberships.delete(key);
+    await dbV7.bankQuestionMemberships.delete(membershipPrimaryKey(bankId, questionId));
     await dbV7.tombstones.put({
       key: tombstoneKey("membership", key), entityType: "membership", entityId: key,
       deletedAt: timestamp, deviceId, eventId: makeV7Id("membership-delete"), sequence: membershipDeleteSequence,
@@ -306,14 +307,14 @@ export async function removeMembershipV7(
 export async function removeMembershipsV7(bankId: string, questionIds: readonly string[]): Promise<number> {
   const uniqueIds = [...new Set(questionIds.filter(Boolean))];
   if (!bankId || !uniqueIds.length) return 0;
-  const keys = uniqueIds.map((questionId) => membershipKey(bankId, questionId));
+  const primaryKeys = uniqueIds.map((questionId) => membershipPrimaryKey(bankId, questionId));
   return dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
-    const memberships = (await dbV7.bankQuestionMemberships.bulkGet(keys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
+    const memberships = (await dbV7.bankQuestionMemberships.bulkGet(primaryKeys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
     if (!memberships.length) return 0;
     const timestamp = nowIso();
     const deviceId = getV7DeviceId();
     const membershipBulkDeleteSequence = await nextV7Sequence(deviceId);
-    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
+    await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membershipPrimaryKey(membership.bankId, membership.questionId)));
     await dbV7.tombstones.bulkPut(memberships.map((membership) => ({
       key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
       deletedAt: timestamp, deviceId, eventId: makeV7Id("membership-delete"), sequence: membershipBulkDeleteSequence,

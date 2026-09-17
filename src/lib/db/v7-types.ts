@@ -90,6 +90,7 @@ export interface AttemptV7 {
   id: string;
   runId: string;
   questionId: string;
+  reviewRoundId?: string;
   selected: string;
   correct: boolean;
   elapsedMs: number;
@@ -137,6 +138,16 @@ export interface PracticeRunStatsV7 {
   latestUpdatedAt: string;
 }
 
+/** Device-local projection; rebuilt from practiceRuns + practiceRunSources. */
+export interface BankPracticeStatsV7 {
+  bankId: string;
+  total: number;
+  completed: number;
+  inProgress: number;
+  abandoned: number;
+  latestActivityAt: string;
+}
+
 export type ReviewRoundStatus = "active" | "completed" | "archived";
 
 export interface ReviewRound {
@@ -172,6 +183,42 @@ export interface ReviewRoundProgress {
 
 export type PracticeRunV7 = PracticeRun & { reviewRoundId?: string };
 
+export interface PracticeRunSourceV7 {
+  runId: string;
+  bankId: string;
+  bankNameSnapshot: string;
+  position: number;
+}
+
+export interface PracticeRunItemV7 {
+  runId: string;
+  questionId: string;
+  position: number;
+  questionTypeSnapshot: QuestionTypeV7;
+  optionOrder: number[];
+  draftResponse?: PracticeResponse;
+  submittedAttemptId?: string;
+}
+
+export interface QuestionGroupItemV7 {
+  groupId: string;
+  questionId: string;
+  position: number;
+  note?: string;
+}
+
+export interface ReviewRoundBankV7 {
+  roundId: string;
+  bankId: string;
+  position: number;
+}
+
+export interface ReviewRoundItemV7 {
+  roundId: string;
+  questionId: string;
+  position: number;
+}
+
 /** Device-local derived index for practice-history paging; never synchronized. */
 export interface PracticeRunActivityV7 {
   runId: string;
@@ -186,4 +233,11 @@ export interface ImageAsset {
   width: number;
   height: number;
   blob?: Blob;
+}
+
+export interface ImageBlobV7 {
+  assetId: string;
+  blob: Blob;
+  cachedAt?: string;
+  lastUsedAt?: string;
 }

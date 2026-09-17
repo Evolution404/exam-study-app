@@ -73,19 +73,43 @@ export interface SyncCheckpointSnapshotV7 {
 export async function createSyncCheckpointV7Snapshot(generatedAt = new Date().toISOString()): Promise<SyncCheckpointSnapshotV7> {
   const tables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.imageAssets,
-    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns,
-    dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns,
+    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.tombstones, dbV7.changeSets,
   ] as const;
   const rows = await dbV7.transaction("r", tables, async () => Promise.all([
     dbV7.banks.toArray(), dbV7.bankFolders.toArray(), dbV7.questions.toArray(), dbV7.bankQuestionMemberships.toArray(), dbV7.imageAssets.toArray(),
-    dbV7.attempts.toArray(), dbV7.attemptStats.toArray(), dbV7.attemptDailyStats.toArray(), dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.practiceRunStats.toArray(),
+    dbV7.attempts.toArray(), dbV7.questionProgress.toArray(), dbV7.questionDailyProgress.toArray(), dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.bankPracticeStats.toArray(),
     dbV7.questionGroups.toArray(), dbV7.reviewRounds.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(), dbV7.changeSets.toArray(),
   ]));
   const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, changeSets] = rows;
   // The local checkpoint is a projection, not an event log.  Cursors track the
   // pending change-set tail so concurrent devices can detect coverage.
-  const state = cloneState({ banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones });
+  const state = cloneState({
+    banks,
+    bankFolders,
+    questions,
+    memberships,
+    imageAssets,
+    attempts,
+    attemptStats,
+    attemptDailyStats,
+    notes,
+    practiceRuns,
+    practiceRunStats: practiceRunStats.map((stats) => ({
+      key: stats.bankId,
+      bankId: stats.bankId,
+      total: stats.total,
+      completed: stats.completed,
+      inProgress: stats.inProgress,
+      abandoned: stats.abandoned,
+      latestUpdatedAt: stats.latestActivityAt,
+    })),
+    questionGroups,
+    reviewRounds,
+    reviewRoundProgress,
+    tombstones,
+  });
   const cursors: Record<string, number> = {};
   for (const change of changeSets) cursors[change.deviceId] = Math.max(cursors[change.deviceId] ?? 0, change.localSequence);
   const checkpoint: SyncCheckpointV7 = { formatVersion: SYNC_V7_CHECKPOINT_FORMAT, generatedAt, state, cursors, counts: countsFor(state) };

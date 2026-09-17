@@ -39,7 +39,7 @@ export function Practice({ runId, question, initialState, optionOrder, questionI
   const copyStatusOf = (target: "question" | "questionWithAnswer") => (copyFeedback.target === target ? copyFeedback.status : "idle");
   const activeTimer = useRef<ActiveElapsedTimer | null>(null);
   const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
-  const attemptSummary = useLiveQuery(async () => summarizeV7AttemptStats(await dbV7.attemptStats.get(question.id)), [question.id]) ?? summarizeV7AttemptStats();
+  const attemptSummary = useLiveQuery(async () => summarizeV7AttemptStats(await dbV7.questionProgress.get(question.id)), [question.id]) ?? summarizeV7AttemptStats();
   const [draft, setDraft] = useState<string | null>(null);
   const [noteEditingQuestionId, setNoteEditingQuestionId] = useState<string | null>(null);
   const noteEditing = noteEditingQuestionId === question.id;
