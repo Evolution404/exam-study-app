@@ -128,7 +128,7 @@
     "test:sync-bank-reorder-folder": "tsx scripts/tests/test-sync-bank-reorder-folder.ts",
     "test:sync-gc": "tsx scripts/tests/test-sync-gc.ts",
     "test:sync-history": "tsx scripts/tests/test-sync-history.ts",
-    "test:sync-v10-converter": "tsx scripts/tests/test-sync-v10-converter.ts",
+    "test:sync-v10-converter": "tsx scripts/tests/test-sync-v10-converter.ts && tsx scripts/tests/sync-remote-converter-cases.ts",
     "test:shell-controllers": "tsx scripts/tests/test-shell-controllers.ts",
     "test:deploy-helpers": "tsx scripts/tests/test-deploy-helpers.ts"
   },
@@ -165,7 +165,7 @@
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
-    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-hooks": "6.1.0",
     "fake-indexeddb": "^6.2.5",
     "globals": "16.4.0",
     "knip": "^6.32.2",
