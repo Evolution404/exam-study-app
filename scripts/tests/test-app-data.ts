@@ -74,4 +74,4 @@ assert.equal((await studyDb.banks.get(third.id))?.questionCount, 0);
 assert.deepEqual((await listUnfiledQuestions()).map((item) => item.id), [question.id]);
 
 await studyDb.close();
-console.log("v7 app data tests passed");
+console.log("app data tests passed");
