@@ -84,6 +84,7 @@ const empty: ChangeSetProjectionV7 = {
   base.questions.push(question("q1"));
   base.memberships.push(membership("b1", "q1"), membership("b2", "q1"));
   base.practiceRuns.push(run("r1", "b1", ["q1"]));
+  base.reviewRounds.push(round("round-bank", ["b1", "b2"]));
 
   // 非级联删除仍有关系时失败
   await assert.rejects(
@@ -98,6 +99,7 @@ const empty: ChangeSetProjectionV7 = {
   assert.equal(after.questions.length, 1, "共享题不删");
   assert.equal(after.memberships.length, 1, "仅 b1 关系被删");
   assert.equal(after.practiceRuns.some((r) => r.id === "r1"), false, "目标题库 run 被删");
+  assert.deepEqual(after.reviewRounds.find((item) => item.id === "round-bank")?.bankIds, ["b2"], "题库删除必须裁剪复习轮次 bankIds");
   assert.ok(after.tombstones.some((t) => t.entityType === "practiceRun" && t.entityId === "r1"));
   assert.ok(after.tombstones.some((t) => t.entityType === "bank" && t.entityId === "b1"));
 }
@@ -114,7 +116,7 @@ const empty: ChangeSetProjectionV7 = {
   base.attempts.push({ id: "a1", runId: "r1", questionId: "q1", selected: "A", correct: true, elapsedMs: 1, createdAt: AT, deviceId: device });
   base.notes.push({ questionId: "q1", content: "note", revision: 1, updatedAt: AT, deviceId: device });
   base.questionGroups.push({ id: "g1", name: "组", type: "static", items: [{ questionId: "q1", note: "" }], createdAt: AT, updatedAt: AT, deviceId: device });
-  base.reviewRounds.push(round("round1", ["b1"]));
+  base.reviewRounds.push({ ...round("round1", ["b1"]), status: "completed", completedAt: AT, finalQuestionIds: ["q1"] });
   base.reviewRoundProgress.push(roundProgress("round1", "q1"));
 
   await assert.rejects(
@@ -131,6 +133,7 @@ const empty: ChangeSetProjectionV7 = {
   assert.equal(after.questionGroups.length, 0, "组被裁空");
   assert.ok(after.tombstones.some((t) => t.entityType === "questionGroup" && t.entityId === "g1"), "裁空组写墓碑");
   assert.equal(after.reviewRoundProgress.length, 0);
+  assert.deepEqual(after.reviewRounds.find((item) => item.id === "round1")?.finalQuestionIds, [], "题目删除必须裁剪已完成轮次 finalQuestionIds");
   assert.equal(after.practiceRuns[0].questionIds.length, 0, "run 被裁剪");
   assert.ok(after.tombstones.some((t) => t.entityType === "question" && t.entityId === "q1"));
 }

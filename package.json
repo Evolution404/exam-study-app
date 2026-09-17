@@ -73,7 +73,7 @@
     "test:modal": "tsx scripts/tests/test-modal-layering.ts",
     "test:v7-domain": "tsx scripts/tests/test-v7-domain.ts",
     "test:change-set-v7": "tsx scripts/tests/test-change-set-v7.ts",
-    "test:db-v7": "tsx scripts/tests/test-db-v7.ts && tsx scripts/tests/test-db-v7-atomic-writes.ts && tsx scripts/tests/test-db-v7-creation-integrity.ts && tsx scripts/tests/test-app-data-v7.ts && tsx scripts/tests/test-db-v7-extra.ts && tsx scripts/tests/test-practice-run-index-performance.ts && tsx scripts/tests/test-dashboard-read-performance.ts",
+    "test:db-v7": "tsx scripts/tests/test-db-v7.ts && tsx scripts/tests/test-db-v7-atomic-writes.ts && tsx scripts/tests/test-db-v7-creation-integrity.ts && tsx scripts/tests/test-db-v7-deletion-integrity.ts && tsx scripts/tests/test-app-data-v7.ts && tsx scripts/tests/test-db-v7-extra.ts && tsx scripts/tests/test-practice-run-index-performance.ts && tsx scripts/tests/test-dashboard-read-performance.ts",
     "test:safari-idb": "tsx scripts/tests/test-safari-idb-compat.ts",
     "test:checkpoint-extra": "tsx scripts/tests/test-sync-v7-checkpoint-extra.ts",
     "test:image-assets": "tsx scripts/tests/test-image-assets.ts",

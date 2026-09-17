@@ -6,8 +6,30 @@
 import {
   ensureQuestion,
   putTombstone,
+  runBankIds,
   type ChangeSetProjectionV7,
 } from "./change-set-v7-projection-core";
+
+export function updateBankDeleteCascade(
+  projection: ChangeSetProjectionV7,
+  bankId: string,
+  deletedAt: string,
+  deviceId: string,
+  eventId: string,
+  sequence: number,
+): void {
+  projection.memberships = projection.memberships.filter((membership) => membership.bankId !== bankId);
+  projection.banks = projection.banks.filter((bank) => bank.id !== bankId);
+  for (const run of projection.practiceRuns.filter((run) => runBankIds(run).includes(bankId))) {
+    putTombstone(projection, "practiceRun", run.id, deletedAt, deviceId, eventId, sequence);
+  }
+  projection.practiceRuns = projection.practiceRuns.filter((run) => !runBankIds(run).includes(bankId));
+  projection.reviewRounds = projection.reviewRounds.map((round) => {
+    if (!round.bankIds.includes(bankId)) return round;
+    return { ...round, bankIds: round.bankIds.filter((id) => id !== bankId), updatedAt: deletedAt, deviceId };
+  });
+  putTombstone(projection, "bank", bankId, deletedAt, deviceId, eventId, sequence);
+}
 
 export function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, questionId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   ensureQuestion(projection, questionId);
@@ -18,6 +40,15 @@ export function updateQuestionDeleteCascade(projection: ChangeSetProjectionV7, q
   projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([id]) => remainingAttemptIds.has(id)));
   projection.notes = projection.notes.filter((note) => note.questionId !== questionId);
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => item.questionId !== questionId);
+  projection.reviewRounds = projection.reviewRounds.map((round) => {
+    if (!round.finalQuestionIds?.includes(questionId)) return round;
+    return {
+      ...round,
+      finalQuestionIds: round.finalQuestionIds.filter((id) => id !== questionId),
+      updatedAt: deletedAt,
+      deviceId,
+    };
+  });
   projection.questionGroups = projection.questionGroups.flatMap((group) => {
     const items = group.items.filter((item) => item.questionId !== questionId);
     if (!items.length) {
@@ -53,6 +84,15 @@ export function updateQuestionsBulkDeleteCascade(projection: ChangeSetProjection
   projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([attemptId]) => !attemptIds.has(attemptId)));
   projection.notes = projection.notes.filter((note) => keepQuestion(note.questionId));
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => keepQuestion(item.questionId));
+  projection.reviewRounds = projection.reviewRounds.map((round) => {
+    if (!round.finalQuestionIds?.some((questionId) => ids.has(questionId))) return round;
+    return {
+      ...round,
+      finalQuestionIds: round.finalQuestionIds.filter(keepQuestion),
+      updatedAt: deletedAt,
+      deviceId,
+    };
+  });
   projection.questionGroups = projection.questionGroups.flatMap((group) => {
     const items = group.items.filter((item) => keepQuestion(item.questionId));
     if (!items.length) {

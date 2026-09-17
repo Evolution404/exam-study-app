@@ -239,7 +239,7 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 export async function deleteBankV7(bankId: string): Promise<boolean> {
   return dbV7.transaction("rw", [
     dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunActivity,
-    dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+    dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const bank = await dbV7.banks.get(bankId);
     if (!bank) return false;
@@ -249,6 +249,7 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
     // Runs that target this bank are dropped with it; otherwise their bankId
     // would dangle and the checkpoint would fail referential validation.
     const runs = await listPracticeRunsForBankV7(bankId);
+    const rounds = (await dbV7.reviewRounds.toArray()).filter((round) => round.bankIds.includes(bankId));
     const bankDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV7.banks.delete(bankId);
@@ -256,6 +257,14 @@ export async function deleteBankV7(bankId: string): Promise<boolean> {
       await updatePracticeRunStatsInTx(run, undefined);
       await deletePracticeRunInTx(run.id);
       await dbV7.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
+    }
+    for (const round of rounds) {
+      await dbV7.reviewRounds.put({
+        ...round,
+        bankIds: round.bankIds.filter((id) => id !== bankId),
+        updatedAt: timestamp,
+        deviceId,
+      });
     }
     await dbV7.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
     await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
