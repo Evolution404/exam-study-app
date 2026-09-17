@@ -1,0 +1,98 @@
+import assert from "node:assert/strict";
+import "fake-indexeddb/auto";
+import Dexie from "dexie";
+import {
+  createBankV7,
+  createPracticeRunV7,
+  createQuestionV7,
+  createReviewRoundV7,
+  dbV7,
+  resetV7Database,
+} from "../../src/lib/db/db-v7";
+import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
+
+await resetV7Database();
+await ensureChangeSetQueueBaseV7();
+
+type TxSnapshot = { active: boolean; mode: string; storeNames: string[] };
+const txSnapshot = (): TxSnapshot | undefined => {
+  const tx = Dexie.currentTransaction;
+  return tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+};
+
+// C1：创建练习必须在写事务内确认题库和题目仍存在，避免并发删除留下悬空 run。
+{
+  const bank = await createBankV7("C1练习创建完整性");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "C1题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalBanksBulkGet = dbV7.banks.bulkGet.bind(dbV7.banks);
+  const originalQuestionsBulkGet = dbV7.questions.bulkGet.bind(dbV7.questions);
+  let bankRead: TxSnapshot | undefined;
+  let questionRead: TxSnapshot | undefined;
+  dbV7.banks.bulkGet = (async (keys) => {
+    if (keys.includes(bank.id)) bankRead = txSnapshot();
+    return originalBanksBulkGet(keys);
+  }) as typeof dbV7.banks.bulkGet;
+  dbV7.questions.bulkGet = (async (keys) => {
+    if (keys.includes(question.id)) questionRead = txSnapshot();
+    return originalQuestionsBulkGet(keys);
+  }) as typeof dbV7.questions.bulkGet;
+  try {
+    await createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id] });
+  } finally {
+    dbV7.banks.bulkGet = originalBanksBulkGet as typeof dbV7.banks.bulkGet;
+    dbV7.questions.bulkGet = originalQuestionsBulkGet as typeof dbV7.questions.bulkGet;
+  }
+  for (const snapshot of [bankRead, questionRead]) {
+    assert.equal(snapshot?.active, true);
+    assert.equal(snapshot?.mode, "readwrite");
+    for (const store of ["banks", "questions", "practiceRuns", "practiceRunActivity", "practiceRunStats", "changeSets", "syncMeta"]) {
+      assert.ok(snapshot?.storeNames.includes(store), `createPracticeRunV7 事务必须包含 ${store}`);
+    }
+  }
+  const before = await dbV7.practiceRuns.count();
+  await assert.rejects(
+    () => createPracticeRunV7({ bankIds: [bank.id], questionIds: ["question_missing_c1"] }),
+    /题目不存在|已被删除/,
+  );
+  assert.equal(await dbV7.practiceRuns.count(), before, "缺失题目时不得写入半成品 run");
+  await assert.rejects(
+    () => createPracticeRunV7({ bankIds: ["bank_missing_c1"], questionIds: [question.id] }),
+    /题库不存在|已被删除/,
+  );
+}
+
+// C2：绑定复习轮次的新练习必须引用仍存在且 active 的 round。
+{
+  const bank = await createBankV7("C2轮次练习完整性");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "C2题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  await assert.rejects(
+    () => createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id], reviewRoundId: "round_missing_c2" }),
+    /复习轮次不存在|已被删除/,
+  );
+}
+
+// C3：创建复习轮次必须在写事务内确认引用的题库存在。
+{
+  const bank = await createBankV7("C3轮次创建完整性");
+  const originalBulkGet = dbV7.banks.bulkGet.bind(dbV7.banks);
+  let bankRead: TxSnapshot | undefined;
+  dbV7.banks.bulkGet = (async (keys) => {
+    if (keys.includes(bank.id)) bankRead = txSnapshot();
+    return originalBulkGet(keys);
+  }) as typeof dbV7.banks.bulkGet;
+  try {
+    await createReviewRoundV7({ name: "C3轮次", bankIds: [bank.id] });
+  } finally {
+    dbV7.banks.bulkGet = originalBulkGet as typeof dbV7.banks.bulkGet;
+  }
+  assert.equal(bankRead?.active, true);
+  assert.equal(bankRead?.mode, "readwrite");
+  for (const store of ["banks", "reviewRounds", "changeSets", "syncMeta"]) assert.ok(bankRead?.storeNames.includes(store), `createReviewRoundV7 事务必须包含 ${store}`);
+  await assert.rejects(
+    () => createReviewRoundV7({ name: "C3非法轮次", bankIds: ["bank_missing_c3"] }),
+    /题库不存在|已被删除/,
+  );
+}
+
+await dbV7.close();
+console.log("db-v7 creation integrity tests passed: practice runs and review rounds keep valid references");

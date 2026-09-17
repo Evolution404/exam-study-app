@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-let unusedExportsBudget = 112;
+let unusedExportsBudget = 111;
 let unusedTypesBudget = 37;
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
