@@ -74,4 +74,4 @@ for (let count = 1; count <= 100; count += 1) {
 }
 assert.equal(planSyncCompaction({ hotBytes: 4 * 1024 * 1024 + 1 }).reason, "initialization");
 
-console.log("sync v7 multi-device tests passed: offline merge, CAS ordering, same-ms convergence, stale resurrection blocking and hot-window discipline");
+console.log("sync multi-device tests passed: offline merge, CAS ordering, same-ms convergence, stale resurrection blocking and hot-window discipline");
