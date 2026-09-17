@@ -1,9 +1,4 @@
-import type {
-  Attempt,
-  PracticeRunItem,
-  PracticeRunRecord,
-  PracticeRunSource,
-} from "../db/types";
+import type { Attempt, PracticeRunItem, PracticeRunRecord, PracticeRunSource } from "../db/types";
 import { historyTimestampIncluded, normalizeHistorySyncStart } from "./history-sync-range";
 import type { GitHubRemote, SyncHeadCache } from "./github-remote";
 import { descriptorPath, sha256 } from "./sync-context";
@@ -14,6 +9,14 @@ import {
   type SyncCheckpointState,
 } from "./sync-checkpoint-types";
 import { validateSyncCheckpoint } from "./sync-checkpoint-validation";
+import {
+  boundedCanonicalHistoryState,
+  chronologicalHistoryAttempts,
+  countsForHistoryState,
+  filterCanonicalHistoryState,
+  mergeCanonicalHistoryState,
+  type PracticeRunHistoryFacts,
+} from "./sync-history-state";
 import { SYNC_HISTORY_PREFIX, type SyncDescriptor, type SyncHead } from "./sync-head-types";
 
 export const REMOTE_HISTORY_FORMAT = 9 as const;
@@ -33,10 +36,7 @@ export interface SyncHistoryIndex {
   generatedAt: string;
   attempts: SyncHistoryDescriptor[];
   practiceRuns: SyncHistoryDescriptor[];
-  counts: {
-    attempts: number;
-    practiceRuns: number;
-  };
+  counts: { attempts: number; practiceRuns: number };
 }
 
 export interface SyncHistoryChunk<T> {
@@ -91,35 +91,14 @@ export interface SyncHistoryReadOptions {
   historySyncStart?: string;
 }
 
-interface PracticeRunHistoryFacts {
-  practiceRuns: PracticeRunRecord[];
-  practiceRunSources: PracticeRunSource[];
-  practiceRunItems: PracticeRunItem[];
-}
-
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const HISTORY_PATH = /^sync\/v9\/history\/[a-f0-9]{64}\.json$/;
 const COUNT_KEYS = [
-  "banks",
-  "bankFolders",
-  "questions",
-  "memberships",
-  "imageAssets",
-  "attempts",
-  "notes",
-  "practiceRuns",
-  "practiceRunSources",
-  "practiceRunItems",
-  "questionGroups",
-  "questionGroupItems",
-  "reviewRounds",
-  "reviewRoundBanks",
-  "reviewRoundItems",
-  "tombstones",
-  "totalAttempts",
-  "totalPracticeRuns",
+  "banks", "bankFolders", "questions", "memberships", "imageAssets", "attempts", "notes",
+  "practiceRuns", "practiceRunSources", "practiceRunItems", "questionGroups", "questionGroupItems",
+  "reviewRounds", "reviewRoundBanks", "reviewRoundItems", "tombstones", "totalAttempts", "totalPracticeRuns",
 ] as const satisfies readonly (keyof SyncCheckpointCounts)[];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -144,57 +123,6 @@ function assertDescriptor(value: unknown, field: string): asserts value is SyncD
   if (!value.path.includes(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.path digest mismatch`);
 }
 
-function countsFor(
-  state: SyncCheckpointState,
-  totals: { attempts: number; practiceRuns: number } = { attempts: state.attempts.length, practiceRuns: state.practiceRuns.length },
-): SyncCheckpointCounts {
-  return {
-    banks: state.banks.length,
-    bankFolders: state.bankFolders.length,
-    questions: state.questions.length,
-    memberships: state.memberships.length,
-    imageAssets: state.imageAssets.length,
-    attempts: state.attempts.length,
-    notes: state.notes.length,
-    practiceRuns: state.practiceRuns.length,
-    practiceRunSources: state.practiceRunSources.length,
-    practiceRunItems: state.practiceRunItems.length,
-    questionGroups: state.questionGroups.length,
-    questionGroupItems: state.questionGroupItems.length,
-    reviewRounds: state.reviewRounds.length,
-    reviewRoundBanks: state.reviewRoundBanks.length,
-    reviewRoundItems: state.reviewRoundItems.length,
-    tombstones: state.tombstones.length,
-    totalAttempts: totals.attempts,
-    totalPracticeRuns: totals.practiceRuns,
-  };
-}
-
-function cloneBaseState(full: SyncCheckpointState): Omit<SyncCheckpointState, "attempts" | "practiceRuns" | "practiceRunSources" | "practiceRunItems"> {
-  return {
-    banks: structuredClone(full.banks),
-    bankFolders: structuredClone(full.bankFolders),
-    questions: structuredClone(full.questions),
-    memberships: structuredClone(full.memberships),
-    imageAssets: structuredClone(full.imageAssets),
-    notes: structuredClone(full.notes),
-    questionGroups: structuredClone(full.questionGroups),
-    questionGroupItems: structuredClone(full.questionGroupItems),
-    reviewRounds: structuredClone(full.reviewRounds),
-    reviewRoundBanks: structuredClone(full.reviewRoundBanks),
-    reviewRoundItems: structuredClone(full.reviewRoundItems),
-    tombstones: structuredClone(full.tombstones),
-  };
-}
-
-function chronologicalAttempts(items: readonly Attempt[]): Attempt[] {
-  return [...items].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-}
-
-function chronologicalRuns(items: readonly PracticeRunRecord[]): PracticeRunRecord[] {
-  return [...items].sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
-}
-
 function chunked<T>(items: readonly T[], chunkCount: number): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < items.length; index += chunkCount) result.push(items.slice(index, index + chunkCount));
@@ -210,60 +138,7 @@ async function putHistoryObject(client: GitHubRemote, value: unknown): Promise<S
   const digest = await sha256(bytes);
   const path = descriptorPath(SYNC_HISTORY_PREFIX, digest);
   const uploaded = await client.putImmutable({ path, bytes, kind: "history" });
-  return {
-    path: uploaded.path,
-    blobSha: uploaded.blobSha,
-    sha256: uploaded.sha256,
-    size: uploaded.size,
-    storedSize: uploaded.storedSize,
-  };
-}
-
-function boundedCanonicalState(
-  full: SyncCheckpointState,
-  recentAttemptLimit: number,
-  recentPracticeRunLimit: number,
-): { state: SyncCheckpointState; archivedAttempts: Attempt[]; archivedPracticeRuns: PracticeRunRecord[] } {
-  const attempts = chronologicalAttempts(full.attempts);
-  const runs = chronologicalRuns(full.practiceRuns);
-  const recentAttemptIds = new Set(attempts.slice(Math.max(0, attempts.length - recentAttemptLimit)).map((item) => item.id));
-  const recentRunIds = new Set(runs.slice(Math.max(0, runs.length - recentPracticeRunLimit)).map((item) => item.id));
-  const attemptById = new Map(attempts.map((item) => [item.id, item]));
-
-  // Referential closure: a retained attempt requires its run, and a retained run
-  // requires any submitted attempt referenced by its canonical run-item facts.
-  for (const attempt of attempts) if (recentAttemptIds.has(attempt.id)) recentRunIds.add(attempt.runId);
-  let expanded = true;
-  while (expanded) {
-    expanded = false;
-    for (const item of full.practiceRunItems) {
-      if (!recentRunIds.has(item.runId) || !item.submittedAttemptId || recentAttemptIds.has(item.submittedAttemptId)) continue;
-      if (!attemptById.has(item.submittedAttemptId)) continue;
-      recentAttemptIds.add(item.submittedAttemptId);
-      expanded = true;
-    }
-    for (const attempt of attempts) {
-      if (recentAttemptIds.has(attempt.id) && !recentRunIds.has(attempt.runId)) {
-        recentRunIds.add(attempt.runId);
-        expanded = true;
-      }
-    }
-  }
-
-  const recentAttempts = attempts.filter((item) => recentAttemptIds.has(item.id));
-  const recentRuns = runs.filter((item) => recentRunIds.has(item.id));
-  const state: SyncCheckpointState = {
-    ...cloneBaseState(full),
-    attempts: structuredClone(recentAttempts),
-    practiceRuns: structuredClone(recentRuns),
-    practiceRunSources: structuredClone(full.practiceRunSources.filter((item) => recentRunIds.has(item.runId))),
-    practiceRunItems: structuredClone(full.practiceRunItems.filter((item) => recentRunIds.has(item.runId))),
-  };
-  return {
-    state,
-    archivedAttempts: attempts.filter((item) => !recentAttemptIds.has(item.id)),
-    archivedPracticeRuns: runs.filter((item) => !recentRunIds.has(item.id)),
-  };
+  return { path: uploaded.path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size, storedSize: uploaded.storedSize };
 }
 
 async function archiveAttemptChunks(
@@ -319,7 +194,7 @@ function validateBoundedCounts(value: unknown, state: SyncCheckpointState, histo
   if (keys.length !== COUNT_KEYS.length || keys.some((key) => !COUNT_KEYS.includes(key as keyof SyncCheckpointCounts))) {
     throw new Error("invalid v9 checkpoint: counts must contain only canonical fact counters");
   }
-  const expected = countsFor(state, {
+  const expected = countsForHistoryState(state, {
     attempts: state.attempts.length + history.archivedAttempts,
     practiceRuns: state.practiceRuns.length + history.archivedPracticeRuns,
   });
@@ -343,14 +218,13 @@ export function validateRemoteHistoryCheckpoint(value: unknown): asserts value i
   if (value.history.index !== null) assertDescriptor(value.history.index, "history.index");
 
   const state = value.state as unknown as SyncCheckpointState;
-  const surrogate: SyncCheckpoint = {
+  validateSyncCheckpoint({
     formatVersion: SYNC_CHECKPOINT_FORMAT,
     generatedAt: value.generatedAt,
     state,
     cursors: value.cursors as Record<string, number>,
-    counts: countsFor(state),
-  };
-  validateSyncCheckpoint(surrogate);
+    counts: countsForHistoryState(state),
+  });
   const history = value.history as unknown as RemoteHistoryCheckpoint["history"];
   validateBoundedCounts(value.counts, state, history);
   if ((history.archivedAttempts > 0 || history.archivedPracticeRuns > 0) && history.index === null) {
@@ -405,13 +279,8 @@ function parsePracticeRunHistoryChunk(bytes: Uint8Array): PracticeRunHistoryFact
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程 v9 practiceRuns 历史分块不是有效 JSON。"); }
-  if (!isRecord(value)
-    || value.formatVersion !== REMOTE_HISTORY_FORMAT
-    || value.kind !== "practiceRuns"
-    || !Array.isArray(value.practiceRuns)
-    || !Array.isArray(value.practiceRunSources)
-    || !Array.isArray(value.practiceRunItems)
-    || "items" in value) {
+  if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT || value.kind !== "practiceRuns"
+    || !Array.isArray(value.practiceRuns) || !Array.isArray(value.practiceRunSources) || !Array.isArray(value.practiceRunItems) || "items" in value) {
     throw new Error("远程 v9 practiceRuns 历史分块格式无效。");
   }
   return {
@@ -433,10 +302,8 @@ async function readAttemptHistory(
     skipped += descriptor.count;
     return false;
   });
-  const concurrency = 4;
-  for (let offset = 0; offset < selected.length; offset += concurrency) {
-    const batch = selected.slice(offset, offset + concurrency);
-    const chunks = await Promise.all(batch.map(async (descriptor) => {
+  for (let offset = 0; offset < selected.length; offset += 4) {
+    const chunks = await Promise.all(selected.slice(offset, offset + 4).map(async (descriptor) => {
       const items = parseAttemptHistoryChunk(await client.readBlob(descriptor));
       if (items.length !== descriptor.count) throw new Error("远程 v9 attempts 历史分块计数不匹配。");
       if (!historySyncStart) return items;
@@ -461,10 +328,8 @@ async function readPracticeRunHistory(
     skipped += descriptor.count;
     return false;
   });
-  const concurrency = 4;
-  for (let offset = 0; offset < selected.length; offset += concurrency) {
-    const batch = selected.slice(offset, offset + concurrency);
-    const chunks = await Promise.all(batch.map(async (descriptor) => {
+  for (let offset = 0; offset < selected.length; offset += 4) {
+    const chunks = await Promise.all(selected.slice(offset, offset + 4).map(async (descriptor) => {
       const chunk = parsePracticeRunHistoryChunk(await client.readBlob(descriptor));
       if (chunk.practiceRuns.length !== descriptor.count) throw new Error("远程 v9 practiceRuns 历史分块计数不匹配。");
       return chunk;
@@ -478,62 +343,6 @@ async function readPracticeRunHistory(
   return { facts, skipped };
 }
 
-function mergeCanonicalHistory(
-  bounded: SyncCheckpointState,
-  archivedAttempts: readonly Attempt[],
-  archivedRuns: PracticeRunHistoryFacts,
-): SyncCheckpointState {
-  const attemptMap = new Map([...archivedAttempts, ...bounded.attempts].map((item) => [item.id, item]));
-  const runMap = new Map([...archivedRuns.practiceRuns, ...bounded.practiceRuns].map((item) => [item.id, item]));
-  const sourceMap = new Map([...archivedRuns.practiceRunSources, ...bounded.practiceRunSources].map((item) => [`${item.runId}:${item.bankId}`, item]));
-  const itemMap = new Map([...archivedRuns.practiceRunItems, ...bounded.practiceRunItems].map((item) => [`${item.runId}:${item.questionId}`, item]));
-  return {
-    ...cloneBaseState(bounded),
-    attempts: chronologicalAttempts([...attemptMap.values()]),
-    practiceRuns: chronologicalRuns([...runMap.values()]),
-    practiceRunSources: [...sourceMap.values()],
-    practiceRunItems: [...itemMap.values()],
-  };
-}
-
-function filterCanonicalHistory(state: SyncCheckpointState, historySyncStart?: string): SyncCheckpointState {
-  const start = normalizeHistorySyncStart(historySyncStart);
-  if (!start) return state;
-  const runById = new Map(state.practiceRuns.map((run) => [run.id, run]));
-  const attemptById = new Map(state.attempts.map((attempt) => [attempt.id, attempt]));
-  const keptRunIds = new Set(state.practiceRuns.filter((run) => run.status === "in_progress" || historyTimestampIncluded(run.startedAt, start)).map((run) => run.id));
-  const keptAttemptIds = new Set(state.attempts.filter((attempt) => keptRunIds.has(attempt.runId) || historyTimestampIncluded(attempt.createdAt, start)).map((attempt) => attempt.id));
-
-  // Attempts retained by date need their run record even when the run started
-  // before the selected window. Retained run items in turn need submitted
-  // attempts, so close the graph before slicing relation arrays.
-  let expanded = true;
-  while (expanded) {
-    expanded = false;
-    for (const attemptId of keptAttemptIds) {
-      const runId = attemptById.get(attemptId)?.runId;
-      if (runId && runById.has(runId) && !keptRunIds.has(runId)) {
-        keptRunIds.add(runId);
-        expanded = true;
-      }
-    }
-    for (const item of state.practiceRunItems) {
-      if (!keptRunIds.has(item.runId) || !item.submittedAttemptId || keptAttemptIds.has(item.submittedAttemptId)) continue;
-      if (!attemptById.has(item.submittedAttemptId)) continue;
-      keptAttemptIds.add(item.submittedAttemptId);
-      expanded = true;
-    }
-  }
-
-  return {
-    ...cloneBaseState(state),
-    attempts: chronologicalAttempts(state.attempts.filter((attempt) => keptAttemptIds.has(attempt.id))),
-    practiceRuns: chronologicalRuns(state.practiceRuns.filter((run) => keptRunIds.has(run.id))),
-    practiceRunSources: state.practiceRunSources.filter((source) => keptRunIds.has(source.runId)),
-    practiceRunItems: state.practiceRunItems.filter((item) => keptRunIds.has(item.runId)),
-  };
-}
-
 export async function createRemoteHistoryCheckpoint(
   client: GitHubRemote,
   full: SyncCheckpoint,
@@ -543,20 +352,19 @@ export async function createRemoteHistoryCheckpoint(
   const recentAttemptLimit = Math.max(0, options.recentAttemptLimit ?? SYNC_HISTORY_RECENT_ATTEMPT_LIMIT);
   const recentPracticeRunLimit = Math.max(0, options.recentPracticeRunLimit ?? SYNC_HISTORY_RECENT_PRACTICE_RUN_LIMIT);
   const chunkCount = Math.max(1, options.chunkCount ?? SYNC_HISTORY_CHUNK_COUNT);
-  const bounded = boundedCanonicalState(full.state, recentAttemptLimit, recentPracticeRunLimit);
+  const bounded = boundedCanonicalHistoryState(full.state, recentAttemptLimit, recentPracticeRunLimit);
 
   const attemptDescriptors = await archiveAttemptChunks(client, bounded.archivedAttempts, chunkCount, full.generatedAt);
   const runDescriptors = await archivePracticeRunChunks(client, full.state, bounded.archivedPracticeRuns, chunkCount, full.generatedAt);
   let indexDescriptor: SyncDescriptor | null = null;
   if (attemptDescriptors.length || runDescriptors.length) {
-    const index: SyncHistoryIndex = {
+    indexDescriptor = await putHistoryObject(client, {
       formatVersion: REMOTE_HISTORY_FORMAT,
       generatedAt: full.generatedAt,
       attempts: attemptDescriptors,
       practiceRuns: runDescriptors,
       counts: { attempts: bounded.archivedAttempts.length, practiceRuns: bounded.archivedPracticeRuns.length },
-    };
-    indexDescriptor = await putHistoryObject(client, index);
+    } satisfies SyncHistoryIndex);
   }
 
   const checkpoint: RemoteHistoryCheckpoint = {
@@ -564,11 +372,11 @@ export async function createRemoteHistoryCheckpoint(
     generatedAt: full.generatedAt,
     state: bounded.state,
     cursors: { ...full.cursors },
-    counts: countsFor(bounded.state, { attempts: full.state.attempts.length, practiceRuns: full.state.practiceRuns.length }),
+    counts: countsForHistoryState(bounded.state, { attempts: full.state.attempts.length, practiceRuns: full.state.practiceRuns.length }),
     retention: {
       recentAttemptLimit,
       recentPracticeRunLimit,
-      oldestRecentAttemptAt: chronologicalAttempts(bounded.state.attempts)[0]?.createdAt ?? null,
+      oldestRecentAttemptAt: chronologicalHistoryAttempts(bounded.state.attempts)[0]?.createdAt ?? null,
     },
     history: {
       index: indexDescriptor,
@@ -606,20 +414,18 @@ async function hydrateRemoteHistoryCheckpointWithStats(
     skippedArchivedPracticeRuns = runResult.skipped;
   }
 
-  let state = mergeCanonicalHistory(checkpoint.state, archivedAttempts, archivedRuns);
-  state = filterCanonicalHistory(state, historySyncStart);
+  let state = mergeCanonicalHistoryState(checkpoint.state, archivedAttempts, archivedRuns);
+  state = filterCanonicalHistoryState(state, historySyncStart);
   const full: SyncCheckpoint = {
     formatVersion: SYNC_CHECKPOINT_FORMAT,
     generatedAt: checkpoint.generatedAt,
     state,
     cursors: { ...checkpoint.cursors },
-    counts: countsFor(state),
+    counts: countsForHistoryState(state),
   };
   validateSyncCheckpoint(full);
-  if (!historySyncStart) {
-    if (state.attempts.length !== checkpoint.counts.totalAttempts || state.practiceRuns.length !== checkpoint.counts.totalPracticeRuns) {
-      throw new Error("远程 v9 历史水合后记录数与检查点不一致。");
-    }
+  if (!historySyncStart && (state.attempts.length !== checkpoint.counts.totalAttempts || state.practiceRuns.length !== checkpoint.counts.totalPracticeRuns)) {
+    throw new Error("远程 v9 历史水合后记录数与检查点不一致。");
   }
   return {
     checkpoint: full,
@@ -638,9 +444,7 @@ export async function decodeRemoteCheckpoint(client: GitHubRemote, bytes: Uint8A
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
-  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) {
-    throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");
-  }
+  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");
   return hydrateRemoteHistoryCheckpointWithStats(client, parseRemoteHistoryCheckpoint(bytes), options);
 }
 
