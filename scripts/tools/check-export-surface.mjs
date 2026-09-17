@@ -18,3 +18,33 @@ if (result.status !== 0 && result.status !== 1) {
 }
 
 const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+const totalMatch = output.match(/([0-9]+) exports?\s*\n([0-9]+) types?/m);
+const singleMatch = output.match(/([0-9]+) exports?/m);
+const typeMatch = output.match(/([0-9]+) types?/m);
+const unusedExports = totalMatch ? Number(totalMatch[1]) : singleMatch ? Number(singleMatch[1]) : 0;
+const unusedTypes = totalMatch ? Number(totalMatch[2]) : typeMatch ? Number(typeMatch[1]) : 0;
+
+if (unusedExports > unusedExportsBudget || unusedTypes > unusedTypesBudget) {
+  process.stdout.write(output);
+  throw new Error(`Export budget exceeded: exports=${unusedExports}/${unusedExportsBudget}, types=${unusedTypes}/${unusedTypesBudget}`);
+}
+
+let changed = false;
+if (unusedExports < unusedExportsBudget) {
+  unusedExportsBudget = unusedExports;
+  changed = true;
+}
+if (unusedTypes < unusedTypesBudget) {
+  unusedTypesBudget = unusedTypes;
+  changed = true;
+}
+if (changed) {
+  const self = fileURLToPath(import.meta.url);
+  const source = fs.readFileSync(self, "utf8")
+    .replace(/let unusedExportsBudget = \d+;/, `let unusedExportsBudget = ${unusedExportsBudget};`)
+    .replace(/let unusedTypesBudget = \d+;/, `let unusedTypesBudget = ${unusedTypesBudget};`);
+  fs.writeFileSync(self, source);
+  console.log(`Export budget ratchet tightened: exports=${unusedExportsBudget}, types=${unusedTypesBudget}. Commit the updated baseline.`);
+}
+
+console.log(`Export surface check passed: unused exports ${unusedExports}/${unusedExportsBudget}; unused exported types ${unusedTypes}/${unusedTypesBudget}.`);
