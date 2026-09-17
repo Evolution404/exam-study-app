@@ -327,6 +327,56 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   }
 }
 
+// R9：解析 revision 必须基于写事务内的最新值递增。自动保存若在事务外先读旧值，
+// 两次并发保存可能都生成同一个 revision，并让同步队列失去本机真实编辑顺序。
+{
+  const noteRaceBank = await createBankV7("R9解析事务边界");
+  const noteRaceQuestion = await createQuestionV7(noteRaceBank.id, { type: "判断", stem: "R9解析题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalNoteGet = dbV7.notes.get.bind(dbV7.notes);
+  let noteReadTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.notes.get = (async (key) => {
+    if (key === noteRaceQuestion.id) {
+      const tx = Dexie.currentTransaction;
+      noteReadTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalNoteGet(key);
+  }) as typeof dbV7.notes.get;
+  try {
+    await saveNoteV7(noteRaceQuestion.id, "R9第一版");
+  } finally {
+    dbV7.notes.get = originalNoteGet as typeof dbV7.notes.get;
+  }
+  assert.equal(noteReadTransaction?.active, true, "saveNoteV7 读取旧解析时必须已进入活动事务");
+  assert.equal(noteReadTransaction?.mode, "readwrite", "saveNoteV7 必须在读写事务内计算 revision");
+  for (const store of ["notes", "changeSets", "syncMeta"]) assert.ok(noteReadTransaction?.storeNames.includes(store), `saveNoteV7 事务必须包含 ${store}`);
+}
+
+// R10：题组保存的题目存在性校验必须与题组写入同一个事务；否则校验后并发删题
+// 可以留下引用已删除题目的悬空题组，下一次 checkpoint 校验才会暴露损坏。
+{
+  const groupRaceBank = await createBankV7("R10题组事务边界");
+  const groupRaceQuestion = await createQuestionV7(groupRaceBank.id, { type: "判断", stem: "R10题组题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalQuestionBulkGet = dbV7.questions.bulkGet.bind(dbV7.questions);
+  let groupValidationTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.questions.bulkGet = (async (keys) => {
+    if (keys.includes(groupRaceQuestion.id)) {
+      const tx = Dexie.currentTransaction;
+      groupValidationTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalQuestionBulkGet(keys);
+  }) as typeof dbV7.questions.bulkGet;
+  try {
+    await saveQuestionGroupV7({ name: "R10题组", type: "专题", description: "", items: [{ questionId: groupRaceQuestion.id, note: "" }] });
+  } finally {
+    dbV7.questions.bulkGet = originalQuestionBulkGet as typeof dbV7.questions.bulkGet;
+  }
+  assert.equal(groupValidationTransaction?.active, true, "saveQuestionGroupV7 校验题目时必须已进入活动事务");
+  assert.equal(groupValidationTransaction?.mode, "readwrite", "saveQuestionGroupV7 必须在读写事务内校验题目");
+  for (const store of ["questions", "questionGroups", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(groupValidationTransaction?.storeNames.includes(store), `saveQuestionGroupV7 事务必须包含 ${store}`);
+  }
+}
+
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
 {
   const e5Bank = await createBankV7("E5跨run清理");
