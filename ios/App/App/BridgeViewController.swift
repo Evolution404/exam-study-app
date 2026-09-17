@@ -2,7 +2,7 @@ import UIKit
 import Capacitor
 
 enum AppThemeAppearance {
-    private static let preferencesKey = "CapacitorStorage.study-v7-preferences"
+    private static let preferencesKey = "CapacitorStorage.study-preferences"
 
     private enum Mode: String {
         case system
