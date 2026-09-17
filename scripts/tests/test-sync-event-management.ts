@@ -60,7 +60,7 @@ try {
   {
     server.reset();
     await freshClient("device-a");
-    await sync(); // establish the v7 queue-base required by discard
+    await sync(); // establish the current queue base required by discard
     const bank = await createBank("事件管理题库");
     await createQuestion(bank.id, singleChoice("将被删除的待同步题目", "A", ["对", "错"]));
     assert.equal(await studyDb.questions.count(), 1, "题目应已写入本地投影");
