@@ -7,6 +7,10 @@ body { font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Se
 
 button,input,textarea { font:inherit; }
 
+/* Native date/time controls keep an intrinsic width in Safari/WebKit.
+   They must always be allowed to shrink inside responsive grid/flex tracks. */
+input:is([type="date"],[type="datetime-local"],[type="time"],[type="month"],[type="week"]) { min-width:0; max-width:100%; }
+
 button { color:inherit; white-space:nowrap; }
 
 ::placeholder { color:var(--color-text-muted); opacity:.8; }
