@@ -400,6 +400,61 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   assert.equal(await dbV7.practiceRunActivity.get(historyRun.id), undefined, "删除 run 必须同步删除本机活动索引");
 }
 
+// R12：删除题库文件夹必须在写事务中读取文件夹和当前归属题库，否则并发移入的题库
+// 可能错过 detach，最终留下指向已删除 folderId 的悬空引用。
+{
+  const folder = await saveBankFolderV7({ name: "R12文件夹", description: "" });
+  await createBankV7({ name: "R12题库", folderId: folder.id });
+  const originalFolderGet = dbV7.bankFolders.get.bind(dbV7.bankFolders);
+  let folderDeleteReadTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.bankFolders.get = (async (key) => {
+    if (key === folder.id) {
+      const tx = Dexie.currentTransaction;
+      folderDeleteReadTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalFolderGet(key);
+  }) as typeof dbV7.bankFolders.get;
+  try {
+    assert.equal(await deleteBankFolderV7(folder.id), true);
+  } finally {
+    dbV7.bankFolders.get = originalFolderGet as typeof dbV7.bankFolders.get;
+  }
+  assert.equal(folderDeleteReadTransaction?.active, true, "deleteBankFolderV7 读取文件夹时必须已进入活动事务");
+  assert.equal(folderDeleteReadTransaction?.mode, "readwrite");
+  for (const store of ["bankFolders", "banks", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(folderDeleteReadTransaction?.storeNames.includes(store), `deleteBankFolderV7 事务必须包含 ${store}`);
+  }
+}
+
+// R13：删除题库必须在写事务中确定 memberships 与 runs；否则删除窗口内新建的关系/
+// 练习记录会成为悬空引用。同步序号也必须由同一 syncMeta 事务分配。
+{
+  const bank = await createBankV7("R13删题库事务边界");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "R13题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const run = await createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id] });
+  const originalBankGet = dbV7.banks.get.bind(dbV7.banks);
+  let bankDeleteReadTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.banks.get = (async (key) => {
+    if (key === bank.id) {
+      const tx = Dexie.currentTransaction;
+      bankDeleteReadTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalBankGet(key);
+  }) as typeof dbV7.banks.get;
+  try {
+    assert.equal(await deleteBankV7(bank.id), true);
+  } finally {
+    dbV7.banks.get = originalBankGet as typeof dbV7.banks.get;
+  }
+  assert.equal(bankDeleteReadTransaction?.active, true, "deleteBankV7 读取题库时必须已进入活动事务");
+  assert.equal(bankDeleteReadTransaction?.mode, "readwrite");
+  for (const store of ["banks", "bankQuestionMemberships", "practiceRuns", "practiceRunActivity", "practiceRunStats", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(bankDeleteReadTransaction?.storeNames.includes(store), `deleteBankV7 事务必须包含 ${store}`);
+  }
+  assert.equal(await dbV7.practiceRuns.get(run.id), undefined);
+  assert.equal(await dbV7.practiceRunActivity.get(run.id), undefined);
+}
+
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
 {
   const e5Bank = await createBankV7("E5跨run清理");
