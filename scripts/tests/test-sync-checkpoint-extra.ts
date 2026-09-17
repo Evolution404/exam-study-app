@@ -3,8 +3,7 @@ import "fake-indexeddb/auto";
 import { createBank, createPracticeRun, createQuestion, studyDb, putImageAsset, resetDatabase } from "../../src/lib/db/db";
 import { isSyncCheckpoint, validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
 import { createSyncCheckpoint, encodeSyncCheckpoint, parseSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-store";
-import { SYNC_FORMAT_VERSION } from "../../src/lib/sync/sync-head-types";
-import type { SyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-types";
+import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-types";
 
 await resetDatabase();
 await putImageAsset({ id: "a".repeat(64), mimeType: "image/webp", size: 123, width: 10, height: 10 });
@@ -27,14 +26,14 @@ await createQuestion(typeBank.id, {
   tags: ["恢复"],
 });
 
-// 1) 新建检查点必须使用当前同步格式且可 round-trip，包括新增正式题型
+// 1) 新建检查点必须使用当前检查点格式且可 round-trip，包括新增正式题型
 {
   const checkpoint = await createSyncCheckpoint();
-  assert.equal(checkpoint.formatVersion, SYNC_FORMAT_VERSION);
+  assert.equal(checkpoint.formatVersion, SYNC_CHECKPOINT_FORMAT);
   assert.deepEqual(checkpoint.state.questions.map((question) => question.type).sort(), ["填空", "简答"].sort());
   const bytes = encodeSyncCheckpoint(checkpoint);
   const parsed = parseSyncCheckpoint(bytes);
-  assert.equal(parsed.formatVersion, SYNC_FORMAT_VERSION);
+  assert.equal(parsed.formatVersion, SYNC_CHECKPOINT_FORMAT);
   assert.deepEqual(parsed.state.imageAssets[0], checkpoint.state.imageAssets[0]);
   assert.deepEqual(parsed.state.questions.map((question) => question.type).sort(), ["填空", "简答"].sort());
   assert.ok(isSyncCheckpoint(parsed));
@@ -44,7 +43,7 @@ await createQuestion(typeBank.id, {
 {
   const current = await createSyncCheckpoint();
   const unsupported = structuredClone(current) as SyncCheckpoint & { formatVersion: number };
-  unsupported.formatVersion = SYNC_FORMAT_VERSION - 1;
+  unsupported.formatVersion = SYNC_CHECKPOINT_FORMAT - 1;
   assert.throws(() => validateSyncCheckpoint(unsupported), /formatVersion/, "previous checkpoint format must be rejected by the current-only validator");
   const bytes = new TextEncoder().encode(JSON.stringify(unsupported));
   assert.throws(() => parseSyncCheckpoint(bytes), /formatVersion/, "parser must reject retired checkpoint bytes");
@@ -62,7 +61,7 @@ await createQuestion(typeBank.id, {
 {
   const current = await createSyncCheckpoint();
   const badFormat = structuredClone(current) as SyncCheckpoint & { formatVersion: number };
-  badFormat.formatVersion = SYNC_FORMAT_VERSION - 2;
+  badFormat.formatVersion = SYNC_CHECKPOINT_FORMAT - 2;
   assert.throws(() => validateSyncCheckpoint(badFormat), /formatVersion/);
 
   const badCounts = structuredClone(current);
