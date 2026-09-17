@@ -295,7 +295,7 @@ export const v7Db = dbV7;
  * Startup health gate: the app awaits this before render so namespace-open
  * failures surface before interaction.
  */
-export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined, () => undefined);
+export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined);
 /** Class is exported for tests that need a fresh, isolated namespace. */
 export { V7StudyDatabase };
 

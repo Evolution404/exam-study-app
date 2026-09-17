@@ -215,10 +215,9 @@ export function SearchView({
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
   const views = useLiveQuery(() => shouldLoadQuestionViews ? listQuestionViewsForBanksV7(allBankIds) : undefined, [bankKey, shouldLoadQuestionViews]);
-  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(views) : null, [bankKey, showResults, views]);
-
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
   const appliedQuestions = useMemo(() => questionsForFilters(views ?? [], banks, appliedBankIds), [appliedBankIds, banks, views]);
+  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(appliedQuestions) : null, [showResults, views, appliedQuestions]);
   const tags = useMemo(() => [...new Set(appliedQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [appliedQuestions]);
   const [referenceTime] = useState(Date.now);
   const normalizedSearchScope = useMemo(() => effectiveSearchProgressScope(filters, progressScope), [filters, progressScope]);

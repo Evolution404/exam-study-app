@@ -146,11 +146,22 @@ export async function runHistoryResult(page) {
   await resumedRun.getByRole("button", { name: "放弃练习" }).click();
   await helpers.expectNotice(page, /已放弃这次练习，记录仍会保留/, "abandon run notice");
   await page.locator(".history-filters button").filter({ hasText: /已放弃/ }).click();
-  await page.locator(".history-list article .run-status").filter({ hasText: "已放弃" }).first().waitFor({ state: "visible" });
+  const abandonedRun = page.locator(".history-list article").first();
+  await abandonedRun.locator(".run-status").filter({ hasText: "已放弃" }).waitFor({ state: "visible" });
   await helpers.capture(page, contextName, "history-abandoned");
-  // 删除按钮平时被 swipe-content 覆盖（需先滑动暴露）——用 dispatchEvent 直接触发其
-  // 点击处理器作为替代（滑动手势见 docs/TESTING.md 已知限制）。
-  await page.locator(".history-list article .history-delete-action").first().dispatchEvent("click");
+  // 真实左滑必须只暴露删除动作，不能因为 pointerup 后的合成 click 误打开详情。
+  const swipeContent = abandonedRun.locator(".history-swipe-content");
+  const swipeBox = await swipeContent.boundingBox();
+  harness.assert.ok(swipeBox, "abandoned history card must have a swipe surface");
+  const swipeY = swipeBox.y + swipeBox.height / 2;
+  await page.mouse.move(swipeBox.x + swipeBox.width * 0.75, swipeY);
+  await page.mouse.down();
+  await page.mouse.move(swipeBox.x + swipeBox.width * 0.35, swipeY, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(50);
+  harness.assert.equal(await page.locator(".run-result").count(), 0, "左滑练习记录不得误打开练习详情");
+  harness.assert.ok(await abandonedRun.evaluate((element) => element.classList.contains("swiped")), "左滑后应保持删除动作展开");
+  await abandonedRun.locator(".history-delete-action").click();
   await helpers.expectNotice(page, /练习记录已删除，并加入同步队列/, "delete record notice");
   await helpers.expectText(page, "这里还没有记录");
   await helpers.capture(page, contextName, "history-deleted");

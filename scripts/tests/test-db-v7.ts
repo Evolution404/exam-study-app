@@ -32,6 +32,7 @@ import {
   saveQuestionGroupV7,
   setPracticeRunStatusV7,
   splitQuestionV7,
+  updateQuestionV7,
   saveNoteV7,
   savePracticeProgressV7,
 } from "../../src/lib/db/db-v7";
@@ -209,6 +210,34 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   assert.ok(!after.answers[r4q1.id], "指向已删题的陈旧作答应被丢弃");
   assert.equal(after.revision, (trimmed?.revision ?? 0) + 1, "revision 应基于 DB 当前值自增");
   console.log("S1.2 passed: savePracticeProgress 读后写竞争不再复活已删题（R4）");
+}
+
+// R5：题目更新的“读取当前值→写入题目→入同步队列”必须处于同一个写事务。
+// 旧实现先在事务外读取，删除可以插入两步之间并被陈旧更新复活；把读取收进
+// 含 questions/changeSets/syncMeta 的事务后，IndexedDB 写事务串行化会封住该窗口。
+{
+  const raceBank = await createBankV7("R5题目编辑删除竞争");
+  const raceQuestion = await createQuestionV7(raceBank.id, { type: "单选", stem: "R5原题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalGet = dbV7.questions.get.bind(dbV7.questions);
+  let readTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.questions.get = (async (key) => {
+    if (key === raceQuestion.id) {
+      const tx = Dexie.currentTransaction;
+      readTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalGet(key);
+  }) as typeof dbV7.questions.get;
+  try {
+    await updateQuestionV7(raceQuestion.id, { tags: ["事务内编辑"] });
+  } finally {
+    dbV7.questions.get = originalGet as typeof dbV7.questions.get;
+  }
+  assert.equal(readTransaction?.active, true, "updateQuestionV7 读取当前题目时必须已处于活动事务");
+  assert.equal(readTransaction?.mode, "readwrite", "updateQuestionV7 必须在读写事务内读取当前题目");
+  for (const store of ["questions", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `updateQuestionV7 事务必须包含 ${store}`);
+  await deleteQuestionV7(raceQuestion.id);
+  await assert.rejects(() => updateQuestionV7(raceQuestion.id, { tags: ["删除后的编辑"] }), /不存在或已被删除/, "删除完成后后续编辑必须失败");
+  assert.equal(await originalGet(raceQuestion.id), undefined, "已删除题目不得被后续编辑复活");
 }
 
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。

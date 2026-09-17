@@ -99,6 +99,9 @@ assert.match(history, /data-question-id=/, "结果列表应带 question id 供�
 assert.match(history, /scrollIntoView\(/, "结果详情切换时应滚动到当前题目");
 assert.match(history, /buildScopedQuestionStats/, "练习结果详情应按全局口径统计题目数据");
 assert.match(history, /progressScope/, "练习结果详情应使用全局进度口径");
+assert.match(history, /const runBankRank = new Map\(run\.bankIds/, "练习结果中的共享题必须优先选择本次 run 题库范围内的 membership，不能被其他题库关系覆盖");
+assert.match(history, /reviewRoundProgress/, "练习结果题目详情必须读取命名复习轮次进度，不能把 round scope 当成空数据");
+assert.doesNotMatch(history, /buildScopedQuestionStats\(\[question\.id\], progressScope, attempts \?\? \[\], \[\], referenceTime\)/, "练习结果题目详情不得给 round progress 固定传空数组");
 assert.match(history, /activeResultQuestionId/, "结果详情关闭后应保留当前题目高亮");
 assert.match(history, /加入题组/, "练习结果详情应保留加入题组入口");
 assert.match(history, /编辑题目/, "练习结果详情应保留编辑题目入口");

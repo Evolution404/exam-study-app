@@ -55,24 +55,24 @@ export async function createQuestionV7(bankId: string, draft: StructuredQuestion
 }
 
 export async function updateQuestionV7(questionId: string, changes: Partial<StructuredQuestionDraftV7>): Promise<QuestionV7> {
-  const current = await dbV7.questions.get(questionId);
-  if (!current) throw new Error("题目不存在或已被删除。");
-  const timestamp = nowIso();
-  const draft: StructuredQuestionDraftV7 = {
-    type: changes.type ?? current.type,
-    content: changes.content ?? current.content,
-    options: changes.options ?? current.options,
-    optionIds: changes.optionIds ?? current.optionIds,
-    solution: changes.solution ?? current.solution,
-    tags: changes.tags ?? current.tags,
-    favorite: changes.favorite ?? current.favorite,
-  };
-  const updated = questionFromDraft(current.id, draft, timestamp, getV7DeviceId());
-  await dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.questions.get(questionId);
+    if (!current) throw new Error("题目不存在或已被删除。");
+    const timestamp = nowIso();
+    const draft: StructuredQuestionDraftV7 = {
+      type: changes.type ?? current.type,
+      content: changes.content ?? current.content,
+      options: changes.options ?? current.options,
+      optionIds: changes.optionIds ?? current.optionIds,
+      solution: changes.solution ?? current.solution,
+      tags: changes.tags ?? current.tags,
+      favorite: changes.favorite ?? current.favorite,
+    };
+    const updated = questionFromDraft(current.id, draft, timestamp, getV7DeviceId());
     await dbV7.questions.put(updated);
     await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
+    return updated;
   });
-  return updated;
 }
 
 export const updateSharedQuestionV7 = updateQuestionV7;

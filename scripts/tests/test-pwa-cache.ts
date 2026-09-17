@@ -10,6 +10,7 @@ const preferencesView = read("src/app/shell/views/preferences-view.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const syncApplication = read("src/lib/sync/sync-application.ts");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
+const dbCore = read("src/lib/db/db-v7-core.ts");
 const main = read("src/main.tsx");
 const errorBoundary = read("src/app/error-boundary.tsx");
 const headers = read("public/_headers");
@@ -49,6 +50,8 @@ assert.match(previewSmoke, /user-scalable=no/, "PWA smoke must verify that the p
 
 assert.match(main, /updateViaCache: "none"/);
 assert.match(main, /dbV7Ready\.then[\s\S]*\.catch/, "startup failures must render a recovery screen instead of leaving a blank root");
+assert.match(dbCore, /dbV7\.open\(\)\.then\(\(\) => undefined\)/, "IndexedDB open failures must reject dbV7Ready so bootstrap can render the recovery screen");
+assert.doesNotMatch(dbCore, /dbV7\.open\(\)\.then\(\(\) => undefined, \(\) => undefined\)/, "dbV7Ready must not swallow IndexedDB open failures");
 assert.match(errorBoundary, /class AppErrorBoundary/, "render failures must be caught by a top-level error boundary");
 assert.match(errorBoundary, /重试加载/, "startup recovery must offer an explicit retry");
 assert.match(errorBoundary, /导出 JSON\/Excel/, "startup recovery must direct users to export before any destructive reset");
