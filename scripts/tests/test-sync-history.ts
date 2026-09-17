@@ -86,6 +86,8 @@ try {
   validateSyncCheckpoint(full);
   assert.equal(full.state.attempts.length, 8);
   assert.equal(full.state.practiceRuns.length, 4);
+  assert.equal(full.state.practiceRunSources.length, 4);
+  assert.equal(full.state.practiceRunItems.length, 4);
 
   const vaultId = "qa/history@main";
   const client = createGitHubRemote({ owner: "qa", repo: "sync-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
@@ -93,13 +95,27 @@ try {
   validateRemoteHistoryCheckpoint(bounded);
   assert.equal(bounded.formatVersion, 9);
   assert.equal(bounded.state.attempts.length, 2, "remote checkpoint keeps only recent attempts");
-  assert.equal(bounded.state.practiceRuns.length, 1, "remote checkpoint keeps only recent practice runs");
+  assert.equal(bounded.state.practiceRuns.length, 1, "remote checkpoint keeps only recent practice run records");
+  assert.equal(bounded.state.practiceRunSources.length, 1, "bounded state keeps only relations for retained runs");
+  assert.equal(bounded.state.practiceRunItems.length, 1, "bounded state keeps only run items for retained runs");
   assert.equal(bounded.history.archivedAttempts, 6);
   assert.equal(bounded.history.archivedPracticeRuns, 3);
   assert.ok(bounded.history.index, "archive-bearing checkpoint has one history index descriptor");
   assert.equal(bounded.counts.totalAttempts, 8);
   assert.equal(bounded.counts.totalPracticeRuns, 4);
-  assert.equal(bounded.state.attemptStats.length, 0, "derived stats are not serialized from a partial detail window");
+  for (const retired of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
+    assert.equal(retired in (bounded.state as unknown as Record<string, unknown>), false, `history checkpoint must not serialize derived ${retired}`);
+  }
+
+  if (!bounded.history.index) throw new Error("history index missing");
+  const historyIndex = JSON.parse(new TextDecoder().decode(await client.readBlob(bounded.history.index))) as {
+    practiceRuns: Array<{ path: string; blobSha: string; sha256: string; size: number; storedSize: number }>;
+  };
+  const firstRunChunk = JSON.parse(new TextDecoder().decode(await client.readBlob(historyIndex.practiceRuns[0]!))) as Record<string, unknown>;
+  assert.ok(Array.isArray(firstRunChunk.practiceRuns), "practice history chunk stores normalized run records");
+  assert.ok(Array.isArray(firstRunChunk.practiceRunSources), "practice history chunk stores normalized source relations");
+  assert.ok(Array.isArray(firstRunChunk.practiceRunItems), "practice history chunk stores normalized item relations");
+  assert.equal("items" in firstRunChunk, false, "practice history must not restore aggregate PracticeRun items payloads");
 
   const fullBytes = encodeSyncCheckpoint(full);
   const boundedBytes = encodeRemoteHistoryCheckpoint(bounded);
@@ -109,15 +125,17 @@ try {
   validateSyncCheckpoint(hydrated);
   assert.deepEqual(new Set(hydrated.state.attempts.map((item) => item.id)), new Set(attempts.map((item) => item.id)), "hydration restores every archived + recent attempt");
   assert.deepEqual(new Set(hydrated.state.practiceRuns.map((item) => item.id)), new Set(runs.map((item) => item.id)), "hydration restores every archived + recent run");
-  assert.ok(hydrated.state.attemptStats.length > 0, "lifetime derived statistics are rebuilt after full history hydration");
+  assert.equal(hydrated.state.practiceRunSources.length, 4, "hydration restores canonical run-source relations");
+  assert.equal(hydrated.state.practiceRunItems.length, 4, "hydration restores canonical run-item relations");
 
   const readsBeforeWindowedHydration = server.stats.blobReads;
   const windowed = await hydrateRemoteHistoryCheckpoint(client, bounded, { historySyncStart: "2026-01-05" });
   validateSyncCheckpoint(windowed);
   assert.deepEqual(windowed.state.attempts.map((item) => item.id), ["attempt-4", "attempt-5", "attempt-6", "attempt-7"], "history start filters attempts before the selected date");
   assert.deepEqual(windowed.state.practiceRuns.map((item) => item.id), ["run-2", "run-3"], "history start filters runs before the selected date");
+  assert.equal(windowed.state.practiceRunSources.length, 2, "windowed hydration keeps relations only for retained runs");
+  assert.equal(windowed.state.practiceRunItems.length, 2, "windowed hydration keeps items only for retained runs");
   assert.equal(server.stats.blobReads - readsBeforeWindowedHydration, 3, "windowed hydration reads only the index and two boundary/relevant chunks");
-  assert.equal(windowed.state.attemptStats[0]?.total, 4, "derived statistics are rebuilt from the selected device history window");
 
   const checkpointPath = descriptorPath(SYNC_CHECKPOINT_PREFIX, digest(boundedBytes));
   const uploadedCheckpoint = await client.putImmutable({ path: checkpointPath, bytes: boundedBytes, kind: "checkpoint" });
@@ -155,7 +173,7 @@ try {
   assert.ok(bounded.history.index && afterGc.includes(bounded.history.index.path), "current history index remains reachable");
   assert.ok(afterGc.length > 1, "current archive chunks remain reachable");
 
-  console.log("sync history tests passed: bounded checkpoint, full hydration, derived-stat rebuild and dedicated history GC");
+  console.log("sync history tests passed: canonical bounded facts, normalized run history, hydration and dedicated history GC");
 } finally {
   await server.close();
   studyDb.close();
