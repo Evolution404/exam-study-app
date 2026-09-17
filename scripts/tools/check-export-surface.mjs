@@ -2,8 +2,8 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-let unusedExportsBudget = 103;
-let unusedTypesBudget = 33;
+let unusedExportsBudget = 0;
+let unusedTypesBudget = 0;
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
 const result = spawnSync(command, ["knip", "--include", "exports,types"], {
