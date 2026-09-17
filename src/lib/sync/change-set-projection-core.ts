@@ -37,8 +37,6 @@ export interface ChangeSetProjection {
   reviewRounds: ReviewRound[];
   reviewRoundProgress: ReviewRoundProgress[];
   tombstones: Tombstone[];
-  /** Attempt-to-round provenance is needed because Attempt is round-neutral. */
-  attemptRoundIds?: Record<string, string[]>;
 }
 
 export type ChangeSetProjectionInput = ChangeSetProjection;
@@ -148,7 +146,6 @@ export function normalizeProjection(input: ChangeSetProjectionInput): ChangeSetP
     reviewRounds: list(input.reviewRounds),
     reviewRoundProgress: list(input.reviewRoundProgress),
     tombstones: list(input.tombstones),
-    attemptRoundIds: clone(input.attemptRoundIds ?? {}),
   };
 }
 
@@ -218,17 +215,6 @@ export function setByQuestionId(values: Note[], value: Note): void {
   else values[index] = clone(value);
 }
 
-export function upsertAttemptRound(projection: ChangeSetProjection, attemptId: string, roundId?: string): void {
-  if (!roundId) return;
-  const current = projection.attemptRoundIds?.[attemptId] ?? [];
-  projection.attemptRoundIds ??= {};
-  projection.attemptRoundIds[attemptId] = uniqueStrings([...current, roundId]).sort();
-}
-
-export function removeAttemptRound(projection: ChangeSetProjection, attemptId: string): void {
-  if (projection.attemptRoundIds) delete projection.attemptRoundIds[attemptId];
-}
-
 export function putTombstone(projection: ChangeSetProjection, entityType: Tombstone["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   const key = `${entityType}:${entityId}`;
   const old = projection.tombstones.find((item) => item.key === key);
@@ -292,6 +278,5 @@ export function shallowEnvelope(base: ChangeSetProjection): ChangeSetProjection 
     reviewRounds: [...base.reviewRounds],
     reviewRoundProgress: [...base.reviewRoundProgress],
     tombstones: [...base.tombstones],
-    attemptRoundIds: { ...base.attemptRoundIds },
   };
 }

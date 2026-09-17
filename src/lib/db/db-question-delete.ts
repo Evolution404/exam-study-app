@@ -50,7 +50,7 @@ export async function deleteQuestions(questionIds: readonly string[]): Promise<n
           : mutation.kind === "membership.remove" ? [mutation.questionId]
           : mutation.kind === "note.upserted" ? [mutation.note.questionId]
           : mutation.kind === "note.deleted" ? [mutation.questionId]
-          : mutation.kind === "attempt.create" || mutation.kind === "attempt.update" ? [mutation.attempt.questionId]
+          : mutation.kind === "attempt.create" ? [mutation.attempt.questionId]
           : mutation.kind === "attempt.delete" && mutation.questionId ? [mutation.questionId]
           : [];
         if (created.some((id) => deletingIds.has(id))) {

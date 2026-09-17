@@ -402,7 +402,7 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     }
     const completedRound = reviewRoundId ? await getReviewRound(reviewRoundId) : undefined;
     await enqueueChangeSet([
-      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId, ...(reviewRoundId ? { reviewRoundId } : {}) },
+      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId },
       ...(completedRound?.status === "completed" ? [{ kind: "review.round.completed" as const, round: completedRound }] : []),
     ], timestamp);
     return { attempt, answer };

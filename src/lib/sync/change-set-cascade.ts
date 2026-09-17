@@ -36,8 +36,6 @@ export function updateQuestionDeleteCascade(projection: ChangeSetProjection, que
   projection.questions = projection.questions.filter((question) => question.id !== questionId);
   projection.memberships = projection.memberships.filter((membership) => membership.questionId !== questionId);
   projection.attempts = projection.attempts.filter((attempt) => attempt.questionId !== questionId);
-  const remainingAttemptIds = new Set(projection.attempts.map((attempt) => attempt.id));
-  projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([id]) => remainingAttemptIds.has(id)));
   projection.notes = projection.notes.filter((note) => note.questionId !== questionId);
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => item.questionId !== questionId);
   projection.reviewRounds = projection.reviewRounds.map((round) => {
@@ -79,9 +77,7 @@ export function updateQuestionsBulkDeleteCascade(projection: ChangeSetProjection
   const keepQuestion = (questionId: string) => !ids.has(questionId);
   projection.questions = projection.questions.filter((question) => keepQuestion(question.id));
   projection.memberships = projection.memberships.filter((membership) => keepQuestion(membership.questionId));
-  const attemptIds = new Set(projection.attempts.filter((attempt) => !keepQuestion(attempt.questionId)).map((attempt) => attempt.id));
   projection.attempts = projection.attempts.filter((attempt) => keepQuestion(attempt.questionId));
-  projection.attemptRoundIds = Object.fromEntries(Object.entries(projection.attemptRoundIds ?? {}).filter(([attemptId]) => !attemptIds.has(attemptId)));
   projection.notes = projection.notes.filter((note) => keepQuestion(note.questionId));
   projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => keepQuestion(item.questionId));
   projection.reviewRounds = projection.reviewRounds.map((round) => {

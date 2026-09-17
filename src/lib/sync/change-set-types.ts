@@ -81,8 +81,7 @@ export type ChangeSetMutation =
   | { kind: "membership.bulk.remove"; keys: string[]; bankId?: string; removedAt?: string }
   | { kind: "image.asset.save"; asset: Omit<ImageAsset, "blob"> }
   | { kind: "image.asset.delete"; assetId: string; deletedAt?: string }
-  | { kind: "attempt.create"; attempt: Attempt; reviewRoundId?: string }
-  | { kind: "attempt.update"; attempt: Attempt; reviewRoundId?: string }
+  | { kind: "attempt.create"; attempt: Attempt }
   | { kind: "attempt.delete"; attemptId: string; questionId?: string; deletedAt?: string }
   | {
       kind: "practice.answer.submitted";
@@ -90,17 +89,8 @@ export type ChangeSetMutation =
       answer: PracticeAnswer;
       runId: string;
       questionId: string;
-      reviewRoundId?: string;
     }
-  | {
-      kind: "practice.answer.updated";
-      attempt: Attempt;
-      answer: PracticeAnswer;
-      runId: string;
-      questionId: string;
-      reviewRoundId?: string;
-    }
-  | { kind: "practice.answer.deleted"; attemptId: string; runId: string; questionId: string; reviewRoundId?: string; deletedAt?: string }
+  | { kind: "practice.answer.deleted"; attemptId: string; runId: string; questionId: string; deletedAt?: string }
   | { kind: "practice.run.saved"; run: PracticeRun; definition?: ImmutablePayloadRef }
   | { kind: "practice.run.status.changed"; run: PracticeRun; definition?: ImmutablePayloadRef }
   | { kind: "practice.run.deleted"; runId: string; deletedAt?: string }

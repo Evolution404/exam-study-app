@@ -58,18 +58,22 @@ projection = reduceChangeSet(projection, await cs([
 const round: ReviewRound = { id: "round-1", name: "第一轮", bankIds: ["bank-1"], startedAt: at, status: "active", createdAt: at, updatedAt: at, deviceId };
 const run: PracticeRun = { id: "run-1", bankId: "bank-1", bankIds: ["bank-1"], bankName: "题库", mode: "sequential", modeLabel: "练习", questionIds: ["question-1"], questionTypes: { "question-1": "单选" }, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: at, updatedAt: at, status: "in_progress", revision: 0, reviewRoundId: round.id };
 projection = reduceChangeSet(projection, await cs([{ kind: "review.round.saved", round }, { kind: "practice.run.saved", run }]));
-const attempt = (id: string, correct: boolean): Attempt => ({ id, runId: run.id, questionId: "question-1", selected: correct ? "A" : "B", correct, elapsedMs: 10, createdAt: at, deviceId });
+const attempt = (id: string, correct: boolean): Attempt => ({ id, runId: run.id, questionId: "question-1", reviewRoundId: round.id, selected: correct ? "A" : "B", correct, elapsedMs: 10, createdAt: at, deviceId });
 const answer = (eventId: string, correct: boolean): PracticeAnswer => ({ selected: [correct ? "A" : "B"], submitted: true, correct, updatedAt: at, deviceId, eventId });
-projection = reduceChangeSet(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-1", false), answer: answer("event-1", false), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
+projection = reduceChangeSet(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-1", false), answer: answer("event-1", false), runId: run.id, questionId: "question-1" }]));
 assert.deepEqual(projection.attemptStats[0], { questionId: "question-1", total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 10, firstAttemptAt: at, firstAttemptCorrect: false, latestAttemptAt: at, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: "attempt-1", createdAt: at, correct: false, elapsedMs: 10 }] });
 assert.equal(projection.reviewRoundProgress[0].wrong, 1);
 assert.deepEqual(projection.reviewRoundProgress[0].recentOutcomes, [{ id: "attempt-1", createdAt: at, correct: false, elapsedMs: 10 }], "同步派生轮次进度应保留与全局统计一致的作答证据");
 assert.equal(projection.reviewRoundProgress[0].hasBeenWrong, true);
 assert.equal(projection.reviewRoundProgress[0].currentCorrectStreak, 0);
-projection = reduceChangeSet(projection, await cs([{ kind: "practice.answer.updated", attempt: attempt("attempt-1", true), answer: answer("event-2", true), runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
+projection = reduceChangeSet(projection, await cs([{ kind: "practice.answer.submitted", attempt: attempt("attempt-2", true), answer: answer("event-2", true), runId: run.id, questionId: "question-1" }]));
+assert.equal(projection.attemptStats[0].total, 2);
 assert.equal(projection.attemptStats[0].correct, 1);
 assert.equal(projection.reviewRoundProgress[0].currentCorrectStreak, 1);
-projection = reduceChangeSet(projection, await cs([{ kind: "practice.answer.deleted", attemptId: "attempt-1", runId: run.id, questionId: "question-1", reviewRoundId: round.id }]));
+projection = reduceChangeSet(projection, await cs([
+  { kind: "practice.answer.deleted", attemptId: "attempt-2", runId: run.id, questionId: "question-1" },
+  { kind: "practice.answer.deleted", attemptId: "attempt-1", runId: run.id, questionId: "question-1" },
+]));
 assert.equal(projection.attemptStats.length, 0);
 assert.equal(projection.reviewRoundProgress.length, 0);
 

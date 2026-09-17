@@ -160,7 +160,6 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       sets.tombstones.add(tombstoneKey("imageAsset", mutation.assetId));
       return true;
     case "attempt.create":
-    case "attempt.update":
       sets.attempts.add(mutation.attempt.id);
       sets.tombstones.add(tombstoneKey("attempt", mutation.attempt.id));
       return true;
@@ -170,7 +169,6 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       sets.tombstones.add(tombstoneKey("attempt", mutation.attemptId));
       return true;
     case "practice.answer.submitted":
-    case "practice.answer.updated":
       sets.attempts.add(mutation.attempt.id);
       sets.practiceRuns.add(mutation.runId);
       sets.attemptStats.add(mutation.questionId);
@@ -297,8 +295,7 @@ export async function deriveDirtyInstallKeys(
   }
 
   // Attempt changes alter per-question stats/daily stats/round progress. Again
-  // union current and target question ids so a remote attempt.update that moves
-  // an attempt between questions cleans both derived sides.
+  // Union current and target question ids for immutable attempt create/delete changes.
   if (sets.attempts.size) {
     const attemptIds = [...sets.attempts];
     const [currentAttempts, targetById] = await Promise.all([

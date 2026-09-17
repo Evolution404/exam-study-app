@@ -33,7 +33,6 @@ const emptyProjection: ChangeSetProjection = {
   reviewRounds: [],
   reviewRoundProgress: [],
   tombstones: [],
-  attemptRoundIds: {},
 };
 const canonicalCheckpoint = await checkpointFromProjection(emptyProjection, {});
 assert.equal("bankQuestionMemberships" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize the projection membership alias");

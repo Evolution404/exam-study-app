@@ -24,8 +24,8 @@ export function changeSetOutsideHistoryRange(change: ChangeSet, start?: string):
   const normalized = normalizeHistorySyncStart(start);
   if (!normalized) return false;
   const timestamps = change.mutations.map((mutation): string | undefined => {
-    if (mutation.kind === "attempt.create" || mutation.kind === "attempt.update") return mutation.attempt.createdAt;
-    if (mutation.kind === "practice.answer.submitted" || mutation.kind === "practice.answer.updated") return mutation.attempt.createdAt;
+    if (mutation.kind === "attempt.create") return mutation.attempt.createdAt;
+    if (mutation.kind === "practice.answer.submitted") return mutation.attempt.createdAt;
     if (mutation.kind === "practice.run.saved" || mutation.kind === "practice.run.status.changed") return mutation.run.startedAt;
     return undefined;
   });

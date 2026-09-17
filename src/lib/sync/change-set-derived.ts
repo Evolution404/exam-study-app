@@ -19,7 +19,6 @@ import {
   membershipKey,
   normalizeProjection,
   runBankIds,
-  uniqueStrings,
   type ChangeSetProjectionInput,
   type ChangeSetProjection,
   type ProjectionValidationIssue,
@@ -95,46 +94,43 @@ function deriveRunStats(runs: readonly PracticeRun[]): PracticeRunStats[] {
 
 function deriveRoundProgress(projection: ChangeSetProjection): ReviewRoundProgress[] {
   const roundsById = new Map(projection.reviewRounds.map((round) => [round.id, round]));
-  const runsById = new Map(projection.practiceRuns.map((run) => [run.id, run]));
   const grouped = new Map<string, ReviewRoundProgress>();
   for (const attempt of sortAttempts(projection.attempts)) {
-    const run = runsById.get(attempt.runId);
-    const roundIds = uniqueStrings([...(projection.attemptRoundIds?.[attempt.id] ?? []), ...(run?.reviewRoundId ? [run.reviewRoundId] : [])]);
-    for (const roundId of roundIds) {
-      if (!roundsById.has(roundId)) fail(`作答 ${attempt.id} 引用了不存在的轮次 ${roundId}`);
-      const key = `${roundId}:${attempt.questionId}`;
-      const current = grouped.get(key);
-      if (!current) {
-        grouped.set(key, {
-          key,
-          roundId,
-          questionId: attempt.questionId,
-          attempts: 1,
-          correct: attempt.correct ? 1 : 0,
-          wrong: attempt.correct ? 0 : 1,
-          firstAttemptAt: attempt.createdAt,
-          latestAttemptAt: attempt.createdAt,
-          giveUps: attempt.selected ? 0 : 1,
-          totalElapsedMs: Math.max(0, attempt.elapsedMs),
-          firstAttemptCorrect: attempt.correct,
-          hasBeenWrong: !attempt.correct,
-          currentCorrectStreak: attempt.correct ? 1 : 0,
-          correctStreakAfterWrong: 0,
-          recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }],
-        });
-        continue;
-      }
-      current.attempts += 1;
-      if (attempt.correct) current.correct += 1; else current.wrong += 1;
-      current.giveUps += attempt.selected ? 0 : 1;
-      current.totalElapsedMs += Math.max(0, attempt.elapsedMs);
-      current.hasBeenWrong ||= !attempt.correct;
-      current.currentCorrectStreak = attempt.correct ? current.currentCorrectStreak + 1 : 0;
-      current.correctStreakAfterWrong = current.hasBeenWrong ? current.currentCorrectStreak : 0;
-      current.recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }].slice(-32);
-      if (attempt.createdAt < current.firstAttemptAt) current.firstAttemptAt = attempt.createdAt;
-      if (attempt.createdAt > current.latestAttemptAt) current.latestAttemptAt = attempt.createdAt;
+    const roundId = attempt.reviewRoundId;
+    if (!roundId) continue;
+    if (!roundsById.has(roundId)) fail(`作答 ${attempt.id} 引用了不存在的轮次 ${roundId}`);
+    const key = `${roundId}:${attempt.questionId}`;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, {
+        key,
+        roundId,
+        questionId: attempt.questionId,
+        attempts: 1,
+        correct: attempt.correct ? 1 : 0,
+        wrong: attempt.correct ? 0 : 1,
+        firstAttemptAt: attempt.createdAt,
+        latestAttemptAt: attempt.createdAt,
+        giveUps: attempt.selected ? 0 : 1,
+        totalElapsedMs: Math.max(0, attempt.elapsedMs),
+        firstAttemptCorrect: attempt.correct,
+        hasBeenWrong: !attempt.correct,
+        currentCorrectStreak: attempt.correct ? 1 : 0,
+        correctStreakAfterWrong: 0,
+        recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }],
+      });
+      continue;
     }
+    current.attempts += 1;
+    if (attempt.correct) current.correct += 1; else current.wrong += 1;
+    current.giveUps += attempt.selected ? 0 : 1;
+    current.totalElapsedMs += Math.max(0, attempt.elapsedMs);
+    current.hasBeenWrong ||= !attempt.correct;
+    current.currentCorrectStreak = attempt.correct ? current.currentCorrectStreak + 1 : 0;
+    current.correctStreakAfterWrong = current.hasBeenWrong ? current.currentCorrectStreak : 0;
+    current.recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }].slice(-32);
+    if (attempt.createdAt < current.firstAttemptAt) current.firstAttemptAt = attempt.createdAt;
+    if (attempt.createdAt > current.latestAttemptAt) current.latestAttemptAt = attempt.createdAt;
   }
   return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
 }

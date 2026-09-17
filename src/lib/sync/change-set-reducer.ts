@@ -21,7 +21,6 @@ import {
   normalizeProjection,
   putTombstone,
   rejectTombstoned,
-  removeAttemptRound,
   removeById,
   removeMembership,
   removeTombstone,
@@ -33,7 +32,6 @@ import {
   setByQuestionId,
   shallowEnvelope,
   uniqueStrings,
-  upsertAttemptRound,
   type ChangeSetProjectionInput,
   type ChangeSetProjection,
 } from "./change-set-projection-core";
@@ -200,33 +198,31 @@ function applyMutation(projection: ChangeSetProjection, mutation: ChangeSetMutat
       putTombstone(projection, "imageAsset", mutation.assetId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
-    case "attempt.create": case "attempt.update": {
+    case "attempt.create": {
       ensureQuestion(projection, mutation.attempt.questionId);
-      if (mutation.kind === "attempt.create") rejectTombstoned(projection, "attempt", mutation.attempt.id);
+      rejectTombstoned(projection, "attempt", mutation.attempt.id);
       if (mutation.attempt.elapsedMs < 0) fail("elapsedMs 不能为负数");
-      if (mutation.kind === "attempt.create" && byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在`);
-      if (mutation.kind === "attempt.update" && !byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 不存在`);
-      setById(projection.attempts, mutation.attempt, mutation.kind === "attempt.create");
-      upsertAttemptRound(projection, mutation.attempt.id, mutation.reviewRoundId);
+      if (mutation.attempt.reviewRoundId) ensureRound(projection, mutation.attempt.reviewRoundId);
+      if (byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在`);
+      setById(projection.attempts, mutation.attempt);
       return;
     }
     case "attempt.delete": {
       const attempt = requireById(projection.attempts, mutation.attemptId, "作答");
       if (mutation.questionId && mutation.questionId !== attempt.questionId) fail("删除作答 questionId 不一致");
       removeById(projection.attempts, mutation.attemptId, "作答");
-      removeAttemptRound(projection, mutation.attemptId);
       putTombstone(projection, "attempt", mutation.attemptId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
     }
-    case "practice.answer.submitted": case "practice.answer.updated": {
+    case "practice.answer.submitted": {
       const run = ensureRun(projection, mutation.runId);
       ensureQuestion(projection, mutation.questionId);
-      if (mutation.kind === "practice.answer.submitted") rejectTombstoned(projection, "attempt", mutation.attempt.id);
+      rejectTombstoned(projection, "attempt", mutation.attempt.id);
       if (mutation.attempt.runId !== mutation.runId || mutation.attempt.questionId !== mutation.questionId) fail("答案作答记录与 run/question 不一致");
-      if (mutation.kind === "practice.answer.submitted" && byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在，提交必须使用新 id`);
-      if (mutation.kind === "practice.answer.updated" && !byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 不存在`);
-      setById(projection.attempts, mutation.attempt, mutation.kind === "practice.answer.submitted");
-      upsertAttemptRound(projection, mutation.attempt.id, mutation.reviewRoundId ?? run.reviewRoundId);
+      if (mutation.attempt.reviewRoundId !== run.reviewRoundId) fail("答案作答轮次与练习记录不一致");
+      if (mutation.attempt.reviewRoundId) ensureRound(projection, mutation.attempt.reviewRoundId);
+      if (byId(projection.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在，提交必须使用新 id`);
+      setById(projection.attempts, mutation.attempt);
       setById(projection.practiceRuns, runWithAnswer(run, mutation.questionId, mutation.answer), false);
       return;
     }
@@ -235,7 +231,6 @@ function applyMutation(projection: ChangeSetProjection, mutation: ChangeSetMutat
       const attempt = requireById(projection.attempts, mutation.attemptId, "作答");
       if (attempt.runId !== mutation.runId || attempt.questionId !== mutation.questionId) fail("答案删除目标不一致");
       removeById(projection.attempts, mutation.attemptId, "作答");
-      removeAttemptRound(projection, mutation.attemptId);
       putTombstone(projection, "attempt", mutation.attemptId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       const answers = { ...run.answers };
       delete answers[mutation.questionId];

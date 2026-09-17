@@ -21,9 +21,9 @@ export function mutationEntityRefs(mutation: ChangeSetMutation): ChangeSetEntity
     case "membership.bulk.remove": return mutation.keys.map((id) => add("membership", id));
     case "image.asset.save": return [add("imageAsset", mutation.asset.id)];
     case "image.asset.delete": return [add("imageAsset", mutation.assetId)];
-    case "attempt.create": case "attempt.update": return [add("attempt", mutation.attempt.id), add("question", mutation.attempt.questionId)];
+    case "attempt.create": return [add("attempt", mutation.attempt.id), add("question", mutation.attempt.questionId)];
     case "attempt.delete": return [add("attempt", mutation.attemptId)];
-    case "practice.answer.submitted": case "practice.answer.updated": return [add("attempt", mutation.attempt.id), add("practiceRun", mutation.runId), add("question", mutation.questionId)];
+    case "practice.answer.submitted": return [add("attempt", mutation.attempt.id), add("practiceRun", mutation.runId), add("question", mutation.questionId)];
     case "practice.answer.deleted": return [add("attempt", mutation.attemptId), add("practiceRun", mutation.runId), add("question", mutation.questionId)];
     case "practice.run.saved": case "practice.run.status.changed": return [add("practiceRun", mutation.run.id), ...runRefs(mutation.run)];
     case "practice.run.deleted": return [add("practiceRun", mutation.runId)];
