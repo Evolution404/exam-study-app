@@ -7,7 +7,6 @@ body { font-family:var(--font-noto-sans-sc),-apple-system,BlinkMacSystemFont,"Se
 
 button,input,textarea { font:inherit; }
 
-
 button { color:inherit; white-space:nowrap; }
 
 ::placeholder { color:var(--color-text-muted); opacity:.8; }
