@@ -121,6 +121,29 @@ async function projectionIsEmpty(): Promise<boolean> {
   return counts.every((count) => count === 0);
 }
 
+async function localProjectionsNeedRebuild(): Promise<boolean> {
+  const [
+    attemptCount,
+    practiceRunCount,
+    questionProgressCount,
+    questionDailyProgressCount,
+    bankPracticeStatsCount,
+    reviewRoundAttemptCount,
+    reviewRoundProgressCount,
+  ] = await Promise.all([
+    studyDb.attempts.count(),
+    studyDb.practiceRuns.count(),
+    studyDb.questionProgress.count(),
+    studyDb.questionDailyProgress.count(),
+    studyDb.bankPracticeStats.count(),
+    studyDb.attempts.where("reviewRoundId").above("").count(),
+    studyDb.reviewRoundProgress.count(),
+  ]);
+  return (attemptCount > 0 && (questionProgressCount === 0 || questionDailyProgressCount === 0))
+    || (practiceRunCount > 0 && bankPracticeStatsCount === 0)
+    || (reviewRoundAttemptCount > 0 && reviewRoundProgressCount === 0);
+}
+
 function hasDirtyKeys(keys: ReconcileDirtyKeys | undefined): keys is ReconcileDirtyKeys {
   return Boolean(keys && Object.values(keys).some((items) => items.length > 0));
 }
@@ -685,8 +708,11 @@ export async function reconcileProjection(
   });
 
   if (!reconciled) return false;
-  options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-  await rebuildAllProjections();
-  options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
+  const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
+  if (shouldRebuildProjections) {
+    options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
+    await rebuildAllProjections();
+    options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
+  }
   return true;
 }
