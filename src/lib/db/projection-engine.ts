@@ -1,12 +1,20 @@
-import { datePart, studyDb } from "./db-core";
+import { dailyStatsKey, datePart, studyDb } from "./db-core";
 import {
   addAttemptToStats,
   addDailyStats,
+  addReviewRoundProgress,
   updateReviewRoundProgressForAttemptInTx,
 } from "./db-attempt-projections";
 import { updatePracticeRunStatsInTx } from "./db-practice-stats";
 import { assemblePracticeRunRecords } from "./practice-run-store";
-import type { Attempt, PracticeRun } from "./types";
+import type {
+  Attempt,
+  AttemptDailyStats,
+  AttemptStats,
+  BankPracticeStats,
+  PracticeRun,
+  ReviewRoundProgress,
+} from "./types";
 
 /**
  * Apply the device-local projections derived from one canonical Attempt.
@@ -27,9 +35,7 @@ export async function applyAttemptProjectionInTx(attempt: Attempt): Promise<void
   }
 }
 
-/**
- * Apply the device-local projection derived from a PracticeRun transition.
- */
+/** Apply the device-local projection derived from a PracticeRun transition. */
 export async function applyPracticeRunProjectionInTx(
   previous: PracticeRun | undefined,
   next: PracticeRun | undefined,
@@ -41,20 +47,95 @@ function compareAttempts(left: Attempt, right: Attempt): number {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
-async function rebuildProjectionRowsInTx(
+function canonicalRunBankIds(run: PracticeRun): string[] {
+  return [...new Set((run.bankIds?.length ? run.bankIds : [run.bankId]).filter(Boolean))];
+}
+
+export interface ProjectionRows {
+  questionProgress: AttemptStats[];
+  questionDailyProgress: AttemptDailyStats[];
+  bankPracticeStats: BankPracticeStats[];
+  reviewRoundProgress: ReviewRoundProgress[];
+}
+
+/**
+ * Pure projection reducer. Large checkpoint/reconcile rebuilds aggregate all
+ * canonical facts in memory first, then perform one bulk write per projection
+ * table instead of one IndexedDB round trip per attempt/run.
+ */
+export function projectCanonicalFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
-): Promise<void> {
-  const orderedAttempts = [...attempts].sort(compareAttempts);
+): ProjectionRows {
+  const questionProgress = new Map<string, AttemptStats>();
+  const questionDailyProgress = new Map<string, AttemptDailyStats>();
+  const reviewRoundProgress = new Map<string, ReviewRoundProgress>();
+
+  for (const attempt of [...attempts].sort(compareAttempts)) {
+    questionProgress.set(
+      attempt.questionId,
+      addAttemptToStats(questionProgress.get(attempt.questionId), attempt),
+    );
+    const dailyKey = dailyStatsKey(attempt.createdAt, attempt.questionId);
+    questionDailyProgress.set(
+      dailyKey,
+      addDailyStats(questionDailyProgress.get(dailyKey), attempt),
+    );
+    if (attempt.reviewRoundId) {
+      const roundKey = `${attempt.reviewRoundId}:${attempt.questionId}`;
+      reviewRoundProgress.set(
+        roundKey,
+        addReviewRoundProgress(
+          reviewRoundProgress.get(roundKey),
+          attempt.reviewRoundId,
+          attempt.questionId,
+          attempt,
+        ),
+      );
+    }
+  }
+
+  const bankPracticeStats = new Map<string, BankPracticeStats>();
+  for (const run of runs) {
+    for (const bankId of canonicalRunBankIds(run)) {
+      const current = bankPracticeStats.get(bankId) ?? {
+        bankId,
+        total: 0,
+        completed: 0,
+        inProgress: 0,
+        abandoned: 0,
+        latestActivityAt: "",
+      };
+      current.total += 1;
+      if (run.status === "completed") current.completed += 1;
+      else if (run.status === "abandoned") current.abandoned += 1;
+      else current.inProgress += 1;
+      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      bankPracticeStats.set(bankId, current);
+    }
+  }
+
+  return {
+    questionProgress: [...questionProgress.values()],
+    questionDailyProgress: [...questionDailyProgress.values()],
+    bankPracticeStats: [...bankPracticeStats.values()],
+    reviewRoundProgress: [...reviewRoundProgress.values()],
+  };
+}
+
+async function replaceProjectionRowsInTx(rows: ProjectionRows): Promise<void> {
   await Promise.all([
     studyDb.questionProgress.clear(),
     studyDb.questionDailyProgress.clear(),
     studyDb.bankPracticeStats.clear(),
     studyDb.reviewRoundProgress.clear(),
   ]);
-
-  for (const attempt of orderedAttempts) await applyAttemptProjectionInTx(attempt);
-  for (const run of runs) await applyPracticeRunProjectionInTx(undefined, run);
+  await Promise.all([
+    rows.questionProgress.length ? studyDb.questionProgress.bulkPut(rows.questionProgress) : Promise.resolve(),
+    rows.questionDailyProgress.length ? studyDb.questionDailyProgress.bulkPut(rows.questionDailyProgress) : Promise.resolve(),
+    rows.bankPracticeStats.length ? studyDb.bankPracticeStats.bulkPut(rows.bankPracticeStats) : Promise.resolve(),
+    rows.reviewRoundProgress.length ? studyDb.reviewRoundProgress.bulkPut(rows.reviewRoundProgress) : Promise.resolve(),
+  ]);
 }
 
 /**
@@ -67,6 +148,7 @@ export async function rebuildProjectionsFromFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
 ): Promise<void> {
+  const rows = projectCanonicalFacts(attempts, runs);
   await studyDb.transaction(
     "rw",
     [
@@ -75,7 +157,7 @@ export async function rebuildProjectionsFromFacts(
       studyDb.bankPracticeStats,
       studyDb.reviewRoundProgress,
     ],
-    () => rebuildProjectionRowsInTx(attempts, runs),
+    () => replaceProjectionRowsInTx(rows),
   );
 }
 
@@ -107,7 +189,7 @@ export async function rebuildAllProjections(): Promise<void> {
         studyDb.practiceRunItems.toArray(),
       ]);
       const runs = assemblePracticeRunRecords(records, sources, items, attempts);
-      await rebuildProjectionRowsInTx(attempts, runs);
+      await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs));
     },
   );
 }
