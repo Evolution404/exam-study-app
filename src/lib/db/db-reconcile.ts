@@ -1,6 +1,6 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
-import { rebuildAllProjections } from "./projection-engine";
+import { rebuildProjectionsFromFacts } from "./projection-engine";
 import { decomposePracticeRun } from "./practice-run-store";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { RestoreState } from "./db-core";
@@ -711,7 +711,7 @@ export async function reconcileProjection(
   const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
   if (shouldRebuildProjections) {
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-    await rebuildAllProjections();
+    await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
   }
   return true;
