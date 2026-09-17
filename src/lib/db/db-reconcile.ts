@@ -110,11 +110,13 @@ function equivalent(left: unknown, right: unknown): boolean {
 }
 
 async function projectionIsEmpty(): Promise<boolean> {
+  // Fresh-install mode is defined only by canonical facts. Local projection
+  // tables are disposable caches and may legitimately be empty on an otherwise
+  // populated device, so they must never influence install-mode selection.
   const counts = await Promise.all([
     studyDb.banks.count(), studyDb.bankFolders.count(), studyDb.questions.count(), studyDb.bankQuestionMemberships.count(),
-    studyDb.imageAssets.count(), studyDb.attempts.count(), studyDb.questionProgress.count(), studyDb.questionDailyProgress.count(),
-    studyDb.notes.count(), studyDb.practiceRuns.count(), studyDb.bankPracticeStats.count(), studyDb.questionGroups.count(),
-    studyDb.reviewRounds.count(), studyDb.reviewRoundProgress.count(), studyDb.tombstones.count(),
+    studyDb.imageAssets.count(), studyDb.attempts.count(), studyDb.notes.count(), studyDb.practiceRuns.count(),
+    studyDb.questionGroups.count(), studyDb.reviewRounds.count(), studyDb.tombstones.count(),
   ]);
   return counts.every((count) => count === 0);
 }
