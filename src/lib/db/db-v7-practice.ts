@@ -120,14 +120,19 @@ export async function createReviewRoundV7(input: Pick<ReviewRound, "name" | "ban
 }
 
 export async function updateReviewRoundV7(roundId: string, changes: Partial<Pick<ReviewRound, "name" | "bankIds">>): Promise<ReviewRound> {
-  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.banks, dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
     const current = await dbV7.reviewRounds.get(roundId);
     if (!current) throw new Error("复习轮次不存在或已被删除。");
     if (current.status !== "active") throw new Error("已完成或归档的复习轮次不可修改目标题库。");
+    const bankIds = changes.bankIds === undefined ? current.bankIds : uniqueStrings(changes.bankIds);
+    if (changes.bankIds !== undefined) {
+      const banks = await dbV7.banks.bulkGet(bankIds);
+      if (banks.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
+    }
     const updated: ReviewRound = {
       ...current,
       name: changes.name === undefined ? current.name : changes.name.trim() || current.name,
-      bankIds: changes.bankIds === undefined ? current.bankIds : uniqueStrings(changes.bankIds),
+      bankIds,
       updatedAt: nowIso(),
       deviceId: getV7DeviceId(),
     };
@@ -156,6 +161,10 @@ export async function completeReviewRoundV7(roundId: string, finalQuestionIds?: 
     if (!current) throw new Error("复习轮次不存在或已被删除。");
     if (current.status === "completed" || current.status === "archived") return current;
     const targets = finalQuestionIds ? uniqueStrings(finalQuestionIds) : await deriveRunQuestions(uniqueStrings(current.bankIds));
+    if (finalQuestionIds) {
+      const questions = await dbV7.questions.bulkGet(targets);
+      if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+    }
     const completed = await completeRoundInTx(current, targets);
     await enqueueChangeSetV7([{ kind: "review.round.completed", round: completed }], completed.updatedAt);
     return completed;

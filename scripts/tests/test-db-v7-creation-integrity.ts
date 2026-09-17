@@ -6,8 +6,10 @@ import {
   createPracticeRunV7,
   createQuestionV7,
   createReviewRoundV7,
+  completeReviewRoundV7,
   dbV7,
   resetV7Database,
+  updateReviewRoundV7,
 } from "../../src/lib/db/db-v7";
 import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
 
@@ -92,6 +94,29 @@ const txSnapshot = (): TxSnapshot | undefined => {
     () => createReviewRoundV7({ name: "C3非法轮次", bankIds: ["bank_missing_c3"] }),
     /题库不存在|已被删除/,
   );
+}
+
+// C4：更新复习轮次时不得写入已删除/不存在的题库引用。
+{
+  const bank = await createBankV7("C4轮次更新完整性");
+  const round = await createReviewRoundV7({ name: "C4轮次", bankIds: [bank.id] });
+  await assert.rejects(
+    () => updateReviewRoundV7(round.id, { bankIds: ["bank_missing_c4"] }),
+    /题库不存在|已被删除/,
+  );
+  assert.deepEqual((await dbV7.reviewRounds.get(round.id))?.bankIds, [bank.id], "失败的轮次更新不得污染原引用");
+}
+
+// C5：完成轮次的最终题目快照必须全部仍存在，否则不能写入无法通过 checkpoint 校验的 finalQuestionIds。
+{
+  const bank = await createBankV7("C5轮次完成完整性");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "C5题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const round = await createReviewRoundV7({ name: "C5轮次", bankIds: [bank.id] });
+  await assert.rejects(
+    () => completeReviewRoundV7(round.id, [question.id, "question_missing_c5"]),
+    /题目不存在|已被删除/,
+  );
+  assert.equal((await dbV7.reviewRounds.get(round.id))?.status, "active", "finalQuestionIds 校验失败时轮次必须保持 active");
 }
 
 await dbV7.close();
