@@ -406,7 +406,7 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             if (assetWriteLatencyMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, assetWriteLatencyMs));
             inFlightAssetWrites -= 1;
           }
-          if (logicalPath.startsWith("sync/v9/objects/")) {
+          if (/^sync\/v[0-9]+\/objects\//.test(logicalPath)) {
             stats.objectWrites += 1;
             inFlightObjectWrites += 1;
             stats.maxConcurrentObjectWrites = Math.max(stats.maxConcurrentObjectWrites, inFlightObjectWrites);
