@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import "fake-indexeddb/auto";
 import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { latestInProgressPracticeRunV7, listPracticeRunsForBankV7, listPracticeRunsForQuestionIdsV7 } from "../../src/lib/db/practice-run-read-v7";
+import { latestInProgressPracticeRunV7, listPracticeRunsForBankV7, listPracticeRunsForQuestionIdsV7, readPracticeHistoryV7 } from "../../src/lib/db/practice-run-read-v7";
+import { runActivityAt } from "../../src/lib/practice/practice-metrics";
 import type { PracticeRunV7 } from "../../src/lib/db/v7-types";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -25,6 +28,7 @@ const run = (id: string, bankIds: string[], questionIds: string[]): PracticeRunV
   optionOrders: {},
   startedAt: at,
   updatedAt: at,
+  completedAt: at,
   status: "completed",
   revision: 1,
 });
@@ -60,5 +64,29 @@ dbV7.practiceRuns.hook("reading").unsubscribe(readHook);
 assert.equal(latest?.id, "active-1999", "compound status/update index must return the newest active run");
 assert.equal(rowsRead, 1, "latest active run lookup must materialize one row instead of sorting every active run");
 
+// History paging must use the derived activity index instead of materializing
+// every run just to sort and then slice the first page.
+const allRuns = [...unrelated, ...targets, ...activeRuns];
+await dbV7.practiceRunActivity.bulkPut(allRuns.map((item) => ({ runId: item.id, status: item.status, activityAt: runActivityAt(item) })));
+rowsRead = 0;
+dbV7.practiceRuns.hook("reading", readHook);
+const history = await readPracticeHistoryV7("all", 50);
+dbV7.practiceRuns.hook("reading").unsubscribe(readHook);
+assert.equal(history.runs.length, 50);
+assert.equal(history.total, allRuns.length);
+assert.equal(history.counts.completed, unrelated.length + targets.length);
+assert.equal(history.counts.in_progress, activeRuns.length);
+assert.equal(rowsRead, 50, "history first page must materialize only its 50 run rows, not the complete history");
+
+// Engineering guard: every domain write must update practiceRuns and its
+// device-local activity index together through db-v7-practice-activity.ts.
+const dbSourceRoot = resolve(process.cwd(), "src/lib/db");
+const directRunWriters = readdirSync(dbSourceRoot, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+  .map((entry) => resolve(entry.parentPath, entry.name))
+  .filter((file) => !file.endsWith("db-v7-practice-activity.ts"))
+  .filter((file) => /practiceRuns\.(?:put|bulkPut|delete|bulkDelete)\(/.test(readFileSync(file, "utf8")));
+assert.deepEqual(directRunWriters, [], `practice run writes must go through the activity-index helper: ${directRunWriters.join(", ")}`);
+
 await dbV7.close();
-console.log("practice run index performance tests passed: bank/question/latest-active lookups avoid full history scans");
+console.log("practice run index performance tests passed: bank/question/latest-active/history lookups avoid full history scans");

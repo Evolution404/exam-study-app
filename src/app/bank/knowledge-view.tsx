@@ -4,7 +4,7 @@ import { Check, ChevronRight, FolderPlus, GripVertical, Layers3, Merge, Pencil, 
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { dbV7, deleteQuestionGroupV7, saveQuestionGroupV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { dbV7, deleteQuestionGroupV7, saveQuestionGroupV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { isBankEnabled, type QuestionGroupV7 } from "@/lib/db/v7-types";
@@ -84,7 +84,9 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
 
   async function replaceTag(from: string, to?: string) {
     const targets = (data?.questions ?? []).filter((question) => question.tags.includes(from));
-    await Promise.all(targets.map((question) => updateQuestionV7(question.id, { tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from) })));
+    await updateQuestionsV7(targets.map((question) => question.id), (question) => ({
+      tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from),
+    }));
     setActiveTag(undefined); setRenameValue("");
     onNotice(to ? `标签“${from}”已整理为“${to}”` : `标签“${from}”已从 ${targets.length} 道题移除`);
   }

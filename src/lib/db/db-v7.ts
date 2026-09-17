@@ -51,6 +51,7 @@ export {
 export {
   createQuestionV7,
   updateQuestionV7,
+  updateQuestionsV7,
   splitQuestionV7,
   addMembershipV7,
   addMembershipsV7,
@@ -77,9 +78,12 @@ export {
   completeReviewRoundV7,
   archiveReviewRoundV7,
   setPracticeRunStatusV7,
-  deletePracticeRunV7,
   recordPracticeAnswerV7,
 } from "./db-v7-practice";
+
+export {
+  deletePracticeRunV7,
+} from "./db-v7-practice-delete";
 
 export {
   putImageAssetV7,

@@ -211,6 +211,7 @@ try {
       optionOrders: {},
       startedAt: runAt,
       updatedAt: runAt,
+      completedAt: runAt,
       status: "completed",
       revision: 1,
     };

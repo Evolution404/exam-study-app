@@ -9,11 +9,11 @@ import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } fro
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { QuestionOverview } from "@/app/shell/views/question-overview";
 import { runActivityAt, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, progressScopeKey, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
-import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
+import { latestInProgressPracticeRunV7, readPracticeHistoryV7 } from "@/lib/db/practice-run-read-v7";
 
 const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
@@ -76,19 +76,16 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
 }
 
 export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
-  const runsQuery = useLiveQuery(() => dbV7.practiceRuns.toArray(), []);
-  const runs = runsQuery ?? [];
-  // 排序口径：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），不再按开始时间。
-  const ordered = useMemo(() => (runsQuery ?? []).slice().sort((a, b) => runActivityAt(b).localeCompare(runActivityAt(a))), [runsQuery]);
   const [status, setStatus] = useState<"all" | PracticeRunV7["status"]>("all");
   const [visibleLimit, setVisibleLimit] = useState(50);
-  const filtered = status === "all" ? ordered : ordered.filter((run) => run.status === status);
-  const visible = filtered.slice(0, visibleLimit);
+  const history = useLiveQuery(() => readPracticeHistoryV7(status, visibleLimit), [status, visibleLimit]);
+  const visible = history?.runs ?? [];
+  const counts = history?.counts ?? { in_progress: 0, completed: 0, abandoned: 0 };
   return <section className="practice-history-card">
     <header><div><span className="section-kicker">每次练习都有迹可循</span><h2>练习记录</h2><p>进行中、已完成和已放弃的练习都会保留。</p></div><History size={24} /></header>
-    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => { setStatus(item); setVisibleLimit(50); }}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? runs.length : runs.filter((run) => run.status === item).length}</span></button>)}</div>
+    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => { setStatus(item); setVisibleLimit(50); }}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? history?.total ?? 0 : counts[item]}</span></button>)}</div>
     {visible.length ? <div className="history-list">{visible.map((run) => <HistoryRunCard key={run.id} run={run} onOpen={onOpen} onContinue={onContinue} onAbandon={onAbandon} onDelete={onDelete} />)}</div> : <div className="history-empty"><Clock3 /><h3>这里还没有记录</h3><p>开始一组练习后，会立即建立可恢复的练习记录。</p></div>}
-    {visible.length < filtered.length && <button className="search-load-more" onClick={() => setVisibleLimit((current) => current + 50)}>继续加载（{visible.length} / {filtered.length}）</button>}
+    {visible.length < (history?.filteredTotal ?? 0) && <button className="search-load-more" onClick={() => setVisibleLimit((current) => current + 50)}>继续加载（{visible.length} / {history?.filteredTotal ?? 0}）</button>}
   </section>;
 }
 
@@ -100,9 +97,18 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
     const memberships = run.questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];
     const bankIds = [...new Set(memberships.map((membership) => membership.bankId))];
     const banks = (await dbV7.banks.bulkGet(bankIds)).filter((bank) => bank !== undefined);
-    const membershipByQuestion = new Map(memberships.map((membership) => [membership.questionId, membership]));
+    const runBankRank = new Map(run.bankIds.map((bankId, index) => [bankId, index]));
+    const membershipByQuestion = new Map<string, (typeof memberships)[number]>();
+    const fallbackMembershipByQuestion = new Map<string, (typeof memberships)[number]>();
+    for (const membership of memberships) {
+      if (!fallbackMembershipByQuestion.has(membership.questionId)) fallbackMembershipByQuestion.set(membership.questionId, membership);
+      const rank = runBankRank.get(membership.bankId);
+      if (rank === undefined) continue;
+      const current = membershipByQuestion.get(membership.questionId);
+      if (!current || rank < (runBankRank.get(current.bankId) ?? Number.POSITIVE_INFINITY)) membershipByQuestion.set(membership.questionId, membership);
+    }
     const bankById = new Map(banks.map((bank) => [bank.id, bank]));
-    return { run, questions: questions.map((question) => { const membership = membershipByQuestion.get(question!.id); const bank = membership ? bankById.get(membership.bankId) : undefined; return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
+    return { run, questions: questions.map((question) => { const membership = membershipByQuestion.get(question!.id) ?? fallbackMembershipByQuestion.get(question!.id); const bank = membership ? bankById.get(membership.bankId) : undefined; return toQuestionViewModel(question!, membership?.bankId, bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0); }) };
   }, [runId]);
   const [filter, setFilter] = useState<"all" | "wrong" | "unanswered">("all");
   const [detailQuestion, setDetailQuestion] = useState<QuestionViewModel>();
@@ -144,12 +150,18 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
 
 function ResultQuestionDetail({ question, answer, entries, progressScope, scopeLabel, onClose, onNavigate, onNotice, onGroup }: { question: QuestionViewModel; answer?: PracticeRunV7["answers"][string]; entries: QuestionViewModel[]; progressScope: ProgressScope; scopeLabel: string; onClose: () => void; onNavigate: (id: string) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
   const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
-  const attempts = useLiveQuery(() => dbV7.attempts.where("questionId").equals(question.id).toArray(), [question.id]);
+  const scopeKey = progressScopeKey(progressScope);
+  const attempts = useLiveQuery(async () => progressScope.type === "round" ? [] : dbV7.attempts.where("questionId").equals(question.id).toArray(), [question.id, scopeKey]);
+  const reviewRoundProgress = useLiveQuery(async () => {
+    if (progressScope.type !== "round") return [];
+    const row = await dbV7.reviewRoundProgress.get(`${progressScope.roundId}:${question.id}`);
+    return row ? [row] : [];
+  }, [question.id, scopeKey]);
   const [referenceTime] = useState(() => Date.now());
   const metric = useMemo(() => {
-    const scoped = buildScopedQuestionStats([question.id], progressScope, attempts ?? [], [], referenceTime).get(question.id);
+    const scoped = buildScopedQuestionStats([question.id], progressScope, attempts ?? [], reviewRoundProgress ?? [], referenceTime).get(question.id);
     return scoped ? summarizeAttemptStats(scopedStatsToAttemptStats(scoped)) : summarizeAttemptStats();
-  }, [question.id, attempts, progressScope, referenceTime]);
+  }, [question.id, attempts, progressScope, referenceTime, reviewRoundProgress]);
   const navPrefs = useMemo(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");

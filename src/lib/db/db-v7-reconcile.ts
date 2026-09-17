@@ -1,7 +1,9 @@
 import Dexie, { type Table } from "dexie";
 import { dbV7 } from "./db-v7-core";
+import { practiceRunActivityRowV7 } from "./db-v7-practice-activity";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
+import type { PracticeRunV7 } from "./v7-types";
 
 interface ReconcileV7ProjectionProgress {
   completed: number;
@@ -440,7 +442,7 @@ export async function reconcileV7Projection(
   const transactionTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
     dbV7.imageAssets, dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats,
-    dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.questionGroups,
+    dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.questionGroups,
     dbV7.reviewRounds, dbV7.reviewRoundProgress, dbV7.tombstones, dbV7.changeSets,
   ];
 
@@ -485,6 +487,8 @@ export async function reconcileV7Projection(
       await applyPlan(dbV7.attemptDailyStats, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);
       await applyPlan(dbV7.notes, notePlan, { put: "更新解析笔记", remove: "清理解析笔记" }, progress, options, mode);
       await applyPlan(dbV7.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
+      if (practiceRunPlan.deletes.length) await dbV7.practiceRunActivity.bulkDelete(practiceRunPlan.deletes);
+      if (practiceRunPlan.puts.length) await dbV7.practiceRunActivity.bulkPut(practiceRunPlan.puts.map((run) => practiceRunActivityRowV7(run as PracticeRunV7)));
       await applyPlan(dbV7.practiceRunStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);
       await applyPlan(dbV7.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
       await applyPlan(dbV7.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);

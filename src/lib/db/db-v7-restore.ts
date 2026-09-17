@@ -4,6 +4,7 @@
 import Dexie from "dexie";
 import { dbV7 } from "./db-v7-core";
 import type { V7RestoreState } from "./db-v7-core";
+import { bulkPutPracticeRunsInTx } from "./db-v7-practice-activity";
 
 export interface V7ChangeSetQueueGuard {
   id: string;
@@ -78,7 +79,7 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
   // ordinary sync was the main iOS/WKWebView write-path pressure point.
   const replaceTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
-    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns,
+    dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunActivity,
     dbV7.practiceRunStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.tombstones,
   ];
@@ -162,7 +163,7 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
       await writeChunks(state.attemptStats, (chunk) => dbV7.attemptStats.bulkPut(chunk), "写入学习统计");
       await writeChunks(state.attemptDailyStats, (chunk) => dbV7.attemptDailyStats.bulkPut(chunk), "写入每日统计");
       await writeChunks(state.notes, (chunk) => dbV7.notes.bulkPut(chunk), "写入解析笔记");
-      await writeChunks(state.practiceRuns, (chunk) => dbV7.practiceRuns.bulkPut(chunk), "写入练习记录");
+      await writeChunks(state.practiceRuns, (chunk) => bulkPutPracticeRunsInTx(chunk), "写入练习记录");
       await writeChunks(state.practiceRunStats, (chunk) => dbV7.practiceRunStats.bulkPut(chunk), "写入练习统计");
       await writeChunks(state.questionGroups, (chunk) => dbV7.questionGroups.bulkPut(chunk), "写入题组");
       await writeChunks(state.reviewRounds, (chunk) => dbV7.reviewRounds.bulkPut(chunk), "写入复习轮次");

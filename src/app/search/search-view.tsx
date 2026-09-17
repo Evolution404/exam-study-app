@@ -9,7 +9,7 @@ import {
 import { SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { MathText } from "@/app/ui/math-text";
 import { QuestionDetail } from "@/app/bank/question-detail";
-import { dbV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { dbV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7, type QuestionViewV7 } from "@/lib/db/app-data-v7";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { AppSelect } from "@/app/ui/app-select";
@@ -215,10 +215,9 @@ export function SearchView({
   const allBankIds = banks.map((bank) => bank.id);
   const bankKey = allBankIds.join("|");
   const views = useLiveQuery(() => shouldLoadQuestionViews ? listQuestionViewsForBanksV7(allBankIds) : undefined, [bankKey, shouldLoadQuestionViews]);
-  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(views) : null, [bankKey, showResults, views]);
-
   const appliedBankIds = useMemo(() => resolveSearchBankIds(filters, banks, currentBankIds), [banks, currentBankIds, filters]);
   const appliedQuestions = useMemo(() => questionsForFilters(views ?? [], banks, appliedBankIds), [appliedBankIds, banks, views]);
+  const historyData = useLiveQuery(() => showResults && views !== undefined ? readSearchHistoryDataV7(appliedQuestions) : null, [showResults, views, appliedQuestions]);
   const tags = useMemo(() => [...new Set(appliedQuestions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [appliedQuestions]);
   const [referenceTime] = useState(Date.now);
   const normalizedSearchScope = useMemo(() => effectiveSearchProgressScope(filters, progressScope), [filters, progressScope]);
@@ -281,14 +280,14 @@ export function SearchView({
 
   async function favoriteSelected() {
     const targets = selectedQuestions.filter((question) => !question.favorite);
-    await Promise.all(targets.map((question) => updateQuestionV7(question.id, { favorite: true })));
+    await updateQuestionsV7(targets.map((question) => question.id), { favorite: true });
     onNotice(`已收藏 ${targets.length} 道题`);
   }
 
   async function addTagToSelected() {
     const nextTag = batchTag.trim();
     if (!nextTag) return;
-    await Promise.all(selectedQuestions.map((question) => updateQuestionV7(question.id, { tags: [...new Set([...question.tags, nextTag])] })));
+    await updateQuestionsV7(selectedQuestions.map((question) => question.id), (question) => ({ tags: [...new Set([...question.tags, nextTag])] }));
     setBatchTag("");
     onNotice(`已给 ${selectedQuestions.length} 道题添加标签“${nextTag}”`);
   }

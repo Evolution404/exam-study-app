@@ -26,3 +26,43 @@ export async function latestInProgressPracticeRunV7(): Promise<PracticeRunV7 | u
     .between(["in_progress", Dexie.minKey], ["in_progress", Dexie.maxKey], true, true)
     .last();
 }
+
+export interface PracticeHistoryReadV7 {
+  runs: PracticeRunV7[];
+  total: number;
+  filteredTotal: number;
+  counts: Record<PracticeRunV7["status"], number>;
+}
+
+/**
+ * Read only the visible history page through the device-local activity index.
+ * The index is derived from runActivityAt(), so paging preserves the existing
+ * UI ordering semantics without materializing the complete run history.
+ */
+export async function readPracticeHistoryV7(status: "all" | PracticeRunV7["status"], limit: number): Promise<PracticeHistoryReadV7> {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const [total, inProgress, completed, abandoned] = await Promise.all([
+    dbV7.practiceRunActivity.count(),
+    dbV7.practiceRunActivity.where("status").equals("in_progress").count(),
+    dbV7.practiceRunActivity.where("status").equals("completed").count(),
+    dbV7.practiceRunActivity.where("status").equals("abandoned").count(),
+  ]);
+  const rows = safeLimit === 0
+    ? []
+    : status === "all"
+      ? await dbV7.practiceRunActivity.orderBy("activityAt").reverse().limit(safeLimit).toArray()
+      : await dbV7.practiceRunActivity
+        .where("[status+activityAt]")
+        .between([status, Dexie.minKey], [status, Dexie.maxKey], true, true)
+        .reverse()
+        .limit(safeLimit)
+        .toArray();
+  const byId = new Map((await dbV7.practiceRuns.bulkGet(rows.map((row) => row.runId))).filter(Boolean).map((run) => [run!.id, run!]));
+  const filteredTotal = status === "all" ? total : status === "in_progress" ? inProgress : status === "completed" ? completed : abandoned;
+  return {
+    runs: rows.flatMap((row) => byId.get(row.runId) ? [byId.get(row.runId)!] : []),
+    total,
+    filteredTotal,
+    counts: { in_progress: inProgress, completed, abandoned },
+  };
+}

@@ -14,6 +14,7 @@ import {
 import type { BankQuestionJoinV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
+import { deletePracticeRunInTx } from "./db-v7-practice-activity";
 import { listPracticeRunsForBankV7 } from "./practice-run-read-v7";
 import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 import { sha256DigestHex } from "../crypto/sha256";
@@ -145,14 +146,14 @@ export async function saveBankFolderV7(input: Pick<BankFolderV7, "name" | "descr
 }
 
 export async function deleteBankFolderV7(folderId: string): Promise<boolean> {
-  const current = await dbV7.bankFolders.get(folderId);
-  if (!current) return false;
-  const updatedAt = nowIso();
-  const deviceId = getV7DeviceId();
-  const eventId = makeV7Id("folder-delete");
-  const banks = await dbV7.banks.where("folderId").equals(folderId).toArray();
-  const folderDeleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [dbV7.bankFolders, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [dbV7.bankFolders, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.bankFolders.get(folderId);
+    if (!current) return false;
+    const updatedAt = nowIso();
+    const deviceId = getV7DeviceId();
+    const eventId = makeV7Id("folder-delete");
+    const banks = await dbV7.banks.where("folderId").equals(folderId).toArray();
+    const folderDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankFolders.delete(folderId);
     const detached = banks.map((bank) => ({ ...bank, folderId: undefined, updatedAt, deviceId }));
     await dbV7.banks.bulkPut(detached);
@@ -161,8 +162,8 @@ export async function deleteBankFolderV7(folderId: string): Promise<boolean> {
       ...detached.map((bank) => ({ kind: "bank.update" as const, bank })),
       { kind: "bankFolder.delete", folderId, deletedAt: updatedAt },
     ], updatedAt, { localSequence: folderDeleteSequence });
+    return true;
   });
-  return true;
 }
 
 /** Return memberships joined with their content, preserving sort order. */
@@ -234,27 +235,30 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 
 /** Delete only the bank and its joins; content and all learning history stay. */
 export async function deleteBankV7(bankId: string): Promise<boolean> {
-  const bank = await dbV7.banks.get(bankId);
-  if (!bank) return false;
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  // Runs that target this bank are dropped with it; otherwise their bankId
-  // would dangle and the checkpoint would fail referential validation.
-  const runs = await listPracticeRunsForBankV7(bankId);
-  const bankDeleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [
+    dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns, dbV7.practiceRunActivity,
+    dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+  ], async () => {
+    const bank = await dbV7.banks.get(bankId);
+    if (!bank) return false;
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
+    // Runs that target this bank are dropped with it; otherwise their bankId
+    // would dangle and the checkpoint would fail referential validation.
+    const runs = await listPracticeRunsForBankV7(bankId);
+    const bankDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV7.banks.delete(bankId);
     for (const run of runs) {
       await updatePracticeRunStatsInTx(run, undefined);
-      await dbV7.practiceRuns.delete(run.id);
+      await deletePracticeRunInTx(run.id);
       await dbV7.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
     }
     await dbV7.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
     await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
+    return true;
   });
-  return true;
 }
 
 export const deleteBankOnlyV7 = deleteBankV7;

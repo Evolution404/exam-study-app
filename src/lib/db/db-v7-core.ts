@@ -18,6 +18,7 @@ import type {
   ImageAsset,
   NoteV7,
   PracticeRunStatsV7,
+  PracticeRunActivityV7,
   PracticeRunV7,
   QuestionGroupV7,
   QuestionTypeV7,
@@ -251,6 +252,7 @@ class V7StudyDatabase extends Dexie {
   attemptDailyStats!: EntityTable<AttemptDailyStatsV7, "key">;
   notes!: EntityTable<NoteV7, "questionId">;
   practiceRuns!: EntityTable<PracticeRunV7, "id">;
+  practiceRunActivity!: EntityTable<PracticeRunActivityV7, "runId">;
   practiceRunStats!: EntityTable<PracticeRunStatsV7, "key">;
   questionGroups!: EntityTable<QuestionGroupV7, "id">;
   reviewRounds!: EntityTable<ReviewRound, "id">;
@@ -275,6 +277,7 @@ class V7StudyDatabase extends Dexie {
       attemptDailyStats: "key, date, questionId",
       notes: "questionId, updatedAt",
       practiceRuns: "id, status, updatedAt, startedAt, *bankIds, *questionIds, [status+updatedAt]",
+      practiceRunActivity: "runId, status, activityAt, [status+activityAt]",
       practiceRunStats: "key, bankId, latestUpdatedAt",
       questionGroups: "id, type, updatedAt",
       reviewRounds: "id, status, updatedAt, startedAt",
@@ -295,7 +298,7 @@ export const v7Db = dbV7;
  * Startup health gate: the app awaits this before render so namespace-open
  * failures surface before interaction.
  */
-export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined, () => undefined);
+export const dbV7Ready: Promise<void> = dbV7.open().then(() => undefined);
 /** Class is exported for tests that need a fresh, isolated namespace. */
 export { V7StudyDatabase };
 
