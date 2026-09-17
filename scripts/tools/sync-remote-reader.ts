@@ -12,7 +12,7 @@ import { validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-valid
 import {
   convertLegacySyncCheckpoint,
   type LegacySyncCheckpoint,
-} from "./sync-v9-to-v10-converter";
+} from "./sync-remote-converter";
 
 const SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
