@@ -81,14 +81,14 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
 }
 
 export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRunV7> {
-  const current = await dbV7.practiceRuns.get(run.id);
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.practiceRuns.get(run.id);
     await updatePracticeRunStatsInTx(current, updated);
     await putPracticeRunInTx(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run: updated }], updated.updatedAt);
+    return updated;
   });
-  return updated;
 }
 
 /**
@@ -158,21 +158,21 @@ export async function createReviewRoundV7(input: Pick<ReviewRound, "name" | "ban
 }
 
 export async function updateReviewRoundV7(roundId: string, changes: Partial<Pick<ReviewRound, "name" | "bankIds">>): Promise<ReviewRound> {
-  const current = await dbV7.reviewRounds.get(roundId);
-  if (!current) throw new Error("复习轮次不存在或已被删除。");
-  if (current.status !== "active") throw new Error("已完成或归档的复习轮次不可修改目标题库。");
-  const updated: ReviewRound = {
-    ...current,
-    name: changes.name === undefined ? current.name : changes.name.trim() || current.name,
-    bankIds: changes.bankIds === undefined ? current.bankIds : uniqueStrings(changes.bankIds),
-    updatedAt: nowIso(),
-    deviceId: getV7DeviceId(),
-  };
-  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.reviewRounds.get(roundId);
+    if (!current) throw new Error("复习轮次不存在或已被删除。");
+    if (current.status !== "active") throw new Error("已完成或归档的复习轮次不可修改目标题库。");
+    const updated: ReviewRound = {
+      ...current,
+      name: changes.name === undefined ? current.name : changes.name.trim() || current.name,
+      bankIds: changes.bankIds === undefined ? current.bankIds : uniqueStrings(changes.bankIds),
+      updatedAt: nowIso(),
+      deviceId: getV7DeviceId(),
+    };
     await dbV7.reviewRounds.put(updated);
     await enqueueChangeSetV7([{ kind: "review.round.saved", round: updated }], updated.updatedAt);
+    return updated;
   });
-  return updated;
 }
 
 async function completeRoundInTx(round: ReviewRound, finalQuestionIds: string[]): Promise<ReviewRound> {
@@ -183,11 +183,17 @@ async function completeRoundInTx(round: ReviewRound, finalQuestionIds: string[])
 }
 
 export async function completeReviewRoundV7(roundId: string, finalQuestionIds?: readonly string[]): Promise<ReviewRound> {
-  const current = await dbV7.reviewRounds.get(roundId);
-  if (!current) throw new Error("复习轮次不存在或已被删除。");
-  if (current.status === "completed" || current.status === "archived") return current;
-  const targets = finalQuestionIds ? uniqueStrings(finalQuestionIds) : await getReviewRoundQuestionIdsV7(roundId);
-  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [
+    dbV7.reviewRounds,
+    dbV7.bankQuestionMemberships,
+    dbV7.questions,
+    dbV7.changeSets,
+    dbV7.syncMeta,
+  ], async () => {
+    const current = await dbV7.reviewRounds.get(roundId);
+    if (!current) throw new Error("复习轮次不存在或已被删除。");
+    if (current.status === "completed" || current.status === "archived") return current;
+    const targets = finalQuestionIds ? uniqueStrings(finalQuestionIds) : await deriveRunQuestions(uniqueStrings(current.bankIds));
     const completed = await completeRoundInTx(current, targets);
     await enqueueChangeSetV7([{ kind: "review.round.completed", round: completed }], completed.updatedAt);
     return completed;
@@ -195,38 +201,38 @@ export async function completeReviewRoundV7(roundId: string, finalQuestionIds?: 
 }
 
 export async function archiveReviewRoundV7(roundId: string): Promise<ReviewRound> {
-  const current = await dbV7.reviewRounds.get(roundId);
-  if (!current) throw new Error("复习轮次不存在或已被删除。");
-  if (current.status === "archived") return current;
-  const updated: ReviewRound = { ...current, status: "archived", updatedAt: nowIso(), deviceId: getV7DeviceId() };
-  await dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.reviewRounds, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.reviewRounds.get(roundId);
+    if (!current) throw new Error("复习轮次不存在或已被删除。");
+    if (current.status === "archived") return current;
+    const updated: ReviewRound = { ...current, status: "archived", updatedAt: nowIso(), deviceId: getV7DeviceId() };
     await dbV7.reviewRounds.put(updated);
     await enqueueChangeSetV7([{ kind: "review.round.archived", round: updated }], updated.updatedAt);
+    return updated;
   });
-  return updated;
 }
 
 export const archiveRoundV7 = archiveReviewRoundV7;
 
 export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV7["status"], answers?: PracticeRunV7["answers"]): Promise<PracticeRunV7 | undefined> {
-  const current = await dbV7.practiceRuns.get(runId);
-  if (!current) return undefined;
-  const updatedAt = nowIso();
-  const updated: PracticeRunV7 = {
-    ...current,
-    answers: answers ?? current.answers,
-    status,
-    updatedAt,
-    completedAt: status === "completed" ? updatedAt : current.completedAt,
-    abandonedAt: status === "abandoned" ? updatedAt : undefined,
-    revision: current.revision + 1,
-  };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.practiceRuns.get(runId);
+    if (!current) return undefined;
+    const updatedAt = nowIso();
+    const updated: PracticeRunV7 = {
+      ...current,
+      answers: answers ?? current.answers,
+      status,
+      updatedAt,
+      completedAt: status === "completed" ? updatedAt : current.completedAt,
+      abandonedAt: status === "abandoned" ? updatedAt : undefined,
+      revision: current.revision + 1,
+    };
     await updatePracticeRunStatsInTx(current, updated);
     await putPracticeRunInTx(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
+    return updated;
   });
-  return updated;
 }
 
 async function autoCompleteRoundIfReadyInTx(roundId: string): Promise<void> {

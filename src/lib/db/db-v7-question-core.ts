@@ -56,14 +56,21 @@ export async function createQuestionV7(bankId: string, draft: StructuredQuestion
 
 export async function updateQuestionV7(questionId: string, changes: Partial<StructuredQuestionDraftV7>): Promise<QuestionV7> {
   return dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
-    const current = await dbV7.questions.get(questionId);
-    if (!current) throw new Error("题目不存在或已被删除。");
-    const timestamp = nowIso();
-    const updated = questionFromDraft(current.id, questionDraftWithChanges(current, changes), timestamp, getV7DeviceId());
-    await dbV7.questions.put(updated);
-    await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
-    return updated;
+    return updateQuestionInTx(questionId, () => changes);
   });
+}
+
+async function updateQuestionInTx(
+  questionId: string,
+  changes: (current: QuestionV7) => Partial<StructuredQuestionDraftV7>,
+): Promise<QuestionV7> {
+  const current = await dbV7.questions.get(questionId);
+  if (!current) throw new Error("题目不存在或已被删除。");
+  const timestamp = nowIso();
+  const updated = questionFromDraft(current.id, questionDraftWithChanges(current, changes(current)), timestamp, getV7DeviceId());
+  await dbV7.questions.put(updated);
+  await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
+  return updated;
 }
 
 function questionDraftWithChanges(current: QuestionV7, changes: Partial<StructuredQuestionDraftV7>): StructuredQuestionDraftV7 {
@@ -312,7 +319,7 @@ export async function removeMembershipsV7(bankId: string, questionIds: readonly 
 }
 
 export async function toggleQuestionFavoriteV7(questionId: string): Promise<QuestionV7> {
-  const current = await dbV7.questions.get(questionId);
-  if (!current) throw new Error("题目不存在或已被删除。");
-  return updateQuestionV7(questionId, { favorite: !current.favorite });
+  return dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
+    return updateQuestionInTx(questionId, (current) => ({ favorite: !current.favorite }));
+  });
 }

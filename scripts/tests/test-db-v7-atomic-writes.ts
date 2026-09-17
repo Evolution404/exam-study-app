@@ -5,7 +5,10 @@ import {
   createBankV7,
   createPracticeRunV7,
   createQuestionV7,
+  createReviewRoundV7,
   dbV7,
+  archiveReviewRoundV7,
+  completeReviewRoundV7,
   deleteBankFolderV7,
   deleteBankV7,
   deletePracticeRunV7,
@@ -15,11 +18,14 @@ import {
   resetV7Database,
   saveBankFolderV7,
   saveNoteV7,
+  savePracticeRunV7,
   savePracticeProgressV7,
   saveQuestionGroupV7,
   setPracticeRunStatusV7,
+  toggleQuestionFavoriteV7,
   updateQuestionV7,
   updateQuestionsV7,
+  updateReviewRoundV7,
 } from "../../src/lib/db/db-v7";
 import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
 
@@ -224,5 +230,92 @@ const txSnapshot = (): TxSnapshot | undefined => {
   assert.equal(await dbV7.practiceRunActivity.get(run.id), undefined);
 }
 
+// R14：保存完整 run 与状态切换都必须在取得写事务后重读最新 run，避免陈旧快照覆盖并发写入。
+{
+  const bank = await createBankV7("R14练习写事务边界");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "R14练习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const run = await createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id] });
+  const originalGet = dbV7.practiceRuns.get.bind(dbV7.practiceRuns);
+  const reads: TxSnapshot[] = [];
+  dbV7.practiceRuns.get = (async (key) => {
+    if (key === run.id) {
+      const snapshot = txSnapshot();
+      if (snapshot) reads.push(snapshot);
+      else reads.push({ active: false, mode: "none", storeNames: [] });
+    }
+    return originalGet(key);
+  }) as typeof dbV7.practiceRuns.get;
+  try {
+    await savePracticeRunV7({ ...run, lastAnsweredIndex: 0 });
+    await setPracticeRunStatusV7(run.id, "abandoned");
+  } finally {
+    dbV7.practiceRuns.get = originalGet as typeof dbV7.practiceRuns.get;
+  }
+  assert.equal(reads.length, 2);
+  for (const readTransaction of reads) {
+    assert.equal(readTransaction.active, true);
+    assert.equal(readTransaction.mode, "readwrite");
+    for (const store of ["practiceRuns", "practiceRunActivity", "practiceRunStats", "changeSets", "syncMeta"]) {
+      assert.ok(readTransaction.storeNames.includes(store), `练习写事务必须包含 ${store}`);
+    }
+  }
+}
+
+// R15：复习轮次的更新、完成、归档必须基于写事务内的最新状态，不能用事务外陈旧快照覆盖并发状态。
+{
+  const bank = await createBankV7("R15复习轮次事务边界");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "R15复习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const updateRound = await createReviewRoundV7({ name: "R15更新", bankIds: [bank.id] });
+  const completeRound = await createReviewRoundV7({ name: "R15完成", bankIds: [bank.id] });
+  const archiveRound = await createReviewRoundV7({ name: "R15归档", bankIds: [bank.id] });
+  const watched = new Set([updateRound.id, completeRound.id, archiveRound.id]);
+  const originalGet = dbV7.reviewRounds.get.bind(dbV7.reviewRounds);
+  const reads = new Map<string, TxSnapshot[]>();
+  dbV7.reviewRounds.get = (async (key) => {
+    const id = String(key);
+    if (watched.has(id)) {
+      const snapshot = txSnapshot() ?? { active: false, mode: "none", storeNames: [] };
+      reads.set(id, [...(reads.get(id) ?? []), snapshot]);
+    }
+    return originalGet(key);
+  }) as typeof dbV7.reviewRounds.get;
+  try {
+    await updateReviewRoundV7(updateRound.id, { name: "R15已更新" });
+    await completeReviewRoundV7(completeRound.id, [question.id]);
+    await archiveReviewRoundV7(archiveRound.id);
+  } finally {
+    dbV7.reviewRounds.get = originalGet as typeof dbV7.reviewRounds.get;
+  }
+  for (const roundId of watched) {
+    const roundReads = reads.get(roundId) ?? [];
+    assert.ok(roundReads.length >= 1);
+    for (const readTransaction of roundReads) {
+      assert.equal(readTransaction.active, true);
+      assert.equal(readTransaction.mode, "readwrite");
+      for (const store of ["reviewRounds", "changeSets", "syncMeta"]) assert.ok(readTransaction.storeNames.includes(store), `复习轮次写事务必须包含 ${store}`);
+    }
+  }
+}
+
+// R16：收藏切换必须以写事务内的最新题目值为基准，不能先在事务外读取旧 favorite。
+{
+  const bank = await createBankV7("R16收藏切换事务边界");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "R16收藏题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] }, favorite: false });
+  const originalGet = dbV7.questions.get.bind(dbV7.questions);
+  const reads: TxSnapshot[] = [];
+  dbV7.questions.get = (async (key) => {
+    if (key === question.id) reads.push(txSnapshot() ?? { active: false, mode: "none", storeNames: [] });
+    return originalGet(key);
+  }) as typeof dbV7.questions.get;
+  try {
+    const updated = await toggleQuestionFavoriteV7(question.id);
+    assert.equal(updated.favorite, true);
+  } finally {
+    dbV7.questions.get = originalGet as typeof dbV7.questions.get;
+  }
+  assert.ok(reads.length >= 1);
+  assert.ok(reads.every((readTransaction) => readTransaction.active && readTransaction.mode === "readwrite"), "收藏切换不得在写事务外读取题目");
+}
+
 await dbV7.close();
-console.log("db-v7 atomic write tests passed: question/note/group/run/bank writes stay transactional");
+console.log("db-v7 atomic write tests passed: question/note/group/run/bank/review writes stay transactional");
