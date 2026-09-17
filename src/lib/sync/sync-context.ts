@@ -1,5 +1,5 @@
 import { GitHubRemote } from "./github-remote";
-import type { SyncDescriptor } from "./sync-head-types";
+import { SYNC_FORMAT_VERSION, type SyncDescriptor } from "./sync-head-types";
 import type { GitHubSettings } from "../../types/types";
 import { getGitHubTransport, resolveGitHubApiBaseUrl, type GitHubTransport } from "../../platform/github-transport";
 import { sha256DigestHex } from "../crypto/sha256";
@@ -42,7 +42,7 @@ export function monotonicProgress(callback?: SyncProgressCallback): SyncProgress
 }
 
 // A protocol namespace change must never reuse a cached head/checkpoint.
-const CACHE_PREFIX = "v9:sync:";
+const CACHE_PREFIX = `v${SYNC_FORMAT_VERSION}:sync:`;
 
 export function report(callback: SyncProgressCallback | undefined, phase: SyncProgress["phase"], label: string, percent: number, to?: number): void {
   callback?.({ phase, label, percent: Math.max(0, Math.min(100, Math.round(percent))), ...(to !== undefined ? { to: Math.max(0, Math.min(100, Math.round(to))) } : {}) });
