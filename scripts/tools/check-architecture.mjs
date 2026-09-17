@@ -88,7 +88,7 @@ const syncRemote = read("src/lib/sync/github-remote.ts");
 const syncLocalCheckpointTypes = read("src/lib/sync/sync-checkpoint-types.ts");
 const syncHistory = read("src/lib/sync/sync-history.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(syncRuntime)) fail("客户端不得包含早期同步协议回退");
-if (/message:\s*[`'\"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");
+if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");
 if (!/syncWithGitHub/.test(syncFacade) || !/from ["']\.\/github-sync-engine["']/.test(syncFacade)) {
   fail("公开 syncWithGitHub 必须仅通过稳定门面委托当前同步引擎");
 }
