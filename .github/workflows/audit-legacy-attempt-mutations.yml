@@ -1,0 +1,23 @@
+name: Audit legacy attempt mutation debt
+on:
+  push:
+    branches: [refactor/database-projection-sync-v10-20260917]
+    paths: [.github/workflows/audit-legacy-attempt-mutations.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-projection-sync-v10-20260917
+      - name: Locate obsolete mutation/provenance compatibility
+        shell: bash
+        run: |
+          echo '=== attempt.update / practice.answer.updated ==='
+          grep -RInE 'attempt\.update|practice\.answer\.updated' src scripts/tests || true
+          echo '=== attemptRoundIds helpers ==='
+          grep -RInE 'attemptRoundIds|upsertAttemptRound|removeAttemptRound' src scripts/tests || true
+          echo '=== mutation-level reviewRoundId ==='
+          grep -RInE 'mutation\.reviewRoundId|reviewRoundId\?: string' src/lib/sync scripts/tests || true
