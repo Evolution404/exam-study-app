@@ -7,7 +7,7 @@ import { isBankEnabled } from "../../src/lib/db/types";
 
 assert.equal(isBankEnabled({}), true, "旧题库缺少 enabled 字段时必须默认启用");
 assert.equal(isBankEnabled({ enabled: true }), true);
-assert.equal(isBankEnabled({ enabled: false }), false);
+assert.equal(isBankEnabled({ enabled: false }), false;
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");
@@ -142,6 +142,7 @@ assert.equal(resumeIndexAfterLastAnswer([], {}), 0, "空练习从 0 开始");
 const study = source("shell/app-shell.tsx");
 const dashboardController = source("shell/use-dashboard-data.ts");
 const dashboardRead = source("shell/dashboard-read-data.ts");
+const attemptRead = readFileSync(new URL("../../src/lib/db/attempt-read.ts", import.meta.url), "utf8");
 const quickSyncController = source("shell/use-quick-sync-controller.ts");
 assert.match(dashboardController, /const enabledBanks = banks\.filter\(isBankEnabled\)/, "Dashboard controller 必须集中定义学习可见题库");
 assert.match(study, /BankLibraryView banks=\{banks\}/, "题库管理必须继续接收全部题库");
@@ -165,8 +166,11 @@ assert.match(dashboardController, /studyDb\.bankQuestionMemberships\.where\("ban
 assert.doesNotMatch(dashboardController, /listQuestionViewsForBanks/, "Dashboard controller 不应为首页统计加载完整题目 join");
 assert.match(dashboardController, /studyDb\.questionProgress\.bulkGet\(ids\)/, "首页题库范围进度不得 materialize 全量 questionProgress");
 assert.match(dashboardController, /readDashboardScopedRows\(/, "首页区间统计必须委托独立 read-model，避免 React owner 内联大表读取策略");
-assert.match(dashboardRead, /studyDb\.attempts\.where\("createdAt"\)\.between\(/, "首页全题库滚动统计必须按 createdAt 时间窗口读取 attempts");
-assert.match(dashboardRead, /rows\.filter\(\(row\) => idSet\.has\(row\.questionId\)\)/, "首页指定题集滚动统计必须先按时间窗读取，再过滤到当前题集");
+assert.match(dashboardRead, /options\.allQuestions[\s\S]*studyDb\.attempts\.where\("createdAt"\)\.between\(/, "首页全题集滚动统计必须按 createdAt 时间窗口读取 attempts");
+assert.match(dashboardRead, /readAttemptsForQuestionIdsInWindow\(ids, from, to\)/, "首页指定题集滚动统计必须走 targeted compound-index reader");
+assert.doesNotMatch(dashboardRead, /rows\.filter\(\(row\) => idSet\.has\(row\.questionId\)\)/, "首页指定题集滚动统计不得恢复时间窗全量读取后再按 questionId 过滤");
+assert.match(attemptRead, /\.where\("\[questionId\+createdAt\]"\)/, "指定题集滚动统计必须使用 questionId + createdAt 复合索引");
+assert.match(attemptRead, /\.between\(\[questionId, from\], \[questionId, to\], true, true\)/, "复合索引读取必须同时限定 questionId 与时间窗");
 assert.match(dashboardRead, /studyDb\.reviewRoundProgress\.where\("roundId"\)\.equals\(normalized\.roundId\)\.toArray\(\)/, "首页轮次统计必须只读取当前 round progress");
 assert.match(dashboardRead, /studyDb\.notes\.bulkGet\(ids\)/, "首页题库范围统计必须按主键读取当前题集解析");
 assert.doesNotMatch(dashboardController, /studyDb\.attempts\.toArray\(\)|studyDb\.reviewRoundProgress\.toArray\(\)|studyDb\.notes\.toArray\(\)/, "Dashboard controller 不得重新内联全表历史读取");
