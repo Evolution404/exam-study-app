@@ -24,24 +24,24 @@ import type { BankQuestionMembership, NoteV7, QuestionV7 } from "./v7-types";
 
 /** Create content and attach it to a bank, sharing an existing exact match. */
 export async function createQuestionV7(bankId: string, draft: StructuredQuestionDraftV7): Promise<QuestionV7> {
-  const bank = await dbV7.banks.get(bankId);
-  if (!bank) throw new Error("题库不存在或已被删除。");
   const timestamp = nowIso();
   const deviceId = getV7DeviceId();
   const provisional = questionFromDraft(makeV7Id("question"), draft, timestamp, deviceId);
-  const existing = await findQuestionByFingerprint(provisional.contentFingerprint);
-  const question = existing ?? provisional;
-  const currentMemberships = await getBankQuestionMembershipsV7(bankId);
-  const membership: BankQuestionMembership = {
-    key: membershipKey(bankId, question.id),
-    bankId,
-    questionId: question.id,
-    sortOrder: (currentMemberships.at(-1)?.sortOrder ?? -1) + 1,
-    addedAt: timestamp,
-    updatedAt: timestamp,
-    deviceId,
-  };
-  await dbV7.transaction("rw", [dbV7.questions, dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.questions, dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const bank = await dbV7.banks.get(bankId);
+    if (!bank) throw new Error("题库不存在或已被删除。");
+    const existing = await findQuestionByFingerprint(provisional.contentFingerprint);
+    const question = existing ?? provisional;
+    const currentMemberships = await getBankQuestionMembershipsV7(bankId);
+    const membership: BankQuestionMembership = {
+      key: membershipKey(bankId, question.id),
+      bankId,
+      questionId: question.id,
+      sortOrder: (currentMemberships.at(-1)?.sortOrder ?? -1) + 1,
+      addedAt: timestamp,
+      updatedAt: timestamp,
+      deviceId,
+    };
     if (!existing) await dbV7.questions.put(question);
     const currentMembership = await dbV7.bankQuestionMemberships.get(membership.key);
     await saveMembershipInTx(currentMembership ? { ...currentMembership, updatedAt: timestamp, deviceId } : membership);
@@ -50,8 +50,8 @@ export async function createQuestionV7(bankId: string, draft: StructuredQuestion
       ...(!existing ? [{ kind: "question.upsert" as const, question }] : []),
       { kind: "membership.save", membership },
     ], timestamp);
+    return question;
   });
-  return question;
 }
 
 export async function updateQuestionV7(questionId: string, changes: Partial<StructuredQuestionDraftV7>): Promise<QuestionV7> {

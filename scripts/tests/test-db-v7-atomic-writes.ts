@@ -17,6 +17,7 @@ import {
   deleteQuestionsV7,
   recordPracticeAnswerV7,
   resetV7Database,
+  reorderBanksV7,
   saveBankFolderV7,
   saveNoteV7,
   savePracticeRunV7,
@@ -28,6 +29,7 @@ import {
   toggleQuestionFavoriteV7,
   updateQuestionV7,
   updateQuestionsV7,
+  updateBankV7,
   updateReviewRoundV7,
 } from "../../src/lib/db/db-v7";
 import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
@@ -389,6 +391,87 @@ const txSnapshot = (): TxSnapshot | undefined => {
   for (const store of ["questions", "bankQuestionMemberships", "notes", "banks", "tombstones", "changeSets", "syncMeta"]) {
     assert.ok(questionRead?.storeNames.includes(store), `splitQuestionV7 事务必须包含 ${store}`);
   }
+}
+
+// R20：创建题目必须在写事务中确认题库仍存在并执行 fingerprint 去重。
+{
+  const bank = await createBankV7("R20创建题事务边界");
+  const originalGet = dbV7.banks.get.bind(dbV7.banks);
+  let bankRead: TxSnapshot | undefined;
+  dbV7.banks.get = (async (key) => {
+    if (key === bank.id) bankRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.banks.get;
+  try {
+    await createQuestionV7(bank.id, { type: "判断", stem: "R20题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  } finally {
+    dbV7.banks.get = originalGet as typeof dbV7.banks.get;
+  }
+  assert.equal(bankRead?.active, true);
+  assert.equal(bankRead?.mode, "readwrite");
+  for (const store of ["questions", "bankQuestionMemberships", "banks", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(bankRead?.storeNames.includes(store), `createQuestionV7 事务必须包含 ${store}`);
+  }
+}
+
+// R21：题库更新与移动必须在同一写事务内重读题库并校验目标题库文件夹。
+{
+  const folder = await saveBankFolderV7({ name: "R21文件夹", description: "" });
+  const bank = await createBankV7("R21题库");
+  const originalGet = dbV7.banks.get.bind(dbV7.banks);
+  let bankRead: TxSnapshot | undefined;
+  dbV7.banks.get = (async (key) => {
+    if (key === bank.id) bankRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.banks.get;
+  try {
+    await updateBankV7(bank.id, { folderId: folder.id, name: "R21已更新" });
+  } finally {
+    dbV7.banks.get = originalGet as typeof dbV7.banks.get;
+  }
+  assert.equal(bankRead?.active, true);
+  assert.equal(bankRead?.mode, "readwrite");
+  for (const store of ["banks", "bankFolders", "changeSets", "syncMeta"]) assert.ok(bankRead?.storeNames.includes(store), `updateBankV7 事务必须包含 ${store}`);
+}
+
+// R22：题库重排必须在写事务中读取当前题库并确认目标文件夹仍存在。
+{
+  const folder = await saveBankFolderV7({ name: "R22文件夹", description: "" });
+  const bankA = await createBankV7("R22题库A");
+  const bankB = await createBankV7("R22题库B");
+  const originalBulkGet = dbV7.banks.bulkGet.bind(dbV7.banks);
+  let bankRead: TxSnapshot | undefined;
+  dbV7.banks.bulkGet = (async (keys) => {
+    if (keys.includes(bankA.id)) bankRead = txSnapshot();
+    return originalBulkGet(keys);
+  }) as typeof dbV7.banks.bulkGet;
+  try {
+    await reorderBanksV7([bankB.id, bankA.id], folder.id);
+  } finally {
+    dbV7.banks.bulkGet = originalBulkGet as typeof dbV7.banks.bulkGet;
+  }
+  assert.equal(bankRead?.active, true);
+  assert.equal(bankRead?.mode, "readwrite");
+  for (const store of ["banks", "bankFolders", "changeSets", "syncMeta"]) assert.ok(bankRead?.storeNames.includes(store), `reorderBanksV7 事务必须包含 ${store}`);
+}
+
+// R23：编辑已有文件夹必须在写事务中读取最新行，避免并发删除后被陈旧编辑复活。
+{
+  const folder = await saveBankFolderV7({ name: "R23文件夹", description: "初始" });
+  const originalGet = dbV7.bankFolders.get.bind(dbV7.bankFolders);
+  let folderRead: TxSnapshot | undefined;
+  dbV7.bankFolders.get = (async (key) => {
+    if (key === folder.id) folderRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.bankFolders.get;
+  try {
+    await saveBankFolderV7({ id: folder.id, name: "R23已更新", description: "更新" });
+  } finally {
+    dbV7.bankFolders.get = originalGet as typeof dbV7.bankFolders.get;
+  }
+  assert.equal(folderRead?.active, true);
+  assert.equal(folderRead?.mode, "readwrite");
+  for (const store of ["bankFolders", "tombstones", "changeSets", "syncMeta"]) assert.ok(folderRead?.storeNames.includes(store), `saveBankFolderV7 事务必须包含 ${store}`);
 }
 
 await dbV7.close();

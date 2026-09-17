@@ -57,92 +57,94 @@ export async function createBankV7(input: string | (Partial<BankV7> & Pick<BankV
   const values = typeof input === "string" ? { name: input } : input;
   const name = values.name.trim();
   if (!name) throw new Error("题库名称不能为空。");
-  if (values.folderId) {
-    const folder = await dbV7.bankFolders.get(values.folderId);
-    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
-  }
   const timestamp = values.importedAt ?? nowIso();
-  const bank: BankV7 = {
-    id: values.id ?? makeV7Id("bank"),
-    name,
-    displayName: values.displayName?.trim() || undefined,
-    description: values.description?.trim() || undefined,
-    color: values.color,
-    folderId: values.folderId,
-    sortOrder: Number.isFinite(values.sortOrder) ? Number(values.sortOrder) : await dbV7.banks.count(),
-    questionCount: 0,
-    enabled: values.enabled ?? true,
-    importedAt: values.importedAt ?? timestamp,
-    updatedAt: values.updatedAt ?? timestamp,
-    deviceId: values.deviceId ?? getV7DeviceId(),
-  };
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.banks, dbV7.bankFolders, dbV7.changeSets, dbV7.syncMeta], async () => {
+    if (values.folderId) {
+      const folder = await dbV7.bankFolders.get(values.folderId);
+      if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+    }
+    const bank: BankV7 = {
+      id: values.id ?? makeV7Id("bank"),
+      name,
+      displayName: values.displayName?.trim() || undefined,
+      description: values.description?.trim() || undefined,
+      color: values.color,
+      folderId: values.folderId,
+      sortOrder: Number.isFinite(values.sortOrder) ? Number(values.sortOrder) : await dbV7.banks.count(),
+      questionCount: 0,
+      enabled: values.enabled ?? true,
+      importedAt: values.importedAt ?? timestamp,
+      updatedAt: values.updatedAt ?? timestamp,
+      deviceId: values.deviceId ?? getV7DeviceId(),
+    };
     await dbV7.banks.put(bank);
     await enqueueChangeSetV7([{ kind: "bank.create", bank }], timestamp);
+    return bank;
   });
-  return bank;
 }
 
 export async function updateBankV7(bankId: string, changes: Partial<Pick<BankV7, "name" | "displayName" | "description" | "color" | "folderId" | "sortOrder" | "enabled">>): Promise<BankV7> {
-  const current = await dbV7.banks.get(bankId);
-  if (!current) throw new Error("题库不存在或已被删除。");
-  if (changes.folderId) {
-    const folder = await dbV7.bankFolders.get(changes.folderId);
-    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
-  }
-  const updated: BankV7 = {
-    ...current,
-    ...changes,
-    name: changes.name?.trim() || current.name,
-    displayName: changes.displayName === undefined ? current.displayName : changes.displayName.trim() || undefined,
-    description: changes.description === undefined ? current.description : changes.description.trim() || undefined,
-    updatedAt: nowIso(),
-    deviceId: getV7DeviceId(),
-  };
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.banks, dbV7.bankFolders, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.banks.get(bankId);
+    if (!current) throw new Error("题库不存在或已被删除。");
+    if (changes.folderId) {
+      const folder = await dbV7.bankFolders.get(changes.folderId);
+      if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+    }
+    const updated: BankV7 = {
+      ...current,
+      ...changes,
+      name: changes.name?.trim() || current.name,
+      displayName: changes.displayName === undefined ? current.displayName : changes.displayName.trim() || undefined,
+      description: changes.description === undefined ? current.description : changes.description.trim() || undefined,
+      updatedAt: nowIso(),
+      deviceId: getV7DeviceId(),
+    };
     await dbV7.banks.put(updated);
     await enqueueChangeSetV7([{ kind: "bank.update", bank: updated, previous: current }], updated.updatedAt);
+    return updated;
   });
-  return updated;
 }
 
 export async function reorderBanksV7(bankIds: readonly string[], folderId?: string): Promise<BankV7[]> {
-  const banks = (await dbV7.banks.bulkGet(uniqueStrings(bankIds))).filter(Boolean) as BankV7[];
-  if (!banks.length) return [];
-  if (folderId) {
-    const folder = await dbV7.bankFolders.get(folderId);
-    if (!folder) throw new Error("题库文件夹不存在或已被删除。");
-  }
-  const updatedAt = nowIso();
-  const deviceId = getV7DeviceId();
-  const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
-  await dbV7.transaction("rw", [dbV7.banks, dbV7.changeSets, dbV7.syncMeta], async () => {
+  const ids = uniqueStrings(bankIds);
+  if (!ids.length) return [];
+  return dbV7.transaction("rw", [dbV7.banks, dbV7.bankFolders, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const banks = (await dbV7.banks.bulkGet(ids)).filter(Boolean) as BankV7[];
+    if (!banks.length) return [];
+    if (folderId) {
+      const folder = await dbV7.bankFolders.get(folderId);
+      if (!folder) throw new Error("题库文件夹不存在或已被删除。");
+    }
+    const updatedAt = nowIso();
+    const deviceId = getV7DeviceId();
+    const rows = banks.map((bank, sortOrder) => ({ ...bank, folderId, sortOrder, updatedAt, deviceId }));
     await dbV7.banks.bulkPut(rows);
     await enqueueChangeSetV7(rows.map((bank) => ({ kind: "bank.update", bank })), updatedAt);
+    return rows;
   });
-  return rows;
 }
 
 export async function saveBankFolderV7(input: Pick<BankFolderV7, "name" | "description"> & { id?: string }): Promise<BankFolderV7> {
-  const current = input.id ? await dbV7.bankFolders.get(input.id) : undefined;
   const name = input.name.trim();
   if (!name) throw new Error("请输入文件夹名称。");
   const updatedAt = nowIso();
-  const folder: BankFolderV7 = {
-    id: input.id ?? makeV7Id("folder"),
-    name,
-    description: input.description.trim(),
-    sortOrder: current?.sortOrder ?? await dbV7.bankFolders.count(),
-    createdAt: current?.createdAt ?? updatedAt,
-    updatedAt,
-    deviceId: getV7DeviceId(),
-  };
-  await dbV7.transaction("rw", [dbV7.bankFolders, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.bankFolders, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = input.id ? await dbV7.bankFolders.get(input.id) : undefined;
+    const folder: BankFolderV7 = {
+      id: input.id ?? makeV7Id("folder"),
+      name,
+      description: input.description.trim(),
+      sortOrder: current?.sortOrder ?? await dbV7.bankFolders.count(),
+      createdAt: current?.createdAt ?? updatedAt,
+      updatedAt,
+      deviceId: getV7DeviceId(),
+    };
     await dbV7.bankFolders.put(folder);
     await dbV7.tombstones.delete(tombstoneKey("bankFolder", folder.id));
     await enqueueChangeSetV7([{ kind: "bankFolder.save", folder }], updatedAt);
+    return folder;
   });
-  return folder;
 }
 
 export async function deleteBankFolderV7(folderId: string): Promise<boolean> {
