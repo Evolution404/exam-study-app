@@ -62,16 +62,16 @@ export async function saveQuestionGroupV7(input: Pick<QuestionGroupV7, "name" | 
 }
 
 export async function deleteQuestionGroupV7(groupId: string): Promise<boolean> {
-  const current = await dbV7.questionGroups.get(groupId);
-  if (!current) return false;
-  const deletedAt = nowIso();
-  const deviceId = getV7DeviceId();
-  const eventId = makeV7Id("group-delete");
-  const groupDeleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [dbV7.questionGroups, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [dbV7.questionGroups, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.questionGroups.get(groupId);
+    if (!current) return false;
+    const deletedAt = nowIso();
+    const deviceId = getV7DeviceId();
+    const eventId = makeV7Id("group-delete");
+    const groupDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.questionGroups.delete(groupId);
     await dbV7.tombstones.put({ key: tombstoneKey("questionGroup", groupId), entityType: "questionGroup", entityId: groupId, deletedAt, deviceId, eventId, sequence: groupDeleteSequence });
     await enqueueChangeSetV7([{ kind: "questionGroup.deleted", groupId, deletedAt }], deletedAt, { localSequence: groupDeleteSequence });
+    return true;
   });
-  return true;
 }

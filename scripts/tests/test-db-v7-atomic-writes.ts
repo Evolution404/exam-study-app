@@ -14,6 +14,7 @@ import {
   deleteBankFolderV7,
   deleteBankV7,
   deletePracticeRunV7,
+  deleteQuestionGroupV7,
   deleteQuestionV7,
   deleteQuestionsV7,
   recordPracticeAnswerV7,
@@ -512,6 +513,27 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.equal(clearRead?.active, true);
   assert.equal(clearRead?.mode, "readwrite");
+}
+
+// R25：删除题组必须在写事务内重读最新题组并分配删除序号，避免并发编辑后误删陈旧快照。
+{
+  const bank = await createBankV7("R25题组删除事务边界");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "R25题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const group = await saveQuestionGroupV7({ name: "R25题组", type: "专题", description: "", items: [{ questionId: question.id, note: "" }] });
+  const originalGet = dbV7.questionGroups.get.bind(dbV7.questionGroups);
+  let groupRead: TxSnapshot | undefined;
+  dbV7.questionGroups.get = (async (key) => {
+    if (key === group.id) groupRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.questionGroups.get;
+  try {
+    assert.equal(await deleteQuestionGroupV7(group.id), true);
+  } finally {
+    dbV7.questionGroups.get = originalGet as typeof dbV7.questionGroups.get;
+  }
+  assert.equal(groupRead?.active, true);
+  assert.equal(groupRead?.mode, "readwrite");
+  for (const store of ["questionGroups", "tombstones", "changeSets", "syncMeta"]) assert.ok(groupRead?.storeNames.includes(store), `deleteQuestionGroupV7 事务必须包含 ${store}`);
 }
 
 await dbV7.close();
