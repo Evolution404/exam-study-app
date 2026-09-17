@@ -50,7 +50,7 @@ import {
 import type { SyncCheckpoint } from "./sync-checkpoint-types";
 import { withSyncLock } from "./sync-lock";
 import { createRemoteHistoryCheckpoint, encodeRemoteHistoryCheckpoint, gcRemoteHistory } from "./sync-history";
-import { SYNC_CHECKPOINT_PREFIX, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
 import { createSyncPublicationPlan, encodeSyncSegment, mergeSyncSegments, paginateSyncEvents, planSyncCompaction } from "./sync-head-operations";
 import { offloadSyncEvents } from "./sync-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-watermark";
@@ -231,7 +231,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 此时本地 head 缓存必须已带上最新水位/代数，否则面板读到旧缓存而不过期。
       try { await publishDeviceWatermark(client, settings, getDeviceId(), read.head.cursors); } catch { /* best-effort */ }
       await pruneCommittedChangeSets(read.head.cursors);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 9 as const, compacted: false, coalesced: false, receivedSnapshot };
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: SYNC_FORMAT_VERSION, compacted: false, coalesced: false, receivedSnapshot };
     }
     try {
       report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.24));
@@ -287,7 +287,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           // Page-local coverage cursors (see maybeCoalesceHotWindow): lets a peer
           // skip this page when its events are below the peer's cached watermark.
           const pageCursors = cursorsFor(page.events as Array<{ deviceId: string; localSequence: number }>);
-          const segmentBytes = encodeSyncSegment({ formatVersion: 9 as const, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
+          const segmentBytes = encodeSyncSegment({ formatVersion: SYNC_FORMAT_VERSION, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
           const segmentPath = descriptorPath(SYNC_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
@@ -380,7 +380,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await pruneCommittedChangeSets(nextHead.cursors);
       const remaining = (await listChangeSets(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 9 as const, compacted: compaction.required, coalesced, receivedSnapshot };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: SYNC_FORMAT_VERSION, compacted: compaction.required, coalesced, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaim(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");
