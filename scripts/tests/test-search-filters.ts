@@ -95,10 +95,10 @@ assert.doesNotMatch(knowledgeViewSource, /studyDb\.attemptStats\.toArray\(\)/, "
 assert.match(knowledgeModelSource, /const aggregates = new Map/, "知识整理标签统计必须单次遍历题目聚合，避免每个标签重新扫描全部题目");
 assert.doesNotMatch(knowledgeModelSource, /questions\.filter\(\(question\) => question\.tags\.includes\(name\)\)/, "知识整理标签统计不得恢复 标签数×题数 的重复扫描");
 assert.match(preferencesViewSource, /v9 远端协议和热窗口增量同步/, "配置页必须描述当前 v9 同步机制");
-assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v7 事件/, "配置页不得残留旧 v7/v8 同步文案");
+assert.doesNotMatch(preferencesViewSource, /v[78] 远端协议|开启后使用 v[7] 事件/, "配置页不得残留旧版本同步文案");
 assert.match(searchViewSource, /搜索内容范围/, "搜索页应提供题干、选项、解析和全部范围");
 assert.match(quickSearchSource, /快速搜索范围/, "顶栏快速搜索应提供内容范围选择");
-assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏搜索范围不得退回操作系统原生下拉框");
+assert.doesNotMatch(quickSearchSource, /<select\b/, "顶栏范围不得退回操作系统原生下拉框");
 assert.doesNotMatch(searchViewSource, /<select[^>]*className="search-content-scope"/, "搜索页范围不得退回操作系统原生下拉框");
 assert.match(appSelectSource, /contentClassName\?: string/, "通用下拉框应允许场景化调整弹层尺寸而不重造原生控件");
 assert.match(quickSearchSource, /<AppSelect[^>]*className="quick-search-scope"[^>]*contentClassName="search-scope-select-content quick-search-scope-content"/, "顶栏范围应复用项目通用下拉框样式");
