@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import "fake-indexeddb/auto";
-import { createBank, createPracticeRun, createQuestion, studyDb, putImageAsset, resetDatabase } from "../../src/lib/db/db";
+import { createBank, createPracticeRun, createQuestion, deletePracticeRun, recordPracticeAnswer, studyDb, putImageAsset, resetDatabase } from "../../src/lib/db/db";
 import { isSyncCheckpoint, validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
 import { createSyncCheckpoint, encodeSyncCheckpoint, parseSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-store";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-types";
@@ -106,7 +106,33 @@ await createQuestion(typeBank.id, {
   assert.doesNotMatch(checkpointStoreSource, /studyDb\.questionProgress|studyDb\.questionDailyProgress|studyDb\.bankPracticeStats|studyDb\.reviewRoundProgress/, "checkpoint snapshot must not read local projection tables");
 }
 
-// 8) Phase 5：关系事实保持正常化进入 checkpoint，不得重新拼回 PracticeRun/QuestionGroup/ReviewRound 大对象。
+// 8) Attempt.runId 是历史归属 ID，不是 live PracticeRun 外键。删除练习后全局作答历史必须保留，
+// 且 checkpoint validator / round-trip 必须接受这种正式业务状态。
+{
+  const historyBank = await createBank("删除练习保留作答历史");
+  const historyQuestion = await createQuestion(historyBank.id, {
+    type: "单选",
+    stem: "删除练习后仍保留作答历史",
+    options: ["甲", "乙"],
+    optionIds: ["history-a", "history-b"],
+    solution: { kind: "choice", correctOptionIds: ["history-a"] },
+  });
+  const historyRun = await createPracticeRun({ bankId: historyBank.id, questionIds: [historyQuestion.id] });
+  await recordPracticeAnswer({ runId: historyRun.id, questionId: historyQuestion.id, selected: "A", correct: true, elapsedMs: 120 });
+  assert.equal(await deletePracticeRun(historyRun.id), true);
+  assert.equal(await studyDb.practiceRuns.get(historyRun.id), undefined, "练习投影应已删除");
+  assert.equal(await studyDb.attempts.where("runId").equals(historyRun.id).count(), 1, "Attempt 必须作为全局学习历史保留");
+
+  const checkpoint = await createSyncCheckpoint();
+  assert.equal(checkpoint.state.practiceRuns.some((run) => run.id === historyRun.id), false);
+  assert.equal(checkpoint.state.attempts.some((attempt) => attempt.runId === historyRun.id), true);
+  assert.equal(checkpoint.state.tombstones.some((row) => row.entityType === "practiceRun" && row.entityId === historyRun.id), true);
+  validateSyncCheckpoint(checkpoint);
+  const parsed = parseSyncCheckpoint(encodeSyncCheckpoint(checkpoint));
+  assert.equal(parsed.state.attempts.some((attempt) => attempt.runId === historyRun.id), true, "历史归属 ID 必须 round-trip 保真");
+}
+
+// 9) Phase 5：关系事实保持正常化进入 checkpoint，不得重新拼回 PracticeRun/QuestionGroup/ReviewRound 大对象。
 {
   const runBank = await createBank("run结构校验");
   const runQuestion = await createQuestion(runBank.id, {
