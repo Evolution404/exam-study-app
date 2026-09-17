@@ -8,7 +8,7 @@ import {
 import type { CreatePracticeRunInputV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
-import { putPracticeRunInTx } from "./db-v7-practice-activity";
+import { putPracticeRunRecordInTx } from "./practice-run-store-v7";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { restrictPracticeRunMappingsV7 } from "../practice/practice-run-invariants";
 import type { BankV7, PracticeRunV7 } from "./v7-types";
@@ -53,6 +53,8 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
     dbV7.questions,
     dbV7.reviewRounds,
     dbV7.practiceRuns,
+    dbV7.practiceRunSources,
+    dbV7.practiceRunItems,
     dbV7.bankPracticeStats,
     dbV7.changeSets,
     dbV7.syncMeta,
@@ -82,7 +84,28 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
       lastAnsweredIndex: input.lastAnsweredIndex,
       reviewRoundId: input.reviewRoundId,
     });
-    await putPracticeRunInTx(run);
+    if (Object.values(run.answers).some((answer) => answer.submitted)) {
+      throw new Error("创建练习不能携带已提交答案；已提交答案必须通过 attempt 写入。");
+    }
+    await putPracticeRunRecordInTx(run);
+    await dbV7.practiceRunSources.bulkPut(bankIds.map((sourceBankId, position) => ({
+      runId: run.id,
+      bankId: sourceBankId,
+      bankNameSnapshot: bankLabel(banks[position]),
+      position,
+    })));
+    await dbV7.practiceRunItems.bulkPut(questionIds.map((questionId, position) => {
+      const draft = run.answers[questionId];
+      return {
+        runId: run.id,
+        questionId,
+        position,
+        questionTypeSnapshot: run.questionTypes[questionId],
+        optionOrder: [...(run.optionOrders[questionId] ?? [])],
+        ...(!draft?.submitted && draft?.selected ? { draftSelected: [...draft.selected] } : {}),
+        ...(!draft?.submitted && draft?.response ? { draftResponse: draft.response } : {}),
+      };
+    }));
     await updatePracticeRunStatsInTx(undefined, run);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run }], timestamp);
     return run;

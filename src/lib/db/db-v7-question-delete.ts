@@ -14,8 +14,6 @@ import {
   type ChangeSetQueueRecordV7,
 } from "./db-v7-change-sets";
 import { deleteBankV7, membershipPrimaryKey, refreshBankQuestionCountInTx } from "./db-v7-bank";
-import { putPracticeRunInTx } from "./db-v7-practice-activity";
-import { listPracticeRunsForQuestionIdsV7 } from "./practice-run-read-v7";
 import type { QuestionV7, TombstoneV7 } from "./v7-types";
 
 export async function deleteQuestionsV7(questionIds: readonly string[]): Promise<number> {
@@ -23,8 +21,8 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
   if (!uniqueIds.length) return 0;
   return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.questionProgress,
-    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
-    dbV7.practiceRuns, dbV7.banks, dbV7.tombstones,
+    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.questionGroupItems, dbV7.reviewRoundItems, dbV7.reviewRoundProgress,
+    dbV7.practiceRuns, dbV7.practiceRunItems, dbV7.banks, dbV7.tombstones,
     dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const questions = (await dbV7.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV7 => Boolean(question));
@@ -101,38 +99,24 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
     await dbV7.questionProgress.bulkDelete(existingIds);
     await dbV7.questionDailyProgress.where("questionId").anyOf(existingIds).delete();
     await dbV7.reviewRoundProgress.where("questionId").anyOf(existingIds).delete();
-    const reviewRounds = await dbV7.reviewRounds.toArray();
-    for (const round of reviewRounds) {
-      if (!round.finalQuestionIds?.some((questionId) => deletingIds.has(questionId))) continue;
-      await dbV7.reviewRounds.put({
-        ...round,
-        finalQuestionIds: round.finalQuestionIds.filter((questionId) => !deletingIds.has(questionId)),
-        updatedAt: timestamp,
-        deviceId,
-      });
-    }
+    await dbV7.reviewRoundItems.where("questionId").anyOf(existingIds).delete();
     await dbV7.notes.bulkDelete(existingIds);
-    const groups = await dbV7.questionGroups.toArray();
+    const groupItems = await dbV7.questionGroupItems.where("questionId").anyOf(existingIds).toArray();
+    const affectedGroupIds = [...new Set(groupItems.map((item) => item.groupId))];
+    if (groupItems.length) {
+      await dbV7.questionGroupItems.bulkDelete(groupItems.map((item) => [item.groupId, item.questionId] as [string, string]));
+    }
     const emptiedGroupIds: string[] = [];
-    for (const group of groups) {
-      const items = group.items.filter((item) => !deletingIds.has(item.questionId));
-      if (items.length !== group.items.length) {
-        if (items.length) await dbV7.questionGroups.put({ ...group, items, updatedAt: timestamp });
-        else {
-          // E6: 删题把组裁空时，与显式 deleteQuestionGroupV7 一致地写墓碑——本地 tombstone 表
-          // 与投影（question.bulk.delete 回放时 updateQuestionDeleteCascade 也写墓碑）保持一致，
-          // 使后续到达的陈旧 questionGroup.saved 在本机 rebase 时被 rejectTombstoned 拦截。
-          await dbV7.questionGroups.delete(group.id);
-          emptiedGroupIds.push(group.id);
-        }
+    for (const groupId of affectedGroupIds) {
+      if (await dbV7.questionGroupItems.where("groupId").equals(groupId).count()) continue;
+      const group = await dbV7.questionGroups.get(groupId);
+      if (group) {
+        // E6: 删题把组裁空时，与显式 deleteQuestionGroupV7 一致地写墓碑。
+        await dbV7.questionGroups.delete(groupId);
+        emptiedGroupIds.push(groupId);
       }
     }
-    const runs = await listPracticeRunsForQuestionIdsV7(existingIds);
-    for (const run of runs) {
-      const answers = Object.fromEntries(Object.entries(run.answers).filter(([questionId]) => !deletingIds.has(questionId)));
-      const questionTypes = Object.fromEntries(Object.entries(run.questionTypes).filter(([questionId]) => !deletingIds.has(questionId)));
-      await putPracticeRunInTx({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
-    }
+    await dbV7.practiceRunItems.where("questionId").anyOf(existingIds).delete();
     for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
     const tombstones: TombstoneV7[] = publishedIds.map((questionId) => ({
       key: tombstoneKey("question", questionId),
@@ -163,8 +147,8 @@ export const deleteQuestionGlobalV7 = deleteQuestionV7;
 export async function deleteBankWithExclusiveQuestionsV7(bankId: string): Promise<{ bankDeleted: boolean; deletedQuestions: number }> {
   return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.questionProgress,
-    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds,
-    dbV7.reviewRoundProgress, dbV7.practiceRuns,
+    dbV7.questionDailyProgress, dbV7.notes, dbV7.questionGroups, dbV7.questionGroupItems, dbV7.reviewRoundItems,
+    dbV7.reviewRoundProgress, dbV7.practiceRuns, dbV7.practiceRunItems,
     dbV7.bankPracticeStats, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();

@@ -3,6 +3,7 @@ import { createChangeSetV7 } from "./change-set-v7-codec";
 import { dependentChangeSetIdsV7 } from "./change-set-v7-planning";
 import { replayChangeSetBatchV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7 } from "../db/db-v7";
+import { assemblePracticeRunRecordsV7 } from "../db/practice-run-store-v7";
 
 async function queueBase(): Promise<ChangeSetProjectionV7> {
   const base = (await dbV7.syncMeta.get("v7:queue-base"))?.value as ChangeSetProjectionV7 | undefined;
@@ -13,12 +14,13 @@ async function queueBase(): Promise<ChangeSetProjectionV7> {
 export async function ensureChangeSetQueueBaseV7(): Promise<void> {
   if (await dbV7.syncMeta.get("v7:queue-base")) return;
   if (await dbV7.changeSets.count()) return;
-  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones] = await Promise.all([
+  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRunRecords, practiceRunSources, practiceRunItems, practiceRunStats, questionGroupRecords, questionGroupItems, reviewRoundRecords, reviewRoundBanks, reviewRoundItems, reviewRoundProgress, tombstones] = await Promise.all([
     dbV7.banks.toArray(), dbV7.bankFolders.toArray(), dbV7.questions.toArray(), dbV7.bankQuestionMemberships.toArray(),
     dbV7.imageAssets.toArray(), dbV7.attempts.toArray(), dbV7.questionProgress.toArray(), dbV7.questionDailyProgress.toArray(),
-    dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.bankPracticeStats.toArray(), dbV7.questionGroups.toArray(),
-    dbV7.reviewRounds.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(),
+    dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.practiceRunSources.toArray(), dbV7.practiceRunItems.toArray(), dbV7.bankPracticeStats.toArray(), dbV7.questionGroups.toArray(), dbV7.questionGroupItems.toArray(),
+    dbV7.reviewRounds.toArray(), dbV7.reviewRoundBanks.toArray(), dbV7.reviewRoundItems.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(),
   ]);
+  const practiceRuns = assemblePracticeRunRecordsV7(practiceRunRecords, practiceRunSources, practiceRunItems, attempts);
   const projection: ChangeSetProjectionV7 = {
     banks, bankFolders, questions, memberships,
     imageAssets: imageAssets.map((asset) => ({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height })),
@@ -32,7 +34,28 @@ export async function ensureChangeSetQueueBaseV7(): Promise<void> {
       abandoned: stats.abandoned,
       latestUpdatedAt: stats.latestActivityAt,
     })),
-    questionGroups, reviewRounds, reviewRoundProgress, tombstones,
+    questionGroups: questionGroupRecords.map((group) => ({
+      ...group,
+      items: questionGroupItems
+        .filter((item) => item.groupId === group.id)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => ({ questionId: item.questionId, note: item.note ?? "" })),
+    })),
+    reviewRounds: reviewRoundRecords.map((round) => {
+      const finalQuestionIds = reviewRoundItems
+        .filter((item) => item.roundId === round.id)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.questionId);
+      return {
+        ...round,
+        bankIds: reviewRoundBanks
+          .filter((bank) => bank.roundId === round.id)
+          .sort((left, right) => left.position - right.position)
+          .map((bank) => bank.bankId),
+        ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
+      };
+    }),
+    reviewRoundProgress, tombstones,
   };
   await dbV7.syncMeta.put({ key: "v7:queue-base", value: projection, updatedAt: new Date().toISOString() });
 }

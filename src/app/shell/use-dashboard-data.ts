@@ -6,6 +6,7 @@ import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { syncApplication } from "@/lib/sync/sync-application";
 import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
+import { listReviewRoundsV7 } from "@/lib/db/review-round-store-v7";
 import { loadSelectedBankIds, type PracticePreferences, type View } from "./helpers";
 import { readDashboardScopedRowsV7, summarizeDashboardLifetimeStatsV7 } from "./dashboard-read-data";
 import { summarizeDashboardRows } from "./shell-controller-model";
@@ -53,7 +54,7 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     return { ...base, pending: pendingCountQuery ?? 0 };
   }, [statsBaseQuery, pendingCountQuery]);
 
-  const reviewRounds = useLiveQuery(() => dbV7.reviewRounds.orderBy("updatedAt").reverse().toArray(), []) ?? [];
+  const reviewRounds = useLiveQuery(() => listReviewRoundsV7(), []) ?? [];
   const normalizedProgressScope = normalizeProgressScope(preferences.progressScope);
   const selectedScopeLabel = normalizedProgressScope.type === "round"
     ? reviewRounds.find((round) => round.id === normalizedProgressScope.roundId)?.name || "当前复习轮次"

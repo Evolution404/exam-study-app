@@ -98,7 +98,7 @@ const lifetimeStats = (questionId: string, total: number, correct: number): Atte
   currentCorrectStreak: 1,
   recentOutcomes: [],
 });
-await dbV7.attemptStats.bulkPut([
+await dbV7.questionProgress.bulkPut([
   lifetimeStats("q-1", 21, 20),
   lifetimeStats("q-2", 21, 19),
   lifetimeStats("q-3", 21, 18),
@@ -108,10 +108,10 @@ attemptReads = 0;
 let statsReads = 0;
 const statsHook = (row: AttemptStatsV7) => { statsReads += 1; return row; };
 dbV7.attempts.hook("reading", attemptHook);
-dbV7.attemptStats.hook("reading", statsHook);
+dbV7.questionProgress.hook("reading", statsHook);
 const scoped = await readDashboardScopedRowsV7(["q-1"], { type: "lifetime" }, referenceTime, { allQuestions: false });
 dbV7.attempts.hook("reading").unsubscribe(attemptHook);
-dbV7.attemptStats.hook("reading").unsubscribe(statsHook);
+dbV7.questionProgress.hook("reading").unsubscribe(statsHook);
 assert.equal(scoped.attempts.length, 0, "指定题库 lifetime Dashboard 不需要 immutable attempts");
 assert.equal(attemptReads, 0, "指定题库 lifetime Dashboard 不得 materialize 历史 attempts");
 assert.equal(statsReads, 1, "指定题库 lifetime Dashboard 只读取目标题目的 attemptStats");
@@ -120,10 +120,10 @@ assert.equal(scoped.attemptStats[0]?.total, 21);
 attemptReads = 0;
 statsReads = 0;
 dbV7.attempts.hook("reading", attemptHook);
-dbV7.attemptStats.hook("reading", statsHook);
+dbV7.questionProgress.hook("reading", statsHook);
 const lifetime = await readDashboardScopedRowsV7(["q-1", "q-2", "q-3"], { type: "lifetime" }, referenceTime, { allQuestions: true });
 dbV7.attempts.hook("reading").unsubscribe(attemptHook);
-dbV7.attemptStats.hook("reading").unsubscribe(statsHook);
+dbV7.questionProgress.hook("reading").unsubscribe(statsHook);
 assert.equal(attemptReads, 0, "全部时间 Dashboard 不得重新 materialize 全量 attempts");
 assert.equal(statsReads, 3, "全部时间 Dashboard 只应读取题目级 attemptStats");
 assert.equal(lifetime.attemptStats.length, 3);

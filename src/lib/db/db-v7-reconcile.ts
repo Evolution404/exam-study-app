@@ -1,6 +1,6 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { dbV7 } from "./db-v7-core";
-import { practiceRunWithActivityV7 } from "./db-v7-practice-activity";
+import { decomposePracticeRunV7 } from "./practice-run-store-v7";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
 
@@ -500,8 +500,39 @@ export async function reconcileV7Projection(
     dirty?.attemptDailyStats,
   );
   const notePlan = await makePlan(dbV7.notes, state.notes, (row) => row.questionId, dirty?.notes);
-  const practiceRuns = state.practiceRuns.map(practiceRunWithActivityV7);
-  const practiceRunPlan = await makePlan(dbV7.practiceRuns, practiceRuns, (row) => row.id, dirty?.practiceRuns);
+  const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRunV7(run, state.attempts));
+  const practiceRunRecords = practiceRunBundles.map((bundle) => bundle.record);
+  const practiceRunSources = practiceRunBundles.flatMap((bundle) => bundle.sources);
+  const practiceRunItems = practiceRunBundles.flatMap((bundle) => bundle.items);
+  const practiceRunPlan = await makePlan(dbV7.practiceRuns, practiceRunRecords, (row) => row.id, dirty?.practiceRuns);
+  const makePracticeRelationPlan = async <T extends { runId: string }>(
+    table: Table<T, [string, string]>,
+    incoming: readonly T[],
+    childId: (row: T) => string,
+  ): Promise<ReconcilePlan<T, [string, string]>> => {
+    const primaryKeyOf = (row: T): [string, string] => [row.runId, childId(row)];
+    if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
+    if (mode === "fresh") {
+      return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.runId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
+    }
+    const dirtyRunIds = dirty?.practiceRuns ?? [];
+    const dirtyRunSet = new Set(dirtyRunIds);
+    const incomingRows = incoming.filter((row) => dirtyRunSet.has(row.runId));
+    const currentRows = dirtyRunIds.length ? await table.where("runId").anyOf(dirtyRunIds).toArray() : [];
+    const incomingByKey = new Map(incomingRows.map((row) => [keyIdentity(primaryKeyOf(row)), row]));
+    const currentByKey = new Map(currentRows.map((row) => [keyIdentity(primaryKeyOf(row)), row]));
+    return {
+      puts: incomingRows.filter((row) => {
+        const current = currentByKey.get(keyIdentity(primaryKeyOf(row)));
+        return current === undefined || !equivalent(current, row);
+      }),
+      deletes: currentRows.filter((row) => !incomingByKey.has(keyIdentity(primaryKeyOf(row)))).map(primaryKeyOf),
+      scannedRows: currentRows.length + incomingRows.length,
+      comparedRows: incomingRows.length,
+    };
+  };
+  const practiceRunSourcePlan = await makePracticeRelationPlan(dbV7.practiceRunSources, practiceRunSources, (row) => row.bankId);
+  const practiceRunItemPlan = await makePracticeRelationPlan(dbV7.practiceRunItems, practiceRunItems, (row) => row.questionId);
   const bankPracticeStats = state.practiceRunStats.map((row) => ({
     bankId: row.bankId,
     total: row.total,
@@ -511,8 +542,79 @@ export async function reconcileV7Projection(
     latestActivityAt: row.latestUpdatedAt,
   }));
   const practiceStatsPlan = await makePlan(dbV7.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);
-  const groupPlan = await makePlan(dbV7.questionGroups, state.questionGroups, (row) => row.id, dirty?.questionGroups);
-  const roundPlan = await makePlan(dbV7.reviewRounds, state.reviewRounds, (row) => row.id, dirty?.reviewRounds);
+  const questionGroupRecords = state.questionGroups.map(({ items: _items, ...group }) => group);
+  const questionGroupItems = state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
+    groupId: group.id,
+    questionId: item.questionId,
+    position,
+    ...(item.note ? { note: item.note } : {}),
+  })));
+  const groupPlan = await makePlan(dbV7.questionGroups, questionGroupRecords, (row) => row.id, dirty?.questionGroups);
+  let groupItemPlan: ReconcilePlan<(typeof questionGroupItems)[number], [string, string]>;
+  if (mode === "dirty") {
+    const dirtyGroupIds = dirty?.questionGroups ?? [];
+    const incomingItems = questionGroupItems.filter((item) => dirtyGroupIds.includes(item.groupId));
+    const currentItems = dirtyGroupIds.length
+      ? await dbV7.questionGroupItems.where("groupId").anyOf(dirtyGroupIds).toArray()
+      : [];
+    const incomingByKey = new Map(incomingItems.map((item) => [keyIdentity([item.groupId, item.questionId]), item]));
+    const currentByKey = new Map(currentItems.map((item) => [keyIdentity([item.groupId, item.questionId]), item]));
+    groupItemPlan = {
+      puts: incomingItems.filter((item) => {
+        const current = currentByKey.get(keyIdentity([item.groupId, item.questionId]));
+        return current === undefined || !equivalent(current, item);
+      }),
+      deletes: currentItems
+        .filter((item) => !incomingByKey.has(keyIdentity([item.groupId, item.questionId])))
+        .map((item) => [item.groupId, item.questionId] as [string, string]),
+      scannedRows: currentItems.length + incomingItems.length,
+      comparedRows: incomingItems.length,
+    };
+  } else if (mode === "full") {
+    groupItemPlan = await planCompoundTable(dbV7.questionGroupItems, questionGroupItems, (item) => [item.groupId, item.questionId]);
+  } else {
+    groupItemPlan = directCompoundPlan(
+      "fresh",
+      dbV7.questionGroupItems,
+      questionGroupItems,
+      (item) => [item.groupId, item.questionId],
+      (item) => `${item.groupId}:${item.questionId}`,
+      undefined,
+      compoundKeyFromSyncKey,
+    );
+  }
+  const reviewRoundRecords = state.reviewRounds.map(({ bankIds: _bankIds, finalQuestionIds: _finalQuestionIds, ...round }) => round);
+  const reviewRoundBanks = state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({ roundId: round.id, bankId, position })));
+  const reviewRoundItems = state.reviewRounds.flatMap((round) => (round.finalQuestionIds ?? []).map((questionId, position) => ({ roundId: round.id, questionId, position })));
+  const roundPlan = await makePlan(dbV7.reviewRounds, reviewRoundRecords, (row) => row.id, dirty?.reviewRounds);
+  const makeRoundRelationPlan = async <T extends { roundId: string }>(
+    table: Table<T, [string, string]>,
+    incoming: readonly T[],
+    childId: (row: T) => string,
+  ): Promise<ReconcilePlan<T, [string, string]>> => {
+    const primaryKeyOf = (row: T): [string, string] => [row.roundId, childId(row)];
+    if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
+    if (mode === "fresh") {
+      return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.roundId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
+    }
+    const dirtyRoundIds = dirty?.reviewRounds ?? [];
+    const dirtyRoundSet = new Set(dirtyRoundIds);
+    const incomingRows = incoming.filter((row) => dirtyRoundSet.has(row.roundId));
+    const currentRows = dirtyRoundIds.length ? await table.where("roundId").anyOf(dirtyRoundIds).toArray() : [];
+    const incomingByKey = new Map(incomingRows.map((row) => [keyIdentity(primaryKeyOf(row)), row]));
+    const currentByKey = new Map(currentRows.map((row) => [keyIdentity(primaryKeyOf(row)), row]));
+    return {
+      puts: incomingRows.filter((row) => {
+        const current = currentByKey.get(keyIdentity(primaryKeyOf(row)));
+        return current === undefined || !equivalent(current, row);
+      }),
+      deletes: currentRows.filter((row) => !incomingByKey.has(keyIdentity(primaryKeyOf(row)))).map(primaryKeyOf),
+      scannedRows: currentRows.length + incomingRows.length,
+      comparedRows: incomingRows.length,
+    };
+  };
+  const roundBankPlan = await makeRoundRelationPlan(dbV7.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId);
+  const roundItemPlan = await makeRoundRelationPlan(dbV7.reviewRoundItems, reviewRoundItems, (row) => row.questionId);
   const roundProgressPlan = await makeCompoundPlan(
     dbV7.reviewRoundProgress,
     state.reviewRoundProgress,
@@ -535,9 +637,14 @@ export async function reconcileV7Projection(
     + dailyStatsPlan.puts.length + dailyStatsPlan.deletes.length
     + notePlan.puts.length + notePlan.deletes.length
     + practiceRunPlan.puts.length + practiceRunPlan.deletes.length
+    + practiceRunSourcePlan.puts.length + practiceRunSourcePlan.deletes.length
+    + practiceRunItemPlan.puts.length + practiceRunItemPlan.deletes.length
     + practiceStatsPlan.puts.length + practiceStatsPlan.deletes.length
     + groupPlan.puts.length + groupPlan.deletes.length
+    + groupItemPlan.puts.length + groupItemPlan.deletes.length
     + roundPlan.puts.length + roundPlan.deletes.length
+    + roundBankPlan.puts.length + roundBankPlan.deletes.length
+    + roundItemPlan.puts.length + roundItemPlan.deletes.length
     + roundProgressPlan.puts.length + roundProgressPlan.deletes.length
     + tombstonePlan.puts.length + tombstonePlan.deletes.length
     + imagePlan.deletes.length + imagePlan.updates.length + imagePlan.inserts.length;
@@ -546,8 +653,8 @@ export async function reconcileV7Projection(
   const transactionTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
     dbV7.imageAssets, dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress,
-    dbV7.notes, dbV7.practiceRuns, dbV7.bankPracticeStats, dbV7.questionGroups,
-    dbV7.reviewRounds, dbV7.reviewRoundProgress, dbV7.tombstones, dbV7.changeSets,
+    dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems, dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.questionGroupItems,
+    dbV7.reviewRounds, dbV7.reviewRoundBanks, dbV7.reviewRoundItems, dbV7.reviewRoundProgress, dbV7.tombstones, dbV7.changeSets,
   ];
 
   return dbV7.transaction("rw", transactionTables, async () => {
@@ -591,9 +698,14 @@ export async function reconcileV7Projection(
       await applyPlan(dbV7.questionDailyProgress, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);
       await applyPlan(dbV7.notes, notePlan, { put: "更新解析笔记", remove: "清理解析笔记" }, progress, options, mode);
       await applyPlan(dbV7.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
+      await applyPlan(dbV7.practiceRunSources, practiceRunSourcePlan, { put: "更新练习来源关系", remove: "清理练习来源关系" }, progress, options, mode);
+      await applyPlan(dbV7.practiceRunItems, practiceRunItemPlan, { put: "更新练习题目关系", remove: "清理练习题目关系" }, progress, options, mode);
       await applyPlan(dbV7.bankPracticeStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);
       await applyPlan(dbV7.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
+      await applyPlan(dbV7.questionGroupItems, groupItemPlan, { put: "更新题组关系", remove: "清理题组关系" }, progress, options, mode);
       await applyPlan(dbV7.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);
+      await applyPlan(dbV7.reviewRoundBanks, roundBankPlan, { put: "更新复习轮次题库关系", remove: "清理复习轮次题库关系" }, progress, options, mode);
+      await applyPlan(dbV7.reviewRoundItems, roundItemPlan, { put: "更新复习轮次题目关系", remove: "清理复习轮次题目关系" }, progress, options, mode);
       await applyPlan(dbV7.reviewRoundProgress, roundProgressPlan, { put: "更新轮次进度", remove: "清理轮次进度" }, progress, options, mode);
       await applyPlan(dbV7.tombstones, tombstonePlan, { put: "更新删除标记", remove: "清理删除标记" }, progress, options, mode);
 

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { readBankDetailDatasetV7 } from "../../src/app/bank/bank-library/bank-detail-read";
 import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { AttemptV7, BankV7, PracticeRunV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import { decomposePracticeRunV7 } from "../../src/lib/db/practice-run-store-v7";
+import type { AttemptV7, BankV7, PracticeRunRecordV7, PracticeRunV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
 import type { ProgressScope } from "../../src/lib/practice/progress-scope";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -39,7 +40,7 @@ await dbV7.attempts.bulkPut([
   attempt("recent-2", recentAt),
   attempt("recent-3", recentAt),
 ]);
-await dbV7.attemptStats.put({
+await dbV7.questionProgress.put({
   questionId: question.id,
   total: 1_003,
   correct: 1_003,
@@ -54,7 +55,9 @@ await dbV7.attemptStats.put({
   currentCorrectStreak: 1_003,
   recentOutcomes: [],
 });
-await dbV7.practiceRuns.bulkPut(Array.from({ length: 1_000 }, (_, index) => ({
+const historyRuns: PracticeRunV7[] = Array.from({ length: 1_000 }, (_, index) => {
+  const activityAt = new Date(Date.parse(oldAt) + index * 1_000).toISOString();
+  return {
   id: `history-run-${index}`,
   bankId: bank.id,
   bankIds: [bank.id],
@@ -66,19 +69,26 @@ await dbV7.practiceRuns.bulkPut(Array.from({ length: 1_000 }, (_, index) => ({
   answers: {},
   shuffleOptions: false,
   optionOrders: {},
-  startedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
-  updatedAt: new Date(Date.parse(oldAt) + index * 1_000).toISOString(),
+  startedAt: activityAt,
+  updatedAt: activityAt,
+  completedAt: activityAt,
   status: "completed" as const,
   revision: 1,
-})));
-await dbV7.practiceRunStats.put({
-  key: bank.id,
+  };
+});
+const historyBundles = historyRuns.map((run) => decomposePracticeRunV7(run, []));
+await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems], async () => {
+  await dbV7.practiceRuns.bulkPut(historyBundles.map((bundle) => bundle.record));
+  await dbV7.practiceRunSources.bulkPut(historyBundles.flatMap((bundle) => bundle.sources));
+  await dbV7.practiceRunItems.bulkPut(historyBundles.flatMap((bundle) => bundle.items));
+});
+await dbV7.bankPracticeStats.put({
   bankId: bank.id,
   total: 1_000,
   completed: 1_000,
   inProgress: 0,
   abandoned: 0,
-  latestUpdatedAt: new Date(Date.parse(oldAt) + 999_000).toISOString(),
+  latestActivityAt: new Date(Date.parse(oldAt) + 999_000).toISOString(),
 });
 
 type ScopedReader = (bank: BankV7, scope: ProgressScope, referenceTime: number) => ReturnType<typeof readBankDetailDatasetV7>;
@@ -86,7 +96,7 @@ const scopedReader = readBankDetailDatasetV7 as unknown as ScopedReader;
 let attemptReads = 0;
 let runReads = 0;
 const attemptHook = (row: AttemptV7) => { attemptReads += 1; return row; };
-const runHook = (row: PracticeRunV7) => { runReads += 1; return row; };
+const runHook = (row: PracticeRunRecordV7) => { runReads += 1; return row; };
 dbV7.attempts.hook("reading", attemptHook);
 dbV7.practiceRuns.hook("reading", runHook);
 const rolling = await scopedReader(bank, { type: "rolling", days: 90 }, referenceTime);

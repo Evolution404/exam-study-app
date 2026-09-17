@@ -4,7 +4,7 @@ import { Check, ChevronRight, FolderPlus, GripVertical, Layers3, Merge, Pencil, 
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { dbV7, deleteQuestionGroupV7, saveQuestionGroupV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { dbV7, deleteQuestionGroupV7, listQuestionGroupsV7, saveQuestionGroupV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { isBankEnabled, type QuestionGroupV7 } from "@/lib/db/v7-types";
@@ -95,7 +95,7 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
 }
 
 function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQuestionIds?: string[]; onStart: (questions: Question[], label: string) => void; onNotice: (message: string) => void }) {
-  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), groups: await dbV7.questionGroups.orderBy("updatedAt").reverse().toArray() }), []);
+  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), groups: await listQuestionGroupsV7() }), []);
   const [editingId, setEditingId] = useState<string>();
   const [name, setName] = useState("");
   const [type, setType] = useState<QuestionGroupType>("易混");

@@ -4,7 +4,7 @@
 import Dexie from "dexie";
 import { dbV7 } from "./db-v7-core";
 import type { V7RestoreState } from "./db-v7-core";
-import { bulkPutPracticeRunsInTx } from "./db-v7-practice-activity";
+import { decomposePracticeRunV7 } from "./practice-run-store-v7";
 
 export interface V7ChangeSetQueueGuard {
   id: string;
@@ -74,13 +74,14 @@ function restoreRowCount(state: V7RestoreState): number {
  * clear `changeSets` separately when a remote tail is being replayed.
  */
 export async function restoreV7Checkpoint(state: V7RestoreState, options: RestoreV7CheckpointOptions = {}): Promise<boolean> {
+  const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRunV7(run, state.attempts));
   // imageAssets is reconciled in place instead of clear+rewrite.  Cached image
   // Blobs can be large; reading every Blob into JS and writing it back on each
   // ordinary sync was the main iOS/WKWebView write-path pressure point.
   const replaceTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
-    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns,
-    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems,
+    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.questionGroupItems, dbV7.reviewRounds, dbV7.reviewRoundBanks, dbV7.reviewRoundItems, dbV7.reviewRoundProgress,
     dbV7.tombstones,
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
@@ -163,7 +164,9 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
       await writeChunks(state.attemptStats, (chunk) => dbV7.questionProgress.bulkPut(chunk), "写入学习统计");
       await writeChunks(state.attemptDailyStats, (chunk) => dbV7.questionDailyProgress.bulkPut(chunk), "写入每日统计");
       await writeChunks(state.notes, (chunk) => dbV7.notes.bulkPut(chunk), "写入解析笔记");
-      await writeChunks(state.practiceRuns, (chunk) => bulkPutPracticeRunsInTx(chunk), "写入练习记录");
+      await writeChunks(practiceRunBundles.map((bundle) => bundle.record), (chunk) => dbV7.practiceRuns.bulkPut(chunk), "写入练习记录");
+      await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.sources), (chunk) => dbV7.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
+      await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.items), (chunk) => dbV7.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
       await writeChunks(state.practiceRunStats, (chunk) => dbV7.bankPracticeStats.bulkPut(chunk.map((stats) => ({
         bankId: stats.bankId,
         total: stats.total,
@@ -172,8 +175,24 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
         abandoned: stats.abandoned,
         latestActivityAt: stats.latestUpdatedAt,
       }))), "写入练习统计");
-      await writeChunks(state.questionGroups, (chunk) => dbV7.questionGroups.bulkPut(chunk), "写入题组");
-      await writeChunks(state.reviewRounds, (chunk) => dbV7.reviewRounds.bulkPut(chunk), "写入复习轮次");
+      await writeChunks(state.questionGroups.map(({ items: _items, ...group }) => group), (chunk) => dbV7.questionGroups.bulkPut(chunk), "写入题组");
+      await writeChunks(state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
+        groupId: group.id,
+        questionId: item.questionId,
+        position,
+        ...(item.note ? { note: item.note } : {}),
+      }))), (chunk) => dbV7.questionGroupItems.bulkPut(chunk), "写入题组关系");
+      await writeChunks(state.reviewRounds.map(({ bankIds: _bankIds, finalQuestionIds: _finalQuestionIds, ...round }) => round), (chunk) => dbV7.reviewRounds.bulkPut(chunk), "写入复习轮次");
+      await writeChunks(state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({
+        roundId: round.id,
+        bankId,
+        position,
+      }))), (chunk) => dbV7.reviewRoundBanks.bulkPut(chunk), "写入复习轮次题库关系");
+      await writeChunks(state.reviewRounds.flatMap((round) => (round.finalQuestionIds ?? []).map((questionId, position) => ({
+        roundId: round.id,
+        questionId,
+        position,
+      }))), (chunk) => dbV7.reviewRoundItems.bulkPut(chunk), "写入复习轮次题目关系");
       await writeChunks(state.reviewRoundProgress, (chunk) => dbV7.reviewRoundProgress.bulkPut(chunk), "写入轮次进度");
       await writeChunks(state.tombstones, (chunk) => dbV7.tombstones.bulkPut(chunk), "写入删除标记");
       if (options.clearChangeSets) {

@@ -17,6 +17,7 @@ import {
   deleteQuestionGroupV7,
   deleteQuestionV7,
   deleteQuestionsV7,
+  getPracticeRunV7,
   recordPracticeAnswerV7,
   resetV7Database,
   reorderBanksV7,
@@ -132,7 +133,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.equal(readTransaction?.active, true);
   assert.equal(readTransaction?.mode, "readwrite");
-  for (const store of ["practiceRuns", "practiceRunStats", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `deletePracticeRunV7 事务必须包含 ${store}`);
+  for (const store of ["practiceRuns", "practiceRunSources", "practiceRunItems", "attempts", "bankPracticeStats", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `deletePracticeRunV7 事务必须包含 ${store}`);
 }
 
 // R9：解析 revision 必须基于写事务内的最新行递增。
@@ -165,17 +166,20 @@ const txSnapshot = (): TxSnapshot | undefined => {
     if (keys.includes(question.id)) readTransaction = txSnapshot();
     return originalBulkGet(keys);
   }) as typeof dbV7.questions.bulkGet;
+  let groupId = "";
   try {
-    await saveQuestionGroupV7({ name: "R10题组", type: "专题", description: "", items: [{ questionId: question.id, note: "" }] });
+    const group = await saveQuestionGroupV7({ name: "R10题组", type: "专题", description: "", items: [{ questionId: question.id, note: "" }] });
+    groupId = group.id;
   } finally {
     dbV7.questions.bulkGet = originalBulkGet as typeof dbV7.questions.bulkGet;
   }
   assert.equal(readTransaction?.active, true);
   assert.equal(readTransaction?.mode, "readwrite");
-  for (const store of ["questions", "questionGroups", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `saveQuestionGroupV7 事务必须包含 ${store}`);
+  for (const store of ["questions", "questionGroups", "questionGroupItems", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `saveQuestionGroupV7 事务必须包含 ${store}`);
+  assert.deepEqual(await dbV7.questionGroupItems.where("groupId").equals(groupId).toArray(), [{ groupId, questionId: question.id, position: 0 }]);
 }
 
-// R11：活动索引必须严格跟随 runActivityAt 语义，而不是 updatedAt。
+// R11：activityAt 直接属于 practiceRuns，不再维护第二张活动表。
 {
   const bank = await createBankV7("R11练习历史索引");
   const question = await createQuestionV7(bank.id, { type: "判断", stem: "R11历史题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -183,18 +187,18 @@ const txSnapshot = (): TxSnapshot | undefined => {
   const answeredAt = "2026-09-17T00:10:00.000Z";
   const navigationAt = "2026-09-17T00:20:00.000Z";
   const run = await createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id], startedAt, updatedAt: startedAt });
-  assert.equal((await dbV7.practiceRunActivity.get(run.id))?.activityAt, startedAt);
+  assert.equal((await dbV7.practiceRuns.get(run.id) as typeof run & { activityAt?: string })?.activityAt, startedAt);
   await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true, elapsedMs: 10, createdAt: answeredAt });
-  assert.equal((await dbV7.practiceRunActivity.get(run.id))?.activityAt, answeredAt);
-  const afterAnswer = await dbV7.practiceRuns.get(run.id);
+  assert.equal((await dbV7.practiceRuns.get(run.id) as typeof run & { activityAt?: string })?.activityAt, answeredAt);
+  const afterAnswer = await getPracticeRunV7(run.id);
   assert.ok(afterAnswer);
   await savePracticeProgressV7({ ...afterAnswer!, updatedAt: navigationAt, lastAnsweredIndex: 0 });
-  assert.equal((await dbV7.practiceRunActivity.get(run.id))?.activityAt, answeredAt);
+  assert.equal((await dbV7.practiceRuns.get(run.id) as typeof run & { activityAt?: string })?.activityAt, answeredAt);
   const completed = await setPracticeRunStatusV7(run.id, "completed");
   assert.ok(completed?.completedAt);
-  assert.equal((await dbV7.practiceRunActivity.get(run.id))?.activityAt, completed?.completedAt);
+  assert.equal((await dbV7.practiceRuns.get(run.id) as typeof run & { activityAt?: string })?.activityAt, completed?.completedAt);
   assert.equal(await deletePracticeRunV7(run.id), true);
-  assert.equal(await dbV7.practiceRunActivity.get(run.id), undefined);
+  assert.equal(await dbV7.practiceRuns.get(run.id), undefined);
 }
 
 // R12：删文件夹必须在写事务内读取文件夹及当前归属题库。
@@ -217,7 +221,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
   for (const store of ["bankFolders", "banks", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `deleteBankFolderV7 事务必须包含 ${store}`);
 }
 
-// R13：删题库必须在写事务内确定 memberships 与 runs，并同步维护活动索引。
+// R13：删题库只删除当前主数据；历史练习来源 attribution 必须保留。
 {
   const bank = await createBankV7("R13删题库事务边界");
   const question = await createQuestionV7(bank.id, { type: "判断", stem: "R13题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -235,9 +239,9 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.equal(readTransaction?.active, true);
   assert.equal(readTransaction?.mode, "readwrite");
-  for (const store of ["banks", "bankQuestionMemberships", "practiceRuns", "practiceRunActivity", "practiceRunStats", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `deleteBankV7 事务必须包含 ${store}`);
-  assert.equal(await dbV7.practiceRuns.get(run.id), undefined);
-  assert.equal(await dbV7.practiceRunActivity.get(run.id), undefined);
+  for (const store of ["banks", "bankQuestionMemberships", "bankPracticeStats", "tombstones", "changeSets", "syncMeta"]) assert.ok(readTransaction?.storeNames.includes(store), `deleteBankV7 事务必须包含 ${store}`);
+  assert.ok(await dbV7.practiceRuns.get(run.id), "删题库不得删除历史练习");
+  assert.ok(await dbV7.practiceRunSources.get([run.id, bank.id]), "历史练习来源 attribution 必须保留");
 }
 
 // R14：保存完整 run 与状态切换都必须在取得写事务后重读最新 run，避免陈旧快照覆盖并发写入。
@@ -265,7 +269,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
   for (const readTransaction of reads) {
     assert.equal(readTransaction.active, true);
     assert.equal(readTransaction.mode, "readwrite");
-    for (const store of ["practiceRuns", "practiceRunActivity", "practiceRunStats", "changeSets", "syncMeta"]) {
+    for (const store of ["practiceRuns", "practiceRunSources", "practiceRunItems", "attempts", "bankPracticeStats", "changeSets", "syncMeta"]) {
       assert.ok(readTransaction.storeNames.includes(store), `练习写事务必须包含 ${store}`);
     }
   }
@@ -302,7 +306,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
     for (const readTransaction of roundReads) {
       assert.equal(readTransaction.active, true);
       assert.equal(readTransaction.mode, "readwrite");
-      for (const store of ["reviewRounds", "changeSets", "syncMeta"]) assert.ok(readTransaction.storeNames.includes(store), `复习轮次写事务必须包含 ${store}`);
+      for (const store of ["reviewRounds", "reviewRoundBanks", "reviewRoundItems", "changeSets", "syncMeta"]) assert.ok(readTransaction.storeNames.includes(store), `复习轮次写事务必须包含 ${store}`);
     }
   }
 }

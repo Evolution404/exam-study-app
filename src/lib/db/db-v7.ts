@@ -64,6 +64,7 @@ export {
   importQuestionBankV7,
   saveNoteV7,
   saveQuestionGroupV7,
+  listQuestionGroupsV7,
   deleteQuestionGroupV7,
   toggleQuestionFavoriteV7,
 } from "./db-v7-question";
@@ -83,6 +84,16 @@ export {
 export {
   createPracticeRunV7,
 } from "./db-v7-practice-run-create";
+
+export {
+  getPracticeRunV7,
+  bulkGetPracticeRunsV7,
+} from "./practice-run-store-v7";
+
+export {
+  getReviewRoundV7,
+  listReviewRoundsV7,
+} from "./review-round-store-v7";
 
 export {
   deletePracticeRunV7,

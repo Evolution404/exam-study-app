@@ -8,6 +8,8 @@ import {
   createReviewRoundV7,
   completeReviewRoundV7,
   dbV7,
+  getPracticeRunV7,
+  getReviewRoundV7,
   resetV7Database,
   savePracticeRunV7,
   updateReviewRoundV7,
@@ -48,7 +50,18 @@ const txSnapshot = (): TxSnapshot | undefined => {
   for (const snapshot of [bankRead, questionRead]) {
     assert.equal(snapshot?.active, true);
     assert.equal(snapshot?.mode, "readwrite");
-    for (const store of ["banks", "questions", "practiceRuns", "practiceRunActivity", "practiceRunStats", "changeSets", "syncMeta"]) {
+    for (const store of [
+      "banks",
+      "bankQuestionMemberships",
+      "questions",
+      "reviewRounds",
+      "practiceRuns",
+      "practiceRunSources",
+      "practiceRunItems",
+      "bankPracticeStats",
+      "changeSets",
+      "syncMeta",
+    ]) {
       assert.ok(snapshot?.storeNames.includes(store), `createPracticeRunV7 事务必须包含 ${store}`);
     }
   }
@@ -90,7 +103,9 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.equal(bankRead?.active, true);
   assert.equal(bankRead?.mode, "readwrite");
-  for (const store of ["banks", "reviewRounds", "changeSets", "syncMeta"]) assert.ok(bankRead?.storeNames.includes(store), `createReviewRoundV7 事务必须包含 ${store}`);
+  for (const store of ["banks", "reviewRounds", "reviewRoundBanks", "reviewRoundItems", "changeSets", "syncMeta"]) {
+    assert.ok(bankRead?.storeNames.includes(store), `createReviewRoundV7 事务必须包含 ${store}`);
+  }
   await assert.rejects(
     () => createReviewRoundV7({ name: "C3非法轮次", bankIds: ["bank_missing_c3"] }),
     /题库不存在|已被删除/,
@@ -105,10 +120,10 @@ const txSnapshot = (): TxSnapshot | undefined => {
     () => updateReviewRoundV7(round.id, { bankIds: ["bank_missing_c4"] }),
     /题库不存在|已被删除/,
   );
-  assert.deepEqual((await dbV7.reviewRounds.get(round.id))?.bankIds, [bank.id], "失败的轮次更新不得污染原引用");
+  assert.deepEqual((await getReviewRoundV7(round.id))?.bankIds, [bank.id], "失败的轮次更新不得污染原引用");
 }
 
-// C5：完成轮次的最终题目快照必须全部仍存在，否则不能写入无法通过 checkpoint 校验的 finalQuestionIds。
+// C5：完成轮次的最终题目关系必须全部仍存在，否则不能写入悬空 reviewRoundItems。
 {
   const bank = await createBankV7("C5轮次完成完整性");
   const question = await createQuestionV7(bank.id, { type: "判断", stem: "C5题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -118,6 +133,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
     /题目不存在|已被删除/,
   );
   assert.equal((await dbV7.reviewRounds.get(round.id))?.status, "active", "finalQuestionIds 校验失败时轮次必须保持 active");
+  assert.equal(await dbV7.reviewRoundItems.where("roundId").equals(round.id).count(), 0, "校验失败时不得留下半成品 reviewRoundItems");
 }
 
 // C6：完整 run 保存同样必须验证所有引用，不能绕过 createPracticeRunV7 的完整性边界。
@@ -137,10 +153,13 @@ const txSnapshot = (): TxSnapshot | undefined => {
     () => savePracticeRunV7({ ...run, reviewRoundId: "round_missing_c6" }),
     /复习轮次不存在|已被删除/,
   );
-  const stored = await dbV7.practiceRuns.get(run.id);
+  const stored = await getPracticeRunV7(run.id);
   assert.deepEqual(stored?.bankIds, [bank.id]);
   assert.deepEqual(stored?.questionIds, [question.id]);
   assert.equal(stored?.reviewRoundId, undefined);
+  const raw = await dbV7.practiceRuns.get(run.id) as Record<string, unknown> | undefined;
+  assert.equal(raw && "bankIds" in raw, false, "practiceRuns 元数据不得重新嵌入 bankIds");
+  assert.equal(raw && "questionIds" in raw, false, "practiceRuns 元数据不得重新嵌入 questionIds");
 }
 
 await dbV7.close();

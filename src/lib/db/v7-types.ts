@@ -28,6 +28,7 @@ export function isBankEnabled(bank: Pick<BankV7, "enabled">): boolean {
 export type BankFolderV7 = BaseBankFolder;
 export type NoteV7 = BaseNote;
 export type QuestionGroupV7 = BaseQuestionGroup;
+export type QuestionGroupRecordV7 = Omit<BaseQuestionGroup, "items">;
 export type SyncFileV7 = BaseSyncFile;
 export type SyncMetaV7 = BaseSyncMeta;
 export interface TombstoneV7 extends Omit<BaseSyncTombstone, "entityType"> {
@@ -163,6 +164,8 @@ export interface ReviewRound {
   deviceId: string;
 }
 
+export type ReviewRoundRecordV7 = Omit<ReviewRound, "bankIds" | "finalQuestionIds">;
+
 export interface ReviewRoundProgress {
   key: string;
   roundId: string;
@@ -183,6 +186,13 @@ export interface ReviewRoundProgress {
 
 export type PracticeRunV7 = PracticeRun & { reviewRoundId?: string };
 
+export type PracticeRunRecordV7 = Omit<PracticeRunV7,
+  "bankId" | "bankIds" | "bankName" | "questionIds" | "questionTypes" | "answers" | "optionOrders"
+> & {
+  bankNameSnapshot: string;
+  activityAt: string;
+};
+
 export interface PracticeRunSourceV7 {
   runId: string;
   bankId: string;
@@ -196,6 +206,7 @@ export interface PracticeRunItemV7 {
   position: number;
   questionTypeSnapshot: QuestionTypeV7;
   optionOrder: number[];
+  draftSelected?: string[];
   draftResponse?: PracticeResponse;
   submittedAttemptId?: string;
 }
@@ -217,13 +228,6 @@ export interface ReviewRoundItemV7 {
   roundId: string;
   questionId: string;
   position: number;
-}
-
-/** Device-local derived index for practice-history paging; never synchronized. */
-export interface PracticeRunActivityV7 {
-  runId: string;
-  status: PracticeRunV7["status"];
-  activityAt: string;
 }
 
 export interface ImageAsset {

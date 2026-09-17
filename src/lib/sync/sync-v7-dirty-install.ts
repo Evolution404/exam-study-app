@@ -1,4 +1,4 @@
-import { dbV7 } from "../db/db-v7";
+import { bulkGetPracticeRunsV7, dbV7 } from "../db/db-v7";
 import type { BankQuestionMembership, PracticeRunV7 } from "../db/v7-types";
 import type { ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import type { ChangeSetV7, ChangeSetMutationV7 } from "./change-set-v7-types";
@@ -287,7 +287,7 @@ export async function deriveDirtyInstallKeysV7(
   if (sets.practiceRuns.size) {
     const runIds = [...sets.practiceRuns];
     const [currentRuns, targetById] = await Promise.all([
-      dbV7.practiceRuns.bulkGet(runIds),
+      bulkGetPracticeRunsV7(runIds),
       Promise.resolve(targetRunMap(target, sets.practiceRuns)),
     ]);
     runIds.forEach((runId, index) => {

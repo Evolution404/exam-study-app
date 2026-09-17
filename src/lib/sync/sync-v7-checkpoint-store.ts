@@ -1,5 +1,6 @@
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7, type V7RestoreState } from "../db/db-v7";
 import type { AttemptDailyStatsV7, ImageAsset } from "../db/v7-types";
+import { assemblePracticeRunRecordsV7 } from "../db/practice-run-store-v7";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
 import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
 
@@ -73,16 +74,17 @@ export interface SyncCheckpointSnapshotV7 {
 export async function createSyncCheckpointV7Snapshot(generatedAt = new Date().toISOString()): Promise<SyncCheckpointSnapshotV7> {
   const tables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships, dbV7.imageAssets,
-    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns,
-    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems,
+    dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.questionGroupItems, dbV7.reviewRounds, dbV7.reviewRoundBanks, dbV7.reviewRoundItems, dbV7.reviewRoundProgress,
     dbV7.tombstones, dbV7.changeSets,
   ] as const;
   const rows = await dbV7.transaction("r", tables, async () => Promise.all([
     dbV7.banks.toArray(), dbV7.bankFolders.toArray(), dbV7.questions.toArray(), dbV7.bankQuestionMemberships.toArray(), dbV7.imageAssets.toArray(),
-    dbV7.attempts.toArray(), dbV7.questionProgress.toArray(), dbV7.questionDailyProgress.toArray(), dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.bankPracticeStats.toArray(),
-    dbV7.questionGroups.toArray(), dbV7.reviewRounds.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(), dbV7.changeSets.toArray(),
+    dbV7.attempts.toArray(), dbV7.questionProgress.toArray(), dbV7.questionDailyProgress.toArray(), dbV7.notes.toArray(), dbV7.practiceRuns.toArray(), dbV7.practiceRunSources.toArray(), dbV7.practiceRunItems.toArray(), dbV7.bankPracticeStats.toArray(),
+    dbV7.questionGroups.toArray(), dbV7.questionGroupItems.toArray(), dbV7.reviewRounds.toArray(), dbV7.reviewRoundBanks.toArray(), dbV7.reviewRoundItems.toArray(), dbV7.reviewRoundProgress.toArray(), dbV7.tombstones.toArray(), dbV7.changeSets.toArray(),
   ]));
-  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRuns, practiceRunStats, questionGroups, reviewRounds, reviewRoundProgress, tombstones, changeSets] = rows;
+  const [banks, bankFolders, questions, memberships, imageAssets, attempts, attemptStats, attemptDailyStats, notes, practiceRunRecords, practiceRunSources, practiceRunItems, practiceRunStats, questionGroupRecords, questionGroupItems, reviewRoundRecords, reviewRoundBanks, reviewRoundItems, reviewRoundProgress, tombstones, changeSets] = rows;
+  const practiceRuns = assemblePracticeRunRecordsV7(practiceRunRecords, practiceRunSources, practiceRunItems, attempts);
   // The local checkpoint is a projection, not an event log.  Cursors track the
   // pending change-set tail so concurrent devices can detect coverage.
   const state = cloneState({
@@ -105,8 +107,27 @@ export async function createSyncCheckpointV7Snapshot(generatedAt = new Date().to
       abandoned: stats.abandoned,
       latestUpdatedAt: stats.latestActivityAt,
     })),
-    questionGroups,
-    reviewRounds,
+    questionGroups: questionGroupRecords.map((group) => ({
+      ...group,
+      items: questionGroupItems
+        .filter((item) => item.groupId === group.id)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => ({ questionId: item.questionId, note: item.note ?? "" })),
+    })),
+    reviewRounds: reviewRoundRecords.map((round) => {
+      const finalQuestionIds = reviewRoundItems
+        .filter((item) => item.roundId === round.id)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.questionId);
+      return {
+        ...round,
+        bankIds: reviewRoundBanks
+          .filter((bank) => bank.roundId === round.id)
+          .sort((left, right) => left.position - right.position)
+          .map((bank) => bank.bankId),
+        ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
+      };
+    }),
     reviewRoundProgress,
     tombstones,
   });

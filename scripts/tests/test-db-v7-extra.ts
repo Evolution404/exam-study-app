@@ -123,10 +123,10 @@ await resetV7Database();
   const { attempt } = await recordPracticeAnswerV7({ runId: run.id, questionId: q.id, selected: ["A"], correct: true, elapsedMs: 100 });
   assert.ok(attempt.id);
   assert.equal((await dbV7.changeSets.where("state").equals("pending").toArray()).filter((c) => c.mutations.some((m) => m.kind === "practice.answer.submitted")).length, 1);
-  const stats = await dbV7.attemptStats.get(q.id);
+  const stats = await dbV7.questionProgress.get(q.id);
   assert.equal(stats?.total, 1);
   assert.equal(stats?.correct, 1);
-  const daily = await dbV7.attemptDailyStats.toArray();
+  const daily = await dbV7.questionDailyProgress.toArray();
   assert.equal(daily.length, 1);
 }
 

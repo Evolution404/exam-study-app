@@ -20,6 +20,8 @@ import {
   getImageAssetDescriptorV7,
   getImageCacheSizeV7,
   getQuestionsForBanksV7,
+  getPracticeRunV7,
+  getReviewRoundV7,
   getReviewRoundQuestionIdsV7,
   importQuestionBankV7,
   putImageAssetV7,
@@ -79,8 +81,8 @@ const split = await splitQuestionV7(shared.id, [importedA.id, importedB.id]);
 assert.equal(split.clones.length, 1);
 assert.equal((await getBankQuestionsV7(importedA.id)).find((item) => item.id === split.clones[0].id)?.id, split.clones[0].id);
 assert.equal((await getBankQuestionsV7(importedB.id)).find((item) => item.id === split.clones[0].id)?.id, split.clones[0].id);
-assert.equal((await dbV7.attemptStats.get(shared.id))?.total, 1);
-assert.equal(await dbV7.attemptStats.get(split.clones[0].id), undefined);
+assert.equal((await dbV7.questionProgress.get(shared.id))?.total, 1);
+assert.equal(await dbV7.questionProgress.get(split.clones[0].id), undefined);
 assert.equal((await dbV7.notes.get(split.clones[0].id))?.content, "解析");
 
 // Autosave still writes the latest note revision to the notes projection.
@@ -100,15 +102,15 @@ const reviewRun = await createPracticeRunV7({ bankIds: [importedA.id], questionI
 for (const questionId of dynamicTargets) {
   await recordPracticeAnswerV7({ runId: reviewRun.id, questionId, selected: ["A"], correct: true, reviewRoundId: round.id, elapsedMs: 10 });
 }
-const roundEvidence = await dbV7.reviewRoundProgress.get(`${round.id}:${dynamicTargets[0]}`);
+const roundEvidence = await dbV7.reviewRoundProgress.get([round.id, dynamicTargets[0]]);
 assert.equal(roundEvidence?.recentOutcomes?.length, 1, "轮次进度应保存个人难度所需的作答证据");
 assert.equal(roundEvidence?.firstAttemptCorrect, true);
 assert.equal(roundEvidence?.currentCorrectStreak, 1);
 assert.equal(roundEvidence?.giveUps, 0);
-const completed = await dbV7.reviewRounds.get(round.id);
+const completed = await getReviewRoundV7(round.id);
 assert.equal(completed?.status, "completed", "all dynamic targets auto-complete the bound round");
 assert.ok(completed?.finalQuestionIds?.length, "completed round captures its final target set");
-assert.equal((await dbV7.reviewRounds.get(parallelRound.id))?.status, "active", "parallel round is not advanced");
+assert.equal((await getReviewRoundV7(parallelRound.id))?.status, "active", "parallel round is not advanced");
 const stableTarget = await getReviewRoundQuestionIdsV7(round.id);
 await removeMembershipV7(importedA.id, extra.id);
 assert.deepEqual(await getReviewRoundQuestionIdsV7(round.id), stableTarget);
@@ -121,9 +123,9 @@ await assert.rejects(
   /reviewRoundId/,
 );
 await recordPracticeAnswerV7({ runId: cloneRun.id, questionId: split.clones[0].id, selected: ["A"], correct: true, elapsedMs: 10 });
-assert.equal((await dbV7.reviewRoundProgress.get(`${parallelRound.id}:${split.clones[0].id}`)), undefined, "ordinary run does not advance a round");
+assert.equal((await dbV7.reviewRoundProgress.get([parallelRound.id, split.clones[0].id])), undefined, "ordinary run does not advance a round");
 const changeSetsAfterAnswer = await dbV7.changeSets.count();
-const progressedRun = (await dbV7.practiceRuns.get(cloneRun.id))!;
+const progressedRun = (await getPracticeRunV7(cloneRun.id))!;
 await savePracticeProgressV7({ ...progressedRun, lastAnsweredIndex: 0, revision: progressedRun.revision + 1, updatedAt: new Date().toISOString() });
 assert.equal(await dbV7.changeSets.count(), changeSetsAfterAnswer, "navigation progress must not enqueue a new change-set");
 
@@ -137,15 +139,15 @@ assert.equal((await dbV7.banks.get(importedA.id))?.folderId, undefined);
 assert.ok(await dbV7.tombstones.get(`bankFolder:${localFolder.id}`));
 
 const localGroup = await saveQuestionGroupV7({ name: "本地题组", type: "专题", description: "", items: [{ questionId: split.clones[0].id, note: "对照" }] });
-assert.equal((await dbV7.questionGroups.get(localGroup.id))?.items.length, 1);
+assert.equal((await dbV7.questionGroupItems.where("groupId").equals(localGroup.id).count()), 1);
 assert.equal(await deleteQuestionGroupV7(localGroup.id), true);
 assert.ok(await dbV7.tombstones.get(`questionGroup:${localGroup.id}`));
 const abandoned = await setPracticeRunStatusV7(cloneRun.id, "abandoned");
 assert.equal(abandoned?.status, "abandoned");
-const cloneStatsBeforeRunDelete = (await dbV7.attemptStats.get(split.clones[0].id))?.total;
+const cloneStatsBeforeRunDelete = (await dbV7.questionProgress.get(split.clones[0].id))?.total;
 assert.equal(await deletePracticeRunV7(cloneRun.id), true);
 assert.equal(await dbV7.practiceRuns.get(cloneRun.id), undefined);
-assert.equal((await dbV7.attemptStats.get(split.clones[0].id))?.total, cloneStatsBeforeRunDelete, "deleting a run keeps global learning stats");
+assert.equal((await dbV7.questionProgress.get(split.clones[0].id))?.total, cloneStatsBeforeRunDelete, "deleting a run keeps global learning stats");
 assert.ok(await dbV7.tombstones.get(`practiceRun:${cloneRun.id}`), "deleting a submitted run writes a tombstone");
 
 // Deleting a bank removes only joins, while global deletion clears history.
@@ -154,7 +156,7 @@ assert.equal(await dbV7.questions.count(), 4);
 assert.equal(await dbV7.attempts.count(), 5);
 await deleteQuestionV7(shared.id);
 assert.equal(await dbV7.attempts.where("questionId").equals(shared.id).count(), 0);
-assert.equal(await dbV7.attemptStats.get(shared.id), undefined);
+assert.equal(await dbV7.questionProgress.get(shared.id), undefined);
 
 // Batch cleanup removes selected joins/content, and deleting a bank can clean
 // only its exclusive questions without damaging shared content.
@@ -195,15 +197,15 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   const r4Run = await createPracticeRunV7({ bankId: r4Bank.id, questionIds: [r4q1.id, r4q2.id] });
   await recordPracticeAnswerV7({ runId: r4Run.id, questionId: r4q1.id, selected: "A", correct: true, elapsedMs: 10 });
   // 模拟 study-app 保存前读到的陈旧快照（含 q1、q1 的答案）
-  const staleSnapshot = await dbV7.practiceRuns.get(r4Run.id);
+  const staleSnapshot = await getPracticeRunV7(r4Run.id);
   assert.ok(staleSnapshot && staleSnapshot.questionIds.includes(r4q1.id));
   // 另一处并发删除 q1：run 被裁剪为 [q2]，answers 中 q1 被移除
   await deleteQuestionV7(r4q1.id);
-  const trimmed = await dbV7.practiceRuns.get(r4Run.id);
+  const trimmed = await getPracticeRunV7(r4Run.id);
   assert.deepEqual(trimmed?.questionIds, [r4q2.id], "删除后 run 应已裁剪");
   // 现在用陈旧快照调用 savePracticeProgressV7（模拟保存与删除交错的窗口）
   await savePracticeProgressV7({ ...staleSnapshot!, answers: { [r4q1.id]: { selected: ["A"], correct: true, submitted: true, updatedAt: staleSnapshot!.updatedAt, deviceId: staleSnapshot!.deviceId, eventId: "evt-r4" } }, lastAnsweredIndex: 0, updatedAt: new Date().toISOString(), revision: staleSnapshot!.revision + 1 });
-  const after = await dbV7.practiceRuns.get(r4Run.id);
+  const after = await getPracticeRunV7(r4Run.id);
   assert.ok(after, "run 行应保留");
   assert.deepEqual(after.questionIds, [r4q2.id], "已删题 q1 不得被陈旧保存复活回 run");
   assert.ok(!after.answers[r4q1.id], "指向已删题的陈旧作答应被丢弃");
@@ -220,14 +222,14 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   const runB = await createPracticeRunV7({ bankId: e5Bank.id, questionIds: [e5q1.id, e5q2.id] });
   await recordPracticeAnswerV7({ runId: runA.id, questionId: e5q1.id, selected: "A", correct: true, elapsedMs: 10 });
   await recordPracticeAnswerV7({ runId: runB.id, questionId: e5q1.id, selected: "B", correct: false, elapsedMs: 10 });
-  assert.ok((await dbV7.attemptStats.get(e5q1.id))?.total, "删前应有全局统计");
+  assert.ok((await dbV7.questionProgress.get(e5q1.id))?.total, "删前应有全局统计");
   assert.equal(await dbV7.attempts.where("questionId").equals(e5q1.id).count(), 2, "删前两条 run 各有一条作答");
   await deleteQuestionV7(e5q1.id);
   assert.equal(await dbV7.attempts.where("questionId").equals(e5q1.id).count(), 0, "跨 runA/runB 的全部 attempts 应被清空");
-  assert.equal(await dbV7.attemptStats.get(e5q1.id), undefined, "全局统计应清除");
-  assert.equal(await dbV7.attemptDailyStats.where("questionId").equals(e5q1.id).count(), 0, "每日统计应清除");
-  const runAAfter = await dbV7.practiceRuns.get(runA.id);
-  const runBAfter = await dbV7.practiceRuns.get(runB.id);
+  assert.equal(await dbV7.questionProgress.get(e5q1.id), undefined, "全局统计应清除");
+  assert.equal(await dbV7.questionDailyProgress.where("questionId").equals(e5q1.id).count(), 0, "每日统计应清除");
+  const runAAfter = await getPracticeRunV7(runA.id);
+  const runBAfter = await getPracticeRunV7(runB.id);
   assert.deepEqual(runAAfter?.questionIds, [e5q2.id], "runA 应被裁剪（行保留）");
   assert.deepEqual(runBAfter?.questionIds, [e5q2.id], "runB 应被裁剪（行保留）");
   console.log("S1.4 passed: 删题级联清空跨 run 全部 attempts（E5 全局清理语义）");
@@ -314,7 +316,7 @@ await oldCheck.close();
   const calculationRun = await createPracticeRunV7({ bankId: calculationBank.id, questionIds: [calculationQuestion.id] });
   const submitted = await recordPracticeAnswerV7({ runId: calculationRun.id, questionId: calculationQuestion.id, selected: ["1", "1"], correct: true, elapsedMs: 10 });
   assert.deepEqual(submitted.answer.selected, ["1", "1"], "重复数值必须保留为两个位置答案");
-  assert.deepEqual((await dbV7.practiceRuns.get(calculationRun.id))?.answers[calculationQuestion.id]?.selected, ["1", "1"]);
+  assert.deepEqual((await getPracticeRunV7(calculationRun.id))?.answers[calculationQuestion.id]?.selected, ["1", "1"]);
 }
 await dbV7.delete();
 console.log("v7 database tests passed: namespace, joins, import, split, rounds, answers, deletion and image cache");

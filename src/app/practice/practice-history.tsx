@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, BookOpenCheck, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Grid3X3, History, Pencil, Play, RotateCcw, Star, Trash2, XCircle } from "lucide-react";
-import { dbV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { dbV7, getPracticeRunV7, updateQuestionV7 } from "@/lib/db/db-v7";
 import { MathText } from "@/app/ui/math-text";
 import { formatCalculationAnswers, solutionAnswerText } from "@/lib/question/question-utils";
 import { Hint } from "@/app/ui/hint";
@@ -92,7 +92,7 @@ export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { o
 
 export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotice, onGroup, progressScope = { type: "lifetime" }, scopeLabel = "全部时间" }: { runId: string; onBack: () => void; onContinue?: (runId: string, index: number) => void; onRepeat: (questions: QuestionViewModel[], label: string, previousOptionOrders: Record<string, number[]>) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void; progressScope?: ProgressScope; scopeLabel?: string }) {
   const data = useLiveQuery(async () => {
-    const run = await dbV7.practiceRuns.get(runId);
+    const run = await getPracticeRunV7(runId);
     if (!run) return undefined;
     const questions = (await dbV7.questions.bulkGet(run.questionIds)).filter(Boolean);
     const memberships = run.questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(run.questionIds).toArray() : [];

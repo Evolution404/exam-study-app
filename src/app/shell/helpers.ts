@@ -1,6 +1,6 @@
 "use client";
 import { lazy } from "react";
-import { dbV7, deletePracticeRunV7, recordPracticeAnswerV7, saveNoteV7, savePracticeProgressV7, setPracticeRunStatusV7, toggleQuestionFavoriteV7 } from "@/lib/db/db-v7";
+import { deletePracticeRunV7, getPracticeRunV7, recordPracticeAnswerV7, saveNoteV7, savePracticeProgressV7, setPracticeRunStatusV7, toggleQuestionFavoriteV7 } from "@/lib/db/db-v7";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice/practice-resume";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
 import { type QuestionViewModel } from "@/app/bank/question-editor";
@@ -32,7 +32,7 @@ export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
 export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
 export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV7(questionId); }
 export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
-export async function savePracticeProgress(session: ActivePractice) { const current = await dbV7.practiceRuns.get(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
+export async function savePracticeProgress(session: ActivePractice) { const current = await getPracticeRunV7(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
 export async function setPracticeRunStatus(runId: string, status: PracticeRunV7["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV7(runId, status, answers); }
 export async function deletePracticeRun(runId: string) { return deletePracticeRunV7(runId); }
 

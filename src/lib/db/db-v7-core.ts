@@ -20,14 +20,17 @@ import type {
   ImageBlobV7,
   NoteV7,
   PracticeRunItemV7,
+  PracticeRunRecordV7,
   PracticeRunSourceV7,
   PracticeRunStatsV7,
   PracticeRunV7,
   QuestionGroupItemV7,
+  QuestionGroupRecordV7,
   QuestionGroupV7,
   QuestionTypeV7,
   QuestionV7,
   ReviewRound,
+  ReviewRoundRecordV7,
   ReviewRoundBankV7,
   ReviewRoundItemV7,
   ReviewRoundProgress,
@@ -258,13 +261,13 @@ class V7StudyDatabase extends Dexie {
   questionProgress!: EntityTable<AttemptStatsV7, "questionId">;
   questionDailyProgress!: Table<AttemptDailyStatsV7, [string, string]>;
   notes!: EntityTable<NoteV7, "questionId">;
-  practiceRuns!: EntityTable<PracticeRunV7, "id">;
+  practiceRuns!: EntityTable<PracticeRunRecordV7, "id">;
   practiceRunSources!: Table<PracticeRunSourceV7, [string, string]>;
   practiceRunItems!: Table<PracticeRunItemV7, [string, string]>;
   bankPracticeStats!: EntityTable<BankPracticeStatsV7, "bankId">;
-  questionGroups!: EntityTable<QuestionGroupV7, "id">;
+  questionGroups!: EntityTable<QuestionGroupRecordV7, "id">;
   questionGroupItems!: Table<QuestionGroupItemV7, [string, string]>;
-  reviewRounds!: EntityTable<ReviewRound, "id">;
+  reviewRounds!: EntityTable<ReviewRoundRecordV7, "id">;
   reviewRoundBanks!: Table<ReviewRoundBankV7, [string, string]>;
   reviewRoundItems!: Table<ReviewRoundItemV7, [string, string]>;
   reviewRoundProgress!: Table<ReviewRoundProgress, [string, string]>;

@@ -13,9 +13,6 @@ import {
 } from "./db-v7-core";
 import type { BankQuestionJoinV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
-import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
-import { deletePracticeRunInTx } from "./db-v7-practice-activity";
-import { listPracticeRunsForBankV7 } from "./practice-run-read-v7";
 import type { BankFolderV7, BankQuestionMembership, BankV7, QuestionV7 } from "./v7-types";
 import { sha256DigestHex } from "../crypto/sha256";
 
@@ -243,34 +240,20 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 /** Delete only the bank and its joins; content and all learning history stay. */
 export async function deleteBankV7(bankId: string): Promise<boolean> {
   return dbV7.transaction("rw", [
-    dbV7.banks, dbV7.bankQuestionMemberships, dbV7.practiceRuns,
-    dbV7.bankPracticeStats, dbV7.reviewRounds, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+    dbV7.banks, dbV7.bankQuestionMemberships, dbV7.bankPracticeStats,
+    dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const bank = await dbV7.banks.get(bankId);
     if (!bank) return false;
     const timestamp = nowIso();
     const deviceId = getV7DeviceId();
     const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-    // Runs that target this bank are dropped with it; otherwise their bankId
-    // would dangle and the checkpoint would fail referential validation.
-    const runs = await listPracticeRunsForBankV7(bankId);
-    const rounds = (await dbV7.reviewRounds.toArray()).filter((round) => round.bankIds.includes(bankId));
     const bankDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membershipPrimaryKey(membership.bankId, membership.questionId)));
     await dbV7.banks.delete(bankId);
-    for (const run of runs) {
-      await updatePracticeRunStatsInTx(run, undefined);
-      await deletePracticeRunInTx(run.id);
-      await dbV7.tombstones.put({ key: tombstoneKey("practiceRun", run.id), entityType: "practiceRun", entityId: run.id, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
-    }
-    for (const round of rounds) {
-      await dbV7.reviewRounds.put({
-        ...round,
-        bankIds: round.bankIds.filter((id) => id !== bankId),
-        updatedAt: timestamp,
-        deviceId,
-      });
-    }
+    // Historical practiceRunSources/reviewRoundBanks are attribution snapshots,
+    // not live foreign keys. Deleting current master data must not erase them.
+    await dbV7.bankPracticeStats.delete(bankId);
     await dbV7.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeV7Id("bank-delete"), sequence: bankDeleteSequence });
     await enqueueChangeSetV7([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
     return true;

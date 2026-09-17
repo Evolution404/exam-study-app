@@ -141,11 +141,11 @@ assert.match(quickSearchSource, /\}, \[bankKey, shouldLoad\]\);/, "Quick Search 
 assert.match(quickSearchSource, /readNotesForQuestionIdsV7\(views\.map\(\(view\) => view\.question\.id\)\)/, "Quick Search 必须按当前题目 ID 定向读取 notes");
 assert.doesNotMatch(quickSearchSource, /notes\.toArray\(\)/, "Quick Search 不得恢复 notes 全表扫描");
 assert.match(searchReadV7Source, /dbV7\.notes\.bulkGet\(ids\)/, "search read layer 必须通过 notes 主键 bulkGet 定向读取");
-assert.match(searchReadV7Source, /dbV7\.attemptStats\.bulkGet\(ids\)/, "Search View 必须通过 attemptStats 主键 bulkGet 定向读取");
+assert.match(searchReadV7Source, /dbV7\.questionProgress\.bulkGet\(ids\)/, "Search View 必须通过 questionProgress 主键 bulkGet 定向读取");
 assert.match(searchReadV7Source, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 attempts.questionId 索引定向读取");
 assert.match(searchReadV7Source, /dbV7\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Search View 必须通过 reviewRoundProgress.questionId 索引定向读取");
-assert.doesNotMatch(searchReadV7Source, /dbV7\.(?:notes|attemptStats)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
-assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|attemptStats|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
+assert.doesNotMatch(searchReadV7Source, /dbV7\.(?:notes|questionProgress)\.toArray\(\)/, "主键可定位的搜索数据不得退回全表扫描");
+assert.doesNotMatch(searchViewSource, /dbV7\.(?:notes|questionProgress|attempts|reviewRoundProgress)\.toArray\(\)/, "Search View 不得直接全表扫描搜索历史数据");
 assert.match(searchViewSource, /readSearchHistoryDataV7\(appliedQuestions\)/, "Search View 历史数据读取必须跟随实际筛选后的题目集合，而不是所有题库 views");
 assert.match(searchViewSource, /const shouldLoadQuestionViews = showResults \|\| advancedOpen;/, "空搜索主页不得提前加载完整题目视图；只有搜索或打开筛选时才读取");
 assert.match(searchViewSource, /shouldLoadQuestionViews \? listQuestionViewsForBanksV7\(allBankIds\) : undefined/, "Search View 题目读取必须跟随实际搜索/筛选意图延迟启动");

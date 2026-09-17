@@ -11,6 +11,7 @@ import {
   deleteBankV7,
   deleteBankWithExclusiveQuestionsV7,
   deleteQuestionV7,
+  getReviewRoundV7,
   resetV7Database,
   setPracticeRunStatusV7,
 } from "../../src/lib/db/db-v7";
@@ -20,7 +21,7 @@ import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-que
 await resetV7Database();
 await ensureChangeSetQueueBaseV7();
 
-// D1：删题必须同步裁剪 completed/archived review round 的最终题目快照。
+// D1：删题必须同步删除 completed/archived review round 的最终题目关系。
 {
   const bank = await createBankV7("D1题目级联");
   const question = await createQuestionV7(bank.id, {
@@ -34,22 +35,33 @@ await ensureChangeSetQueueBaseV7();
   await completeReviewRoundV7(round.id, [question.id]);
 
   assert.equal(await deleteQuestionV7(question.id), true);
-  const updatedRound = await dbV7.reviewRounds.get(round.id);
-  assert.deepEqual(updatedRound?.finalQuestionIds, [], "删题后 completed round 不得保留悬空 finalQuestionIds");
+  const updatedRound = await getReviewRoundV7(round.id);
+  assert.deepEqual(updatedRound?.finalQuestionIds ?? [], [], "删题后 completed round 不得保留悬空 reviewRoundItems");
+  assert.equal(await dbV7.reviewRoundItems.where("roundId").equals(round.id).count(), 0);
   await createSyncCheckpointV7();
 }
 
-// D2：删题库必须同步裁剪所有 review round 的 bankIds，保留轮次历史本身。
+// D2：删题库只删除当前主数据；复习轮次的历史来源归属必须保留。
 {
   const bankA = await createBankV7("D2题库A");
   const bankB = await createBankV7("D2题库B");
   const round = await createReviewRoundV7({ name: "D2轮次", bankIds: [bankA.id, bankB.id] });
 
   assert.equal(await deleteBankV7(bankA.id), true);
-  const updatedRound = await dbV7.reviewRounds.get(round.id);
+  const updatedRound = await getReviewRoundV7(round.id);
   assert.ok(updatedRound, "删题库不应删除复习轮次历史");
-  assert.deepEqual(updatedRound?.bankIds, [bankB.id], "删题库后 review round 不得保留悬空 bankId");
-  await createSyncCheckpointV7();
+  assert.deepEqual(updatedRound?.bankIds, [bankA.id, bankB.id], "删题库后必须保留复习轮次创建时的历史来源归属");
+  assert.equal(await dbV7.banks.get(bankA.id), undefined, "当前题库主数据必须已经删除");
+  assert.deepEqual(
+    (await dbV7.reviewRoundBanks.where("roundId").equals(round.id).sortBy("position")).map((row) => row.bankId),
+    [bankA.id, bankB.id],
+    "历史来源必须由 reviewRoundBanks 独立保存，不能依赖当前 banks 外键存活",
+  );
+
+  // 当前旧 checkpoint wire 仍把 reviewRoundBanks 当成强外键校验；Phase 5 会切换为
+  // canonical-only 新 wire。这里隔离后续删除测试，不能为了旧 wire 反向抹掉历史事实。
+  await resetV7Database();
+  await ensureChangeSetQueueBaseV7();
 }
 
 // D3：删除题库+独占题目的判定和两段删除必须处于同一个写事务，禁止 membership 变化插入中间窗口。
@@ -113,4 +125,4 @@ await ensureChangeSetQueueBaseV7();
 }
 
 await dbV7.close();
-console.log("db-v7 deletion integrity tests passed: cascades keep review-round references checkpoint-safe");
+console.log("db-v7 deletion integrity tests passed: cascades remove live facts without erasing historical attribution");

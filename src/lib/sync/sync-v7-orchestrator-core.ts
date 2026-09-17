@@ -9,6 +9,7 @@ import {
   releaseChangeSetClaimV7,
   type ChangeSetQueueRecordV7,
 } from "../db/db-v7";
+import { hydratePracticeRunRecordsV7 } from "../db/practice-run-store-v7";
 import type { GitHubSettings } from "../../types/types";
 import { applyChangeSetToOwnedProjectionV7, finalizeRebasedProjectionV7, type ChangeSetProjectionV7 } from "./change-set-v7-projection";
 import {
@@ -99,8 +100,9 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     const remoteReplay = replayRemoteResilient(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
     let remoteProjection = filterProjectionHistoryV7(remoteReplay.projection, historySyncStart);
     if (historySyncStart) {
-      const activeRuns = await dbV7.practiceRuns.where("status").equals("in_progress").toArray();
-      if (activeRuns.length) {
+      const activeRunRecords = await dbV7.practiceRuns.where("status").equals("in_progress").toArray();
+      if (activeRunRecords.length) {
+        const activeRuns = await hydratePracticeRunRecordsV7(activeRunRecords);
         const activeIds = activeRuns.map((run) => run.id);
         const activeAttempts = await dbV7.attempts.where("runId").anyOf(activeIds).toArray();
         remoteProjection = filterProjectionHistoryV7(mergeActiveHistoryProjectionV7(remoteProjection, activeRuns, activeAttempts), historySyncStart);

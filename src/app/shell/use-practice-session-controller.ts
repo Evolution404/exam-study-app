@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { dbV7, createPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
+import { dbV7, createPracticeRunV7, getPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
 import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
 import type { BankV7 } from "@/lib/db/v7-types";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
@@ -23,6 +23,7 @@ import {
 } from "./helpers";
 import { removeDeletedQuestionFromSession } from "./shell-controller-model";
 import { preparePracticeStartQuestionsV7 } from "./practice-start-data";
+import { getReviewRoundV7 } from "@/lib/db/review-round-store-v7";
 
 interface PracticeSessionControllerOptions {
   view: View;
@@ -171,7 +172,7 @@ export function usePracticeSessionController({
   }, [activeRunExists, practiceSession, setNotice, setView, view]);
 
   async function discardSavedPractice(runId: string) {
-    const run = await dbV7.practiceRuns.get(runId);
+    const run = await getPracticeRunV7(runId);
     if (!run || run.status !== "in_progress") return;
     setDiscardedRun(run);
     await setPracticeRunStatus(run.id, "abandoned", run.answers);
@@ -190,7 +191,7 @@ export function usePracticeSessionController({
     if (viewRef.current !== "practice") return;
     const session = practiceSessionRef.current;
     if (!session) return;
-    const run = await dbV7.practiceRuns.get(session.runId);
+    const run = await getPracticeRunV7(session.runId);
     const currentSession = practiceSessionRef.current;
     if (viewRef.current !== "practice" || currentSession?.runId !== session.runId) return;
     if (!run) {
@@ -226,7 +227,7 @@ export function usePracticeSessionController({
   async function startPractice(filter: PracticeFilter) {
     let requestedBankIds = [...new Set(filter.bankIds)];
     if (filter.reviewRoundId) {
-      const round = await dbV7.reviewRounds.get(filter.reviewRoundId);
+      const round = await getReviewRoundV7(filter.reviewRoundId);
       if (!round || round.status !== "active") {
         setNotice("这条复习轮次已不存在或已结束，请重新选择。");
         return;
@@ -299,7 +300,7 @@ export function usePracticeSessionController({
   }
 
   async function resumePractice(runId?: string, preferredIndex?: number) {
-    const run = runId ? await dbV7.practiceRuns.get(runId) : latestPracticeRun;
+    const run = runId ? await getPracticeRunV7(runId) : latestPracticeRun;
     if (!run || run.status !== "in_progress" || !run.questionIds.length) {
       setNotice("没有可以继续的练习记录");
       return;
@@ -322,7 +323,7 @@ export function usePracticeSessionController({
   }
 
   async function abandonHistoryRun(runId: string) {
-    const run = await dbV7.practiceRuns.get(runId);
+    const run = await getPracticeRunV7(runId);
     if (!run || run.status !== "in_progress") return;
     await setPracticeRunStatus(runId, "abandoned", run.answers);
     if (practiceSession?.runId === runId) setPracticeSession(null);
