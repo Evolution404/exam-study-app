@@ -34,7 +34,7 @@ export function countsForHistoryState(
   };
 }
 
-export function cloneHistoryBaseState(full: SyncCheckpointState): Omit<SyncCheckpointState, "attempts" | "practiceRuns" | "practiceRunSources" | "practiceRunItems"> {
+function cloneHistoryBaseState(full: SyncCheckpointState): Omit<SyncCheckpointState, "attempts" | "practiceRuns" | "practiceRunSources" | "practiceRunItems"> {
   return {
     banks: structuredClone(full.banks),
     bankFolders: structuredClone(full.bankFolders),
@@ -55,7 +55,7 @@ export function chronologicalHistoryAttempts(items: readonly Attempt[]): Attempt
   return [...items].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
-export function chronologicalHistoryRuns(items: readonly PracticeRunRecord[]): PracticeRunRecord[] {
+function chronologicalHistoryRuns(items: readonly PracticeRunRecord[]): PracticeRunRecord[] {
   return [...items].sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
 }
 
