@@ -1,0 +1,33 @@
+name: Phase3 canonical fresh-state check
+on:
+  push:
+    branches: [refactor/database-projection-sync-v10-20260917]
+    paths: [.github/workflows/phase3-canonical-fresh-one-shot.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-projection-sync-v10-20260917
+      - name: Patch canonical-only fresh detection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/lib/db/db-reconcile.ts')
+          s=p.read_text()
+          old='''  const counts = await Promise.all([\n    studyDb.banks.count(), studyDb.bankFolders.count(), studyDb.questions.count(), studyDb.bankQuestionMemberships.count(),\n    studyDb.imageAssets.count(), studyDb.attempts.count(), studyDb.questionProgress.count(), studyDb.questionDailyProgress.count(),\n    studyDb.notes.count(), studyDb.practiceRuns.count(), studyDb.bankPracticeStats.count(), studyDb.questionGroups.count(),\n    studyDb.reviewRounds.count(), studyDb.reviewRoundProgress.count(), studyDb.tombstones.count(),\n  ]);\n'''
+          new='''  // Fresh-install mode is defined only by canonical facts. Local projection\n  // tables are disposable caches and may legitimately be empty on an otherwise\n  // populated device, so they must never influence install-mode selection.\n  const counts = await Promise.all([\n    studyDb.banks.count(), studyDb.bankFolders.count(), studyDb.questions.count(), studyDb.bankQuestionMemberships.count(),\n    studyDb.imageAssets.count(), studyDb.attempts.count(), studyDb.notes.count(), studyDb.practiceRuns.count(),\n    studyDb.questionGroups.count(), studyDb.reviewRounds.count(), studyDb.tombstones.count(),\n  ]);\n'''
+          if s.count(old)!=1: raise SystemExit('fresh detection block mismatch')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Commit and remove one-shot workflow
+        run: |
+          rm .github/workflows/phase3-canonical-fresh-one-shot.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/db/db-reconcile.ts .github/workflows/phase3-canonical-fresh-one-shot.yml
+          git commit -m "refactor: base fresh install detection on canonical facts"
+          git push origin HEAD:refactor/database-projection-sync-v10-20260917
