@@ -79,7 +79,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initializeSyncRemote(settings, token, progress, options); read = await client.readHead(); }
-  if (!read.initialized) throw new Error("无法初始化 v9 远端。当前客户端只支持 v9 远端数据。");
+  if (!read.initialized) throw new Error("无法初始化当前同步远端。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpoint["counts"] | undefined;
@@ -90,7 +90,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   let bands = syncBands((await listChangeSets(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);
-    report(progress, "download", cached ? "正在检查 v9 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
+    report(progress, "download", cached ? "正在检查同步热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
     let downloadSteps = 0;
     const downloaded = await downloadRemote(client, read.head, cached, (fraction, label) => {
       downloadSteps += 1;
@@ -343,7 +343,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "upload", "正在发布新版索引", bandPercent(bands.upload!, 0.72), bandPercent(bands.upload!, 0.8));
       const committed = await client.publish(plan);
       if (committed.ok) report(progress, "upload", "远端已接受本次变更", bandPercent(bands.upload!, 0.8), bandPercent(bands.upload!, 0.88));
-      if (!committed.ok) { await releaseChangeSetClaim(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v9 远端索引丢失。"); continue; }
+      if (!committed.ok) { await releaseChangeSetClaim(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("远端同步索引丢失。"); continue; }
       await commitChangeSetClaim(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
       // B3: reuse the already-validated rebasedProjection (createdAt order) rather
       // than re-replaying claim.records in wire/claim order — a tombstone-sensitive
