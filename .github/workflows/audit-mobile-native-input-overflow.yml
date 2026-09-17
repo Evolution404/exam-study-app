@@ -1,0 +1,33 @@
+name: Audit mobile native input overflow
+
+on:
+  push:
+    branches:
+      - fix/mobile-native-input-overflow-20260917
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/mobile-native-input-overflow-20260917
+          fetch-depth: 0
+      - name: Locate native date controls and overflow guards
+        run: |
+          echo '=== date/datetime/time inputs ==='
+          git grep -nE 'type="(date|datetime-local|time|month|week)"' -- 'src/**/*' || true
+          echo '=== grid tracks near date/range styles ==='
+          git grep -nE 'date-range|custom-range|grid-template-columns:.*1fr' -- 'src/**/*.css' || true
+          echo '=== browser overflow assertions ==='
+          git grep -nE 'scrollWidth|clientWidth|overflow' -- 'scripts/tests/browser/**/*.mjs' || true
+      - name: Remove one-shot audit workflow
+        run: |
+          git rm .github/workflows/audit-mobile-native-input-overflow.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: remove one-shot mobile overflow audit"
+          git push origin HEAD:fix/mobile-native-input-overflow-20260917
