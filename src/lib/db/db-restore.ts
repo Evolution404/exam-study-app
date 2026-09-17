@@ -4,7 +4,7 @@
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
 import type { RestoreState } from "./db-core";
-import { rebuildAllProjections } from "./projection-engine";
+import { rebuildProjectionsFromFacts } from "./projection-engine";
 import { decomposePracticeRun } from "./practice-run-store";
 
 export interface ChangeSetQueueGuard {
@@ -76,7 +76,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
   const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRun(run, state.attempts));
   // Projection tables are cleared in the canonical install transaction so no
   // stale derived rows survive a successful restore. They are populated only
-  // by rebuildAllProjections() after the canonical transaction commits.
+  // from the already materialized canonical snapshot after that transaction commits.
   const replaceTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
@@ -217,7 +217,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
 
   if (!restored) return false;
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "重建本地学习统计" });
-  await rebuildAllProjections();
+  await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
   return true;
 }
