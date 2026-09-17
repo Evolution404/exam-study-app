@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 let unusedExportsBudget = 104;
-let unusedTypesBudget = 36;
+let unusedTypesBudget = 33;
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
 const result = spawnSync(command, ["knip", "--include", "exports,types"], {
