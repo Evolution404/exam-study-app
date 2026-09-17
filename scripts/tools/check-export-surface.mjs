@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-let unusedExportsBudget = 104;
+let unusedExportsBudget = 103;
 let unusedTypesBudget = 33;
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -18,28 +18,29 @@ if (result.status !== 0 && result.status !== 1) {
 }
 
 const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-const count = (pattern) => Number(output.match(pattern)?.[1] ?? 0);
-const unusedExports = count(/Unused exports \((\d+)\)/);
-const unusedTypes = count(/Unused exported types \((\d+)\)/);
+const unusedExports = Number(/Unused exports \((\d+)\)/.exec(output)?.[1] ?? 0);
+const unusedTypes = Number(/Unused exported types \((\d+)\)/.exec(output)?.[1] ?? 0);
 
 if (unusedExports > unusedExportsBudget || unusedTypes > unusedTypesBudget) {
-  console.error(output.trim());
-}
-if (unusedExports > unusedExportsBudget) {
-  throw new Error(`Unused exports increased from budget ${unusedExportsBudget} to ${unusedExports}.`);
-}
-if (unusedTypes > unusedTypesBudget) {
-  throw new Error(`Unused exported types increased from budget ${unusedTypesBudget} to ${unusedTypes}.`);
+  process.stdout.write(output);
+  throw new Error(`Export budget exceeded: exports=${unusedExports}/${unusedExportsBudget}, types=${unusedTypes}/${unusedTypesBudget}. Remove obsolete exports instead of raising the budget.`);
 }
 
-if (unusedExports < unusedExportsBudget || unusedTypes < unusedTypesBudget) {
-  const selfPath = fileURLToPath(import.meta.url);
-  let self = fs.readFileSync(selfPath, "utf8");
-  self = self
-    .replace(/unusedExportsBudget = \d+;/, `unusedExportsBudget = ${unusedExports};`)
-    .replace(/unusedTypesBudget = \d+;/, `unusedTypesBudget = ${unusedTypes};`);
-  fs.writeFileSync(selfPath, self);
-  console.log(`Export budget ratchet tightened: exports=${unusedExports}, types=${unusedTypes}. Commit the updated baseline.`);
+let changed = false;
+if (unusedExports < unusedExportsBudget) {
+  unusedExportsBudget = unusedExports;
+  changed = true;
 }
-
+if (unusedTypes < unusedTypesBudget) {
+  unusedTypesBudget = unusedTypes;
+  changed = true;
+}
+if (changed) {
+  const file = fileURLToPath(import.meta.url);
+  const source = fs.readFileSync(file, "utf8")
+    .replace(/let unusedExportsBudget = \d+;/, `let unusedExportsBudget = ${unusedExportsBudget};`)
+    .replace(/let unusedTypesBudget = \d+;/, `let unusedTypesBudget = ${unusedTypesBudget};`);
+  fs.writeFileSync(file, source);
+  console.log(`Export budget ratchet tightened: exports=${unusedExportsBudget}, types=${unusedTypesBudget}. Commit the updated baseline.`);
+}
 console.log(`Export surface check passed: unused exports ${unusedExports}/${unusedExportsBudget}; unused exported types ${unusedTypes}/${unusedTypesBudget}.`);
