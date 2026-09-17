@@ -1,6 +1,6 @@
 # 项目交接文档
 
-> 更新时间：2026-09-17（Asia/Tokyo）
+> 更新时间：2026-09-18（Asia/Tokyo）
 > 仓库：`Evolution404/exam-study-app`
 > 当前工作方式：只使用 GitHub / 云端环境；不要连接用户 Mac。
 > 完整数据库重构基线见 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`。
@@ -9,21 +9,29 @@
 
 - Draft PR：#59 `refactor: rebuildable projections and canonical sync v10`
 - 分支：`refactor/database-projection-sync-v10-20260917`
-- base：PR #58 merge 后的 `main@0e74cb10d5ba469d0e501828523ea85cf30e05d9`
 - Phase 0–2：PR #58 已完成并合并。
-- Phase 3：已完成并收口。
-- Phase 4：已完成并在 `ab85baf` 上全门禁通过。
-- Phase 5：功能实现已完成，当前做最终 CI / 文档收口；checkpoint/history 已是 canonical-only。
-- Phase 6：下一阶段，一次性 Sync v9 → v10 converter；只允许 dry-run/shadow conversion，未经授权不得生产 cutover。
-- Phase 7–8：未开始。
+- Phase 3–5：projection engine、targeted read-model、canonical-only checkpoint/history 已完成。
+- Phase 6：一次性真实生产 v9 → v10 转换已完成；先 dry-run，再 head-last cutover。
+- Phase 7：旧 runtime v9 行为、版本号式 runtime 命名和一次性 converter 工具已清理；runtime 只识别当前 v10。
+- Phase 8：生产 v10 cutover 已完成；当前只剩最终 docs-only HEAD CI、PR #59 ready/merge 和正式发布/生产 smoke。
 
-**禁止回退到本文旧版本中的“Phase 3 未开始 / Phase 5 仍在设计”状态。** PR #59 当前代码和 CI 是事实基线。
+用户已明确授权：完成后合并 PR #59 并发布。不要再重复请求 cutover / merge / release 授权。
 
-未经用户明确授权：
+### 生产 cutover 事实基线
 
-- 不执行生产 remote cutover。
-- 不合并 `main`。
-- 不发布。
+- 真实 dry-run：PASS，使用 App commit `e43a8d21978952d231e9b499b208f8a37ef0a7b6`。
+- 生产 v9 source head：generation 907，blob SHA `35666d08c74a272e307915c82a0a1402a5f4c104`。
+- v10 head 已发布：formatVersion 10，generation 1。
+- v10 checkpoint：`sync/v10/checkpoints/8638bea95c74872834527b4a5ba44282fcde9b7ddaba542091d5ed57bd00df3b.json`。
+- 转换事实：10 banks / 3 bankFolders / 4,117 questions / 4,410 memberships / 9,706 attempts / 914 notes / 96 practiceRuns / 255 practiceRunSources / 13,068 practiceRunItems / 12 questionGroups / 105 questionGroupItems / 623 tombstones。
+- 历史：4,367 archived attempts，345 hot change sets 均已纳入。
+- 图片：320 imageAssets，indexedAssets=320；4 shards，引用 blob SHA 已逐项核对。
+- v9 namespace/head 完整保留，不删除、不覆盖；新 runtime 不再读取它。
+- 一次性 converter / remote reader / shadow cutover / asset shadow 工具与对应测试、npm scripts 已在 cutover 后删除，避免长期兼容技术债。
+
+### 本次真实数据暴露并修正的领域约束
+
+`Attempt.runId` 是历史归属 ID，不是 live `PracticeRun` 外键。正式 `deletePracticeRun()` 语义是删除练习投影但保留全局 Attempt 学习历史，并写 practiceRun tombstone。checkpoint validator 已据此修正；Attempt → Question、PracticeRunSource/Item → live PracticeRun 等真实约束仍保持严格。
 
 ## 1. 强制约束
 
@@ -185,46 +193,46 @@ Export surface 同步收紧：
 
 该 baseline 已在 `79e3237` 提交。确认最新 Governance 全绿后，Phase 5 可标记完成。
 
-## 6. Phase 6 要求：v9 → v10 一次性 converter
+## 6. Phase 6–8 收口
 
-Phase 5 全绿后立即进入，但只能做代码、测试和 dry-run/shadow conversion；未经用户授权不得写生产 v10 head。
+Phase 6–8 已完成实现和生产 cutover。
 
-### 强制实现边界
+### 一次性转换
 
-- converter 只能位于 `scripts/tools/` 或隔离实施代码；runtime 不得 import。
-- 读取 v9 remote 必须只读；先完整 hydrate 当前 v9 canonical projection。
-- 输出 v10 shadow data，不能覆盖/删除生产 v9 namespace。
-- converter 必须可重复执行、结果确定；失败后再次执行不能产生额外副作用。
-- 不允许 App runtime 同时理解 v9/v10；不保留 fallback reader、协议协商、旧 wire alias。
-- converter 成功不等于 cutover 获授权。
+- v9 reader/converter 仅在 `scripts/tools/` 隔离存在于实施阶段，runtime 从未 import。
+- 首次真实 dry-run 因 validator 错误要求 `Attempt.runId` 必须引用 live run 而 fail-closed；没有写 v10。
+- 核对正式删除语义后，补回归并修正 validator：已删除 PracticeRun 的 Attempt 仍是合法全局学习历史。
+- 修复后全 CI PASS，再次真实 dry-run PASS。
+- 正式 cutover 使用相同 App commit，先 stage/回读验证 immutable v10 数据和 Asset packs，最后 CAS 发布 `sync/v10/head.json`。
+- cutover 后再次核对 checkpoint / asset shard Git blob SHA 与 descriptor 一致。
+- 一次性转换代码已退役删除，不形成历史 compatibility layer。
 
-### dry-run 必须核对的不变量
+### Phase 7 技术债
 
-- question ID / fingerprint。
-- bank / membership。
-- Attempt ID、总数、按 question/run/round 归属。
-- practice run ID、状态、source/item 关系。
-- review round / bank / item 关系。
-- note / group / group item。
-- image asset ID / size descriptor。
-- tombstone/cursor 必要一致性。
-- lifetime / 90d / review-round 指标 old-vs-new differential。
+已完成：
 
-任何 mismatch 都必须 fail closed；不得靠 fallback 或兼容层继续。
+- runtime `sync/v9` 行为残留清零。
+- runtime sync protocol 常量统一由当前协议常量驱动；测试不再硬编码旧 namespace。
+- 旧 PracticeRun 大对象、derived wire、runtime v9 fallback/dual-read 均没有恢复。
+- converter/asset-shadow/remote-reader/shadow-cutover 一次性实施代码已在成功 cutover 后删除。
+- Dexie 仍只有 `version(1)`。
 
-## 7. Phase 7–8
+### Phase 8 最终状态
 
-Phase 7：删除剩余旧结构、旧命名和兼容技术债，并加强 architecture guards。重点包括：
+已完成：
 
-- 旧 PracticeRun 大对象持久化/转换残余。
-- `practiceRunActivity` 残余。
-- canonical/sync 身份的 derived stats/progress 残余。
-- `attemptRoundIds` 残余。
-- derived checkpoint validator/counts/bridge 残余。
-- 旧 reader/helper 与版本号式业务命名。
-- 加门禁阻止旧 wire/store/API/compatibility 结构重新出现。
+- `make test`：PASS（真实 cutover 前最终 runtime commit）。
+- Chromium browser smoke：PASS。
+- WebKit browser smoke：PASS。
+- Sync storage CI：PASS。
+- Governance Audit：PASS。
+- PR Preview：PASS。
+- 生产 dry-run：PASS。
+- 生产 v10 cutover：PASS。
+- v10 checkpoint / Asset index 引用完整性：PASS。
+- v9 备份 namespace：保留。
 
-Phase 8：最终全量验证、converter dry-run/cutover、发布和生产 smoke。只有用户明确授权后才能执行生产 cutover / merge / release。
+剩余动作仅为：本次 docs/retired-tool 清理后的最终 CI → 将 PR #59 标记 ready → merge main → 触发正式发布并核对生产 smoke。
 
 ## 8. 关键架构边界
 
@@ -238,13 +246,13 @@ Phase 8：最终全量验证、converter dry-run/cutover、发布和生产 smoke
 
 ### Sync
 
-当前生产事实仍是 Sync v9。PR #59 的目标是一次性切到 Sync v10；在 cutover 前不要把半套 v10 发布到生产。
+当前生产事实已经是 Sync v10；`sync/v10/head.json` 已完成 head-last cutover。v9 namespace 仅作为不可变历史备份保留，新 runtime 不读取 v9。
 
 运行时代码不允许通过“为了兼容”同时支持 v9/v10。
 
 ### Git / CI
 
-- 保持 PR #59 Draft，直到 Phase 5–8 与最终验收完成。
+- PR #59 的 Phase 5–8 与生产 cutover 已完成；待本次 docs/retired-tool 最终 CI 全绿后标记 ready 并合并。
 - 每个阶段拆小 commit。
 - GitHub CI 是云端验证基线；不要连接用户 Mac。
 
