@@ -126,7 +126,7 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 }
 
 for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
-  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-engine)?|github-credentials|github-remote|change-set(?:-queue)?|sync-[^"']+)["']/.test(source)) {
+  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-engine)?|github-credentials|github-remote|change-set(?:-queue)?|sync-(?!application["']|runtime["'])[^"']+)["']/.test(source)) {
     fail(`${file} 不得直接依赖同步实现；请通过 sync-application / sync-runtime`);
   }
 }
