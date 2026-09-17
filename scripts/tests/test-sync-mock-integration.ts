@@ -178,9 +178,9 @@ try {
   }
 
   // --- Scenario 6: oversized practice run offloads to an immutable ref -----
-  // Reproduces the reported "v7 event exceeds 262144 UTF-8 bytes" crash: a run
-  // over a large bank carries thousands of answers in one change-set, far past
-  // the 256 KiB inline ceiling. It must be offloaded, not rejected.
+  // Reproduces the reported oversized event crash: a run over a large bank
+  // used to carry thousands of answers in one change-set, far past the 256 KiB
+  // inline ceiling. It must be offloaded, not rejected.
   {
     server.reset();
     await freshClient("device-a");
