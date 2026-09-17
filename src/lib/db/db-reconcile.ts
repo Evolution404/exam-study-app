@@ -468,7 +468,16 @@ export async function reconcileProjection(
     latestActivityAt: row.latestUpdatedAt,
   }));
   const practiceStatsPlan = await makePlan(studyDb.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);
-  const questionGroupRecords = state.questionGroups.map(({ items: _items, ...group }) => group);
+  const questionGroupRecords = state.questionGroups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    type: group.type,
+    description: group.description,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    deviceId: group.deviceId,
+    ...(group.syncEventId !== undefined ? { syncEventId: group.syncEventId } : {}),
+  }));
   const questionGroupItems = state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
     groupId: group.id,
     questionId: item.questionId,
@@ -509,7 +518,16 @@ export async function reconcileProjection(
       compoundKeyFromSyncKey,
     );
   }
-  const reviewRoundRecords = state.reviewRounds.map(({ bankIds: _bankIds, finalQuestionIds: _finalQuestionIds, ...round }) => round);
+  const reviewRoundRecords = state.reviewRounds.map((round) => ({
+    id: round.id,
+    name: round.name,
+    startedAt: round.startedAt,
+    status: round.status,
+    createdAt: round.createdAt,
+    updatedAt: round.updatedAt,
+    deviceId: round.deviceId,
+    ...(round.completedAt !== undefined ? { completedAt: round.completedAt } : {}),
+  }));
   const reviewRoundBanks = state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({ roundId: round.id, bankId, position })));
   const reviewRoundItems = state.reviewRounds.flatMap((round) => (round.finalQuestionIds ?? []).map((questionId, position) => ({ roundId: round.id, questionId, position })));
   const roundPlan = await makePlan(studyDb.reviewRounds, reviewRoundRecords, (row) => row.id, dirty?.reviewRounds);
