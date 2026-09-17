@@ -502,7 +502,7 @@ await resetDatabase();
   assert.match(exportDialogSource, /studyDb\.imageAssets\.bulkGet\(ids\)/, "UI 导出应先批量读取当前题库图片 descriptor");
   assert.match(exportDialogSource, /syncApplication\.downloadImageAssets\(missingIds\)/, "UI 导出遇到缓存缺失时必须通过同步边界一次批量补回图片");
   assert.match(exportDialogSource, /collectImageAssetIds\(questions\)/, "UI 导出只应解析当前题库实际引用的图片");
-  assert.doesNotMatch(exportDialogSource, /loadImageAsset/, "UI 导出不得回退为逐图远端解析");
+  assert.doesNotMatch(exportDialogSource, /\bloadImageAsset\b/, "UI 导出不得回退为逐图远端解析");
   assert.match(exportDialogSource, /if \(missing\.length\) throw new Error/, "仍有缺图时必须取消导出，不能生成不完整 Excel");
   assert.match(exportDialogSource, /target: "bundle"/, "便携 ZIP 必须走保留原图的收集路径");
   assert.match(exportDialogSource, /questionPortableExportFormat\(questions\)/, "UI 必须复用可单测的 JSON/ZIP 决策规则");
