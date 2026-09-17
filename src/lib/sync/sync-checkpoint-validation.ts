@@ -339,7 +339,8 @@ function validateCanonicalState(state: SyncCheckpointState): void {
     assertEntityId(attempt.id, `state.attempts[${index}].id`);
     assertEntityId(attempt.runId, `state.attempts[${index}].runId`);
     assertEntityId(attempt.questionId, `state.attempts[${index}].questionId`);
-    if (!runs.has(attempt.runId)) fail(`state.attempts[${index}] references missing run ${attempt.runId}`);
+    // runId is durable historical attribution, not a live foreign key. Deleting a
+    // PracticeRun intentionally preserves Attempts and records a practiceRun tombstone.
     if (!questions.has(attempt.questionId)) fail(`state.attempts[${index}] references missing question ${attempt.questionId}`);
     assertString(attempt.selected, `state.attempts[${index}].selected`, true);
     if (typeof attempt.correct !== "boolean") fail(`state.attempts[${index}].correct must be boolean`);
