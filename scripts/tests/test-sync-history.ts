@@ -32,7 +32,7 @@ const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest(
 const server = await startMockGitHubServer({ cas: true });
 try {
   await resetDatabase();
-  const bank = await createBank("v8 历史归档测试");
+  const bank = await createBank("历史归档测试");
   const question = await createQuestion(bank.id, {
     type: "单选",
     stem: "历史归档是否保持完整恢复？",
@@ -87,8 +87,8 @@ try {
   assert.equal(full.state.attempts.length, 8);
   assert.equal(full.state.practiceRuns.length, 4);
 
-  const vaultId = "qa/v8-history@main";
-  const client = createGitHubRemote({ owner: "qa", repo: "v8-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
+  const vaultId = "qa/history@main";
+  const client = createGitHubRemote({ owner: "qa", repo: "sync-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
   const bounded = await createRemoteHistoryCheckpoint(client, full, { recentAttemptLimit: 2, recentPracticeRunLimit: 1, chunkCount: 2 });
   validateRemoteHistoryCheckpoint(bounded);
   assert.equal(bounded.formatVersion, 9);
@@ -134,7 +134,7 @@ try {
     vaultId,
     generatedAt: "2026-02-01T00:00:00.000Z",
     generation: 1,
-    metadata: { vaultId, deviceId, producer: "v8-history-test" },
+    metadata: { vaultId, deviceId, producer: "history-test" },
     checkpoint: checkpointDescriptor,
     segments: [],
     cursors: {},
@@ -155,7 +155,7 @@ try {
   assert.ok(bounded.history.index && afterGc.includes(bounded.history.index.path), "current history index remains reachable");
   assert.ok(afterGc.length > 1, "current archive chunks remain reachable");
 
-  console.log("sync v8 history tests passed: bounded checkpoint, full hydration, derived-stat rebuild and dedicated history GC");
+  console.log("sync history tests passed: bounded checkpoint, full hydration, derived-stat rebuild and dedicated history GC");
 } finally {
   await server.close();
   studyDb.close();
