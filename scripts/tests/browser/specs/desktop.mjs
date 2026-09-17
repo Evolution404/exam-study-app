@@ -322,7 +322,7 @@ export async function runDesktop(page, mockServer) {
   harness.assert.ok(hotValues.some((text) => /^\d+$/.test(text)), "hot-window event count must be shown after a real sync");
   harness.assert.ok(hotValues.some((text) => /\d{2}\/\d{2} \d{2}:\d{2}/.test(text)), "last sync time must be shown after a real sync");
   await helpers.capture(page, contextName, "sync-hot-window");
-  harness.assert.ok(mockServer.contentPaths().includes("sync/v9/head.json"), "mock backend must hold the v8 head after a real sync");
+  harness.assert.ok(mockServer.contentPaths().includes("sync/v9/head.json"), "mock backend must hold the current head after a real sync");
   harness.assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v9/checkpoints/")), "mock backend must hold the initial checkpoint");
   // 统一悬浮提示：检查点体积格以鼠标第一次悬浮的位置为中心弹出，格内移动不跟随，离开即关闭。
   const volumeCell = hotWindow.locator("div").filter({ hasText: "检查点体积" }).locator("dd");

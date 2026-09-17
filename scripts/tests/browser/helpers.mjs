@@ -182,8 +182,8 @@ export async function answerCurrentQuestion(page, optionIndexes, confirm = false
 }
 
 export async function pendingEventCount(page) {
-  // Pending change-sets (state pending|blocked) are the new sync queue; the v7
-  // event log no longer exists.
+  // Pending change-sets (state pending|blocked) are the current sync queue;
+  // the historical event log no longer exists.
   return page.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open("shijuan-study");
     request.onerror = () => reject(request.error);

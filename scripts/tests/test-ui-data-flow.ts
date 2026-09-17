@@ -17,7 +17,7 @@ const stats = [{ questionId: "old", total: 1, latestAttemptAt: "2026-01-01T00:00
 assert.equal(isQuestionDoneInScope("old", scope, stats, [], now), false, "rolling 90 应排除窗口外作答");
 assert.equal(isQuestionDoneInScope("new", scope, stats, [], now), true, "rolling 90 应保留窗口内作答");
 assert.equal(classifyNoticeTone("同步完成：上传 2 条"), "success", "同步成功提示应使用成功色");
-assert.equal(classifyNoticeTone("invalid v7 checkpoint: missing run"), "error", "同步错误提示应使用错误色");
+assert.equal(classifyNoticeTone("invalid checkpoint: missing run"), "error", "同步错误提示应使用错误色");
 assert.equal(classifyNoticeTone("同步失败，请检查网络"), "error", "中文同步错误提示应使用错误色");
 
 const sharedIds = ["q1", "q1", "q2", "q2", "q3"];
@@ -158,7 +158,7 @@ const dashboardView = source("shell/views/dashboard.tsx");
 assert.match(shellHelpers, /resumeIndexAfterLastAnswer/);
 assert.match(shellHelpers, /savePracticeProgress/);
 assert.match(shellHelpers, /recordPracticeAnswer/);
-assert.equal((shellHelpers.match(/recordPracticeAnswer\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 v7 record API");
+assert.equal((shellHelpers.match(/recordPracticeAnswer\(/g) ?? []).length, 1, "答题持久化入口只应调用一次 record API");
 assert.match(shellHelpers, /progressScope: \{ type: "rolling", days: 90 \}/);
 assert.match(dashboardController, /buildScopedQuestionStats/, "Dashboard controller 应集中计算首页区间统计");
 assert.match(dashboardController, /studyDb\.bankQuestionMemberships\.where\("bankId"\)\.anyOf\(activeBankIds\)\.toArray\(\)/, "首页进度只需要 membership questionId，不得为进度数字 materialize 完整题目视图");
@@ -250,4 +250,4 @@ assert.match(topbar, /<QuickSearch /, "顶部栏应使用 QuickSearch 组件");
 assert.doesNotMatch(study, /<QuickSearch /, "AppShell 不应再直接承载顶部搜索输入框");
 assert.doesNotMatch(study, /value=\{query\}/, "AppShell 不应再直接受控渲染顶部搜索输入框");
 
-console.log("v7 UI/data-flow assertions passed");
+console.log("UI/data-flow assertions passed");
