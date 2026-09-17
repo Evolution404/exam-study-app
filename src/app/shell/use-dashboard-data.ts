@@ -7,7 +7,7 @@ import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgres
 import { syncApplication } from "@/lib/sync/sync-application";
 import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
 import { loadSelectedBankIds, type PracticePreferences, type View } from "./helpers";
-import { readDashboardScopedRowsV7 } from "./dashboard-read-data";
+import { readDashboardScopedRowsV7, summarizeDashboardLifetimeStatsV7 } from "./dashboard-read-data";
 import { summarizeDashboardRows } from "./shell-controller-model";
 
 export function useDashboardData(view: View, preferences: PracticePreferences) {
@@ -81,14 +81,16 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
       : await dbV7.questions.toCollection().primaryKeys();
     if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
     const referenceTime = Date.now();
-    const { attempts, roundProgress, notes } = await readDashboardScopedRowsV7(
+    const { attempts, attemptStats, roundProgress, notes } = await readDashboardScopedRowsV7(
       questionIds,
       normalizedProgressScope,
       referenceTime,
       { allQuestions: activeBankIds.length === 0 },
     );
     const questionIdSet = new Set(questionIds);
-    const summary = summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
+    const summary = normalizedProgressScope.type === "lifetime"
+      ? summarizeDashboardLifetimeStatsV7(attemptStats)
+      : summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
     return {
       questions: questionIds.length,
       attempts: summary.attempts,
