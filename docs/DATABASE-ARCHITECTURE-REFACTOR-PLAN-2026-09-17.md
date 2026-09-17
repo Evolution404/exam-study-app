@@ -411,6 +411,7 @@ install canonical checkpoint
 - architecture guard 已加入 version-neutral 命名门禁，并继续强制单一 Dexie `version(1)`、禁止 `.upgrade()` 与历史 schema compatibility。
 - Sync v9 仍是当前真实 remote wire；`sync/v9/...` / `formatVersion: 9` 不改写成业务名称，也不作为兼容层。
 - Phase 2 最终验收要求：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 在同一最新 HEAD 全绿。
+- 已验证代码基线 `1402459`：上述全部门禁通过，依赖审计 0 vulnerabilities；后续仅允许文档性收尾，仍不得进入 Phase 3。
 
 > **STOP：Phase 3 尚未开始。等待用户明确授权后才能继续。**
 

@@ -18,6 +18,7 @@
 - `V7/v7/V8/v8` 业务 API、type、source filename 与旧 runtime/test 标签已清理；`scripts/tools/check-architecture.mjs` 负责阻止重新引入。真实 Sync v9 wire 继续保留。
 - iOS 原生偏好键已改为 version-neutral `CapacitorStorage.study-preferences`；同步 CI/package scripts 已切换到 version-neutral 名称。
 - PR CI 的主测试 job 直接执行 `make test`；Chromium/WebKit 浏览器 smoke、Sync storage CI、Governance Audit、PR Preview 都是 Phase 2 最终门禁的一部分。
+- 2026-09-17 Phase 2 代码验收基线 `1402459`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部通过；依赖审计为 0 vulnerabilities。
 - **停止线：Phase 3 尚未开始。除非用户明确授权，不实现 projection engine 后续阶段，不合并 PR #58，不发布。**
 
 ## 1. 当前基线
