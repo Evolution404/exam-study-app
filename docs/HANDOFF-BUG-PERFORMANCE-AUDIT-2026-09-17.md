@@ -5,7 +5,8 @@
 - 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 - 当前分支：`audit/bug-performance-20260917`
 - 基线：`main` / `origin/main` 的 PR #55 合并提交 `694cb5ecb2edb4eab55da50eaa50af2640a61a61`
-- 本轮已验证修复提交：`f464ac7`（`fix: harden audit data correctness paths`）
+- 当前审计 HEAD：`0b5fb42`；相对 `origin/main` 为 8 commits ahead / 0 behind。
+- 本轮新增提交：`dea35eb`、`da9b581`、`c53c87d`、`1b87792`、`91b1eae`、`0b5fb42`，均已 push。
 - 禁止 `git reset` / `git clean`；接手先检查工作区，不要覆盖后续新增 WIP。
 - 本轮目标：继续审计真实 Bug、数据一致性、并发竞态和规模级性能热点；测试先行，小提交推进。不要为了“代码更快”改变统计、同步恢复或数据完整性语义。
 - 数据库策略仍是唯一 Dexie `version(1)`；所有客户端统一升级、必要时清空本地后从远端重建，禁止新增 `.upgrade()`、历史 schema migration 或旧客户端兼容层。
@@ -79,41 +80,56 @@
 涉及：
 - `scripts/tests/browser/specs/history.mjs`
 
-## 已完成验证
+## 第二阶段已完成
 
-以下在本轮修改后已通过：
+### 6. 批量题目属性更新改为单事务 bulk upsert
 
-- `npm run test:v7-ui`
-- `npm run test:search-filters`
-- headless Browser QA：`search(6) + history(12)`
-- `npm run test:pwa`
-- `npm run test:db-v7`（包含 R5 update/delete 原子事务回归）
-- `npm run typecheck`
+新增 `updateQuestionsV7`，搜索批量收藏/加标签、知识整理标签重命名/删除不再执行 `N * updateQuestionV7`。整批在同一 `questions/changeSets/syncMeta` 事务内读取最新题目、验证全部存在、计算新状态、`bulkPut`，并只产生一条 `question.bulk.upsert` change set；任一题缺失时整批失败，不产生半更新。
 
-尚未在最新全部改动上跑：
+提交：`dea35eb perf: batch question property updates`。
 
-- `npm run test:fast`
-- 全量 headless Browser QA
-- PWA production smoke / build
-- code-size / export-surface / architecture 全量治理检查（应在准备 PR 前执行）
+### 7. 破坏性写入与解析/题组写入竞态已封口
 
-## 下一步审计优先级
+已事务化：
+- `deleteQuestionsV7`：在取得写事务后确定待删题、membership、pending/blocked change set 与级联对象；事务显式覆盖 `questionGroups`、`syncMeta`。
+- `deletePracticeRunV7`：事务内重读最新 run，再依据最新答案状态决定是否写 tombstone / 删除事件。
+- `saveNoteV7`：事务内读取旧 note 并递增 revision，避免并发自动保存拿到同一 revision。
+- `saveQuestionGroupV7`：题目存在校验、构造题组、写入与 change set 原子提交，避免删题窗口留下悬空引用。
+- `deleteBankFolderV7` / `deleteBankV7`：事务内读取 folder/bank、关联 bank/membership/run，并在同一事务分配 sequence，避免并发新增/移动对象漏级联。
 
-1. **批量题目更新性能**：
-   - `src/app/search/search-view.tsx` 的“批量收藏 / 批量加标签”；
-   - `src/app/bank/knowledge-view.tsx` 的标签重命名/删除；
-   - 当前都是 `Promise.all(N * updateQuestionV7)`，即 N 个 IndexedDB 事务 + N 条 `question.upsert` change set。
-   - Sync mutation 已支持 `question.bulk.upsert`，优先设计一个原子 `updateQuestionsV7` / bulk patch API；必须测试一批题只产生一条 bulk change set，且任一题缺失时不要半更新。
+提交：`da9b581`、`c53c87d`、`91b1eae`。
 
-2. **继续审计 DB 写事务原子性**：
-   - `db-v7-question-core.ts`、`db-v7-question-delete.ts`、`db-v7-bank.ts`、`db-v7-question-notes-groups.ts` 还有多处在事务外 `nextV7Sequence()` 或先读后写；
-   - 项目约束是领域写 + `syncMeta` + change set 同事务，先区分“允许 sequence gap 的设计”与真正会造成陈旧写复活/半提交的路径，不要机械重构。
+### 8. 练习历史规模问题已解决
 
-3. **练习历史列表规模问题**：
-   - `PracticeHistory` 仍 `practiceRuns.toArray()` 后按 `runActivityAt()` 排序；
-   - 之前没有直接换 `updatedAt`，因为 `runActivityAt()` 语义不同。若要优化，应先证明可建立等价可索引 activity 字段，不能偷偷改变排序口径。
+新增仅本机派生表 `practiceRunActivity`，保存 `runId/status/activityAt`，其中 `activityAt` 继续严格使用 `runActivityAt()` 语义；该表不进入远端 checkpoint/change set，不改变同步 wire。
 
-4. **全表 / N×M 扫描继续筛查**：只处理会随题量、历史量明显增长的真实热点；图片 Asset Pack 自愈、checkpoint/bootstrap 全投影等正确性路径不要为了消掉 `toArray()` 而削弱。
+历史页改为按 `[status+activityAt]` / `activityAt` 索引分页读取；10,000+ 历史记录性能测试中首屏只 materialize 50 条 run，不再 `practiceRuns.toArray()` 全量排序。所有 run 写入/删除统一走 activity-index helper，并有源码门禁阻止未来绕过 helper。restore/reconcile 会从当前 run 重新构建派生索引。
+
+提交：`1b87792 perf: page practice history by activity index`。
+
+### 9. 门禁发现并修正一个非法当前测试夹具
+
+`test-sync-mock-integration.ts` 的超大练习场景手工构造 `status=completed` 却没有 `completedAt`。生产领域逻辑本身会写 `completedAt`；未增加兼容 fallback，只修正当前测试夹具以满足当前领域不变量。
+
+提交：`0b5fb42 test: complete synced run fixture`。
+
+## 最终验证状态
+
+最新 HEAD `0b5fb42` 已完成：
+
+- `make test`：PASS。完整构建 + `test:fast` 全绿；测试汇总 **84 成功 / 0 失败**；typecheck、ESLint、Stylelint、dead-code、架构门禁、Safari IndexedDB、同步集成/故障恢复、checkpoint、PWA、iOS 发布流程断言全部通过。
+- `make test-browser-headless`：PASS。Browser QA：`desktop(22), topbar-mobile(1), select-toggle-mobile(1), mobile(11), management(20), review(5), search(6), search-pin(2), history(12), practice-combo(3), inflight(5), sync-refresh(3), dark(4), dark-editor-selection(1)`。
+- Browser QA artifact：`artifacts/browser-qa/2026-09-17T01-20-13-298Z`。
+- 工作区 clean；本地 HEAD == `origin/audit/bug-performance-20260917`；相对 `origin/main`：0 behind / 8 ahead。
+
+## 后续审计候选
+
+本轮优先项（批量更新、DB 写竞态、练习历史规模）已经完成。后续若继续审计，按真实收益排序：
+
+1. 继续筛查会随题量/历史量明显增长的全表或 N×M 读取；只处理可证明的热点。
+2. 对剩余“事务外先读后写”路径逐一判断是否会造成陈旧写、漏级联或半提交；允许 sequence gap 的路径不要机械改写。
+3. 不要为了消除 `toArray()` 去削弱 checkpoint/bootstrap、Asset Pack 自愈等正确性路径。
+4. 继续保持当前单一 Dexie `version(1)` 策略，不新增历史 schema、migration 或旧客户端兼容层。
 
 ## 交接纪律
 
@@ -121,4 +137,4 @@
 - 不要 reset/clean。
 - 先跑当前定向测试确认 WIP，再继续审计。
 - 每个真实问题先补能在旧实现失败的回归，再修代码。
-- 小 commit、及时 push；当前分支尚未创建 PR、尚未合并、尚未发布。
+- 小 commit、及时 push；截至 `0b5fb42` 工作区 clean、完整门禁和 headless QA 全绿，适合创建 PR；尚未合并、尚未发布。
