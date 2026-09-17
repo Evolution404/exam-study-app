@@ -1,0 +1,40 @@
+name: Phase 2 architecture lint fix
+
+on:
+  push:
+    branches:
+      - refactor/database-facts-projections-20260917
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-facts-projections-20260917
+          fetch-depth: 0
+      - name: Remove redundant regex escape
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/tools/check-architecture.mjs')
+          text = path.read_text()
+          old = r'if (/message:\s*[`\'\"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");'
+          new = r'if (/message:\s*[`\'"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one architecture regex occurrence, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit fix and remove one-shot workflow
+        run: |
+          git rm .github/workflows/phase2-architecture-lint-fix.yml
+          git add scripts/tools/check-architecture.mjs
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: fix architecture guard lint"
+          git push origin HEAD:refactor/database-facts-projections-20260917
