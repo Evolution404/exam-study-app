@@ -7,7 +7,7 @@ import { isBankEnabled } from "../../src/lib/db/types";
 
 assert.equal(isBankEnabled({}), true, "旧题库缺少 enabled 字段时必须默认启用");
 assert.equal(isBankEnabled({ enabled: true }), true);
-assert.equal(isBankEnabled({ enabled: false }), false;
+assert.equal(isBankEnabled({ enabled: false }), false);
 
 const scope = normalizeProgressScope(undefined);
 assert.deepEqual(scope, { type: "rolling", days: 90 }, "默认进度口径必须是 rolling 90");
