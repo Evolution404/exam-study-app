@@ -34,11 +34,16 @@ const attempt = (id: string, createdAt: string): Attempt => ({
   createdAt,
   deviceId: "bank-detail-perf",
 });
+const unrelatedRecentAttempts = Array.from({ length: 2_000 }, (_, index) => ({
+  ...attempt(`unrelated-recent-${index}`, recentAt),
+  questionId: `unrelated-recent-question-${index}`,
+}));
 await studyDb.attempts.bulkPut([
   ...Array.from({ length: 1_000 }, (_, index) => attempt(`old-${index}`, oldAt)),
   attempt("recent-1", recentAt),
   attempt("recent-2", recentAt),
   attempt("recent-3", recentAt),
+  ...unrelatedRecentAttempts,
 ]);
 await studyDb.questionProgress.put({
   questionId: question.id,
@@ -102,8 +107,8 @@ studyDb.practiceRuns.hook("reading", runHook);
 const rolling = await scopedReader(bank, { type: "rolling", days: 90 }, referenceTime);
 studyDb.attempts.hook("reading").unsubscribe(attemptHook);
 studyDb.practiceRuns.hook("reading").unsubscribe(runHook);
-assert.equal(rolling.attempts.length, 3, "滚动统计只需要窗口内 attempts");
-assert.equal(attemptReads, 3, "1,000 条窗口外历史不得被题库详情 materialize");
+assert.equal(rolling.attempts.length, 3, "滚动统计只需要窗口内当前题库 attempts");
+assert.equal(attemptReads, 3, "窗口外历史和同窗口 2,000 条无关题目 attempts 都不得被题库详情 materialize");
 assert.equal(rolling.runs.length, 5, "题库详情只需要最近 5 条练习记录");
 assert.equal(runReads, 5, "1,000 条历史 run 不得被题库详情全部 materialize");
 
@@ -144,4 +149,4 @@ assert.equal(round.roundProgress.length, 1, "轮次统计只需要当前轮次 p
 assert.equal(roundReads, 1, "其他轮次 progress 不得被题库详情 materialize");
 
 await studyDb.close();
-console.log("bank detail read performance tests passed: scoped reads avoid full attempt and round history scans");
+console.log("bank detail read performance tests passed: scoped reads avoid unrelated time-window attempts and full history scans");
