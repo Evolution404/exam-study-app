@@ -10,7 +10,7 @@ import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projecti
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-const vaultId = "qa/v7-gc@main";
+const vaultId = "qa/gc@main";
 const deviceId = "device-a";
 
 // The reducer projection intentionally exposes an internal table-name alias.
@@ -41,7 +41,7 @@ assert.equal("attemptRoundIds" in canonicalCheckpoint.state, false, "checkpoint 
 
 const server = await startMockGitHubServer({ cas: true });
 try {
-  const client = createGitHubRemote({ owner: "qa", repo: "v7-gc", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
+  const client = createGitHubRemote({ owner: "qa", repo: "sync-gc", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
 
   async function checkpoint(label: string, generation: number): Promise<SyncDescriptor> {
     const bytes = new TextEncoder().encode(JSON.stringify({ label, generation }));
@@ -112,7 +112,7 @@ try {
   assert.deepEqual(new Set(checkpointPaths), new Set([c1.path, c2.path]), "previous checkpoint must survive ordinary appends until the next compaction");
   assert.deepEqual(new Set(segmentPaths), new Set([s2.path, s3.path]), "segment grace window advances one head generation at a time");
 
-  console.log("sync v7 GC tests passed: canonical checkpoint schema, post-CAS pruning, two-checkpoint retention, segment grace window and append safety");
+  console.log("sync GC tests passed: canonical checkpoint schema, post-CAS pruning, two-checkpoint retention, segment grace window and append safety");
 } finally {
   await server.close();
 }
