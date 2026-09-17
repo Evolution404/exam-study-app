@@ -33,9 +33,7 @@ jobs:
           once('import { studyDb } from "./db-core";\n', 'import { studyDb } from "./db-core";\nimport { rebuildAllProjections } from "./projection-engine";\n')
 
           once('''  const attemptStatsPlan = await makePlan(studyDb.questionProgress, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);\n  const dailyStatsPlan = await makeCompoundPlan(\n    studyDb.questionDailyProgress,\n    state.attemptDailyStats,\n    (row) => [row.date, row.questionId],\n    (row) => row.key,\n    dirty?.attemptDailyStats,\n  );\n''', '')
-
           once('''  const bankPracticeStats = state.practiceRunStats.map((row) => ({\n    bankId: row.bankId,\n    total: row.total,\n    completed: row.completed,\n    inProgress: row.inProgress,\n    abandoned: row.abandoned,\n    latestActivityAt: row.latestUpdatedAt,\n  }));\n  const practiceStatsPlan = await makePlan(studyDb.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);\n''', '')
-
           once('''  const roundProgressPlan = await makeCompoundPlan(\n    studyDb.reviewRoundProgress,\n    state.reviewRoundProgress,\n    (row) => [row.roundId, row.questionId],\n    (row) => row.key,\n    dirty?.reviewRoundProgress,\n  );\n''', '')
 
           for term in [
@@ -47,7 +45,6 @@ jobs:
               once(term, '')
 
           once('''    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress,\n    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems,\n    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress, studyDb.tombstones, studyDb.changeSets,\n''', '''    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,\n    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,\n    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets,\n''')
-
           once('  return studyDb.transaction("rw", transactionTables, async () => {\n', '  const reconciled = await studyDb.transaction("rw", transactionTables, async () => {\n')
 
           for line in [
@@ -58,8 +55,8 @@ jobs:
           ]:
               once(line, '')
 
-          tail = '''  });\n}'''
-          replacement = '''  });\n\n  if (!reconciled) return false;\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });\n  await rebuildAllProjections();\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });\n  return true;\n}'''
+          tail = '  });\n}\n'
+          replacement = '''  });\n\n  if (!reconciled) return false;\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });\n  await rebuildAllProjections();\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });\n  return true;\n}\n'''
           if not s.endswith(tail):
               raise SystemExit('unexpected reconcile tail')
           s = s[:-len(tail)] + replacement
