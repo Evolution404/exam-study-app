@@ -1,4 +1,4 @@
-import type { ContentBlock, ImageContentBlock, QuestionV7, TextContentBlock } from "../db/v7-types";
+import type { ContentBlock, ImageContentBlock, Question, TextContentBlock } from "../db/types";
 
 export interface TextSelection {
   start: number;
@@ -6,10 +6,10 @@ export interface TextSelection {
 }
 
 export interface QuestionContentFingerprintInput {
-  type: QuestionV7["type"];
+  type: Question["type"];
   content: readonly ContentBlock[];
   options: readonly (readonly ContentBlock[])[];
-  solution: QuestionV7["solution"];
+  solution: Question["solution"];
 }
 
 const encoder = new TextEncoder();
@@ -176,7 +176,7 @@ function sha256(bytes: Uint8Array): string {
  * favorite state intentionally do not participate, so the same question can
  * be shared by multiple banks without duplicate content objects.
  */
-export function questionContentFingerprint(input: QuestionContentFingerprintInput | QuestionV7): string {
+export function questionContentFingerprint(input: QuestionContentFingerprintInput | Question): string {
   return sha256(encoder.encode(canonicalFingerprintPayload(input)));
 }
 

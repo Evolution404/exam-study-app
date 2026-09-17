@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { planSyncV7Compaction } from "../../src/lib/sync/sync-v7-head-operations";
+import { planSyncCompaction } from "../../src/lib/sync/sync-head-operations";
 
 const head = {
   formatVersion: 9 as const,
@@ -15,7 +15,7 @@ const head = {
   cursors: {},
 };
 
-const plan = planSyncV7Compaction({ head });
+const plan = planSyncCompaction({ head });
 assert.equal(plan.required, true, "已有 head 但热窗口超过 4 MiB 时必须要求压实");
 assert.equal(plan.reason, "hot-window-overflow", "压实原因应为热窗口溢出");
 

@@ -4,24 +4,24 @@ import { Check, ChevronRight, FolderPlus, GripVertical, Layers3, Merge, Pencil, 
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { dbV7, deleteQuestionGroupV7, listQuestionGroupsV7, saveQuestionGroupV7, updateQuestionsV7, updateQuestionV7 } from "@/lib/db/db-v7";
-import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
+import { studyDb, deleteQuestionGroup, listQuestionGroups, saveQuestionGroup, updateQuestions, updateQuestion } from "@/lib/db/db";
+import { listQuestionViewsForBanks } from "@/lib/db/app-data";
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { isBankEnabled, type QuestionGroupV7 } from "@/lib/db/v7-types";
+import { isBankEnabled, type QuestionGroup as DbQuestionGroup } from "@/lib/db/types";
 import type { QuestionGroupItem } from "@/types/types";
-import { loadImageAssetV7, SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
+import { loadImageAsset, SharedQuestionEditor, toQuestionViewModel, type QuestionViewModel } from "@/app/bank/question-editor";
 import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { MathText } from "@/app/ui/math-text";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
-import { readAttemptStatsForQuestionIdsV7 } from "@/lib/db/search-read-v7";
+import { readAttemptStatsForQuestionIds } from "@/lib/db/search-read";
 import { buildKnowledgeTagSummaries } from "@/app/bank/knowledge-model";
 
 type Question = QuestionViewModel;
-type QuestionGroup = QuestionGroupV7;
-type QuestionGroupType = QuestionGroupV7["type"];
+type QuestionGroup = DbQuestionGroup;
+type QuestionGroupType = QuestionGroup["type"];
 const GROUP_TYPES: QuestionGroupType[] = ["易混", "相似", "前置", "重复", "专题", "自定义"];
 
 /**
@@ -30,8 +30,8 @@ const GROUP_TYPES: QuestionGroupType[] = ["易混", "相似", "前置", "重复"
  * in tags or groups until at least one of its memberships is enabled again.
  */
 async function activeQuestionViews(): Promise<Question[]> {
-  const banks = (await dbV7.banks.toArray()).filter(isBankEnabled);
-  const views = await listQuestionViewsForBanksV7(banks.map((bank) => bank.id));
+  const banks = (await studyDb.banks.toArray()).filter(isBankEnabled);
+  const views = await listQuestionViewsForBanks(banks.map((bank) => bank.id));
   return views.map((view) => {
     const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
     const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];
@@ -76,7 +76,7 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
   const [deleteTagPrompt, setDeleteTagPrompt] = useState<string>();
   const data = useLiveQuery(async () => {
     const questions = await activeQuestionViews();
-    const attemptStats = await readAttemptStatsForQuestionIdsV7(questions.map((question) => question.id));
+    const attemptStats = await readAttemptStatsForQuestionIds(questions.map((question) => question.id));
     return { questions, attemptStats };
   }, []);
   const tags = useMemo(() => buildKnowledgeTagSummaries(data?.questions ?? [], data?.attemptStats ?? [], query), [data, query]);
@@ -84,18 +84,18 @@ function TagWorkspace({ onStart, onNotice }: { onStart: (tag: string) => void; o
 
   async function replaceTag(from: string, to?: string) {
     const targets = (data?.questions ?? []).filter((question) => question.tags.includes(from));
-    await updateQuestionsV7(targets.map((question) => question.id), (question) => ({
+    await updateQuestions(targets.map((question) => question.id), (question) => ({
       tags: to ? [...new Set(question.tags.map((tag) => tag === from ? to : tag))] : question.tags.filter((tag) => tag !== from),
     }));
     setActiveTag(undefined); setRenameValue("");
     onNotice(to ? `标签“${from}”已整理为“${to}”` : `标签“${from}”已从 ${targets.length} 道题移除`);
   }
 
-  return <><div className="tag-workspace"><section className="tag-browser"><header><div className="knowledge-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户标签" /></div><span>{tags.length} 个标签</span></header>{tags.length ? <div className="tag-card-grid">{tags.map((item) => <article className={activeTag === item.name ? "active" : ""} key={item.name}><button onClick={() => { setActiveTag(item.name); setRenameValue(item.name); }}><Tags size={17} /><span><strong>{item.name}</strong><small>{item.count} 道题 · 正确率 {item.accuracy}% · 个人难度 {item.difficulty}</small></span><ChevronRight size={16} /></button><button className="tag-quick-practice" onClick={() => onStart(item.name)}><Play size={14} />练习</button></article>)}</div> : <div className="knowledge-empty"><Tags /><h2>当前启用题库没有用户标签</h2><p>停用题库中的标签会暂时隐藏，重新启用题库后自动恢复显示。</p></div>}</section>{selected && <aside className="tag-detail"><header><div><span className="section-kicker">标签详情</span><h2>{selected.name}</h2></div><button aria-label="关闭标签详情" className="icon-button" onClick={() => setActiveTag(undefined)}><X size={17} /></button></header><div className="tag-detail-stats"><span><strong>{selected.count}</strong>相关题目</span><span><strong>{selected.accuracy}%</strong>正确率</span><span><strong>{selected.difficulty}</strong>平均个人难度</span></div><label>重命名或合并标签<input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} /><small>只整理当前启用题库中的相关题目；题组不受影响。</small></label><div className="tag-manage-actions"><button disabled={!renameValue.trim() || renameValue.trim() === selected.name} onClick={() => void replaceTag(selected.name, renameValue.trim())}><Merge size={16} />保存或合并</button><button className="danger-button" onClick={() => setDeleteTagPrompt(selected.name)}><Trash2 size={16} />删除标签</button></div><button className="primary full" onClick={() => onStart(selected.name)}><Play size={17} />练习这个标签</button><div className="tag-question-preview">{selected.questions.slice(0, 12).map((question, index) => <div key={question.id}><span>{index + 1}</span><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAssetV7} /></div>)}</div></aside>}</div><ConfirmDialog open={Boolean(deleteTagPrompt)} eyebrow="标签管理" title="移除这个标签？" tone="danger" confirmLabel="移除标签" onCancel={() => setDeleteTagPrompt(undefined)} onConfirm={() => { if (deleteTagPrompt) void replaceTag(deleteTagPrompt); setDeleteTagPrompt(undefined); }} description={<><strong>标签“{deleteTagPrompt}”会从当前启用题库的相关题目中移除</strong><span>停用题库的数据不会被改动；题目和题组不会被删除，此操作会加入同步队列。</span></>} /></>;
+  return <><div className="tag-workspace"><section className="tag-browser"><header><div className="knowledge-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户标签" /></div><span>{tags.length} 个标签</span></header>{tags.length ? <div className="tag-card-grid">{tags.map((item) => <article className={activeTag === item.name ? "active" : ""} key={item.name}><button onClick={() => { setActiveTag(item.name); setRenameValue(item.name); }}><Tags size={17} /><span><strong>{item.name}</strong><small>{item.count} 道题 · 正确率 {item.accuracy}% · 个人难度 {item.difficulty}</small></span><ChevronRight size={16} /></button><button className="tag-quick-practice" onClick={() => onStart(item.name)}><Play size={14} />练习</button></article>)}</div> : <div className="knowledge-empty"><Tags /><h2>当前启用题库没有用户标签</h2><p>停用题库中的标签会暂时隐藏，重新启用题库后自动恢复显示。</p></div>}</section>{selected && <aside className="tag-detail"><header><div><span className="section-kicker">标签详情</span><h2>{selected.name}</h2></div><button aria-label="关闭标签详情" className="icon-button" onClick={() => setActiveTag(undefined)}><X size={17} /></button></header><div className="tag-detail-stats"><span><strong>{selected.count}</strong>相关题目</span><span><strong>{selected.accuracy}%</strong>正确率</span><span><strong>{selected.difficulty}</strong>平均个人难度</span></div><label>重命名或合并标签<input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} /><small>只整理当前启用题库中的相关题目；题组不受影响。</small></label><div className="tag-manage-actions"><button disabled={!renameValue.trim() || renameValue.trim() === selected.name} onClick={() => void replaceTag(selected.name, renameValue.trim())}><Merge size={16} />保存或合并</button><button className="danger-button" onClick={() => setDeleteTagPrompt(selected.name)}><Trash2 size={16} />删除标签</button></div><button className="primary full" onClick={() => onStart(selected.name)}><Play size={17} />练习这个标签</button><div className="tag-question-preview">{selected.questions.slice(0, 12).map((question, index) => <div key={question.id}><span>{index + 1}</span><ContentBlockRenderer blocks={question.canonical.content} loadAsset={loadImageAsset} /></div>)}</div></aside>}</div><ConfirmDialog open={Boolean(deleteTagPrompt)} eyebrow="标签管理" title="移除这个标签？" tone="danger" confirmLabel="移除标签" onCancel={() => setDeleteTagPrompt(undefined)} onConfirm={() => { if (deleteTagPrompt) void replaceTag(deleteTagPrompt); setDeleteTagPrompt(undefined); }} description={<><strong>标签“{deleteTagPrompt}”会从当前启用题库的相关题目中移除</strong><span>停用题库的数据不会被改动；题目和题组不会被删除，此操作会加入同步队列。</span></>} /></>;
 }
 
 function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQuestionIds?: string[]; onStart: (questions: Question[], label: string) => void; onNotice: (message: string) => void }) {
-  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), groups: await listQuestionGroupsV7() }), []);
+  const data = useLiveQuery(async () => ({ questions: await activeQuestionViews(), groups: await listQuestionGroups() }), []);
   const [editingId, setEditingId] = useState<string>();
   const [name, setName] = useState("");
   const [type, setType] = useState<QuestionGroupType>("易混");
@@ -151,7 +151,7 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
   function edit(group: QuestionGroup) { setEditingId(group.id); setName(group.name); setType(group.type); setDescription(group.description); setItems(group.items); setQuery(""); window.scrollTo({ top: 0, behavior: "smooth" }); }
   async function save() {
     try {
-      const group = await saveQuestionGroupV7({ id: editingId, name, type, description, items });
+      const group = await saveQuestionGroup({ id: editingId, name, type, description, items });
       const visibleCount = group.items.filter((item) => visibleQuestionIds.has(item.questionId)).length;
       onNotice(`题组“${group.name}”已保存，当前启用题库中 ${visibleCount} 道题`);
       reset();
@@ -168,7 +168,7 @@ function GroupWorkspace({ initialQuestionIds, onStart, onNotice }: { initialQues
       </DndContext>
     </section>
     <section className="group-list"><header><div><span className="section-kicker">当前启用题库</span><h2>{visibleGroups.length} 个题组</h2></div></header>{visibleGroups.length ? <div>{visibleGroups.map(({ group, questions: groupQuestions }) => <article key={group.id}><header><span className="group-type">{group.type}</span><div><h3>{group.name}</h3><p>{group.description || "未填写题组说明"}</p></div><strong>{groupQuestions.length} 题</strong></header><ol>{groupQuestions.slice(0, 4).map((question, index) => <li key={question.id}><span>{index + 1}</span><MathText text={question.stem} /></li>)}</ol>{groupQuestions.length > 4 && <small>还有 {groupQuestions.length - 4} 道题</small>}<footer><button onClick={() => edit(group)}><Pencil size={15} />编辑</button><button onClick={() => onStart(groupQuestions, `题组 · ${group.name}`)}><Play size={15} />练习题组</button><button className="danger-button" onClick={() => setDeleteGroupPrompt(group)}><Trash2 size={15} />删除</button></footer></article>)}</div> : <div className="knowledge-empty"><Layers3 /><h2>当前启用题库没有题组</h2><p>只含停用题库题目的题组会暂时隐藏，重新启用对应题库后自动恢复。</p></div>}</section>
-    <ConfirmDialog open={Boolean(deleteGroupPrompt)} eyebrow="题组管理" title="删除这个题组？" tone="danger" confirmLabel="删除题组" onCancel={() => setDeleteGroupPrompt(undefined)} onConfirm={() => { if (deleteGroupPrompt) void deleteQuestionGroupV7(deleteGroupPrompt.id).then(() => onNotice(`题组“${deleteGroupPrompt.name}”已删除`)); setDeleteGroupPrompt(undefined); }} description={<><strong>题组“{deleteGroupPrompt?.name}”将被删除</strong><span>题组内的题目和标签会保留，此操作会加入同步队列。</span></>} />
+    <ConfirmDialog open={Boolean(deleteGroupPrompt)} eyebrow="题组管理" title="删除这个题组？" tone="danger" confirmLabel="删除题组" onCancel={() => setDeleteGroupPrompt(undefined)} onConfirm={() => { if (deleteGroupPrompt) void deleteQuestionGroup(deleteGroupPrompt.id).then(() => onNotice(`题组“${deleteGroupPrompt.name}”已删除`)); setDeleteGroupPrompt(undefined); }} description={<><strong>题组“{deleteGroupPrompt?.name}”将被删除</strong><span>题组内的题目和标签会保留，此操作会加入同步队列。</span></>} />
     {detailQuestionId && <GroupQuestionDetail questionId={detailQuestionId} entries={detailEntries} onClose={() => setDetailQuestionId(undefined)} onNavigate={(id) => { setActiveQuestionId(id); setDetailQuestionId(id); }} onNotice={onNotice} />}
   </div>;
 }
@@ -195,12 +195,12 @@ function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotic
   onNotice: (message: string) => void;
 }) {
   const question = entries.find((entry) => entry.id === questionId);
-  const note = useLiveQuery(() => dbV7.notes.get(questionId), [questionId]);
-  const stats = useLiveQuery(() => dbV7.questionProgress.get(questionId), [questionId]);
+  const note = useLiveQuery(() => studyDb.notes.get(questionId), [questionId]);
+  const stats = useLiveQuery(() => studyDb.questionProgress.get(questionId), [questionId]);
   const [editing, setEditing] = useState(false);
   const navPrefs = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");
+      const saved = JSON.parse(localStorage.getItem("study-preferences") ?? "{}");
       return { keyboardShortcuts: normalizeKeyboardShortcuts(saved.keyboardShortcuts), swipeNavigation: saved.swipeNavigation !== false };
     } catch {
       return { keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS, swipeNavigation: true };
@@ -216,5 +216,5 @@ function GroupQuestionDetail({ questionId, entries, onClose, onNavigate, onNotic
     keyboardShortcuts: navPrefs.keyboardShortcuts,
     swipeNavigation: navPrefs.swipeNavigation,
   } : undefined;
-  return <><QuestionDetail question={question} metric={summarizeAttemptStats(stats ? { ...stats, bankId: "" } : undefined)} scopeLabel="全部时间" note={note?.content} onClose={onClose} footer={<><button onClick={async () => { const updated = await updateQuestionV7(question.id, { favorite: !question.favorite }); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button></>} nav={nav} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice("题目和标签已保存"); }} />}</>;
+  return <><QuestionDetail question={question} metric={summarizeAttemptStats(stats ? { ...stats, bankId: "" } : undefined)} scopeLabel="全部时间" note={note?.content} onClose={onClose} footer={<><button onClick={async () => { const updated = await updateQuestion(question.id, { favorite: !question.favorite }); onNotice(updated.favorite ? "已收藏这道题" : "已取消收藏"); }}><Star size={16} fill={question.favorite ? "currentColor" : "none"} />{question.favorite ? "已收藏" : "收藏"}</button><button onClick={() => setEditing(true)}><Pencil size={16} />编辑题目</button></>} nav={nav} />{editing && <SharedQuestionEditor question={question.canonical} preferredBankId={question.bankId} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onNotice("题目和标签已保存"); }} />}</>;
 }

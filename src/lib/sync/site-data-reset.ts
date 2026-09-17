@@ -1,4 +1,4 @@
-import { V7_DATABASE_NAME, dbV7 } from "../db/db-v7";
+import { DATABASE_NAME, studyDb } from "../db/db";
 import { getPlatformEnvironment } from "../../platform/environment";
 import { clearPersistentConfig } from "../../platform/persistent-config";
 import { clearGitHubCredentials } from "./github-credentials";
@@ -38,7 +38,7 @@ function deleteIndexedDatabase(name: string) {
  * connection (repo + token), and this browser's device identity. Runtime state
  * (selected banks, search history) is treated as data and cleared.
  */
-const CONFIG_LOCAL_STORAGE_KEYS = ["study-v7-preferences", "github-settings", "github-token", "shijuan-study-v7-device-id"] as const;
+const CONFIG_LOCAL_STORAGE_KEYS = ["study-preferences", "github-settings", "github-token", "shijuan-study-device-id"] as const;
 
 /** Wipe service workers, caches, all IndexedDB databases and cookies. */
 async function wipeServiceWorkersCachesDatabasesAndCookies() {
@@ -51,9 +51,9 @@ async function wipeServiceWorkersCachesDatabasesAndCookies() {
     if ("caches" in window) await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
   }
 
-  dbV7.close();
+  studyDb.close();
   const databases = typeof indexedDB !== "undefined" && typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
-  const names = new Set([V7_DATABASE_NAME, ...databases.map((database) => database.name).filter(Boolean) as string[]]);
+  const names = new Set([DATABASE_NAME, ...databases.map((database) => database.name).filter(Boolean) as string[]]);
   await Promise.all([...names].map(deleteIndexedDatabase));
 
   if (!native) clearSiteCookies();

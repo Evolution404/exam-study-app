@@ -17,8 +17,8 @@ import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { AppSelect } from "@/app/ui/app-select";
 import { Hint } from "@/app/ui/hint";
 import type {
-  ChangeSetMutationV7,
-  ChangeSetV7,
+  ChangeSetMutation,
+  ChangeSet,
   SyncPendingChangeEdit,
   SyncQueueItem,
 } from "@/lib/sync/sync-application";
@@ -26,23 +26,23 @@ import { solutionAnswerText, stableQuestionOptionIds } from "@/lib/question/ques
 import "@/app/styles/sync-events-1.css";
 import "@/app/styles/sync-events-2.css";
 
-export type SyncChangeSetStateV7 = SyncQueueItem["state"];
-export type SyncChangeSetItemV7 = SyncQueueItem;
-export type SyncChangeSetTypedEditV7 = SyncPendingChangeEdit;
+export type SyncChangeSetState = SyncQueueItem["state"];
+export type SyncChangeSetItem = SyncQueueItem;
+export type SyncChangeSetTypedEdit = SyncPendingChangeEdit;
 
-export interface SyncEventProgressV7 {
+export interface SyncEventProgress {
   label: string;
   percent: number;
 }
 
 export interface SyncEventManagerProps {
-  items: readonly SyncChangeSetItemV7[];
+  items: readonly SyncChangeSetItem[];
   selectedId?: string;
   onSelectedIdChange?: (id: string | undefined) => void;
-  onEdit?: (changeSetId: string, edit: SyncChangeSetTypedEditV7) => void | Promise<void>;
+  onEdit?: (changeSetId: string, edit: SyncChangeSetTypedEdit) => void | Promise<void>;
   onDelete?: (changeSetId: string, options: { cascadeDependents: boolean }) => void | Promise<void>;
   onSyncNow?: () => void | Promise<void>;
-  progress?: SyncEventProgressV7;
+  progress?: SyncEventProgress;
   syncing?: boolean;
   busyChangeSetId?: string;
   showBatchSections?: boolean;
@@ -52,14 +52,14 @@ export interface SyncEventManagerProps {
   statusPanel?: ReactNode;
 }
 
-const stateLabels: Record<SyncChangeSetStateV7, string> = {
+const stateLabels: Record<SyncChangeSetState, string> = {
   pending: "待同步",
   claimed: "正在写入",
   blocked: "需处理",
   committed: "已同步",
 };
 
-const kindLabels: Partial<Record<ChangeSetMutationV7["kind"], string>> = {
+const kindLabels: Partial<Record<ChangeSetMutation["kind"], string>> = {
   "bank.create": "创建题库",
   "bank.update": "更新题库",
   "bank.reorder": "调整题库顺序",
@@ -108,11 +108,11 @@ function shortId(value: string): string {
   return `${value.slice(0, 8)}…${value.slice(-6)}`;
 }
 
-function firstMutation(changeSet: ChangeSetV7): ChangeSetMutationV7 {
+function firstMutation(changeSet: ChangeSet): ChangeSetMutation {
   return changeSet.mutations[0];
 }
 
-function mutationSummary(mutation: ChangeSetMutationV7): string {
+function mutationSummary(mutation: ChangeSetMutation): string {
   switch (mutation.kind) {
     case "bank.create": case "bank.update": return `${kindLabels[mutation.kind]}「${mutation.bank.displayName || mutation.bank.name}」`;
     case "bank.reorder": return `调整 ${mutation.bankIds.length} 个题库的顺序`;
@@ -129,7 +129,7 @@ function mutationSummary(mutation: ChangeSetMutationV7): string {
   }
 }
 
-function mutationEntityId(mutation: ChangeSetMutationV7): string | undefined {
+function mutationEntityId(mutation: ChangeSetMutation): string | undefined {
   if ("questionId" in mutation) return mutation.questionId;
   if ("bankId" in mutation) return mutation.bankId;
   if ("runId" in mutation) return mutation.runId;
@@ -140,23 +140,23 @@ function mutationEntityId(mutation: ChangeSetMutationV7): string | undefined {
   return undefined;
 }
 
-function changeSetSummary(changeSet: ChangeSetV7): string {
+function changeSetSummary(changeSet: ChangeSet): string {
   const first = mutationSummary(firstMutation(changeSet));
   return changeSet.mutations.length > 1 ? `${first}，另有 ${changeSet.mutations.length - 1} 项` : first;
 }
 
-function stateIcon(state: SyncChangeSetStateV7): ReactNode {
+function stateIcon(state: SyncChangeSetState): ReactNode {
   if (state === "blocked") return <AlertCircle size={15} />;
   if (state === "committed") return <Check size={15} />;
   if (state === "claimed") return <ShieldAlert size={15} />;
   return <Clock3 size={15} />;
 }
 
-function editableMutation(mutation: ChangeSetMutationV7): boolean {
+function editableMutation(mutation: ChangeSetMutation): boolean {
   return mutation.kind === "note.upserted" || mutation.kind === "bank.update" || mutation.kind === "question.upsert";
 }
 
-function changeSetMatches(item: SyncChangeSetItemV7, query: string): boolean {
+function changeSetMatches(item: SyncChangeSetItem, query: string): boolean {
   if (!query) return true;
   const haystack = [
     changeSetSummary(item.changeSet),
@@ -177,11 +177,11 @@ function TypedMutationEditor({
   onSave,
   onCancel,
 }: {
-  item: SyncChangeSetItemV7;
-  mutation: ChangeSetMutationV7;
+  item: SyncChangeSetItem;
+  mutation: ChangeSetMutation;
   mutationIndex: number;
   busy: boolean;
-  onSave: (edit: SyncChangeSetTypedEditV7) => void | Promise<void>;
+  onSave: (edit: SyncChangeSetTypedEdit) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [noteContent, setNoteContent] = useState(mutation.kind === "note.upserted" ? mutation.note.content : "");
@@ -241,10 +241,10 @@ export function SyncEventManager({
   statusPanel,
 }: SyncEventManagerProps) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | SyncChangeSetStateV7>("all");
+  const [status, setStatus] = useState<"all" | SyncChangeSetState>("all");
   const [internalSelectedId, setInternalSelectedId] = useState<string>();
   const [editing, setEditing] = useState<{ changeSetId: string; mutationIndex: number }>();
-  const [deleteTarget, setDeleteTarget] = useState<SyncChangeSetItemV7>();
+  const [deleteTarget, setDeleteTarget] = useState<SyncChangeSetItem>();
   const [cascadeDependents, setCascadeDependents] = useState(false);
   const [deleteError, setDeleteError] = useState<string>();
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -276,7 +276,7 @@ export function SyncEventManager({
     }
   }
 
-  function renderItem(item: SyncChangeSetItemV7) {
+  function renderItem(item: SyncChangeSetItem) {
     const { changeSet } = item;
     const open = selectedId === changeSet.id;
     const busy = busyChangeSetId === changeSet.id;

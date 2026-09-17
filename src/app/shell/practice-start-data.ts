@@ -1,10 +1,10 @@
-import { readPracticeSetupHistoryForQuestionIdsV7 } from "@/lib/db/practice-setup-read-v7";
+import { readPracticeSetupHistoryForQuestionIds } from "@/lib/db/practice-setup-read";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
-import { TYPE_ORDER, balancedRandomSample, shuffle, summarizeV7AttemptStats, type PracticeFilter, type PracticePreferences, type Question } from "./helpers";
+import { TYPE_ORDER, balancedRandomSample, shuffle, summarizeAttemptStats, type PracticeFilter, type PracticePreferences, type Question } from "./helpers";
 
-export async function readPracticeStartDataV7(questionIds: readonly string[], progressScope: ProgressScope, referenceTime: number, wrongRemovalStreak?: number) {
-  const history = await readPracticeSetupHistoryForQuestionIdsV7(questionIds, {
+export async function readPracticeStartData(questionIds: readonly string[], progressScope: ProgressScope, referenceTime: number, wrongRemovalStreak?: number) {
+  const history = await readPracticeSetupHistoryForQuestionIds(questionIds, {
     includeAttempts: wrongRemovalStreak !== undefined && progressScope.type !== "round",
   });
   const wrongQuestionIds = new Set<string>();
@@ -14,13 +14,13 @@ export async function readPracticeStartDataV7(questionIds: readonly string[], pr
     }
   }
   return {
-    attemptMetrics: new Map(history.stats.map((stats) => [stats.questionId, summarizeV7AttemptStats(stats)])),
+    attemptMetrics: new Map(history.stats.map((stats) => [stats.questionId, summarizeAttemptStats(stats)])),
     doneQuestionIds: completedQuestionIdsInScope(questionIds, progressScope, history.stats, history.roundsProgress, referenceTime),
     wrongQuestionIds,
   };
 }
 
-export async function preparePracticeStartQuestionsV7(inputQuestions: Question[], filter: PracticeFilter, preferences: Pick<PracticePreferences, "progressScope" | "wrongRemovalStreak" | "randomTypeBalance">) {
+export async function preparePracticeStartQuestions(inputQuestions: Question[], filter: PracticeFilter, preferences: Pick<PracticePreferences, "progressScope" | "wrongRemovalStreak" | "randomTypeBalance">) {
   let questions = inputQuestions.filter((question) => filter.types.includes(question.type));
   if (filter.tags.length) questions = questions.filter((question) => filter.tagMatch === "all"
     ? filter.tags.every((tag) => question.tags.includes(tag))
@@ -37,11 +37,11 @@ export async function preparePracticeStartQuestionsV7(inputQuestions: Question[]
     });
   }
   const progressScope = normalizeProgressScope(filter.progressScope ?? preferences.progressScope);
-  const history = await readPracticeStartDataV7(questions.map((question) => question.id), progressScope, Date.now(), filter.status === "wrong" ? preferences.wrongRemovalStreak : undefined);
+  const history = await readPracticeStartData(questions.map((question) => question.id), progressScope, Date.now(), filter.status === "wrong" ? preferences.wrongRemovalStreak : undefined);
   const lastAttemptFrom = filter.lastAttemptFrom ? new Date(`${filter.lastAttemptFrom}T00:00:00`).getTime() : null;
   const lastAttemptTo = filter.lastAttemptTo ? new Date(`${filter.lastAttemptTo}T23:59:59.999`).getTime() : null;
   questions = questions.filter((question) => {
-    const metric = history.attemptMetrics.get(question.id) ?? summarizeV7AttemptStats();
+    const metric = history.attemptMetrics.get(question.id) ?? summarizeAttemptStats();
     if (filter.status === "unanswered" && history.doneQuestionIds.has(question.id)) return false;
     if (filter.status === "wrong" && !history.wrongQuestionIds.has(question.id)) return false;
     if (filter.status === "favorite" && !question.favorite) return false;

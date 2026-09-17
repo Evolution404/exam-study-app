@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { dbV7 } from "../../src/lib/db/db-v7";
+import { studyDb } from "../../src/lib/db/db";
 
 type StoreContract = {
   primaryKey: string;
@@ -79,12 +79,12 @@ function sorted(values: readonly string[]): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
-const actualStores = sorted(dbV7.tables.map((table) => table.name));
+const actualStores = sorted(studyDb.tables.map((table) => table.name));
 const expectedStores = sorted(Object.keys(NEXT_SCHEMA));
 assert.deepEqual(actualStores, expectedStores, "Dexie version(1) store set must match the facts + local projections contract");
 
 for (const [storeName, contract] of Object.entries(NEXT_SCHEMA)) {
-  const table = dbV7.table(storeName);
+  const table = studyDb.table(storeName);
   assert.equal(table.schema.primKey.src, contract.primaryKey, `${storeName} primary key must match the new schema contract`);
   assert.deepEqual(
     sorted(table.schema.indexes.map((index) => index.src)),
@@ -94,7 +94,7 @@ for (const [storeName, contract] of Object.entries(NEXT_SCHEMA)) {
 }
 
 for (const retiredStore of ["attemptStats", "attemptDailyStats", "practiceRunActivity", "practiceRunStats"] as const) {
-  assert.equal(dbV7.tables.some((table) => table.name === retiredStore), false, `${retiredStore} must not survive the schema cutover`);
+  assert.equal(studyDb.tables.some((table) => table.name === retiredStore), false, `${retiredStore} must not survive the schema cutover`);
 }
 
 console.log("database next-schema contract passed");

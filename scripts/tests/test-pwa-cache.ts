@@ -10,7 +10,7 @@ const preferencesView = read("src/app/shell/views/preferences-view.tsx");
 const syncView = read("src/app/sync/sync-view.tsx");
 const syncApplication = read("src/lib/sync/sync-application.ts");
 const siteDataReset = read("src/lib/sync/site-data-reset.ts");
-const dbCore = read("src/lib/db/db-v7-core.ts");
+const dbCore = read("src/lib/db/db-core.ts");
 const main = read("src/main.tsx");
 const errorBoundary = read("src/app/error-boundary.tsx");
 const headers = read("public/_headers");
@@ -49,9 +49,9 @@ assert.match(previewSmoke, /user-scalable=no/, "PWA smoke must verify that the p
 // 同源 /api-github 请求必须绕过 Service Worker，避免被缓存或离线回退。
 
 assert.match(main, /updateViaCache: "none"/);
-assert.match(main, /dbV7Ready\.then[\s\S]*\.catch/, "startup failures must render a recovery screen instead of leaving a blank root");
-assert.match(dbCore, /dbV7\.open\(\)\.then\(\(\) => undefined\)/, "IndexedDB open failures must reject dbV7Ready so bootstrap can render the recovery screen");
-assert.doesNotMatch(dbCore, /dbV7\.open\(\)\.then\(\(\) => undefined, \(\) => undefined\)/, "dbV7Ready must not swallow IndexedDB open failures");
+assert.match(main, /studyDbReady\.then[\s\S]*\.catch/, "startup failures must render a recovery screen instead of leaving a blank root");
+assert.match(dbCore, /studyDb\.open\(\)\.then\(\(\) => undefined\)/, "IndexedDB open failures must reject studyDbReady so bootstrap can render the recovery screen");
+assert.doesNotMatch(dbCore, /studyDb\.open\(\)\.then\(\(\) => undefined, \(\) => undefined\)/, "studyDbReady must not swallow IndexedDB open failures");
 assert.match(errorBoundary, /class AppErrorBoundary/, "render failures must be caught by a top-level error boundary");
 assert.match(errorBoundary, /重试加载/, "startup recovery must offer an explicit retry");
 assert.match(errorBoundary, /导出 JSON\/Excel/, "startup recovery must direct users to export before any destructive reset");
@@ -66,7 +66,7 @@ assert.match(syncView, /setRestorePrompt\("cache"\)[\s\S]*?"本地恢复"/, "loc
 assert.match(syncView, /setRestorePrompt\("remote"\)[\s\S]*?"远端恢复"/, "remote recovery must use the four-character label");
 assert.match(syncView, /syncApplication\.restoreRemote\(setOperationProgress\)/, "UI remote recovery must go through the sync application boundary");
 assert.match(syncApplication, /return restoreFullHistoryFromGitHub\(settings, token, callback, \{ transport: getGitHubTransport\(\) \}\)/, "the application boundary must preserve full remote recovery including history archives through the shared transport");
-assert.doesNotMatch(syncView, /restoreFullHistoryFromGitHub|github-sync-v7|github-credentials/, "sync view must not bypass the application boundary");
+assert.doesNotMatch(syncView, /restoreFullHistoryFromGitHub|github-sync-engine|github-credentials/, "sync view must not bypass the application boundary");
 assert.doesNotMatch(syncView, /快速恢复|完整恢复|remoteFull/, "sync view must not expose obsolete fast/full recovery choices");
 assert.match(preferencesView, /className="mobile-sync-settings"><SyncView/, "mobile preferences must reuse the complete sync view");
 assert.match(syncView, /<h2>清除本机所有数据<\/h2>/, "sync view must expose the site-data reset action");

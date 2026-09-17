@@ -1,40 +1,40 @@
 "use client";
 import { lazy } from "react";
-import { deletePracticeRunV7, getPracticeRunV7, recordPracticeAnswerV7, saveNoteV7, savePracticeProgressV7, setPracticeRunStatusV7, toggleQuestionFavoriteV7 } from "@/lib/db/db-v7";
+import { deletePracticeRun as deletePracticeRunRecord, getPracticeRun, recordPracticeAnswer as recordPracticeAnswerRecord, saveNote as saveNoteRecord, savePracticeProgress as savePracticeProgressRecord, setPracticeRunStatus as setPracticeRunStatusRecord, toggleQuestionFavorite as toggleQuestionFavoriteRecord } from "@/lib/db/db";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice/practice-resume";
-import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
+import { summarizeAttemptStats as summarizeAttemptStatsRecord } from "@/lib/practice/practice-metrics";
 import { type QuestionViewModel } from "@/app/bank/question-editor";
 import type { BankQuickMode } from "@/app/bank/bank-library-view";
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts, type KeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import { QUESTION_TYPE_ORDER, type ActivePractice } from "@/types/types";
-import type { AttemptOutcome, AttemptStatsV7, PracticeResponse, PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
-import type { V7PracticeFilter } from "@/lib/practice/practice-setup-model";
+import type { AttemptOutcome, AttemptStats as DbAttemptStats, PracticeResponse, PracticeRun as DbPracticeRun, QuestionType as DbQuestionType } from "@/lib/db/types";
+import type { PracticeSetupFilter } from "@/lib/practice/practice-setup-model";
 import type { ProgressScope } from "@/lib/practice/progress-scope";
 import { normalizeProgressScope } from "@/lib/practice/progress-scope";
 import { isNativeApp } from "@/platform/environment";
 import { platformHaptics } from "@/platform/haptics";
 
 export type Question = QuestionViewModel;
-export type QuestionType = QuestionTypeV7;
-export type PracticeFilter = V7PracticeFilter;
-export type PracticeRun = PracticeRunV7;
-export type PracticeAnswerState = PracticeRunV7["answers"][string];
-export type AttemptStats = AttemptStatsV7 & { bankId: string };
+export type QuestionType = DbQuestionType;
+export type PracticeFilter = PracticeSetupFilter;
+export type PracticeRun = DbPracticeRun;
+export type PracticeAnswerState = PracticeRun["answers"][string];
+export type AttemptStats = DbAttemptStats & { bankId: string };
 
-export function withBankAttemptStats(stats?: AttemptStatsV7, bankId = ""): AttemptStats | undefined {
+export function withBankAttemptStats(stats?: DbAttemptStats, bankId = ""): AttemptStats | undefined {
   return stats ? { ...stats, bankId } : undefined;
 }
 
-export function summarizeV7AttemptStats(stats?: AttemptStatsV7) {
-  return summarizeAttemptStats(withBankAttemptStats(stats));
+export function summarizeAttemptStats(stats?: DbAttemptStats) {
+  return summarizeAttemptStatsRecord(withBankAttemptStats(stats));
 }
 
-export async function saveNote(questionId: string, content: string) { return saveNoteV7(questionId, content); }
-export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteV7(questionId); }
-export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerV7({ ...input, sourceBankId: input.bankId }); }
-export async function savePracticeProgress(session: ActivePractice) { const current = await getPracticeRunV7(session.runId); if (!current) return; return savePracticeProgressV7({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
-export async function setPracticeRunStatus(runId: string, status: PracticeRunV7["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusV7(runId, status, answers); }
-export async function deletePracticeRun(runId: string) { return deletePracticeRunV7(runId); }
+export async function saveNote(questionId: string, content: string) { return saveNoteRecord(questionId, content); }
+export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteRecord(questionId); }
+export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerRecord({ ...input, sourceBankId: input.bankId }); }
+export async function savePracticeProgress(session: ActivePractice) { const current = await getPracticeRun(session.runId); if (!current) return; return savePracticeProgressRecord({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
+export async function setPracticeRunStatus(runId: string, status: PracticeRun["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusRecord(runId, status, answers); }
+export async function deletePracticeRun(runId: string) { return deletePracticeRunRecord(runId); }
 
 export const PracticeSetupView = lazy(() => import("@/app/practice/practice-setup").then((module) => ({ default: module.PracticeSetupView })));
 export const SearchView = lazy(() => import("@/app/search/search-view").then((module) => ({ default: module.SearchView })));
@@ -112,7 +112,7 @@ export const DEFAULT_PREFERENCES: PracticePreferences = {
 export function loadPreferences(): PracticePreferences {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
-    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}") } as PracticePreferences;
+    const saved = { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem("study-preferences") ?? "{}") } as PracticePreferences;
     return {
       ...saved,
       groupSize: Math.min(500, Math.max(1, Math.floor(Number(saved.groupSize) || 30))),

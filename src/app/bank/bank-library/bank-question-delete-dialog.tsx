@@ -1,19 +1,19 @@
 "use client";
 import { X } from "lucide-react";
 import { ModalPortal } from "@/app/ui/modal-portal";
-import { deleteQuestionV7, removeMembershipV7 } from "@/lib/db/db-v7";
+import { deleteQuestion, removeMembership } from "@/lib/db/db";
 import { bankTitle, type Bank, type Question } from "./bank-library-shared";
 
 export function BankQuestionDeleteDialog({ question, bank, busy, onClose, onBusy, onNotice }: { question?: Question; bank: Bank; busy: boolean; onClose: () => void; onBusy: (value: boolean) => void; onNotice: (message: string) => void }) {
   if (!question) return null;
   const target = question;
   async function removeFromBank() {
-    try { onBusy(true); await removeMembershipV7(bank.id, target.id); onClose(); onNotice(`题目已从「${bankTitle(bank)}」移除，可在未归档题目中找回`); }
+    try { onBusy(true); await removeMembership(bank.id, target.id); onClose(); onNotice(`题目已从「${bankTitle(bank)}」移除，可在未归档题目中找回`); }
     catch (error) { onNotice(error instanceof Error ? error.message : "移除题目失败"); }
     finally { onBusy(false); }
   }
   async function deleteGlobally() {
-    try { onBusy(true); await deleteQuestionV7(target.id); onClose(); onNotice("题目及全部学习记录已删除"); }
+    try { onBusy(true); await deleteQuestion(target.id); onClose(); onNotice("题目及全部学习记录已删除"); }
     catch (error) { onNotice(error instanceof Error ? error.message : "删除题目失败"); }
     finally { onBusy(false); }
   }

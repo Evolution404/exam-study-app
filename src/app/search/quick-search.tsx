@@ -7,13 +7,13 @@ import { MathText } from "@/app/ui/math-text";
 import { Hint } from "@/app/ui/hint";
 import { AppSelect } from "@/app/ui/app-select";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
-import { listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
-import type { BankV7 } from "@/lib/db/v7-types";
+import { listQuestionViewsForBanks } from "@/lib/db/app-data";
+import type { Bank } from "@/lib/db/types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, type SearchContentScope, type SearchIndexQuestion, type SearchIndexResult } from "@/app/search/search-matching";
 import { useSearchWorkerClient } from "@/app/search/search-worker-client";
 import { emptySearchFilterProjection, emptyTypeCounts, searchIndexFingerprint } from "@/lib/question/search-matching";
 import { buildSearchIndexQuestion } from "@/lib/question/search-read-model";
-import { readNotesForQuestionIdsV7 } from "@/lib/db/search-read-v7";
+import { readNotesForQuestionIds } from "@/lib/db/search-read";
 
 /**
  * Keep the topbar quick search on the input/update timing that originally
@@ -22,7 +22,7 @@ import { readNotesForQuestionIdsV7 } from "@/lib/db/search-read-v7";
  * not schedule a delayed result-state update.
  */
 export function QuickSearch({ banks, activeBankIds, onOpenSearch }: {
-  banks: BankV7[];
+  banks: Bank[];
   activeBankIds: string[];
   onOpenSearch: (keyword: string, questionId?: string, contentScope?: SearchContentScope) => void;
 }) {
@@ -67,8 +67,8 @@ function QuickSearchResults({ query, contentScope, bankIds, onChoose, onViewAll 
   // keystrokes only filter the already-loaded in-memory data.
   const data = useLiveQuery(async () => {
     if (!shouldLoad) return null;
-    const views = await listQuestionViewsForBanksV7(bankIds);
-    const notes = await readNotesForQuestionIdsV7(views.map((view) => view.question.id));
+    const views = await listQuestionViewsForBanks(bankIds);
+    const notes = await readNotesForQuestionIds(views.map((view) => view.question.id));
     const questions = views.map((view) => {
       const bank = view.banks.find((item) => item.id === view.sourceBankId) ?? view.banks[0];
       const membership = view.memberships.find((item) => item.bankId === view.sourceBankId) ?? view.memberships[0];

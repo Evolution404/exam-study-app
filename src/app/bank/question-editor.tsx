@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Save, Trash2, X } from "lucide-react";
-import type { ContentBlock, QuestionSolution, QuestionV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { ContentBlock, QuestionSolution, Question, QuestionType } from "@/lib/db/types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
-import type { QuestionDraftV7 } from "@/lib/db/db-v7";
-import { dbV7 } from "@/lib/db/db-v7";
+import type { QuestionDraft } from "@/lib/db/db";
+import { studyDb } from "@/lib/db/db";
 import { deriveContentText, plainTextToContentBlocks } from "@/lib/question/question-content";
 import { optimizeImageFile } from "@/lib/io/image-assets";
-import { getImageAssetBlobV7, putImageAssetV7, saveNoteV7, splitQuestionV7, updateQuestionV7 } from "@/lib/db/db-v7";
+import { getImageAssetBlob, putImageAsset, saveNote, splitQuestion, updateQuestion } from "@/lib/db/db";
 import { syncApplication } from "@/lib/sync/sync-application";
-import { getQuestionViewV7, type QuestionViewV7 } from "@/lib/db/app-data-v7";
+import { getQuestionView, type QuestionView } from "@/lib/db/app-data";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { AppSelect } from "@/app/ui/app-select";
 import { ContentBlockEditor } from "@/app/bank/content-block-editor";
@@ -18,12 +18,12 @@ import { CalculationContentRenderer } from "@/app/practice/calculation-content-r
 import { calculationAnswers, MAX_CALCULATION_BLANKS, MAX_FILL_BLANKS, normalizeCalculationAnswer, normalizeFillSolution, solutionAnswerText, stableQuestionOptionIds, shortAnswerSolution, validateCalculationBlankLayout } from "@/lib/question/question-utils";
 import { cleanVisualWrapQuestion } from "@/lib/question/imported-text-cleanup";
 
-/** Canonical changes accepted by v7 question update/create callers. */
-export type QuestionChanges = Omit<QuestionDraftV7, "answer"> & { solution: QuestionSolution; optionIds?: string[] };
+/** Canonical changes accepted by question update/create callers. */
+export type QuestionChanges = Omit<QuestionDraft, "answer"> & { solution: QuestionSolution; optionIds?: string[] };
 
 /** Presentation-only join. Canonical content and solution remain in `canonical`. */
 export interface QuestionViewModel {
-  canonical: QuestionV7;
+  canonical: Question;
   id: string;
   bankId: string;
   bankName: string;
@@ -31,14 +31,14 @@ export interface QuestionViewModel {
   stem: string;
   normalizedStem: string;
   options: string[];
-  type: QuestionTypeV7;
+  type: QuestionType;
   tags: string[];
   favorite?: boolean;
   solution: QuestionSolution;
   optionIds?: string[];
 }
 
-export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName = "未归档题目", sortOrder = 0): QuestionViewModel {
+export function toQuestionViewModel(question: Question, bankId = "", bankName = "未归档题目", sortOrder = 0): QuestionViewModel {
   const canonical = cleanVisualWrapQuestion(question, bankName);
   const stem = deriveContentText(canonical.content);
   return {
@@ -58,26 +58,26 @@ export function toQuestionViewModel(question: QuestionV7, bankId = "", bankName 
   };
 }
 
-const questionTypes: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
+const questionTypes: QuestionType[] = [...QUESTION_TYPE_ORDER];
 
 function textBlocks(text: string, prefix: string): ContentBlock[] {
   return plainTextToContentBlocks(text, `${prefix}-0`);
 }
 
-function defaultOptions(type: QuestionTypeV7): ContentBlock[][] {
+function defaultOptions(type: QuestionType): ContentBlock[][] {
   if (type === "判断") return [textBlocks("正确", "option-0"), textBlocks("错误", "option-1")];
   if (type === "计算" || type === "填空" || type === "简答") return [];
   return Array.from({ length: 4 }, (_, index) => textBlocks("", `option-${index}`));
 }
 
-function normalizeChoiceAnswer(type: QuestionTypeV7, answer: string): string {
+function normalizeChoiceAnswer(type: QuestionType, answer: string): string {
   if (type === "填空" || type === "简答" || type === "计算") return answer.trim();
   return [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, "").split(""))].sort().join("");
 }
 
 async function prepareImage(file: File) {
   const optimized = await optimizeImageFile(file);
-  await putImageAssetV7({
+  await putImageAsset({
     id: optimized.id,
     blob: optimized.blob,
     mimeType: optimized.mimeType,
@@ -90,20 +90,20 @@ async function prepareImage(file: File) {
 
 /** Local-first image loader. A cache miss may lazily ask the public sync
  * facade for the blob; no URL is ever accepted or returned. */
-export async function loadImageAssetV7(assetId: string): Promise<Blob | undefined> {
-  const cached = await getImageAssetBlobV7(assetId);
+export async function loadImageAsset(assetId: string): Promise<Blob | undefined> {
+  const cached = await getImageAssetBlob(assetId);
   if (cached) return cached;
   try {
     if (!syncApplication.getConnection().ready) return undefined;
     await syncApplication.downloadImageAsset(assetId);
-    return getImageAssetBlobV7(assetId);
+    return getImageAssetBlob(assetId);
   } catch {
     return undefined;
   }
 }
 
-export function QuestionEditor({ question, onSave, onCancel, title = "编辑题目", eyebrow = "使用 v7 富内容模型", submitLabel = "保存修改", initialNote = "" }: {
-  question: QuestionV7;
+export function QuestionEditor({ question, onSave, onCancel, title = "编辑题目", eyebrow = "使用富内容模型", submitLabel = "保存修改", initialNote = "" }: {
+  question: Question;
   onSave: (changes: QuestionChanges, note?: string) => Promise<void>;
   onCancel: () => void;
   title?: string;
@@ -115,7 +115,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
   const [options, setOptions] = useState<ContentBlock[][]>(question.options.map((blocks) => blocks.map((block) => ({ ...block }))));
   const initialOptionIds = stableQuestionOptionIds(question);
   const [answer, setAnswer] = useState(() => solutionAnswerText(question.solution, initialOptionIds));
-  const [type, setType] = useState<QuestionTypeV7>(question.type);
+  const [type, setType] = useState<QuestionType>(question.type);
   const [fillBlanks, setFillBlanks] = useState<string[][]>(() => question.solution.kind === "fill" ? question.solution.blanks.map((blank) => [...blank.acceptedAnswers]) : [[]]);
   const [shortReference, setShortReference] = useState(() => question.solution.kind === "short" ? question.solution.referenceText : "");
   const [tags, setTags] = useState(question.tags.join("，"));
@@ -134,7 +134,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
     setAnswer(calculationAnswerValues.map((item, itemIndex) => itemIndex === index ? value : item).join("\n"));
   }
 
-  function changeType(value: QuestionTypeV7) {
+  function changeType(value: QuestionType) {
     setType(value);
     if (value === "判断") {
       setOptions(defaultOptions(value));
@@ -229,14 +229,14 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
   return <ModalPortal><div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title">
     <header><div><p className="eyebrow">{eyebrow}</p><h2 id="question-editor-title">{title}</h2></div><button className="icon-button" aria-label="关闭编辑器" onClick={onCancel}><X size={18} /></button></header>
     <div className="editor-body">
-      <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionTypeV7)} options={questionTypes.map((value) => ({ value, label: value }))} /></label>
-      <div className="editor-rich-field"><div className="editor-label"><span>题干</span><small>文本、公式与本地图片可混排；图片不会接受 URL。</small></div><ContentBlockEditor value={content} onChange={setContent} prepareImage={prepareImage} loadAsset={loadImageAssetV7} /></div>
+      <label htmlFor="question-type-select">题型<AppSelect id="question-type-select" ariaLabel="题型" value={type} onValueChange={(value) => changeType(value as QuestionType)} options={questionTypes.map((value) => ({ value, label: value }))} /></label>
+      <div className="editor-rich-field"><div className="editor-label"><span>题干</span><small>文本、公式与本地图片可混排；图片不会接受 URL。</small></div><ContentBlockEditor value={content} onChange={setContent} prepareImage={prepareImage} loadAsset={loadImageAsset} /></div>
       {type === "计算" ? <section className="calculation-answer-editor"><div className="editor-label"><span>各空标准答案</span><small>在题干对应位置依次写入【空1】【空2】；每个空独立按误差比例判定。</small></div><div>{calculationAnswerValues.map((value, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} type="number" inputMode="decimal" value={value} onChange={(event) => updateCalculationAnswer(index, event.currentTarget.value)} placeholder={index === 0 ? "例如：11.0" : "例如：968.0"} />{calculationAnswerValues.length > 1 && index === calculationAnswerValues.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setAnswer(calculationAnswerValues.slice(0, -1).join("\n"))}><Trash2 size={15} /></button>}</label>)}</div>{calculationAnswerValues.length < MAX_CALCULATION_BLANKS && <button type="button" className="add-option" onClick={() => setAnswer([...calculationAnswerValues, ""].join("\n"))}><Plus size={16} />添加填空</button>}</section> : type === "填空" ? <section className="fill-answer-editor"><div className="editor-label"><span>各空标准文本答案</span><small>每行一个空；同一空的多个可接受答案用 || 分隔，最多 {MAX_FILL_BLANKS} 个空。</small></div>{fillBlanks.map((answers, index) => <label key={index}><span>第{index + 1}空</span><input aria-label={`第${index + 1}空标准答案`} value={answers.join(" || ")} onChange={(event) => updateFillBlank(index, event.currentTarget.value)} placeholder="例如：电流 || 电流强度" />{fillBlanks.length > 1 && index === fillBlanks.length - 1 && <button type="button" className="delete-option" aria-label={`删除第${index + 1}空`} onClick={() => setFillBlanks((current) => current.slice(0, -1))}><Trash2 size={15} /></button>}</label>)}{fillBlanks.length < MAX_FILL_BLANKS && <button type="button" className="add-option" onClick={() => setFillBlanks((current) => [...current, []])}><Plus size={16} />添加填空</button>}</section> : type === "简答" ? <label>参考答案<textarea value={shortReference} onChange={(event) => setShortReference(event.target.value)} placeholder="输入用于记忆的参考答案；练习时由用户自行标记对错。" rows={5} /></label> : <><div className="editor-label"><span>选项与正确答案</span><small>点击字母标记正确答案；每个选项支持文本、公式和图片。</small></div>
-        <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAssetV7} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
+        <div className="editor-options editor-rich-options">{options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <div className="editor-rich-option" key={`${letter}-${index}`}><button type="button" aria-label={`将 ${letter} 设为正确答案`} className={answerText.includes(letter) ? "answer-selected" : ""} onClick={() => toggleAnswer(letter)}>{letter}</button><ContentBlockEditor value={option} onChange={(next) => updateOption(index, next)} prepareImage={prepareImage} loadAsset={loadImageAsset} />{type !== "判断" && options.length > 2 && <button type="button" aria-label={`删除选项 ${letter}`} className="delete-option" onClick={() => removeOption(index)}><Trash2 size={16} /></button>}</div>; })}</div>
         {type !== "判断" && options.length < 8 && <button type="button" className="add-option" onClick={addOption}><Plus size={16} />添加选项</button>}</>}
       <label>自定义标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="例如：弧垂，易混，必背" /><small>使用逗号分隔，可添加、修改或删除标签。</small></label>
       <label>个人解析<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="写下错因、口诀或区分条件…" rows={4} /><small>支持 Markdown 与 LaTeX 公式；保存时与题目一起写入，可在做题页继续编辑。</small></label>
-      <div className="editor-preview"><span>预览</span>{type === "计算" ? <CalculationContentRenderer blocks={content} answerCount={calculationAnswerValues.length} loadAsset={loadImageAssetV7} /> : <ContentBlockRenderer blocks={content} loadAsset={loadImageAssetV7} />}</div>
+      <div className="editor-preview"><span>预览</span>{type === "计算" ? <CalculationContentRenderer blocks={content} answerCount={calculationAnswerValues.length} loadAsset={loadImageAsset} /> : <ContentBlockRenderer blocks={content} loadAsset={loadImageAsset} />}</div>
       {error && <p className="editor-error">{error}</p>}
     </div>
     <footer><button className="secondary" onClick={onCancel}>取消</button><button className="primary" disabled={saving} onClick={() => void save()}><Save size={17} />{saving ? "保存中…" : submitLabel}</button></footer>
@@ -245,7 +245,7 @@ export function QuestionEditor({ question, onSave, onCancel, title = "编辑题�
 
 /** Shared-question editing guard. */
 export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSaved, title = "编辑题目" }: {
-  question: QuestionV7;
+  question: Question;
   preferredBankId?: string;
   onCancel: () => void;
   onSaved: () => void;
@@ -254,7 +254,7 @@ export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSa
   const [memberships, setMemberships] = useState<Array<{ bankId: string; name: string }>>([]);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [pendingChanges, setPendingChanges] = useState<{ changes: QuestionChanges; note?: string }>();
-  const existingNote = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
+  const existingNote = useLiveQuery(() => studyDb.notes.get(question.id), [question.id]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const membershipKey = `${question.id}:${preferredBankId ?? ""}`;
@@ -262,9 +262,9 @@ export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSa
   const [membershipLoadError, setMembershipLoadError] = useState<{ key: string; message: string }>();
   const membershipsReady = loadedMembershipKey === membershipKey;
   const membershipLoadFailed = membershipLoadError?.key === membershipKey;
-  const membershipRequestRef = useRef<Promise<QuestionViewV7 | undefined> | undefined>(undefined);
+  const membershipRequestRef = useRef<Promise<QuestionView | undefined> | undefined>(undefined);
 
-  function rowsFromView(view: QuestionViewV7) {
+  function rowsFromView(view: QuestionView) {
     return view.memberships.map((membership) => ({
       bankId: membership.bankId,
       name: view.banks.find((bank) => bank.id === membership.bankId)?.displayName
@@ -276,7 +276,7 @@ export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSa
   useEffect(() => {
     let disposed = false;
     const requestKey = membershipKey;
-    const request = getQuestionViewV7(question.id, preferredBankId);
+    const request = getQuestionView(question.id, preferredBankId);
     membershipRequestRef.current = request;
     void request.then((view) => {
       if (disposed) return;
@@ -302,16 +302,16 @@ export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSa
     try {
       let targetId = question.id;
       if (mode === "sync") {
-        await updateQuestionV7(question.id, changes);
+        await updateQuestion(question.id, changes);
       } else {
         if (!selectedBankIds.length) throw new Error("分裂题目时至少选择一个题库。");
-        const result = await splitQuestionV7(question.id, selectedBankIds);
+        const result = await splitQuestion(question.id, selectedBankIds);
         const clone = result.clones[0];
         if (!clone) throw new Error("未找到可分裂的题库 membership。");
-        await updateQuestionV7(clone.id, changes);
+        await updateQuestion(clone.id, changes);
         targetId = clone.id;
       }
-      if (note !== undefined) await saveNoteV7(targetId, note);
+      if (note !== undefined) await saveNote(targetId, note);
       onSaved();
       return true;
     } catch (saveError) {
@@ -326,7 +326,7 @@ export function SharedQuestionEditor({ question, preferredBankId, onCancel, onSa
     if (membershipLoadFailed) throw new Error(membershipLoadError?.message || error || "无法读取题库归属，请稍后重试。");
     let rows = memberships;
     if (!membershipsReady) {
-      const view = await (membershipRequestRef.current ?? getQuestionViewV7(question.id, preferredBankId));
+      const view = await (membershipRequestRef.current ?? getQuestionView(question.id, preferredBankId));
       if (!view) throw new Error("无法读取题库归属，请稍后重试。");
       rows = rowsFromView(view);
       setMemberships(rows);

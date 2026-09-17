@@ -1,5 +1,5 @@
 import { summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import type { AttemptStatsV7 } from "@/lib/db/v7-types";
+import type { AttemptStats } from "@/lib/db/types";
 
 export interface KnowledgeTagQuestion {
   id: string;
@@ -8,7 +8,7 @@ export interface KnowledgeTagQuestion {
 
 export function buildKnowledgeTagSummaries<T extends KnowledgeTagQuestion>(
   questions: readonly T[],
-  attemptStats: readonly AttemptStatsV7[],
+  attemptStats: readonly AttemptStats[],
   query: string,
 ) {
   const statsByQuestion = new Map(attemptStats.map((stats) => [stats.questionId, { ...stats, bankId: "" }]));

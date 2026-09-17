@@ -1,9 +1,9 @@
-import { importQuestionBankV7, putImageAssetV7 } from "../db/db-v7";
+import { importQuestionBank, putImageAsset } from "../db/db";
 import { importFileName, type WorkbookImage } from "../io/xlsx-import";
 import { questionBankIoWorker } from "../io/io-worker-client";
 import { sniffImageDimensions } from "../io/image-dimensions";
 import { sha256Bytes, type ImageMimeType } from "../io/image-assets";
-import type { BankV7, ImageAsset } from "../db/v7-types";
+import type { Bank, ImageAsset } from "../db/types";
 import { isVisualWrapExtractionSource } from "./imported-text-cleanup";
 import { mapWithConcurrency } from "../async/bounded-concurrency";
 import { IMPORT_LIMITS } from "../io/import-limits";
@@ -26,7 +26,7 @@ export function detectQuestionBankFileType(file: Pick<File, "name" | "type">): Q
 async function storeImageAsset(bytes: Uint8Array, mimeType: ImageMimeType, width: number, height: number): Promise<ImageAsset> {
   const assetId = await sha256Bytes(bytes);
   const blob = new Blob([bytes.slice()], { type: mimeType });
-  return putImageAssetV7({ id: assetId, blob, mimeType, size: bytes.byteLength, width, height });
+  return putImageAsset({ id: assetId, blob, mimeType, size: bytes.byteLength, width, height });
 }
 
 /** Materialise only workbook images referenced by imported rows. Some WPS
@@ -52,7 +52,7 @@ async function materializeWorkbookImages(images: ReadonlyMap<string, WorkbookIma
   };
 }
 
-export async function importQuestionBankFile(file: File, options?: { targetBankId?: string }): Promise<{ bank: BankV7; importedCount: number; type: QuestionBankFileType }> {
+export async function importQuestionBankFile(file: File, options?: { targetBankId?: string }): Promise<{ bank: Bank; importedCount: number; type: QuestionBankFileType }> {
   const type = detectQuestionBankFileType(file);
   if (type === "xlsx" || type === "zip") {
     // Parsing runs in the shared module worker; only image materialisation
@@ -68,7 +68,7 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
         if (row.images?.length) row.images = row.images.map((id) => assetByDispimg.get(id) ?? id);
       }
       const canonicalRows = rows.map((row) => ({ stem: row.q, type: row.type, options: row.a, answer: row.ans, tags: row.tags, ...(row.note ? { note: row.note } : {}), ...(row.images?.length ? { images: row.images } : {}) }));
-      const bank = await importQuestionBankV7(importFileName(file.name), canonicalRows, { ...options, imageAssets: assets });
+      const bank = await importQuestionBank(importFileName(file.name), canonicalRows, { ...options, imageAssets: assets });
       return { bank, importedCount: bank.importedCount, type };
     }
     if (parsed.kind !== "zip") throw new Error("导入解析结果类型不匹配，请重试。");
@@ -79,7 +79,7 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
       void _blob;
       return descriptor;
     });
-    const bank = await importQuestionBankV7(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions }, { ...options, imageAssets: assets });
+    const bank = await importQuestionBank(file.name, { name: bundle.name ?? file.name.replace(/\.zip$/i, ""), questions: bundle.questions }, { ...options, imageAssets: assets });
     return { bank, importedCount: bank.importedCount, type };
   }
   if (file.size > IMPORT_LIMITS.json.maxBytes) throw new Error("JSON 文件超过 128 MB 上限。");
@@ -89,6 +89,6 @@ export async function importQuestionBankFile(file: File, options?: { targetBankI
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray((raw as Record<string, unknown>).questions)) throw new Error("JSON 题库必须使用当前 { name?, questions: [] } 格式。");
   const questionRows = (raw as { questions: unknown[] }).questions;
   if (questionRows.length > IMPORT_LIMITS.json.maxQuestions) throw new Error(`JSON 题库最多包含 ${IMPORT_LIMITS.json.maxQuestions} 道题。`);
-  const bank = await importQuestionBankV7(file.name, raw, options);
+  const bank = await importQuestionBank(file.name, raw, options);
   return { bank, importedCount: bank.importedCount, type };
 }

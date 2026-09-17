@@ -3,7 +3,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
-import { createBankV7 } from "@/lib/db/db-v7";
+import { createBank as createBankRecord } from "@/lib/db/db";
 import { bankTitle, saveBank, saveBankFolder, type Bank, type BankFolder } from "./bank-library-shared";
 
 export function BankCreateDialog({ folders, onClose, onCreated }: { folders: BankFolder[]; onClose: () => void; onCreated: (bank: Bank) => void }) {
@@ -19,7 +19,7 @@ export function BankCreateDialog({ folders, onClose, onCreated }: { folders: Ban
     try {
       setBusy(true);
       setError("");
-      const bank = await createBankV7({
+      const bank = await createBankRecord({
         name: name.trim(),
         description,
         folderId: folderId === "unfiled" ? undefined : folderId,

@@ -1,4 +1,4 @@
-import type { ContentBlock, QuestionSolution, QuestionTypeV7, QuestionV7 } from "../db/v7-types";
+import type { ContentBlock, QuestionSolution, QuestionType, Question } from "../db/types";
 
 export const MAX_CALCULATION_BLANKS = 12;
 export const CALCULATION_BLANK_PATTERN = /【空([1-9][0-9]*)】/g;
@@ -148,7 +148,7 @@ function stableOptionIdsForOptions(options: readonly (readonly ContentBlock[])[]
   });
 }
 
-export function stableQuestionOptionIds(question: Pick<QuestionV7, "options" | "optionIds">): string[] {
+export function stableQuestionOptionIds(question: Pick<Question, "options" | "optionIds">): string[] {
   if (hasValidOptionIds(question.optionIds, question.options.length)) return [...question.optionIds];
   return stableOptionIdsForOptions(question.options);
 }
@@ -163,7 +163,7 @@ function calculationSolutionFromInput(value: string | readonly string[]): Extrac
 
 /** Convert current editor/import text input into the canonical solution shape. */
 export function solutionFromInput(
-  type: QuestionTypeV7,
+  type: QuestionType,
   answer: string | readonly string[],
   options: readonly ContentBlock[][],
   optionIds?: readonly string[],

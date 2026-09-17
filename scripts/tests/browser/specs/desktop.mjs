@@ -72,8 +72,8 @@ export async function runDesktop(page, mockServer) {
   await helpers.expectText(page, "答题配置");
   await helpers.expectText(page, "客户端版本");
   await page.evaluate(() => {
-    const raw = JSON.parse(window.localStorage.getItem("study-v7-preferences") ?? "{}");
-    window.localStorage.setItem("study-v7-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
+    const raw = JSON.parse(window.localStorage.getItem("study-preferences") ?? "{}");
+    window.localStorage.setItem("study-preferences", JSON.stringify({ ...raw, questionTransition: "slide" }));
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });
@@ -282,7 +282,7 @@ export async function runDesktop(page, mockServer) {
   await autoThreshold.fill("1");
   await autoThreshold.blur();
   await page.waitForFunction(() => {
-    const raw = window.localStorage.getItem("study-v7-preferences");
+    const raw = window.localStorage.getItem("study-preferences");
     if (!raw) return false;
     try { return Number(JSON.parse(raw).autoSyncEventThreshold) === 1; } catch { return false; }
   });

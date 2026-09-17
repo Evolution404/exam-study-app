@@ -1,4 +1,4 @@
-import type { AttemptOutcome, QuestionV7 } from "../db/v7-types";
+import type { AttemptOutcome, Question } from "../db/types";
 import {
   areCalculationAnswersCorrect,
   calculationBlankIndexes,
@@ -8,7 +8,7 @@ import {
 } from "../question/question-utils";
 
 export interface PracticeAnswerStateInput {
-  question: QuestionV7;
+  question: Question;
   stem: string;
   selected: readonly string[];
   calculationDrafts: readonly string[];
@@ -24,8 +24,8 @@ export interface PracticeAnswerDerivedState {
   optionIds: string[];
   correctOptionIds: Set<string>;
   expectedCalculationAnswers: string[];
-  expectedFillSolution?: Extract<QuestionV7["solution"], { kind: "fill" }>;
-  shortSolution?: Extract<QuestionV7["solution"], { kind: "short" }>;
+  expectedFillSolution?: Extract<Question["solution"], { kind: "fill" }>;
+  shortSolution?: Extract<Question["solution"], { kind: "short" }>;
   selectedAnswer: string;
   correct: boolean;
   hasInlineCalculationBlanks: boolean;
@@ -37,7 +37,7 @@ export interface PracticeAnswerDerivedState {
 }
 
 export function isPracticeAnswerCorrect(
-  question: QuestionV7,
+  question: Question,
   selected: readonly string[],
   calculationTolerancePercent: number,
   shortOutcome?: AttemptOutcome,

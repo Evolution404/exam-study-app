@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { readPracticeSetupHistoryForQuestionIdsV7 } from "../../src/lib/db/practice-setup-read-v7";
-import type { AttemptStatsV7, AttemptV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import { studyDb, resetDatabase } from "../../src/lib/db/db";
+import { readPracticeSetupHistoryForQuestionIds } from "../../src/lib/db/practice-setup-read";
+import type { AttemptStats, Attempt, ReviewRoundProgress } from "../../src/lib/db/types";
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: { getItem: () => null, setItem: () => undefined },
 });
 
-await resetV7Database();
+await resetDatabase();
 const at = "2026-08-27T00:00:00.000Z";
 const targetIds = ["target-q-1", "target-q-2"];
 
-const stats = (questionId: string): AttemptStatsV7 => ({
+const stats = (questionId: string): AttemptStats => ({
   questionId,
   total: 1,
   correct: 0,
@@ -29,7 +29,7 @@ const stats = (questionId: string): AttemptStatsV7 => ({
   recentOutcomes: [{ id: `outcome-${questionId}`, createdAt: at, correct: false, elapsedMs: 10 }],
 });
 const unrelatedStats = Array.from({ length: 20_000 }, (_, index) => stats(`unrelated-stats-${index}`));
-await dbV7.questionProgress.bulkPut([...unrelatedStats, ...targetIds.map(stats)]);
+await studyDb.questionProgress.bulkPut([...unrelatedStats, ...targetIds.map(stats)]);
 
 const progress = (questionId: string, index: number): ReviewRoundProgress => ({
   key: `round-${index}:${questionId}`,
@@ -50,9 +50,9 @@ const progress = (questionId: string, index: number): ReviewRoundProgress => ({
 });
 const unrelatedProgress = Array.from({ length: 20_000 }, (_, index) => progress(`unrelated-progress-${index}`, index));
 const targetProgress = [progress(targetIds[0], 20_001), progress(targetIds[1], 20_002), progress(targetIds[0], 20_003)];
-await dbV7.reviewRoundProgress.bulkPut([...unrelatedProgress, ...targetProgress]);
+await studyDb.reviewRoundProgress.bulkPut([...unrelatedProgress, ...targetProgress]);
 
-const unrelatedAttempts: AttemptV7[] = Array.from({ length: 100_000 }, (_, index) => ({
+const unrelatedAttempts: Attempt[] = Array.from({ length: 100_000 }, (_, index) => ({
   id: `attempt-${index}`,
   runId: "perf-run",
   questionId: `unrelated-attempt-q-${index % 1000}`,
@@ -62,7 +62,7 @@ const unrelatedAttempts: AttemptV7[] = Array.from({ length: 100_000 }, (_, index
   createdAt: at,
   deviceId: "practice-perf-test",
 }));
-const targetAttempts: AttemptV7[] = Array.from({ length: 7 }, (_, index) => ({
+const targetAttempts: Attempt[] = Array.from({ length: 7 }, (_, index) => ({
   id: `target-attempt-${index}`,
   runId: "perf-run",
   questionId: targetIds[index % targetIds.length],
@@ -72,23 +72,23 @@ const targetAttempts: AttemptV7[] = Array.from({ length: 7 }, (_, index) => ({
   createdAt: at,
   deviceId: "practice-perf-test",
 }));
-await dbV7.attempts.bulkPut([...unrelatedAttempts, ...targetAttempts]);
+await studyDb.attempts.bulkPut([...unrelatedAttempts, ...targetAttempts]);
 
 let statsReads = 0;
 let progressReads = 0;
 let attemptReads = 0;
-const statsHook = (row: AttemptStatsV7) => { statsReads += 1; return row; };
+const statsHook = (row: AttemptStats) => { statsReads += 1; return row; };
 const progressHook = (row: ReviewRoundProgress) => { progressReads += 1; return row; };
-const attemptHook = (row: AttemptV7) => { attemptReads += 1; return row; };
-dbV7.questionProgress.hook("reading", statsHook);
-dbV7.reviewRoundProgress.hook("reading", progressHook);
-dbV7.attempts.hook("reading", attemptHook);
+const attemptHook = (row: Attempt) => { attemptReads += 1; return row; };
+studyDb.questionProgress.hook("reading", statsHook);
+studyDb.reviewRoundProgress.hook("reading", progressHook);
+studyDb.attempts.hook("reading", attemptHook);
 
-const history = await readPracticeSetupHistoryForQuestionIdsV7([targetIds[0], targetIds[1], targetIds[0]]);
+const history = await readPracticeSetupHistoryForQuestionIds([targetIds[0], targetIds[1], targetIds[0]]);
 
-dbV7.questionProgress.hook("reading").unsubscribe(statsHook);
-dbV7.reviewRoundProgress.hook("reading").unsubscribe(progressHook);
-dbV7.attempts.hook("reading").unsubscribe(attemptHook);
+studyDb.questionProgress.hook("reading").unsubscribe(statsHook);
+studyDb.reviewRoundProgress.hook("reading").unsubscribe(progressHook);
+studyDb.attempts.hook("reading").unsubscribe(attemptHook);
 assert.deepEqual(history.stats.map((row) => row.questionId).sort(), [...targetIds].sort());
 assert.equal(history.roundsProgress.length, targetProgress.length, "大量无关轮次进度下必须完整读取当前题目记录");
 assert.equal(history.attempts.length, targetAttempts.length, "100,000 attempts 场景必须完整读取当前小题集历史");
@@ -99,19 +99,19 @@ assert.ok(history.attempts.every((row) => targetIds.includes(row.questionId)));
 assert.ok(history.roundsProgress.every((row) => targetIds.includes(row.questionId)));
 
 let skippedAttemptReads = 0;
-const skippedAttemptHook = (row: AttemptV7) => { skippedAttemptReads += 1; return row; };
-dbV7.attempts.hook("reading", skippedAttemptHook);
-const lightweightHistory = await readPracticeSetupHistoryForQuestionIdsV7(targetIds, { includeAttempts: false });
-dbV7.attempts.hook("reading").unsubscribe(skippedAttemptHook);
+const skippedAttemptHook = (row: Attempt) => { skippedAttemptReads += 1; return row; };
+studyDb.attempts.hook("reading", skippedAttemptHook);
+const lightweightHistory = await readPracticeSetupHistoryForQuestionIds(targetIds, { includeAttempts: false });
+studyDb.attempts.hook("reading").unsubscribe(skippedAttemptHook);
 assert.equal(lightweightHistory.attempts.length, 0, "无需逐条作答语义时 read-model 应返回空 attempts");
 assert.equal(skippedAttemptReads, 0, "普通开始练习路径不得 materialize attempts");
 
 let emptyReads = 0;
-const emptyAttemptHook = (row: AttemptV7) => { emptyReads += 1; return row; };
-dbV7.attempts.hook("reading", emptyAttemptHook);
-assert.deepEqual(await readPracticeSetupHistoryForQuestionIdsV7([]), { stats: [], roundsProgress: [], attempts: [] }, "空题集必须直接返回空 read-model");
-dbV7.attempts.hook("reading").unsubscribe(emptyAttemptHook);
+const emptyAttemptHook = (row: Attempt) => { emptyReads += 1; return row; };
+studyDb.attempts.hook("reading", emptyAttemptHook);
+assert.deepEqual(await readPracticeSetupHistoryForQuestionIds([]), { stats: [], roundsProgress: [], attempts: [] }, "空题集必须直接返回空 read-model");
+studyDb.attempts.hook("reading").unsubscribe(emptyAttemptHook);
 assert.equal(emptyReads, 0, "空题集不得触发历史表读取");
 
-await dbV7.close();
+await studyDb.close();
 console.log("practice setup performance tests passed: targeted stats/progress reads and 100k attempt cardinality");

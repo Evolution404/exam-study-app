@@ -137,8 +137,8 @@ export async function setPracticePreferences(page, patch) {
   // autoNextCorrect=true 会在答对后自动前进并显示“回答正确，即将进入下一题”，
   // 两者都会让确定性作答断言不可靠。
   await page.evaluate((values) => {
-    const raw = JSON.parse(window.localStorage.getItem("study-v7-preferences") ?? "{}");
-    window.localStorage.setItem("study-v7-preferences", JSON.stringify({ ...raw, ...values }));
+    const raw = JSON.parse(window.localStorage.getItem("study-preferences") ?? "{}");
+    window.localStorage.setItem("study-preferences", JSON.stringify({ ...raw, ...values }));
   }, patch);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".app-shell").waitFor({ state: "visible" });

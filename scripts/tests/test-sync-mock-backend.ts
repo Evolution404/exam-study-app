@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import "fake-indexeddb/auto";
-import { createBankV7, createQuestionV7, dbV7, importQuestionBankV7, putImageAssetV7, resetV7Database } from "../../src/lib/db/db-v7";
-import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
-import { SYNC_V9_ASSET_PREFIX } from "../../src/lib/sync/sync-v7-head-types";
-import { downloadImageAssetV7 } from "../../src/lib/sync/image-asset-cache";
+import { createBank, createQuestion, studyDb, importQuestionBank, putImageAsset, resetDatabase } from "../../src/lib/db/db";
+import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { SYNC_ASSET_PREFIX } from "../../src/lib/sync/sync-head-types";
+import { downloadImageAsset } from "../../src/lib/sync/image-asset-cache";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -14,7 +14,7 @@ Object.defineProperty(globalThis, "localStorage", {
 
 const server = await startMockGitHubServer();
 try {
-  await resetV7Database();
+  await resetDatabase();
   const settings = { owner: "qa", repo: "mock-vault", branch: "main", apiBaseUrl: server.url };
   const labels: string[] = [];
 
@@ -22,8 +22,8 @@ try {
   assert.equal(init.formatVersion, 9, "同步协议版本应为 9");
   assert.equal(init.remaining, 0, "初始化后应无待办");
 
-  await createBankV7("同步后端契约测试题库");
-  const pendingBefore = await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count();
+  await createBank("同步后端契约测试题库");
+  const pendingBefore = await studyDb.changeSets.where("state").anyOf(["pending", "blocked"]).count();
   assert.ok(pendingBefore >= 1, "建库应产生待同步变更");
 
   const push = await syncWithGitHub(settings, "qa-token");
@@ -31,9 +31,9 @@ try {
   assert.equal(push.remaining, 0, "同步后应无待办");
   assert.ok(labels.length > 0, "应回报同步进度");
 
-  const committed = await dbV7.changeSets.where("state").equals("committed").count();
+  const committed = await studyDb.changeSets.where("state").equals("committed").count();
   assert.ok(committed >= 1, "变更应已提交到云端");
-  assert.equal(await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).count(), 0, "同步后本地无待办");
+  assert.equal(await studyDb.changeSets.where("state").anyOf(["pending", "blocked"]).count(), 0, "同步后本地无待办");
 
   const again = await syncWithGitHub(settings, "qa-token");
   assert.equal(again.pushed, 0, "二次同步不应重复上传");
@@ -42,23 +42,23 @@ try {
   // New images are physically published as packs. The global Asset Index is the only runtime locator.
   const localImageBytes = Buffer.from("local-image-blob-bytes-for-push");
   const localImageDigest = createHash("sha256").update(localImageBytes).digest("hex");
-  await putImageAssetV7({ id: localImageDigest, blob: new Blob([localImageBytes]), mimeType: "image/png", size: localImageBytes.length, width: 1, height: 1 });
+  await putImageAsset({ id: localImageDigest, blob: new Blob([localImageBytes]), mimeType: "image/png", size: localImageBytes.length, width: 1, height: 1 });
   const refUpdatesBeforeImage = server.stats.gitRefUpdates;
   const imagePush = await syncWithGitHub(settings, "qa-token");
   assert.ok(imagePush.pushed >= 1, "新图片应发布资产事件");
   assert.equal(server.stats.gitRefUpdates - refUpdatesBeforeImage, 1, "一轮图片物理发布只能 fast-forward 一次 Git ref");
-  assert.ok(server.contentPaths().includes(`${SYNC_V9_ASSET_PREFIX}index.json`), "远端必须存在 Asset Pack index 指针");
-  assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_V9_ASSET_PREFIX) && path.endsWith(".bin")), "远端必须存在内容寻址 Pack/shard");
-  assert.equal(server.contentPaths().includes(`${SYNC_V9_ASSET_PREFIX}${localImageDigest}.png`), false, "新协议不得创建单图路径");
+  assert.ok(server.contentPaths().includes(`${SYNC_ASSET_PREFIX}index.json`), "远端必须存在 Asset Pack index 指针");
+  assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_ASSET_PREFIX) && path.endsWith(".bin")), "远端必须存在内容寻址 Pack/shard");
+  assert.equal(server.contentPaths().includes(`${SYNC_ASSET_PREFIX}${localImageDigest}.png`), false, "新协议不得创建单图路径");
 
   // image.asset.save is still ordered before a question event, but the event
   // carries only logical image metadata. Binary location lives outside events.
   const imageQuestionBytes = Buffer.from("image-question-blob-bytes");
   const imageQuestionDigest = createHash("sha256").update(imageQuestionBytes).digest("hex");
-  await putImageAssetV7({ id: imageQuestionDigest, blob: new Blob([imageQuestionBytes]), mimeType: "image/png", size: imageQuestionBytes.length, width: 1, height: 1 });
-  const bank = await dbV7.banks.orderBy("sortOrder").first();
+  await putImageAsset({ id: imageQuestionDigest, blob: new Blob([imageQuestionBytes]), mimeType: "image/png", size: imageQuestionBytes.length, width: 1, height: 1 });
+  const bank = await studyDb.banks.orderBy("sortOrder").first();
   assert.ok(bank, "测试需要已存在的题库");
-  await createQuestionV7(bank.id, {
+  await createQuestion(bank.id, {
     type: "单选",
     content: [{ id: "stem-0", type: "text", text: "看图作答" }, { id: "img-0", type: "image", assetId: imageQuestionDigest }],
     options: [[{ id: "opt-a", type: "text", text: "甲" }], [{ id: "opt-b", type: "text", text: "乙" }]],
@@ -67,7 +67,7 @@ try {
   });
   const imageQuestionPush = await syncWithGitHub(settings, "qa-token");
   assert.equal(imageQuestionPush.pushed, 2, "应推送 image.asset.save 与题目 batch 两组逻辑变更");
-  assert.equal(server.contentPaths().includes(`${SYNC_V9_ASSET_PREFIX}${imageQuestionDigest}.png`), false, "题目图片不得落回旧单图路径");
+  assert.equal(server.contentPaths().includes(`${SYNC_ASSET_PREFIX}${imageQuestionDigest}.png`), false, "题目图片不得落回旧单图路径");
 
   // Excel/ZIP-style imports keep one fixed question.import event. Eight images
   // are physically grouped into packs and published through ONE Git commit/ref
@@ -79,12 +79,12 @@ try {
   });
   const concurrentImageDescriptors = [];
   for (const asset of concurrentAssets) {
-    const stored = await putImageAssetV7({ id: asset.id, blob: new Blob([asset.bytes]), mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height });
+    const stored = await putImageAsset({ id: asset.id, blob: new Blob([asset.bytes]), mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height });
     const { blob: _blob, ...descriptor } = stored;
     void _blob;
     concurrentImageDescriptors.push(descriptor);
   }
-  await importQuestionBankV7("并发图片导入.json", [{
+  await importQuestionBank("并发图片导入.json", [{
     type: "单选",
     content: [
       { type: "text", text: "Pack 批量上传图片" },
@@ -93,9 +93,9 @@ try {
     options: ["甲", "乙"],
     answer: "A",
   }], { imageAssets: concurrentImageDescriptors });
-  const fixedPendingCount = await dbV7.changeSets.where("state").equals("pending").count();
+  const fixedPendingCount = await studyDb.changeSets.where("state").equals("pending").count();
   assert.equal(fixedPendingCount, 1, "导入完成时同步事件数量应已经固定为 1");
-  const fixedImport = (await dbV7.changeSets.where("state").equals("pending").first())!;
+  const fixedImport = (await studyDb.changeSets.where("state").equals("pending").first())!;
   const fixedMutation = fixedImport.mutations.find((mutation) => mutation.kind === "question.import");
   assert.equal(fixedMutation?.kind, "question.import");
   assert.equal(fixedMutation.images?.length, concurrentAssets.length, "固定事件应预先包含全部图片描述");
@@ -107,7 +107,7 @@ try {
   const imageProgressLabels: string[] = [];
   let maxPendingDuringSync = fixedPendingCount;
   const pendingMonitor = setInterval(() => {
-    void dbV7.changeSets.where("state").equals("pending").count().then((count) => {
+    void studyDb.changeSets.where("state").equals("pending").count().then((count) => {
       maxPendingDuringSync = Math.max(maxPendingDuringSync, count);
     });
   }, 2);
@@ -128,12 +128,12 @@ try {
   // still reaches the same mock server — this models a new app process/device.
   const imageBytes = Buffer.from("pack-download-roundtrip");
   const imageDigest = createHash("sha256").update(imageBytes).digest("hex");
-  await putImageAssetV7({ id: imageDigest, blob: new Blob([imageBytes]), mimeType: "image/png", size: imageBytes.length, width: 1, height: 1 });
+  await putImageAsset({ id: imageDigest, blob: new Blob([imageBytes]), mimeType: "image/png", size: imageBytes.length, width: 1, height: 1 });
   await syncWithGitHub(settings, "qa-token");
-  await dbV7.imageBlobs.delete(imageDigest);
+  await studyDb.imageBlobs.delete(imageDigest);
   const readsBefore = server.stats.blobReads;
   const freshRuntimeSettings = { ...settings, apiBaseUrl: `${server.url}/.` };
-  const downloaded = await downloadImageAssetV7(freshRuntimeSettings, "qa-token", imageDigest);
+  const downloaded = await downloadImageAsset(freshRuntimeSettings, "qa-token", imageDigest);
   assert.equal(downloaded.size, imageBytes.length, "Pack 下载的图片 blob 大小应一致");
   assert.equal(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex"), imageDigest, "Pack 下载图片 sha256 应一致");
   assert.ok(server.stats.blobReads > readsBefore, "新运行时缓存缺失时应读取 shard/Pack blob");
@@ -141,7 +141,7 @@ try {
   // Empty-vault bootstrap follows the same physical rule: all initial images
   // are packed before the initial checkpoint and still produce one Git ref
   // update for their asset transaction.
-  await resetV7Database();
+  await resetDatabase();
   const bootstrapSettings = { ...settings, repo: "mock-vault-image-bootstrap" };
   const bootstrapAssets = Array.from({ length: 3 }, (_, index) => {
     const bytes = Buffer.from(`bootstrap-image-${index}`);
@@ -149,18 +149,18 @@ try {
   });
   const bootstrapDescriptors = [];
   for (const asset of bootstrapAssets) {
-    const stored = await putImageAssetV7({ id: asset.id, blob: new Blob([asset.bytes]), mimeType: "image/png", size: asset.bytes.length, width: 1, height: 1 });
+    const stored = await putImageAsset({ id: asset.id, blob: new Blob([asset.bytes]), mimeType: "image/png", size: asset.bytes.length, width: 1, height: 1 });
     const { blob: _blob, ...descriptor } = stored;
     void _blob;
     bootstrapDescriptors.push(descriptor);
   }
-  await importQuestionBankV7("首次同步图片.json", [{
+  await importQuestionBank("首次同步图片.json", [{
     type: "单选",
     content: [{ type: "text", text: "首次同步" }, ...bootstrapAssets.map((asset) => ({ type: "image", assetId: asset.id }))],
     options: ["甲", "乙"],
     answer: "A",
   }], { imageAssets: bootstrapDescriptors });
-  assert.equal(await dbV7.changeSets.where("state").equals("pending").count(), 1, "首次同步前也应只有一个固定导入事件");
+  assert.equal(await studyDb.changeSets.where("state").equals("pending").count(), 1, "首次同步前也应只有一个固定导入事件");
   const bootstrapRefBefore = server.stats.gitRefUpdates;
   const bootstrapCommitBefore = server.stats.gitCommitWrites;
   const bootstrapLabels: string[] = [];
@@ -173,5 +173,5 @@ try {
   console.log("mock github backend sync + current asset-pack contract passed");
 } finally {
   await server.close();
-  dbV7.close();
+  studyDb.close();
 }

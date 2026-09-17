@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createGitHubTransport, GITHUB_RELAY_URL, GITHUB_WEB_RELAY_PATH, resolveGitHubApiBaseUrl } from "../../src/platform/github-transport";
-import { getGitHubLogin } from "../../src/lib/sync/sync-v7-tools";
-import { remote } from "../../src/lib/sync/sync-v7-context";
-import type { SyncHeadV7 } from "../../src/lib/sync/sync-v7-head-types";
+import { getGitHubLogin } from "../../src/lib/sync/sync-tools";
+import { remote } from "../../src/lib/sync/sync-context";
+import type { SyncHead } from "../../src/lib/sync/sync-head-types";
 
 const native = { platform: "ios" as const, native: true, ios: true };
 const web = { platform: "web" as const, native: false, ios: false };
 const calls: string[] = [];
-const head: SyncHeadV7 = {
+const head: SyncHead = {
   formatVersion: 9,
   vaultId: "owner/repo@main",
   generatedAt: "2026-08-22T00:00:00.000Z",

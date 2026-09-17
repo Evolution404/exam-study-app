@@ -1,25 +1,25 @@
 import assert from "node:assert/strict";
-import { reduceChangeSetV7, type ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
-import { normalizeProjection, runWithAnswer } from "../../src/lib/sync/change-set-v7-projection-core";
-import { type ChangeSetMutationV7 } from "../../src/lib/sync/change-set-v7-types";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
-import type { BankV7, QuestionV7, PracticeRunV7, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import { reduceChangeSet, type ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import { normalizeProjection, runWithAnswer } from "../../src/lib/sync/change-set-projection-core";
+import { type ChangeSetMutation } from "../../src/lib/sync/change-set-types";
+import { createChangeSet } from "../../src/lib/sync/change-set-codec";
+import type { Bank, Question, PracticeRun, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/types";
 
 const AT = "2026-08-13T00:00:00.000Z";
 const device = "device-test";
 let seq = 0;
-const next = () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: undefined as never }).catch(() => { throw new Error("never"); });
+const next = () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: undefined as never }).catch(() => { throw new Error("never"); });
 void next;
 
-const bank = (id: string): BankV7 => ({ id, name: id, sortOrder: 0, questionCount: 0, importedAt: AT, updatedAt: AT, deviceId: device });
-const question = (id: string): QuestionV7 => ({
+const bank = (id: string): Bank => ({ id, name: id, sortOrder: 0, questionCount: 0, importedAt: AT, updatedAt: AT, deviceId: device });
+const question = (id: string): Question => ({
   id, type: "单选",
   content: [{ id: "stem-0", type: "text", text: `题 ${id}` }],
   options: [[{ id: "o-a", type: "text", text: "A" }], [{ id: "o-b", type: "text", text: "B" }]],
   answer: "A", tags: [], contentFingerprint: `fp-${id}`, updatedAt: AT, deviceId: device,
 });
 const membership = (bankId: string, questionId: string) => ({ key: `${bankId}:${questionId}`, bankId, questionId, sortOrder: 0, addedAt: AT, updatedAt: AT, deviceId: device });
-const run = (id: string, bankId: string, questionIds: string[]): PracticeRunV7 => ({
+const run = (id: string, bankId: string, questionIds: string[]): PracticeRun => ({
   id, bankId, bankIds: [bankId], bankName: bankId, mode: "sequential", modeLabel: "练习",
   questionIds, questionTypes: Object.fromEntries(questionIds.map((q) => [q, "单选"] as const)),
   answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: AT, updatedAt: AT,
@@ -33,12 +33,12 @@ const roundProgress = (roundId: string, questionId: string): ReviewRoundProgress
   firstAttemptAt: AT, latestAttemptAt: AT,
 });
 
-async function reduce(base: ChangeSetProjectionV7, mutation: ChangeSetMutationV7) {
-  const change = await createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation });
-  return reduceChangeSetV7(base, change);
+async function reduce(base: ChangeSetProjection, mutation: ChangeSetMutation) {
+  const change = await createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation });
+  return reduceChangeSet(base, change);
 }
 
-const empty: ChangeSetProjectionV7 = {
+const empty: ChangeSetProjection = {
   banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [],
   attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [],
   practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [],
@@ -88,8 +88,8 @@ const empty: ChangeSetProjectionV7 = {
 
   // 非级联删除仍有关系时失败
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "bank.delete", bankId: "b1", deletedAt: AT } })
-      .then((change) => reduceChangeSetV7(base, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "bank.delete", bankId: "b1", deletedAt: AT } })
+      .then((change) => reduceChangeSet(base, change)),
     /必须 cascade/,
   );
 
@@ -120,8 +120,8 @@ const empty: ChangeSetProjectionV7 = {
   base.reviewRoundProgress.push(roundProgress("round1", "q1"));
 
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "question.delete", questionId: "q1", deletedAt: AT } })
-      .then((change) => reduceChangeSetV7(base, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "question.delete", questionId: "q1", deletedAt: AT } })
+      .then((change) => reduceChangeSet(base, change)),
     /必须 cascade/,
   );
 
@@ -160,8 +160,8 @@ const empty: ChangeSetProjectionV7 = {
   const after = await reduce(base, { kind: "image.asset.save", asset });
   assert.equal(after.imageAssets.length, 1);
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "image.asset.save", asset: { ...asset, size: 2 } } })
-      .then((change) => reduceChangeSetV7(after, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "image.asset.save", asset: { ...asset, size: 2 } } })
+      .then((change) => reduceChangeSet(after, change)),
     /不可变内容冲突/,
   );
   // 相同 descriptor 幂等
@@ -172,8 +172,8 @@ const empty: ChangeSetProjectionV7 = {
   const withQuestion = structuredClone(again);
   withQuestion.questions.push({ ...question("q1"), content: [{ id: "img", type: "image", assetId: asset.id }] });
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "image.asset.delete", assetId: asset.id, deletedAt: AT } })
-      .then((change) => reduceChangeSetV7(withQuestion, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "image.asset.delete", assetId: asset.id, deletedAt: AT } })
+      .then((change) => reduceChangeSet(withQuestion, change)),
     /仍被题目引用/,
   );
 }
@@ -194,8 +194,8 @@ const empty: ChangeSetProjectionV7 = {
   assert.equal(after.practiceRuns[0].answers.q1.submitted, true);
 
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.answer.submitted", attempt, answer, runId: "r1", questionId: "q1" } })
-      .then((change) => reduceChangeSetV7(after, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.answer.submitted", attempt, answer, runId: "r1", questionId: "q1" } })
+      .then((change) => reduceChangeSet(after, change)),
     /已存在，提交必须使用新 id/,
   );
 
@@ -223,8 +223,8 @@ const empty: ChangeSetProjectionV7 = {
   const deleted = await reduce(after, { kind: "practice.run.deleted", runId: "r1", deletedAt: AT });
   assert.equal(deleted.practiceRuns.length, 0);
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.run.saved", run: run("r1", "b1", ["q1"]) } })
-      .then((change) => reduceChangeSetV7(deleted, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.run.saved", run: run("r1", "b1", ["q1"]) } })
+      .then((change) => reduceChangeSet(deleted, change)),
     /已被删除/,
   );
 
@@ -232,8 +232,8 @@ const empty: ChangeSetProjectionV7 = {
   const withRun = await reduce(base, { kind: "practice.run.saved", run: cleanRun });
   const dirtyRun = { ...cleanRun, answers: { ghost: { selected: ["A"], submitted: true, correct: true } }, revision: 1 };
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.run.status.changed", run: dirtyRun } })
-      .then((change) => reduceChangeSetV7(withRun, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "practice.run.status.changed", run: dirtyRun } })
+      .then((change) => reduceChangeSet(withRun, change)),
     /answers.*outside questionIds/,
     "同步 run 状态事件不得写入 questionIds 范围外的答案",
   );
@@ -246,8 +246,8 @@ const empty: ChangeSetProjectionV7 = {
   const completedRound = await reduce(withRound, { kind: "review.round.completed", round: { ...round("round1", ["b1"]), status: "completed", completedAt: AT } });
   assert.equal(completedRound.reviewRounds[0].status, "completed");
   await assert.rejects(
-    () => createChangeSetV7({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "review.round.completed", round: { ...round("round1", ["b1"]), status: "completed", completedAt: AT } } })
-      .then((change) => reduceChangeSetV7(completedRound, change)),
+    () => createChangeSet({ deviceId: device, localSequence: ++seq, createdAt: AT, mutation: { kind: "review.round.completed", round: { ...round("round1", ["b1"]), status: "completed", completedAt: AT } } })
+      .then((change) => reduceChangeSet(completedRound, change)),
     /不是进行中状态/,
   );
 }

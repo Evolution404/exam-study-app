@@ -6,7 +6,7 @@
  * 选项A… / 图片1…) and formats the canonical structured solution into display
  * cells only at this boundary. JSON/ZIP persist the canonical solution directly.
  */
-import type { ContentBlock, QuestionSolution } from "../db/v7-types";
+import type { ContentBlock, QuestionSolution } from "../db/types";
 import type { QuestionType } from "../../types/types";
 import type { ImageMimeType } from "../io/image-assets";
 import { IMAGE_EXTENSION_BY_MIME } from "../io/image-assets";
@@ -413,7 +413,7 @@ export async function collectExportImages(
 ): Promise<CollectedExportImages> {
   const target = options.target ?? "excel";
   const loadAsset = options.loadAsset ?? (async (assetId: string) => {
-    return (await import("../db/db-v7-images")).getImageAssetV7(assetId);
+    return (await import("../db/db-images")).getImageAsset(assetId);
   });
   const convertWebp = options.convertWebp ?? browserWebpToPng;
   const images = new Map<string, ExportImageData>();

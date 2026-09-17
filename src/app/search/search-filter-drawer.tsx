@@ -5,7 +5,7 @@ import { ArrowLeft, Check, ChevronRight, RotateCcw, Search, X } from "lucide-rea
 import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { normalizeProgressScope, progressScopeLabel, type ProgressScope } from "@/lib/practice/progress-scope";
-import type { BankV7, QuestionTypeV7 } from "@/lib/db/v7-types";
+import type { Bank, QuestionType } from "@/lib/db/types";
 import { SEARCH_CONTENT_SCOPE_OPTIONS, SEARCH_TYPE_ORDER, type SearchContentScope } from "@/app/search/search-matching";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
 import type { TagMatchMode } from "@/lib/question/tag-filter";
@@ -14,7 +14,7 @@ export type SearchBankScope = "current" | "all" | "custom";
 export type SearchStatus = "all" | "unanswered" | "wrong" | "favorite";
 export type SearchNoteFilter = "all" | "with" | "without";
 
-const SEARCH_QUESTION_TYPE_OPTIONS: Array<{ value: "all" | QuestionTypeV7; label: string }> = [
+const SEARCH_QUESTION_TYPE_OPTIONS: Array<{ value: "all" | QuestionType; label: string }> = [
   { value: "all", label: "全部题型" },
   ...SEARCH_TYPE_ORDER.map((type) => ({ value: type, label: type })),
 ];
@@ -24,7 +24,7 @@ export interface SearchFilters {
   customBankIds: string[];
   keywordMode: "plain" | "regex";
   contentScope: SearchContentScope;
-  questionType: "all" | QuestionTypeV7;
+  questionType: "all" | QuestionType;
   status: SearchStatus;
   tags: string[];
   tagMatch: TagMatchMode;
@@ -63,7 +63,7 @@ export function createDefaultSearchFilters(currentBankIds: readonly string[], co
   };
 }
 
-export function resolveSearchBankIds(filters: SearchFilters, banks: readonly BankV7[], currentBankIds: readonly string[]): string[] {
+export function resolveSearchBankIds(filters: SearchFilters, banks: readonly Bank[], currentBankIds: readonly string[]): string[] {
   const available = new Set(banks.map((bank) => bank.id));
   const source = filters.bankScope === "all"
     ? banks.map((bank) => bank.id)
@@ -123,7 +123,7 @@ export function SearchFilterDrawer({
   open: boolean;
   filters: SearchFilters;
   settingsProgressScope: ProgressScope;
-  banks: BankV7[];
+  banks: Bank[];
   currentBankIds: string[];
   tags: string[];
   onChange: (filters: SearchFilters) => void;

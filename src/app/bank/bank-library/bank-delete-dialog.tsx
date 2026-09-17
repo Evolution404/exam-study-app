@@ -1,15 +1,15 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import { X } from "lucide-react";
-import { deleteBankV7, deleteBankWithExclusiveQuestionsV7, dbV7 } from "@/lib/db/db-v7";
+import { deleteBank, deleteBankWithExclusiveQuestions, studyDb } from "@/lib/db/db";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { bankTitle, type Bank } from "./bank-library-shared";
 
 export function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNotice }: { bank: Bank; busy: boolean; onBusy: (value: boolean) => void; onClose: () => void; onDeleted: (message: string) => void; onNotice: (message: string) => void }) {
   const exclusiveCount = useLiveQuery(async () => {
-    const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bank.id).toArray();
+    const memberships = await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray();
     if (!memberships.length) return 0;
-    const all = await dbV7.bankQuestionMemberships.where("questionId").anyOf(memberships.map((membership) => membership.questionId)).toArray();
+    const all = await studyDb.bankQuestionMemberships.where("questionId").anyOf(memberships.map((membership) => membership.questionId)).toArray();
     const counts = new Map<string, number>();
     for (const membership of all) counts.set(membership.questionId, (counts.get(membership.questionId) ?? 0) + 1);
     return memberships.filter((membership) => counts.get(membership.questionId) === 1).length;
@@ -19,10 +19,10 @@ export function BankDeleteDialog({ bank, busy, onBusy, onClose, onDeleted, onNot
     try {
       onBusy(true);
       if (alsoDeleteQuestions) {
-        const result = await deleteBankWithExclusiveQuestionsV7(bank.id);
+        const result = await deleteBankWithExclusiveQuestions(bank.id);
         onDeleted(`题库“${bankTitle(bank)}”已删除，同时清理 ${result.deletedQuestions} 道独占题目`);
       } else {
-        await deleteBankV7(bank.id);
+        await deleteBank(bank.id);
         onDeleted(`题库“${bankTitle(bank)}”已删除，题目已保留`);
       }
     } catch (error) {

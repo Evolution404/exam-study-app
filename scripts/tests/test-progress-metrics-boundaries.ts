@@ -26,12 +26,12 @@ import {
   summarizeScopedQuestionStats,
   type ProgressScope,
 } from "../../src/lib/practice/progress-scope";
-import type { AttemptV7, ReviewRoundProgress } from "../../src/lib/db/v7-types";
+import type { Attempt, ReviewRoundProgress } from "../../src/lib/db/types";
 
 const T0 = "2026-08-16T00:00:00.000Z";
 const DAY = 24 * 60 * 60 * 1000;
 const at = (dayOffset: number, hour = 0): string => new Date(Date.parse(T0) + dayOffset * DAY + hour * 3600_000).toISOString();
-const attempt = (id: string, questionId: string, createdAt: string, correct: boolean, selected = "A"): AttemptV7 => ({
+const attempt = (id: string, questionId: string, createdAt: string, correct: boolean, selected = "A"): Attempt => ({
   id,
   runId: "run",
   questionId,

@@ -1,4 +1,4 @@
-import type { QuestionV7 } from "../db/v7-types";
+import type { Question } from "../db/types";
 import { deriveContentText } from "./question-content";
 import { formatCalculationAnswers, stableQuestionOptionIds } from "./question-utils";
 
@@ -6,7 +6,7 @@ import { formatCalculationAnswers, stableQuestionOptionIds } from "./question-ut
  * Current-schema canonical answer text for presentation/search consumers.
  * This module is intentionally free of Dexie and UI dependencies.
  */
-export function questionAnswerTextV7(question: QuestionV7): string {
+export function questionAnswerText(question: Question): string {
   const solution = question.solution;
   if (solution.kind === "choice") {
     const optionIds = stableQuestionOptionIds(question);

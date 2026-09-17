@@ -3,8 +3,8 @@ import { classifyNoticeTone } from "../../src/lib/practice/notice-tone";
 
 // Every sync-layer error message (Chinese and English) must classify as "error"
 // so the toast never renders a failure in the success (green) colour. These
-// strings are sampled from the actual throw sites in github-v7-remote.ts,
-// github-sync-v7.ts, sync-v7-head.ts and sync-v7-checkpoint.ts.
+// strings are sampled from the actual throw sites in github-remote.ts,
+// github-sync-engine.ts, sync-head.ts and sync-checkpoint.ts.
 const SYNC_ERRORS: string[] = [
   "v8 head vault identity does not match this remote",
   "v8 append vault identity mismatch",

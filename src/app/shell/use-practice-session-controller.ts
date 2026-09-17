@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { dbV7, createPracticeRunV7, getPracticeRunV7, getV7DeviceId } from "@/lib/db/db-v7";
-import { getQuestionViewV7, listQuestionViewsForBanksV7 } from "@/lib/db/app-data-v7";
-import type { BankV7 } from "@/lib/db/v7-types";
+import { studyDb, createPracticeRun, getPracticeRun, getDeviceId } from "@/lib/db/db";
+import { getQuestionView, listQuestionViewsForBanks } from "@/lib/db/app-data";
+import type { Bank } from "@/lib/db/types";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
 import type { SearchPracticeOptions } from "@/app/search/search-view";
 import type { ActivePractice } from "@/types/types";
@@ -22,13 +22,13 @@ import {
   type View,
 } from "./helpers";
 import { removeDeletedQuestionFromSession } from "./shell-controller-model";
-import { preparePracticeStartQuestionsV7 } from "./practice-start-data";
-import { getReviewRoundV7 } from "@/lib/db/review-round-store-v7";
+import { preparePracticeStartQuestions } from "./practice-start-data";
+import { getReviewRound } from "@/lib/db/review-round-store";
 
 interface PracticeSessionControllerOptions {
   view: View;
   setView: Dispatch<SetStateAction<View>>;
-  enabledBanks: BankV7[];
+  enabledBanks: Bank[];
   preferences: PracticePreferences;
   latestPracticeRun?: PracticeRun;
   latestPracticeRunLoaded: boolean;
@@ -95,7 +95,7 @@ export function usePracticeSessionController({
     : "";
   const queriedPracticeFrame = useLiveQuery(async () => {
     if (!requestedPracticeFrame) return undefined;
-    const questionView = await getQuestionViewV7(requestedPracticeFrame.questionId, requestedPracticeFrame.bankId);
+    const questionView = await getQuestionView(requestedPracticeFrame.questionId, requestedPracticeFrame.bankId);
     if (!questionView) return { ...requestedPracticeFrame, question: null };
     const bank = questionView.banks.find((item) => item.id === questionView.sourceBankId) ?? questionView.banks[0];
     const membership = questionView.memberships.find((item) => item.bankId === questionView.sourceBankId) ?? questionView.memberships[0];
@@ -132,7 +132,7 @@ export function usePracticeSessionController({
     const survivors = practiceSession.questionIds.filter((id) => id !== deletedId);
     let cancelled = false;
     void (async () => {
-      const stillExists = await getQuestionViewV7(deletedId, practiceSession.bankId);
+      const stillExists = await getQuestionView(deletedId, practiceSession.bankId);
       if (cancelled || stillExists) return;
       if (!survivors.length) {
         setNotice("练习中的题目已被删除，本次练习结束");
@@ -155,14 +155,14 @@ export function usePracticeSessionController({
   const queriedActiveRun = useLiveQuery(async () => {
     const runId = practiceSession?.runId;
     if (!runId) return undefined;
-    return { runId, exists: Boolean(await dbV7.practiceRuns.get(runId)) };
+    return { runId, exists: Boolean(await studyDb.practiceRuns.get(runId)) };
   }, [practiceSession?.runId]);
   const activeRunExists = queriedActiveRun && queriedActiveRun.runId === practiceSession?.runId ? queriedActiveRun.exists : undefined;
   useEffect(() => {
     if (view !== "practice" || !practiceSession || activeRunExists !== false) return;
     const runId = practiceSession.runId;
     let cancelled = false;
-    void dbV7.practiceRuns.get(runId).then((run) => {
+    void studyDb.practiceRuns.get(runId).then((run) => {
       if (cancelled || run || practiceSessionRef.current?.runId !== runId) return;
       setPracticeSession(null);
       setView("home");
@@ -172,7 +172,7 @@ export function usePracticeSessionController({
   }, [activeRunExists, practiceSession, setNotice, setView, view]);
 
   async function discardSavedPractice(runId: string) {
-    const run = await getPracticeRunV7(runId);
+    const run = await getPracticeRun(runId);
     if (!run || run.status !== "in_progress") return;
     setDiscardedRun(run);
     await setPracticeRunStatus(run.id, "abandoned", run.answers);
@@ -191,7 +191,7 @@ export function usePracticeSessionController({
     if (viewRef.current !== "practice") return;
     const session = practiceSessionRef.current;
     if (!session) return;
-    const run = await getPracticeRunV7(session.runId);
+    const run = await getPracticeRun(session.runId);
     const currentSession = practiceSessionRef.current;
     if (viewRef.current !== "practice" || currentSession?.runId !== session.runId) return;
     if (!run) {
@@ -227,7 +227,7 @@ export function usePracticeSessionController({
   async function startPractice(filter: PracticeFilter) {
     let requestedBankIds = [...new Set(filter.bankIds)];
     if (filter.reviewRoundId) {
-      const round = await getReviewRoundV7(filter.reviewRoundId);
+      const round = await getReviewRound(filter.reviewRoundId);
       if (!round || round.status !== "active") {
         setNotice("这条复习轮次已不存在或已结束，请重新选择。");
         return;
@@ -240,12 +240,12 @@ export function usePracticeSessionController({
       setNotice("请先选择一个题库");
       return;
     }
-    let questions = (await listQuestionViewsForBanksV7(requestedBankIds)).map((questionView) => {
+    let questions = (await listQuestionViewsForBanks(requestedBankIds)).map((questionView) => {
       const bank = questionView.banks.find((item) => item.id === questionView.sourceBankId) ?? questionView.banks[0];
       const membership = questionView.memberships.find((item) => item.bankId === questionView.sourceBankId) ?? questionView.memberships[0];
       return toQuestionViewModel(questionView.question, questionView.sourceBankId ?? "", bank?.displayName || bank?.name || "未归档题目", membership?.sortOrder ?? 0);
     });
-    const prepared = await preparePracticeStartQuestionsV7(questions, filter, preferences);
+    const prepared = await preparePracticeStartQuestions(questions, filter, preferences);
     if (prepared.error) { setNotice(prepared.error); return; }
     questions = prepared.questions;
     if (!questions.length) {
@@ -253,7 +253,7 @@ export function usePracticeSessionController({
       return;
     }
     const now = new Date().toISOString();
-    const run = await createPracticeRunV7({
+    const run = await createPracticeRun({
       bankId: practiceBanks[0].id,
       bankIds: requestedBankIds,
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
@@ -280,7 +280,7 @@ export function usePracticeSessionController({
     const practiceBanks = enabledBanks.filter((bank) => orderedQuestions.some((question) => question.bankId === bank.id));
     if (!orderedQuestions.length || !practiceBanks.length) return;
     const now = new Date().toISOString();
-    const run = await createPracticeRunV7({
+    const run = await createPracticeRun({
       bankId: practiceBanks[0].id,
       bankIds: practiceBanks.map((bank) => bank.id),
       bankName: practiceBanks.length === 1 ? (practiceBanks[0].displayName || practiceBanks[0].name) : `${practiceBanks.length} 个题库组合`,
@@ -300,14 +300,14 @@ export function usePracticeSessionController({
   }
 
   async function resumePractice(runId?: string, preferredIndex?: number) {
-    const run = runId ? await getPracticeRunV7(runId) : latestPracticeRun;
+    const run = runId ? await getPracticeRun(runId) : latestPracticeRun;
     if (!run || run.status !== "in_progress" || !run.questionIds.length) {
       setNotice("没有可以继续的练习记录");
       return;
     }
     let session = activePracticeFromRun(run, preferredIndex);
     if (!session.questionTypes || Object.keys(session.questionTypes).length !== session.questionIds.length) {
-      const questions = await dbV7.questions.bulkGet(session.questionIds);
+      const questions = await studyDb.questions.bulkGet(session.questionIds);
       session = {
         ...session,
         questionTypes: Object.fromEntries(questions.filter(Boolean).map((question) => [question!.id, question!.type])),
@@ -323,7 +323,7 @@ export function usePracticeSessionController({
   }
 
   async function abandonHistoryRun(runId: string) {
-    const run = await getPracticeRunV7(runId);
+    const run = await getPracticeRun(runId);
     if (!run || run.status !== "in_progress") return;
     await setPracticeRunStatus(runId, "abandoned", run.answers);
     if (practiceSession?.runId === runId) setPracticeSession(null);
@@ -376,7 +376,7 @@ export function usePracticeSessionController({
   }
 
   function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
-    const stamped = { ...answerState, updatedAt: new Date().toISOString(), deviceId: getV7DeviceId(), eventId: crypto.randomUUID() };
+    const stamped = { ...answerState, updatedAt: new Date().toISOString(), deviceId: getDeviceId(), eventId: crypto.randomUUID() };
     changeSession((session) => ({
       ...session,
       answers: { ...session.answers, [questionId]: stamped },

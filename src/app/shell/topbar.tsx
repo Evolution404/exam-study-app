@@ -3,13 +3,13 @@ import type { PointerEventHandler } from "react";
 import { ChevronRight, LoaderCircle, Menu, RefreshCw } from "lucide-react";
 import { QuickSearch } from "@/app/search/quick-search";
 import type { SearchContentScope } from "@/app/search/search-matching";
-import type { BankV7 } from "@/lib/db/v7-types";
+import type { Bank } from "@/lib/db/types";
 import type { SyncProgress } from "@/lib/sync/sync-application";
 
 type PointerHandler = PointerEventHandler<HTMLButtonElement>;
 
 export function ShellTopbar({ banks, activeBankIds, syncing, restoring, holding, pending, progress, onToggleMenu, onOpenSearch, onSync, onOpenQueue, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture }: {
-  banks: BankV7[];
+  banks: Bank[];
   activeBankIds: string[];
   syncing: boolean;
   restoring: boolean;

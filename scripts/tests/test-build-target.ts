@@ -18,7 +18,7 @@ const sceneDelegate = readFileSync(new URL("../../ios/App/App/SceneDelegate.swif
 assert.match(capacitorConfig, /overlaysWebView:\s*false/, "iOS 静态配置必须让状态栏独立占位，WKWebView 从其下方开始");
 assert.match(capacitorConfig, /backgroundColor:\s*"#00000000"/, "iOS StatusBar 静态背景必须透明，不能在启动时把原生主题刷回浅色");
 assert.match(capacitorConfig, /style:\s*"DEFAULT"/, "iOS StatusBar 静态样式必须遵循原生界面风格，不能写死浅色启动");
-assert.match(bridgeViewController, /CapacitorStorage\.study-v7-preferences/, "iOS 原生启动必须读取 Capacitor Preferences 中的主题偏好");
+assert.match(bridgeViewController, /CapacitorStorage\.study-preferences/, "iOS 原生启动必须读取 Capacitor Preferences 中的主题偏好");
 assert.match(bridgeViewController, /override func setStatusBarDefaults\(\)/, "Bridge 必须在 WKWebView 创建前设置初始状态栏样式");
 assert.match(bridgeViewController, /webView\?\.backgroundColor\s*=\s*background/, "WKWebView 首帧背景必须匹配原生主题，避免白色画布闪烁");
 assert.match(sceneDelegate, /overrideUserInterfaceStyle\s*=\s*initialInterfaceStyle/, "iOS window/controller 必须在显示前应用持久化主题");

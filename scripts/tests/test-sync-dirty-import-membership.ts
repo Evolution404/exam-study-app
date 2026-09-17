@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
-import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
-import type { BankV7, QuestionV7 } from "../../src/lib/db/v7-types";
-import { createChangeSetV7 } from "../../src/lib/sync/change-set-v7-codec";
-import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
-import { installProjection } from "../../src/lib/sync/sync-v7-checkpoint-bridge";
-import { deriveDirtyInstallKeysV7 } from "../../src/lib/sync/sync-v7-dirty-install";
+import { studyDb, resetDatabase } from "../../src/lib/db/db";
+import type { Bank, Question } from "../../src/lib/db/types";
+import { createChangeSet } from "../../src/lib/sync/change-set-codec";
+import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import { installProjection } from "../../src/lib/sync/sync-checkpoint-bridge";
+import { deriveDirtyInstallKeys } from "../../src/lib/sync/sync-dirty-install";
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const at = "2026-08-30T00:00:00.000Z";
-const bank: BankV7 = {
+const bank: Bank = {
   id: "bank-import",
   name: "恢复关系题库",
   sortOrder: 0,
@@ -26,7 +26,7 @@ const bank: BankV7 = {
   updatedAt: at,
   deviceId: "device-a",
 };
-const question: QuestionV7 = {
+const question: Question = {
   id: "question-import",
   type: "单选",
   content: [{ id: "stem", type: "text", text: "重新导入后应恢复题库关系" }],
@@ -51,7 +51,7 @@ const membership = {
 };
 const tombstoneKey = `membership:${membership.key}`;
 
-function targetProjection(): ChangeSetProjectionV7 {
+function targetProjection(): ChangeSetProjection {
   return {
     banks: [{ ...bank, questionCount: 1, deviceId: "device-remote" }],
     bankFolders: [],
@@ -71,11 +71,11 @@ function targetProjection(): ChangeSetProjectionV7 {
   };
 }
 
-await resetV7Database();
+await resetDatabase();
 try {
-  await dbV7.banks.put(bank);
-  await dbV7.questions.put(question);
-  await dbV7.tombstones.put({
+  await studyDb.banks.put(bank);
+  await studyDb.questions.put(question);
+  await studyDb.tombstones.put({
     key: tombstoneKey,
     entityType: "membership",
     entityId: membership.key,
@@ -85,7 +85,7 @@ try {
     sequence: 1,
   });
 
-  const imported = await createChangeSetV7({
+  const imported = await createChangeSet({
     id: "reimport-membership",
     deviceId: "device-remote",
     localSequence: 2,
@@ -98,7 +98,7 @@ try {
     },
   });
   const target = targetProjection();
-  const dirtyKeys = await deriveDirtyInstallKeysV7(target, [imported]);
+  const dirtyKeys = await deriveDirtyInstallKeys(target, [imported]);
 
   assert.ok(dirtyKeys, "question.import should remain eligible for dirty install");
   assert.deepEqual(dirtyKeys.memberships, [membership.key]);
@@ -108,12 +108,12 @@ try {
   );
 
   assert.equal(await installProjection(target, { dirtyKeys }), true);
-  assert.equal((await dbV7.bankQuestionMemberships.get([membership.bankId, membership.questionId]))?.questionId, question.id);
-  assert.equal(await dbV7.tombstones.get(tombstoneKey), undefined, "restored membership must not retain its old removal tombstone");
-  assert.equal((await dbV7.banks.get(bank.id))?.questionCount, 1, "restored membership must update the derived bank question count");
+  assert.equal((await studyDb.bankQuestionMemberships.get([membership.bankId, membership.questionId]))?.questionId, question.id);
+  assert.equal(await studyDb.tombstones.get(tombstoneKey), undefined, "restored membership must not retain its old removal tombstone");
+  assert.equal((await studyDb.banks.get(bank.id))?.questionCount, 1, "restored membership must update the derived bank question count");
 } finally {
-  await resetV7Database();
-  dbV7.close();
+  await resetDatabase();
+  studyDb.close();
 }
 
 console.log("dirty question.import membership tombstone regression passed");

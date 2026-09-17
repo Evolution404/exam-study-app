@@ -1,6 +1,6 @@
 /** Shared pure helpers for copying question text from the current view model. */
 import { formatCalculationAnswers, solutionAnswerText, stableQuestionOptionIds } from "./question-utils";
-import type { QuestionSolution } from "../db/v7-types";
+import type { QuestionSolution } from "../db/types";
 import type { QuestionType } from "../../types/types";
 
 export interface QuestionCopySource {
