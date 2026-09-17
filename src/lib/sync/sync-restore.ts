@@ -6,6 +6,7 @@ import { downloadRemote } from "./sync-download";
 import { checkpointFromProjection, installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-checkpoint-bridge";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-watermark";
+import { SYNC_FORMAT_VERSION } from "./sync-head-types";
 
 /**
  * Destructive recovery entry point. Full restore intentionally ignores the
@@ -75,7 +76,7 @@ export async function restoreFullHistoryFromGitHub(
 
     return {
       pulled: downloaded.changes.length,
-      formatVersion: 9 as const,
+      formatVersion: SYNC_FORMAT_VERSION,
       counts: checkpoint.counts,
       deferred: 0,
       cachedAt: new Date().toISOString(),
