@@ -130,6 +130,7 @@
     "test:sync-history": "tsx scripts/tests/test-sync-history.ts",
     "test:sync-remote-converter": "tsx scripts/tests/test-sync-remote-converter.ts && tsx scripts/tests/sync-remote-converter-cases.ts",
     "test:sync-asset-shadow": "tsx scripts/tests/test-sync-asset-shadow.ts",
+    "sync:convert-remote": "tsx scripts/tools/run-sync-remote-conversion.ts",
     "test:shell-controllers": "tsx scripts/tests/test-shell-controllers.ts",
     "test:deploy-helpers": "tsx scripts/tests/test-deploy-helpers.ts"
   },
