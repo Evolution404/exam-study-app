@@ -24,7 +24,7 @@ try {
   await createBank("恢复游标测试题库");
   await syncWithGitHub(resolvedSettings, "qa-token");
 
-  // 模拟本地游标缓存损坏/丢失后，从本机 v7 恢复记录恢复。
+  // 模拟本地游标缓存损坏/丢失后，从本机恢复记录恢复。
   await studyDb.syncMeta.delete(cursorsKey);
   assert.equal(await studyDb.syncMeta.get(cursorsKey), undefined, "前置条件：游标缓存已删除");
 
