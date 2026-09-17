@@ -26,13 +26,15 @@ export async function putImageAssetV7(asset: ImageAsset): Promise<ImageAsset> {
     const digest = await sha256Blob(asset.blob);
     if (digest !== asset.id) throw new TypeError("图片 blob 内容与 id 不一致");
   }
-  const previous = await dbV7.imageAssets.get(asset.id);
-  // Descriptor-only writes preserve an already cached local Blob. Publication
-  // state is not persisted per image; Sync v9 resolves it through Asset Pack index.
-  const storedBlob = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
-  const stored = storedBlob ? { ...asset, blob: storedBlob } : asset;
-  await dbV7.imageAssets.put(stored);
-  return stored;
+  return dbV7.transaction("rw", dbV7.imageAssets, async () => {
+    const previous = await dbV7.imageAssets.get(asset.id);
+    // Descriptor-only writes preserve an already cached local Blob. Publication
+    // state is not persisted per image; Sync v9 resolves it through Asset Pack index.
+    const storedBlob = asset.blob ?? (previous?.blob?.size === asset.size ? previous.blob : undefined);
+    const stored = storedBlob ? { ...asset, blob: storedBlob } : asset;
+    await dbV7.imageAssets.put(stored);
+    return stored;
+  });
 }
 
 export async function putImageAssetDescriptorV7(asset: Omit<ImageAsset, "blob">): Promise<ImageAsset> {
@@ -40,12 +42,15 @@ export async function putImageAssetDescriptorV7(asset: Omit<ImageAsset, "blob">)
 }
 
 export async function putImageAssetBlobV7(id: string, blob: Blob): Promise<ImageAsset> {
-  const descriptor = await dbV7.imageAssets.get(id);
-  if (!descriptor) throw new Error("图片 descriptor 不存在。");
-  if (await sha256Blob(blob) !== id || blob.size !== descriptor.size) throw new TypeError("图片 blob 内容与 descriptor 不一致");
-  const stored = { ...descriptor, blob };
-  await dbV7.imageAssets.put(stored);
-  return stored;
+  if (await sha256Blob(blob) !== id) throw new TypeError("图片 blob 内容与 descriptor 不一致");
+  return dbV7.transaction("rw", dbV7.imageAssets, async () => {
+    const descriptor = await dbV7.imageAssets.get(id);
+    if (!descriptor) throw new Error("图片 descriptor 不存在。");
+    if (blob.size !== descriptor.size) throw new TypeError("图片 blob 内容与 descriptor 不一致");
+    const stored = { ...descriptor, blob };
+    await dbV7.imageAssets.put(stored);
+    return stored;
+  });
 }
 
 export async function getImageAssetV7(id: string): Promise<ImageAsset | undefined> {
@@ -70,16 +75,16 @@ export async function getImageCacheSizeV7(): Promise<number> {
 }
 
 export async function clearImageCacheV7(): Promise<number> {
-  const assets = await dbV7.imageAssets.toArray();
-  let cleared = 0;
-  await dbV7.transaction("rw", dbV7.imageAssets, async () => {
+  return dbV7.transaction("rw", dbV7.imageAssets, async () => {
+    const assets = await dbV7.imageAssets.toArray();
+    let cleared = 0;
     for (const asset of assets) {
       if (!asset.blob) continue;
       await dbV7.imageAssets.put({ ...asset, blob: undefined });
       cleared += 1;
     }
+    return cleared;
   });
-  return cleared;
 }
 
 export const putImageAssetDescriptor = putImageAssetDescriptorV7;

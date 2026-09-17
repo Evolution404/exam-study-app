@@ -10,6 +10,7 @@ import {
   addMembershipsV7,
   archiveReviewRoundV7,
   completeReviewRoundV7,
+  clearImageCacheV7,
   deleteBankFolderV7,
   deleteBankV7,
   deletePracticeRunV7,
@@ -18,6 +19,8 @@ import {
   recordPracticeAnswerV7,
   resetV7Database,
   reorderBanksV7,
+  putImageAssetBlobV7,
+  putImageAssetV7,
   saveBankFolderV7,
   saveNoteV7,
   savePracticeRunV7,
@@ -472,6 +475,43 @@ const txSnapshot = (): TxSnapshot | undefined => {
   assert.equal(folderRead?.active, true);
   assert.equal(folderRead?.mode, "readwrite");
   for (const store of ["bankFolders", "tombstones", "changeSets", "syncMeta"]) assert.ok(folderRead?.storeNames.includes(store), `saveBankFolderV7 事务必须包含 ${store}`);
+}
+
+// R24：图片 descriptor/blob/cache 清理必须在同一写事务中读取最新缓存行，避免并发写互相覆盖 Blob 或 descriptor。
+{
+  const bytes = new TextEncoder().encode("abc");
+  const id = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  const blob = new Blob([bytes], { type: "image/png" });
+  await putImageAssetV7({ id, blob, mimeType: "image/png", size: bytes.byteLength, width: 1, height: 1 });
+
+  const originalGet = dbV7.imageAssets.get.bind(dbV7.imageAssets);
+  const readSnapshots: TxSnapshot[] = [];
+  dbV7.imageAssets.get = (async (key) => {
+    if (key === id) readSnapshots.push(txSnapshot() ?? { active: false, mode: "none", storeNames: [] });
+    return originalGet(key);
+  }) as typeof dbV7.imageAssets.get;
+  try {
+    await putImageAssetV7({ id, mimeType: "image/png", size: bytes.byteLength, width: 2, height: 2 });
+    await putImageAssetBlobV7(id, blob);
+  } finally {
+    dbV7.imageAssets.get = originalGet as typeof dbV7.imageAssets.get;
+  }
+  assert.equal(readSnapshots.length, 2);
+  assert.ok(readSnapshots.every((snapshot) => snapshot.active && snapshot.mode === "readwrite" && snapshot.storeNames.includes("imageAssets")), "图片缓存 get 必须位于 imageAssets 写事务内");
+
+  const originalToArray = dbV7.imageAssets.toArray.bind(dbV7.imageAssets);
+  let clearRead: TxSnapshot | undefined;
+  dbV7.imageAssets.toArray = (async () => {
+    clearRead = txSnapshot();
+    return originalToArray();
+  }) as typeof dbV7.imageAssets.toArray;
+  try {
+    assert.equal(await clearImageCacheV7(), 1);
+  } finally {
+    dbV7.imageAssets.toArray = originalToArray as typeof dbV7.imageAssets.toArray;
+  }
+  assert.equal(clearRead?.active, true);
+  assert.equal(clearRead?.mode, "readwrite");
 }
 
 await dbV7.close();
