@@ -2,12 +2,7 @@ import type { Attempt, PracticeRunItem, PracticeRunRecord, PracticeRunSource } f
 import { historyTimestampIncluded, normalizeHistorySyncStart } from "./history-sync-range";
 import type { GitHubRemote, SyncHeadCache } from "./github-remote";
 import { descriptorPath, sha256 } from "./sync-context";
-import {
-  SYNC_CHECKPOINT_FORMAT,
-  type SyncCheckpoint,
-  type SyncCheckpointCounts,
-  type SyncCheckpointState,
-} from "./sync-checkpoint-types";
+import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
 import { validateSyncCheckpoint } from "./sync-checkpoint-validation";
 import {
   boundedCanonicalHistoryState,
@@ -24,14 +19,14 @@ export const SYNC_HISTORY_RECENT_ATTEMPT_LIMIT = 5_000;
 export const SYNC_HISTORY_RECENT_PRACTICE_RUN_LIMIT = 500;
 export const SYNC_HISTORY_CHUNK_COUNT = 1_000;
 
-export interface SyncHistoryDescriptor extends SyncDescriptor {
+interface SyncHistoryDescriptor extends SyncDescriptor {
   kind: "attempts" | "practiceRuns";
   count: number;
   firstAt?: string;
   lastAt?: string;
 }
 
-export interface SyncHistoryIndex {
+interface SyncHistoryIndex {
   formatVersion: typeof REMOTE_HISTORY_FORMAT;
   generatedAt: string;
   attempts: SyncHistoryDescriptor[];
@@ -39,14 +34,14 @@ export interface SyncHistoryIndex {
   counts: { attempts: number; practiceRuns: number };
 }
 
-export interface SyncHistoryChunk<T> {
+interface SyncHistoryChunk<T> {
   formatVersion: typeof REMOTE_HISTORY_FORMAT;
   kind: "attempts";
   generatedAt: string;
   items: T[];
 }
 
-export interface SyncPracticeRunHistoryChunk {
+interface SyncPracticeRunHistoryChunk {
   formatVersion: typeof REMOTE_HISTORY_FORMAT;
   kind: "practiceRuns";
   generatedAt: string;
@@ -61,16 +56,8 @@ export interface RemoteHistoryCheckpoint {
   state: SyncCheckpointState;
   cursors: Record<string, number>;
   counts: SyncCheckpointCounts;
-  retention: {
-    recentAttemptLimit: number;
-    recentPracticeRunLimit: number;
-    oldestRecentAttemptAt: string | null;
-  };
-  history: {
-    index: SyncDescriptor | null;
-    archivedAttempts: number;
-    archivedPracticeRuns: number;
-  };
+  retention: { recentAttemptLimit: number; recentPracticeRunLimit: number; oldestRecentAttemptAt: string | null };
+  history: { index: SyncDescriptor | null; archivedAttempts: number; archivedPracticeRuns: number };
 }
 
 export interface SyncHistoryBuildOptions {
@@ -87,9 +74,7 @@ export interface HydratedRemoteCheckpoint {
   skippedArchivedPracticeRuns: number;
 }
 
-export interface SyncHistoryReadOptions {
-  historySyncStart?: string;
-}
+export interface SyncHistoryReadOptions { historySyncStart?: string }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -378,11 +363,7 @@ export async function createRemoteHistoryCheckpoint(
       recentPracticeRunLimit,
       oldestRecentAttemptAt: chronologicalHistoryAttempts(bounded.state.attempts)[0]?.createdAt ?? null,
     },
-    history: {
-      index: indexDescriptor,
-      archivedAttempts: bounded.archivedAttempts.length,
-      archivedPracticeRuns: bounded.archivedPracticeRuns.length,
-    },
+    history: { index: indexDescriptor, archivedAttempts: bounded.archivedAttempts.length, archivedPracticeRuns: bounded.archivedPracticeRuns.length },
   };
   validateRemoteHistoryCheckpoint(checkpoint);
   return checkpoint;
@@ -461,7 +442,6 @@ async function collectHistoryReachability(client: GitHubRemote, checkpointDescri
   for (const descriptor of [...index.attempts, ...index.practiceRuns]) keep.add(descriptor.path);
 }
 
-/** Best-effort GC for the dedicated v9 history namespace. */
 export async function gcRemoteHistory(client: GitHubRemote, previous: SyncHead, committed: SyncHeadCache): Promise<{ deleted: number; skipped: number }> {
   const keep = new Set<string>();
   try {
