@@ -5,7 +5,7 @@ export function asBytes(value: SyncBytes): Uint8Array {
   if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof Uint8Array) return value.slice();
   if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  throw new TypeError("immutable v9 file bytes must be text, Uint8Array, or ArrayBuffer");
+  throw new TypeError("immutable file bytes must be text, Uint8Array, or ArrayBuffer");
 }
 
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
