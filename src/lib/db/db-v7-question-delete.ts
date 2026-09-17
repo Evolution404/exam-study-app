@@ -20,70 +20,70 @@ import type { QuestionV7, TombstoneV7 } from "./v7-types";
 export async function deleteQuestionsV7(questionIds: readonly string[]): Promise<number> {
   const uniqueIds = [...new Set(questionIds.filter(Boolean))];
   if (!uniqueIds.length) return 0;
-  const questions = (await dbV7.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV7 => Boolean(question));
-  if (!questions.length) return 0;
-  const existingIds = questions.map((question) => question.id);
-  const deletingIds = new Set(existingIds);
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const memberships = await dbV7.bankQuestionMemberships.where("questionId").anyOf(existingIds).toArray();
-  const affectedBankIds = [...new Set(memberships.map((membership) => membership.bankId))];
-  // H5 导入即删的抵消：被删题目的创建事件仍在本机 pending/blocked（从未推送）时，
-  // 从这些 change-set 里滤掉相关 mutation（change-set 变空则整组撤销）。远端从未见过
-  // 这些题目，因此它们既不需要墓碑也不需要删除事件——零墓碑零事件。
-  const unpublishedIds = new Set<string>();
-  const rewritable: Array<{ record: ChangeSetQueueRecordV7; mutations: ChangeSetMutationV7[] }> = [];
-  const cancellableIds: string[] = [];
-  for (const record of await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).toArray()) {
-    let touched = false;
-    const mutations = record.mutations.flatMap((mutation) => {
-      const created: string[] = mutation.kind === "question.upsert" ? [mutation.question.id]
-        : mutation.kind === "question.import" ? mutation.questions.map((item) => item.id)
-        : mutation.kind === "question.split" && deletingIds.has(mutation.clone.id) ? [mutation.clone.id]
-        : [];
-      const references = mutation.kind === "membership.save" ? [mutation.membership.questionId]
-        : mutation.kind === "membership.remove" ? [mutation.questionId]
-        : mutation.kind === "note.upserted" ? [mutation.note.questionId]
-        : mutation.kind === "note.deleted" ? [mutation.questionId]
-        : mutation.kind === "attempt.create" || mutation.kind === "attempt.update" ? [mutation.attempt.questionId]
-        : mutation.kind === "attempt.delete" && mutation.questionId ? [mutation.questionId]
-        : [];
-      if (created.some((id) => deletingIds.has(id))) {
-        touched = true;
-        created.forEach((id) => deletingIds.has(id) && unpublishedIds.add(id));
-        if (mutation.kind === "question.import") {
-          // 题库创建保留（空题库合法），只滤掉题目与关系。
-          const keptQuestions = mutation.questions.filter((item) => !deletingIds.has(item.id));
-          const keptMemberships = mutation.memberships.filter((item) => !deletingIds.has(item.questionId));
-          if (!keptQuestions.length && !keptMemberships.length) return [];
-          return [{ ...mutation, questions: keptQuestions, memberships: keptMemberships }];
-        }
-        if (mutation.kind === "question.bulk.upsert") {
-          const kept = mutation.questions.filter((item) => !deletingIds.has(item.id));
-          return kept.length ? [{ ...mutation, questions: kept }] : [];
-        }
-        return [];
-      }
-      if (references.some((id) => deletingIds.has(id))) {
-        touched = true;
-        return [];
-      }
-      return [mutation];
-    });
-    if (!touched) continue;
-    if (mutations.length) rewritable.push({ record, mutations });
-    else cancellableIds.push(record.id);
-  }
-  // 只对「远端可能已经见过」的题目写墓碑/删除事件（未被抵消的创建）。
-  const publishedIds = existingIds.filter((id) => !unpublishedIds.has(id));
-  const publishedMembershipKeys = new Set(memberships.filter((membership) => !unpublishedIds.has(membership.questionId)).map((membership) => membership.key));
-  const deleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [
+  return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
     dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRoundProgress,
     dbV7.practiceRuns, dbV7.banks, dbV7.tombstones,
-    dbV7.changeSets,
+    dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
+    const questions = (await dbV7.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV7 => Boolean(question));
+    if (!questions.length) return 0;
+    const existingIds = questions.map((question) => question.id);
+    const deletingIds = new Set(existingIds);
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const memberships = await dbV7.bankQuestionMemberships.where("questionId").anyOf(existingIds).toArray();
+    const affectedBankIds = [...new Set(memberships.map((membership) => membership.bankId))];
+    // H5 导入即删的抵消：被删题目的创建事件仍在本机 pending/blocked（从未推送）时，
+    // 从这些 change-set 里滤掉相关 mutation（change-set 变空则整组撤销）。远端从未见过
+    // 这些题目，因此它们既不需要墓碑也不需要删除事件——零墓碑零事件。
+    const unpublishedIds = new Set<string>();
+    const rewritable: Array<{ record: ChangeSetQueueRecordV7; mutations: ChangeSetMutationV7[] }> = [];
+    const cancellableIds: string[] = [];
+    for (const record of await dbV7.changeSets.where("state").anyOf(["pending", "blocked"]).toArray()) {
+      let touched = false;
+      const mutations = record.mutations.flatMap((mutation) => {
+        const created: string[] = mutation.kind === "question.upsert" ? [mutation.question.id]
+          : mutation.kind === "question.import" ? mutation.questions.map((item) => item.id)
+          : mutation.kind === "question.split" && deletingIds.has(mutation.clone.id) ? [mutation.clone.id]
+          : [];
+        const references = mutation.kind === "membership.save" ? [mutation.membership.questionId]
+          : mutation.kind === "membership.remove" ? [mutation.questionId]
+          : mutation.kind === "note.upserted" ? [mutation.note.questionId]
+          : mutation.kind === "note.deleted" ? [mutation.questionId]
+          : mutation.kind === "attempt.create" || mutation.kind === "attempt.update" ? [mutation.attempt.questionId]
+          : mutation.kind === "attempt.delete" && mutation.questionId ? [mutation.questionId]
+          : [];
+        if (created.some((id) => deletingIds.has(id))) {
+          touched = true;
+          created.forEach((id) => deletingIds.has(id) && unpublishedIds.add(id));
+          if (mutation.kind === "question.import") {
+            // 题库创建保留（空题库合法），只滤掉题目与关系。
+            const keptQuestions = mutation.questions.filter((item) => !deletingIds.has(item.id));
+            const keptMemberships = mutation.memberships.filter((item) => !deletingIds.has(item.questionId));
+            if (!keptQuestions.length && !keptMemberships.length) return [];
+            return [{ ...mutation, questions: keptQuestions, memberships: keptMemberships }];
+          }
+          if (mutation.kind === "question.bulk.upsert") {
+            const kept = mutation.questions.filter((item) => !deletingIds.has(item.id));
+            return kept.length ? [{ ...mutation, questions: kept }] : [];
+          }
+          return [];
+        }
+        if (references.some((id) => deletingIds.has(id))) {
+          touched = true;
+          return [];
+        }
+        return [mutation];
+      });
+      if (!touched) continue;
+      if (mutations.length) rewritable.push({ record, mutations });
+      else cancellableIds.push(record.id);
+    }
+    // 只对「远端可能已经见过」的题目写墓碑/删除事件（未被抵消的创建）。
+    const publishedIds = existingIds.filter((id) => !unpublishedIds.has(id));
+    const publishedMembershipKeys = new Set(memberships.filter((membership) => !unpublishedIds.has(membership.questionId)).map((membership) => membership.key));
+    const deleteSequence = await nextV7Sequence(deviceId);
     for (const id of cancellableIds) await dbV7.changeSets.delete(id);
     for (const { record, mutations } of rewritable) {
       // 重写 digest 承载的 change-set：同 id/序号/时间，只裁剪 mutation。
@@ -139,8 +139,8 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
     if (publishedIds.length) {
       await enqueueChangeSetV7([{ kind: "question.bulk.delete", questionIds: publishedIds, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: deleteSequence });
     }
+    return existingIds.length;
   });
-  return existingIds.length;
 }
 
 export async function deleteQuestionV7(questionId: string): Promise<boolean> {

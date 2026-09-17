@@ -273,6 +273,60 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   assert.equal(await dbV7.changeSets.count(), changeSetCountBeforeFailure, "失败批次不得产生 change set");
 }
 
+// R7：删题必须在取得写事务后再读取待删题，避免读取与删除之间新增 membership/change set
+// 而被遗漏；事务同时必须覆盖 questionGroups 与 syncMeta，因为级联和序号都会访问它们。
+{
+  const atomicDeleteBank = await createBankV7("R7删题事务边界");
+  const atomicDeleteQuestion = await createQuestionV7(atomicDeleteBank.id, { type: "判断", stem: "R7待删除", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalBulkGet = dbV7.questions.bulkGet.bind(dbV7.questions);
+  let deleteReadTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.questions.bulkGet = (async (keys) => {
+    if (keys.includes(atomicDeleteQuestion.id)) {
+      const tx = Dexie.currentTransaction;
+      deleteReadTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalBulkGet(keys);
+  }) as typeof dbV7.questions.bulkGet;
+  try {
+    assert.equal(await deleteQuestionsV7([atomicDeleteQuestion.id]), 1);
+  } finally {
+    dbV7.questions.bulkGet = originalBulkGet as typeof dbV7.questions.bulkGet;
+  }
+  assert.equal(deleteReadTransaction?.active, true, "deleteQuestionsV7 首次读取待删题时必须已进入活动事务");
+  assert.equal(deleteReadTransaction?.mode, "readwrite", "deleteQuestionsV7 必须在读写事务内确定删除集合");
+  for (const store of ["questions", "bankQuestionMemberships", "questionGroups", "changeSets", "syncMeta"]) {
+    assert.ok(deleteReadTransaction?.storeNames.includes(store), `deleteQuestionsV7 事务必须包含 ${store}`);
+  }
+}
+
+// R8：删除练习记录必须在写事务中重读 run；否则读取后若并发提交了答案，旧快照会
+// 误判为“从未提交”，从而本地删掉记录却不写 tombstone / 删除事件。
+{
+  const runDeleteBank = await createBankV7("R8练习删除事务边界");
+  const runDeleteQuestion = await createQuestionV7(runDeleteBank.id, { type: "判断", stem: "R8练习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const runToDelete = await createPracticeRunV7({ bankIds: [runDeleteBank.id], questionIds: [runDeleteQuestion.id] });
+  await recordPracticeAnswerV7({ runId: runToDelete.id, questionId: runDeleteQuestion.id, selected: "A", correct: true, elapsedMs: 10 });
+  const originalRunGet = dbV7.practiceRuns.get.bind(dbV7.practiceRuns);
+  let runDeleteReadTransaction: { active: boolean; mode: string; storeNames: string[] } | undefined;
+  dbV7.practiceRuns.get = (async (key) => {
+    if (key === runToDelete.id) {
+      const tx = Dexie.currentTransaction;
+      runDeleteReadTransaction = tx ? { active: tx.active, mode: tx.mode, storeNames: [...tx.storeNames] } : undefined;
+    }
+    return originalRunGet(key);
+  }) as typeof dbV7.practiceRuns.get;
+  try {
+    assert.equal(await deletePracticeRunV7(runToDelete.id), true);
+  } finally {
+    dbV7.practiceRuns.get = originalRunGet as typeof dbV7.practiceRuns.get;
+  }
+  assert.equal(runDeleteReadTransaction?.active, true, "deletePracticeRunV7 读取 run 时必须已进入活动事务");
+  assert.equal(runDeleteReadTransaction?.mode, "readwrite", "deletePracticeRunV7 必须在读写事务内读取 run");
+  for (const store of ["practiceRuns", "practiceRunStats", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(runDeleteReadTransaction?.storeNames.includes(store), `deletePracticeRunV7 事务必须包含 ${store}`);
+  }
+}
+
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
 {
   const e5Bank = await createBankV7("E5跨run清理");
