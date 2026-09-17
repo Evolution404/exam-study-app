@@ -13,7 +13,7 @@ import {
 import type { PracticeAnswerInputV7, PracticeAnswerV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { putPracticeRunInTx } from "./db-v7-practice-activity";
-import { deriveRunQuestions } from "./db-v7-practice-run-create";
+import { deriveRunQuestions, validatePracticeRunReferencesInTx } from "./db-v7-practice-run-create";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
 import { stableQuestionOptionIds } from "../question/question-utils";
@@ -41,7 +41,17 @@ function stableOptionIdForAnswer(question: QuestionV7, letter: string): string |
 
 export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRunV7> {
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
-  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [
+    dbV7.banks,
+    dbV7.questions,
+    dbV7.reviewRounds,
+    dbV7.practiceRuns,
+    dbV7.practiceRunActivity,
+    dbV7.practiceRunStats,
+    dbV7.changeSets,
+    dbV7.syncMeta,
+  ], async () => {
+    await validatePracticeRunReferencesInTx(updated);
     const current = await dbV7.practiceRuns.get(run.id);
     await updatePracticeRunStatsInTx(current, updated);
     await putPracticeRunInTx(updated);

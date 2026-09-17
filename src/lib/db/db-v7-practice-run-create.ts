@@ -12,6 +12,29 @@ import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import type { BankV7, PracticeRunV7 } from "./v7-types";
 
+type PracticeRunReferences = Pick<PracticeRunV7, "bankId" | "bankIds" | "questionIds" | "reviewRoundId">;
+
+/** Caller must already own a transaction containing banks/questions/reviewRounds. */
+export async function validatePracticeRunReferencesInTx(
+  run: PracticeRunReferences,
+  options?: { requireActiveRound?: boolean },
+) {
+  const bankIds = uniqueStrings(run.bankIds);
+  if (!run.bankId || !bankIds.length) throw new Error("练习至少需要一个有效题库。");
+  if (!bankIds.includes(run.bankId)) throw new Error("练习主题库必须包含在题库范围中。");
+  const bankRows = await dbV7.banks.bulkGet(bankIds);
+  if (bankRows.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
+  const questionIds = uniqueStrings(run.questionIds);
+  const questions = await dbV7.questions.bulkGet(questionIds);
+  if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+  if (run.reviewRoundId) {
+    const round = await dbV7.reviewRounds.get(run.reviewRoundId);
+    if (!round) throw new Error("复习轮次不存在或已被删除。");
+    if (options?.requireActiveRound && round.status !== "active") throw new Error("只能为 active 复习轮次创建练习。");
+  }
+  return { banks: bankRows as BankV7[], questions, bankIds, questionIds };
+}
+
 /** Internal question-range resolver shared with review-round operations. */
 export async function deriveRunQuestions(bankIds: string[]): Promise<string[]> {
   return (await getQuestionsForBanksV7(bankIds)).map((question) => question.id);
@@ -34,17 +57,11 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
     dbV7.changeSets,
     dbV7.syncMeta,
   ], async () => {
-    const bankRows = await dbV7.banks.bulkGet(bankIds);
-    if (bankRows.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
-    const banks = bankRows as BankV7[];
-    if (input.reviewRoundId) {
-      const round = await dbV7.reviewRounds.get(input.reviewRoundId);
-      if (!round) throw new Error("复习轮次不存在或已被删除。");
-      if (round.status !== "active") throw new Error("只能为 active 复习轮次创建练习。");
-    }
     const questionIds = uniqueStrings(input.questionIds ?? await deriveRunQuestions(bankIds));
-    const questions = await dbV7.questions.bulkGet(questionIds);
-    if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+    const { banks, questions } = await validatePracticeRunReferencesInTx(
+      { bankId, bankIds, questionIds, reviewRoundId: input.reviewRoundId },
+      { requireActiveRound: true },
+    );
     const questionTypes = input.questionTypes ?? Object.fromEntries(questions.map((question) => [question!.id, question!.type]));
     const run: PracticeRunV7 = {
       id: input.id ?? makeV7Id("run"),

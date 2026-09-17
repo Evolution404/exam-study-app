@@ -9,6 +9,7 @@ import {
   completeReviewRoundV7,
   dbV7,
   resetV7Database,
+  savePracticeRunV7,
   updateReviewRoundV7,
 } from "../../src/lib/db/db-v7";
 import { ensureChangeSetQueueBaseV7 } from "../../src/lib/sync/change-set-v7-queue";
@@ -117,6 +118,29 @@ const txSnapshot = (): TxSnapshot | undefined => {
     /题目不存在|已被删除/,
   );
   assert.equal((await dbV7.reviewRounds.get(round.id))?.status, "active", "finalQuestionIds 校验失败时轮次必须保持 active");
+}
+
+// C6：完整 run 保存同样必须验证所有引用，不能绕过 createPracticeRunV7 的完整性边界。
+{
+  const bank = await createBankV7("C6完整run保存");
+  const question = await createQuestionV7(bank.id, { type: "判断", stem: "C6题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const run = await createPracticeRunV7({ bankIds: [bank.id], questionIds: [question.id] });
+  await assert.rejects(
+    () => savePracticeRunV7({ ...run, bankId: "bank_missing_c6", bankIds: ["bank_missing_c6"] }),
+    /题库不存在|已被删除/,
+  );
+  await assert.rejects(
+    () => savePracticeRunV7({ ...run, questionIds: [question.id, "question_missing_c6"] }),
+    /题目不存在|已被删除/,
+  );
+  await assert.rejects(
+    () => savePracticeRunV7({ ...run, reviewRoundId: "round_missing_c6" }),
+    /复习轮次不存在|已被删除/,
+  );
+  const stored = await dbV7.practiceRuns.get(run.id);
+  assert.deepEqual(stored?.bankIds, [bank.id]);
+  assert.deepEqual(stored?.questionIds, [question.id]);
+  assert.equal(stored?.reviewRoundId, undefined);
 }
 
 await dbV7.close();
