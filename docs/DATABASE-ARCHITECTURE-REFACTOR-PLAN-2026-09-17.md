@@ -6,6 +6,18 @@
 >
 > 前置条件：当前审计 PR 必须先合并到 `main`，再从最新 `origin/main` 创建实施分支。不要从旧 `main` 重做本轮已完成修复。
 
+## 0. Phase 0 执行记录
+
+2026-09-17 已完成 Phase 0 基线冻结与语义审计：
+
+- PR #57 已先合并，实施分支 `refactor/database-facts-projections-20260917` 从最新 `origin/main` merge commit `863b1a8` 创建，没有从旧 main 开工。
+- 改动前 `make test` 通过（84/84），`make test-browser-headless` 通过全部浏览器组。
+- `attempt.update` / `practice.answer.updated` 在产品运行时代码中没有真实写入入口。当前 `recordPracticeAnswerV7` 每次提交都会生成新的 attempt ID，并只发出 `practice.answer.submitted`；两种 update mutation 只残留于 sync 类型、codec、reducer、dirty-install、事件文案和测试夹具。因此本轮 cutover **直接删除这两种兼容 mutation，不引入 supersede 模型，也不保留 runtime 兼容分支**。如果未来产品需要“修正历史作答”，必须作为新的独立领域需求重新设计。
+- 新 schema contract 已由 `scripts/tests/test-database-schema-contract.ts` 锁定，并已确认旧 schema 会失败。该测试明确要求：关系表使用复合主键；`PracticeRun` 拆为 run/source/item；图片 descriptor/blob cache 分表；attempt 增加 round provenance 与关键复合时间索引；旧 `attemptStats` / `attemptDailyStats` / `practiceRunActivity` / `practiceRunStats` store 退出当前 schema。
+- Draft PR #58 已创建；Phase 0 的 contract commit 为 `e6c8bdd`。在 Phase 1 完成前，该新 contract 测试预期为红，不得通过削弱 contract 或恢复旧 store 来让它变绿。
+
+Phase 0 无未决领域语义；下一步按本文 Phase 1 直接切 current schema/types。
+
 ## 1. 为什么现在要重构
 
 当前 IndexedDB 已经证明存在系统性结构问题，不再继续通过页面级查询补丁处理：
