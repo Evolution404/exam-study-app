@@ -7,15 +7,13 @@ import {
   dbV7,
   getV7DeviceId,
   makeV7Id,
-  nextV7Sequence,
   nowIso,
-  tombstoneKey,
   uniqueStrings,
 } from "./db-v7-core";
 import type { CreatePracticeRunInputV7, PracticeAnswerInputV7, PracticeAnswerV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
-import { deletePracticeRunInTx, putPracticeRunInTx } from "./db-v7-practice-activity";
+import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
 import { stableQuestionOptionIds } from "../question/question-utils";
@@ -229,27 +227,6 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
     await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
   });
   return updated;
-}
-
-/** Remove the run projection without deleting global question learning stats. */
-export async function deletePracticeRunV7(runId: string): Promise<boolean> {
-  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
-    const current = await dbV7.practiceRuns.get(runId);
-    if (!current) return false;
-    const hasSubmittedAnswer = Object.values(current.answers).some((answer) => answer.submitted);
-    const deletedAt = nowIso();
-    const deviceId = getV7DeviceId();
-    const runDeleteSequence = hasSubmittedAnswer ? await nextV7Sequence(deviceId) : undefined;
-    await updatePracticeRunStatsInTx(current, undefined);
-    await deletePracticeRunInTx(runId);
-    if (!hasSubmittedAnswer || runDeleteSequence === undefined) return true;
-    await dbV7.tombstones.put({
-      key: tombstoneKey("practiceRun", runId), entityType: "practiceRun", entityId: runId,
-      deletedAt, deviceId, eventId: makeV7Id("run-delete"), sequence: runDeleteSequence,
-    });
-    await enqueueChangeSetV7([{ kind: "practice.run.deleted", runId, deletedAt }], deletedAt, { localSequence: runDeleteSequence });
-    return true;
-  });
 }
 
 async function autoCompleteRoundIfReadyInTx(roundId: string): Promise<void> {

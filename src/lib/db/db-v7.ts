@@ -78,9 +78,12 @@ export {
   completeReviewRoundV7,
   archiveReviewRoundV7,
   setPracticeRunStatusV7,
-  deletePracticeRunV7,
   recordPracticeAnswerV7,
 } from "./db-v7-practice";
+
+export {
+  deletePracticeRunV7,
+} from "./db-v7-practice-delete";
 
 export {
   putImageAssetV7,
