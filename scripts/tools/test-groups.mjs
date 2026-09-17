@@ -90,7 +90,7 @@ export const testGroups = {
     "test:sync-bank-reorder-folder",
     "test:sync-gc",
     "test:sync-history",
-    "test:sync-remote-converter",
+    "test:sync-remote-converter",\n    "test:sync-asset-shadow",
   ],
   // E2E tests are intentionally opt-in for fast checks. CI and release checks
   // invoke this group after installing a system Chromium.
