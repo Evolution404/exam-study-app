@@ -12,9 +12,9 @@ import {
   mergeCanonicalHistoryState,
   type PracticeRunHistoryFacts,
 } from "./sync-history-state";
-import { SYNC_HISTORY_PREFIX, type SyncDescriptor, type SyncHead } from "./sync-head-types";
+import { SYNC_FORMAT_VERSION, SYNC_HISTORY_PREFIX, type SyncDescriptor, type SyncHead } from "./sync-head-types";
 
-export const REMOTE_HISTORY_FORMAT = 9 as const;
+export const REMOTE_HISTORY_FORMAT = SYNC_FORMAT_VERSION;
 export const SYNC_HISTORY_RECENT_ATTEMPT_LIMIT = 5_000;
 export const SYNC_HISTORY_RECENT_PRACTICE_RUN_LIMIT = 500;
 export const SYNC_HISTORY_CHUNK_COUNT = 1_000;
@@ -79,7 +79,7 @@ export interface SyncHistoryReadOptions { historySyncStart?: string }
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const HISTORY_PATH = /^sync\/v9\/history\/[a-f0-9]{64}\.json$/;
+const HISTORY_PATH = /^sync\/v10\/history\/[a-f0-9]{64}\.json$/;
 const COUNT_KEYS = [
   "banks", "bankFolders", "questions", "memberships", "imageAssets", "attempts", "notes",
   "practiceRuns", "practiceRunSources", "practiceRunItems", "questionGroups", "questionGroupItems",
@@ -91,21 +91,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertSafeInt(value: unknown, field: string): asserts value is number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`invalid v9 checkpoint: ${field} must be a non-negative safe integer`);
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`invalid remote checkpoint: ${field} must be a non-negative safe integer`);
 }
 
 function assertDate(value: unknown, field: string): asserts value is string {
-  if (typeof value !== "string" || !ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`invalid v9 checkpoint: ${field} must be an ISO timestamp`);
+  if (typeof value !== "string" || !ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`invalid remote checkpoint: ${field} must be an ISO timestamp`);
 }
 
 function assertDescriptor(value: unknown, field: string): asserts value is SyncDescriptor {
-  if (!isRecord(value)) throw new Error(`invalid v9 checkpoint: ${field} must be a descriptor`);
-  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`invalid v9 checkpoint: ${field}.path must be a v9 history path`);
-  if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`invalid v9 checkpoint: ${field}.blobSha is invalid`);
-  if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.sha256 is invalid`);
+  if (!isRecord(value)) throw new Error(`invalid remote checkpoint: ${field} must be a descriptor`);
+  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`invalid remote checkpoint: ${field}.path must be a current history path`);
+  if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`invalid remote checkpoint: ${field}.blobSha is invalid`);
+  if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`invalid remote checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);
   assertSafeInt(value.storedSize, `${field}.storedSize`);
-  if (!value.path.includes(value.sha256)) throw new Error(`invalid v9 checkpoint: ${field}.path digest mismatch`);
+  if (!value.path.includes(value.sha256)) throw new Error(`invalid remote checkpoint: ${field}.path digest mismatch`);
 }
 
 function chunked<T>(items: readonly T[], chunkCount: number): T[][] {
@@ -174,10 +174,10 @@ async function archivePracticeRunChunks(
 }
 
 function validateBoundedCounts(value: unknown, state: SyncCheckpointState, history: RemoteHistoryCheckpoint["history"]): asserts value is SyncCheckpointCounts {
-  if (!isRecord(value)) throw new Error("invalid v9 checkpoint: counts must be an object");
+  if (!isRecord(value)) throw new Error("invalid remote checkpoint: counts must be an object");
   const keys = Object.keys(value);
   if (keys.length !== COUNT_KEYS.length || keys.some((key) => !COUNT_KEYS.includes(key as keyof SyncCheckpointCounts))) {
-    throw new Error("invalid v9 checkpoint: counts must contain only canonical fact counters");
+    throw new Error("invalid remote checkpoint: counts must contain only canonical fact counters");
   }
   const expected = countsForHistoryState(state, {
     attempts: state.attempts.length + history.archivedAttempts,
@@ -185,16 +185,16 @@ function validateBoundedCounts(value: unknown, state: SyncCheckpointState, histo
   });
   for (const key of COUNT_KEYS) {
     assertSafeInt(value[key], `counts.${key}`);
-    if (value[key] !== expected[key]) throw new Error(`invalid v9 checkpoint: counts.${key} does not match bounded state/history`);
+    if (value[key] !== expected[key]) throw new Error(`invalid remote checkpoint: counts.${key} does not match bounded state/history`);
   }
 }
 
 export function validateRemoteHistoryCheckpoint(value: unknown): asserts value is RemoteHistoryCheckpoint {
-  if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("invalid v9 checkpoint: formatVersion must be 9");
+  if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error(`invalid remote checkpoint: formatVersion must be ${REMOTE_HISTORY_FORMAT}`);
   assertDate(value.generatedAt, "generatedAt");
-  if (!isRecord(value.state)) throw new Error("invalid v9 checkpoint: state must be an object");
-  if (!isRecord(value.cursors)) throw new Error("invalid v9 checkpoint: cursors are required");
-  if (!isRecord(value.retention) || !isRecord(value.history)) throw new Error("invalid v9 checkpoint: retention/history are required");
+  if (!isRecord(value.state)) throw new Error("invalid remote checkpoint: state must be an object");
+  if (!isRecord(value.cursors)) throw new Error("invalid remote checkpoint: cursors are required");
+  if (!isRecord(value.retention) || !isRecord(value.history)) throw new Error("invalid remote checkpoint: retention/history are required");
   assertSafeInt(value.retention.recentAttemptLimit, "retention.recentAttemptLimit");
   assertSafeInt(value.retention.recentPracticeRunLimit, "retention.recentPracticeRunLimit");
   if (value.retention.oldestRecentAttemptAt !== null) assertDate(value.retention.oldestRecentAttemptAt, "retention.oldestRecentAttemptAt");
@@ -213,7 +213,7 @@ export function validateRemoteHistoryCheckpoint(value: unknown): asserts value i
   const history = value.history as unknown as RemoteHistoryCheckpoint["history"];
   validateBoundedCounts(value.counts, state, history);
   if ((history.archivedAttempts > 0 || history.archivedPracticeRuns > 0) && history.index === null) {
-    throw new Error("invalid v9 checkpoint: archived history requires an index descriptor");
+    throw new Error("invalid remote checkpoint: archived history requires an index descriptor");
   }
 }
 
@@ -225,7 +225,7 @@ export function encodeRemoteHistoryCheckpoint(checkpoint: RemoteHistoryCheckpoin
 export function parseRemoteHistoryCheckpoint(bytes: Uint8Array | string): RemoteHistoryCheckpoint {
   let value: unknown;
   try { value = JSON.parse(typeof bytes === "string" ? bytes : new TextDecoder().decode(bytes)); }
-  catch { throw new Error("远程 v9 检查点不是有效 JSON。"); }
+  catch { throw new Error("远程检查点不是有效 JSON。"); }
   validateRemoteHistoryCheckpoint(value);
   return value;
 }
@@ -233,9 +233,9 @@ export function parseRemoteHistoryCheckpoint(bytes: Uint8Array | string): Remote
 function parseHistoryIndex(bytes: Uint8Array): SyncHistoryIndex {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); }
-  catch { throw new Error("远程 v9 历史索引不是有效 JSON。"); }
+  catch { throw new Error("远程历史索引不是有效 JSON。"); }
   if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT || !Array.isArray(value.attempts) || !Array.isArray(value.practiceRuns) || !isRecord(value.counts)) {
-    throw new Error("远程 v9 历史索引格式无效。");
+    throw new Error("远程历史索引格式无效。");
   }
   assertDate(value.generatedAt, "history.generatedAt");
   assertSafeInt(value.counts.attempts, "history.counts.attempts");
@@ -243,7 +243,7 @@ function parseHistoryIndex(bytes: Uint8Array): SyncHistoryIndex {
   for (const [kind, descriptors] of [["attempts", value.attempts], ["practiceRuns", value.practiceRuns]] as const) {
     descriptors.forEach((descriptor, index) => {
       assertDescriptor(descriptor, `history.${kind}[${index}]`);
-      if (!isRecord(descriptor) || descriptor.kind !== kind) throw new Error(`远程 v9 历史索引 ${kind}[${index}] 类型无效。`);
+      if (!isRecord(descriptor) || descriptor.kind !== kind) throw new Error(`远程历史索引 ${kind}[${index}] 类型无效。`);
       assertSafeInt(descriptor.count, `history.${kind}[${index}].count`);
     });
   }
@@ -253,9 +253,9 @@ function parseHistoryIndex(bytes: Uint8Array): SyncHistoryIndex {
 function parseAttemptHistoryChunk(bytes: Uint8Array): Attempt[] {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); }
-  catch { throw new Error("远程 v9 attempts 历史分块不是有效 JSON。"); }
+  catch { throw new Error("远程 attempts 历史分块不是有效 JSON。"); }
   if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT || value.kind !== "attempts" || !Array.isArray(value.items)) {
-    throw new Error("远程 v9 attempts 历史分块格式无效。");
+    throw new Error("远程 attempts 历史分块格式无效。");
   }
   return value.items as Attempt[];
 }
@@ -263,10 +263,10 @@ function parseAttemptHistoryChunk(bytes: Uint8Array): Attempt[] {
 function parsePracticeRunHistoryChunk(bytes: Uint8Array): PracticeRunHistoryFacts {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); }
-  catch { throw new Error("远程 v9 practiceRuns 历史分块不是有效 JSON。"); }
+  catch { throw new Error("远程 practiceRuns 历史分块不是有效 JSON。"); }
   if (!isRecord(value) || value.formatVersion !== REMOTE_HISTORY_FORMAT || value.kind !== "practiceRuns"
     || !Array.isArray(value.practiceRuns) || !Array.isArray(value.practiceRunSources) || !Array.isArray(value.practiceRunItems) || "items" in value) {
-    throw new Error("远程 v9 practiceRuns 历史分块格式无效。");
+    throw new Error("远程 practiceRuns 历史分块格式无效。");
   }
   return {
     practiceRuns: value.practiceRuns as PracticeRunRecord[],
@@ -290,7 +290,7 @@ async function readAttemptHistory(
   for (let offset = 0; offset < selected.length; offset += 4) {
     const chunks = await Promise.all(selected.slice(offset, offset + 4).map(async (descriptor) => {
       const items = parseAttemptHistoryChunk(await client.readBlob(descriptor));
-      if (items.length !== descriptor.count) throw new Error("远程 v9 attempts 历史分块计数不匹配。");
+      if (items.length !== descriptor.count) throw new Error("远程 attempts 历史分块计数不匹配。");
       if (!historySyncStart) return items;
       const kept = items.filter((item) => historyTimestampIncluded(item.createdAt, historySyncStart));
       skipped += items.length - kept.length;
@@ -316,7 +316,7 @@ async function readPracticeRunHistory(
   for (let offset = 0; offset < selected.length; offset += 4) {
     const chunks = await Promise.all(selected.slice(offset, offset + 4).map(async (descriptor) => {
       const chunk = parsePracticeRunHistoryChunk(await client.readBlob(descriptor));
-      if (chunk.practiceRuns.length !== descriptor.count) throw new Error("远程 v9 practiceRuns 历史分块计数不匹配。");
+      if (chunk.practiceRuns.length !== descriptor.count) throw new Error("远程 practiceRuns 历史分块计数不匹配。");
       return chunk;
     }));
     for (const chunk of chunks) {
@@ -383,7 +383,7 @@ async function hydrateRemoteHistoryCheckpointWithStats(
   if (checkpoint.history.index) {
     const index = parseHistoryIndex(await client.readBlob(checkpoint.history.index));
     if (index.counts.attempts !== checkpoint.history.archivedAttempts || index.counts.practiceRuns !== checkpoint.history.archivedPracticeRuns) {
-      throw new Error("远程 v9 历史索引总数与检查点不一致。");
+      throw new Error("远程历史索引总数与检查点不一致。");
     }
     const [attemptResult, runResult] = await Promise.all([
       readAttemptHistory(client, index.attempts, historySyncStart),
@@ -406,7 +406,7 @@ async function hydrateRemoteHistoryCheckpointWithStats(
   };
   validateSyncCheckpoint(full);
   if (!historySyncStart && (state.attempts.length !== checkpoint.counts.totalAttempts || state.practiceRuns.length !== checkpoint.counts.totalPracticeRuns)) {
-    throw new Error("远程 v9 历史水合后记录数与检查点不一致。");
+    throw new Error("远程历史水合后记录数与检查点不一致。");
   }
   return {
     checkpoint: full,
@@ -425,7 +425,7 @@ export async function decodeRemoteCheckpoint(client: GitHubRemote, bytes: Uint8A
   let header: unknown;
   try { header = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { throw new Error("远程检查点不是有效 JSON。"); }
-  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("远程检查点格式不是 v9；当前客户端只接受 v9 数据。");
+  if (!isRecord(header) || header.formatVersion !== REMOTE_HISTORY_FORMAT) throw new Error("远程检查点格式不受当前客户端支持。");
   return hydrateRemoteHistoryCheckpointWithStats(client, parseRemoteHistoryCheckpoint(bytes), options);
 }
 
