@@ -1,0 +1,116 @@
+name: Phase 2 doc closeout
+
+on:
+  push:
+    branches:
+      - refactor/database-facts-projections-20260917
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-facts-projections-20260917
+          fetch-depth: 0
+      - name: Update Phase 2 documentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          handoff = Path('docs/HANDOFF.md')
+          text = handoff.read_text()
+
+          replacements = [
+              (
+                  '> **下一阶段最高优先级：数据库架构整体重构。** 完整执行基线见 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`。不要继续为当前 schema 增加页面级查询补丁、兼容层或临时复合读取 helper。当前审计分支 `audit/code-audit-20260917` 已完成一轮正确性与规模性能修复；其 PR 合并后，从最新 `origin/main` 新建 `refactor/database-facts-projections-20260917` 实施数据库 cutover。',
+                  '> **当前工作面：PR #58 的 Phase 2 已完成收口，保持 Draft，禁止进入 Phase 3。** 实施分支 `refactor/database-facts-projections-20260917` 已完成 current schema/types、canonical facts 与关系化写路径、PracticeRun 正常化、图片 descriptor/blob cache 分离，以及 version-neutral 业务 API/type/file-name 清理。除非用户明确授权，不开始 Phase 3 projection engine，不合并、不发布、不执行 production remote cutover。'
+              ),
+              (
+                  '- 分支：`main`；远端：`https://github.com/Evolution404/exam-study-app.git`',
+                  '- 当前实施分支：`refactor/database-facts-projections-20260917`；Draft PR #58，base 为 `main`。Phase 2 已收口，Phase 3 未开始。远端：`https://github.com/Evolution404/exam-study-app.git`'
+              ),
+              ('- `QuestionV7` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。', '- `Question` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。'),
+              (
+                  '- 一次答题只写一条 `practice.answer.submitted`，同一事务更新作答、终身统计、练习答案和当前轮次进度。',
+                  '- 一次提交只创建一条 `Attempt` canonical fact 并发出一条 `practice.answer.submitted`；`practiceRunItems` 只保存 `submittedAttemptId` 与必要 draft，已提交答案不再复制到 PracticeRun 大 Map。'
+              ),
+              (
+                  '- `src/lib/sync/github-sync.ts` 是 UI 唯一公开同步门面；本地投影仍为 v7，远端 transport 已完整升级为 v9。',
+                  '- UI/业务同步只通过 `sync-application.ts` / `sync-runtime.ts` 等公开边界进入同步层；业务 API/type/source filename 保持 version-neutral。远端 wire 仍明确为 Sync v9，`sync/v9/...` 与 `formatVersion: 9` 属于真实协议版本，不属于业务命名技术债。'
+              ),
+              (
+                  '- 数据模型：`src/lib/db/v7-types.ts`, `src/lib/db/db-v7.ts`, `src/lib/db/app-data-v7.ts`\n- 同步协议：`src/lib/sync/sync-v7-head.ts`, `src/lib/sync/sync-v7-codec.ts`, `src/lib/sync/sync-v7-payload.ts`,\n  `src/lib/sync/change-set-v7.ts`, `src/lib/sync/change-set-v7-projection.ts`, `src/lib/sync/change-set-v7-queue.ts`,\n  `src/lib/sync/github-v7-remote.ts`, `src/lib/sync/github-sync-v7.ts`, `src/lib/sync/github-sync.ts`\n- 图片 Pack：`src/lib/sync/image-asset-pack.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/sync/sync-v7-upload.ts`,',
+                  '- 数据模型：`src/lib/db/types.ts`, `src/lib/db/db-core.ts`, `src/lib/db/db.ts`, `src/lib/db/practice-run-store.ts`, `src/lib/db/review-round-store.ts`\n- 同步协议：`src/lib/sync/sync-head-types.ts`, `src/lib/sync/sync-codec.ts`, `src/lib/sync/sync-payload.ts`,\n  `src/lib/sync/change-set-types.ts`, `src/lib/sync/change-set-codec.ts`, `src/lib/sync/change-set-projection.ts`, `src/lib/sync/change-set-queue.ts`,\n  `src/lib/sync/github-remote.ts`, `src/lib/sync/github-sync.ts`, `src/lib/sync/sync-application.ts`, `src/lib/sync/sync-runtime.ts`\n- 图片 Pack：`src/lib/sync/image-asset-pack.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/sync/sync-upload.ts`,'
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'HANDOFF expected exactly one occurrence, found {count}: {old[:100]!r}')
+              text = text.replace(old, new)
+
+          marker = '\n## 1. 当前基线\n'
+          closeout = '''
+## 0.5 Phase 2 收口状态
+
+- PR #58 已完成 Phase 2：关系事实拆为 `questionGroupItems`、`reviewRoundBanks`、`reviewRoundItems`、`practiceRunSources`、`practiceRunItems`；`Attempt` 持有提交答案与复习轮次 provenance；`imageAssets` descriptor 与本地 `imageBlobs` cache 分离。
+- `PracticeRun` 主记录只保留会话元数据；已提交答案只以 `Attempt` 为事实，删除题库仍保留历史 run attribution snapshot。
+- 当前 Dexie schema 继续只有一个 `version(1)`；禁止 `version(2+)`、`.upgrade()`、旧 store、旧 API alias、双读/双写 compatibility layer。
+- `V7/v7/V8/v8` 业务 API、type、source filename 与旧 runtime/test 标签已清理；`scripts/tools/check-architecture.mjs` 负责阻止重新引入。真实 Sync v9 wire 继续保留。
+- iOS 原生偏好键已改为 version-neutral `CapacitorStorage.study-preferences`；同步 CI/package scripts 已切换到 version-neutral 名称。
+- PR CI 的主测试 job 直接执行 `make test`；Chromium/WebKit 浏览器 smoke、Sync storage CI、Governance Audit、PR Preview 都是 Phase 2 最终门禁的一部分。
+- **停止线：Phase 3 尚未开始。除非用户明确授权，不实现 projection engine 后续阶段，不合并 PR #58，不发布。**
+'''
+          if marker not in text:
+              raise SystemExit('HANDOFF insertion marker missing')
+          text = text.replace(marker, '\n' + closeout + marker, 1)
+          handoff.write_text(text)
+
+          plan = Path('docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md')
+          text = plan.read_text()
+          replacements = [
+              ('> 状态：待实施。本文是下一轮数据库重构的唯一执行基线。', '> 状态：Phase 0–2 已实施并完成收口；Phase 3+ 未开始，等待用户明确授权。本文继续作为数据库重构执行基线。'),
+              ('> 前置条件：当前审计 PR 必须先合并到 `main`，再从最新 `origin/main` 创建实施分支。不要从旧 `main` 重做本轮已完成修复。', '> 前置条件已满足：PR #57 已合并，实施分支已从当时最新 `origin/main`（`863b1a8`）创建。当前停在 PR #58 Phase 2 收口边界。'),
+              ('当前 `recordPracticeAnswerV7` 每次提交都会生成新的 attempt ID，并只发出 `practice.answer.submitted`', '当前 `recordPracticeAnswer` 每次提交都会生成新的 attempt ID，并只发出 `practice.answer.submitted`'),
+              ('`AttemptV7` 不直接建模复习轮次归属', '`Attempt` 过去未直接建模复习轮次归属'),
+              ('Phase 0 无未决领域语义；下一步按本文 Phase 1 直接切 current schema/types。', 'Phase 0 已完成；Phase 1 与 Phase 2 也已在 PR #58 完成。当前必须停在 Phase 2 边界，未经用户明确授权不得进入 Phase 3。'),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'PLAN expected exactly one occurrence, found {count}: {old[:100]!r}')
+              text = text.replace(old, new)
+
+          phase3 = '\n### Phase 3 — Projection engine\n'
+          closeout = '''
+#### Phase 2 收口记录（2026-09-17）
+
+- current schema/types 与领域写路径已切换到正常化模型；group/review/run 关系不再以内嵌数组或大 Map 作为持久化事实。
+- PracticeRun/source/item 已拆分，已提交答案事实归 `Attempt`；Attempt 已持有 round provenance；图片 descriptor/blob cache 已分离。
+- 旧 `attempt.update` / `practice.answer.updated` 兼容 mutation 与 V7/V8 业务 API/type/source filename 已删除，不保留 alias 或 runtime compatibility 分支。
+- architecture guard 已加入 version-neutral 命名门禁，并继续强制单一 Dexie `version(1)`、禁止 `.upgrade()` 与历史 schema compatibility。
+- Sync v9 仍是当前真实 remote wire；`sync/v9/...` / `formatVersion: 9` 不改写成业务名称，也不作为兼容层。
+- Phase 2 最终验收要求：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 在同一最新 HEAD 全绿。
+
+> **STOP：Phase 3 尚未开始。等待用户明确授权后才能继续。**
+'''
+          if phase3 not in text:
+              raise SystemExit('PLAN Phase 3 marker missing')
+          text = text.replace(phase3, '\n' + closeout + phase3, 1)
+          plan.write_text(text)
+          PY
+          git diff --check
+      - name: Commit documentation and remove one-shot workflow
+        run: |
+          git rm .github/workflows/phase2-doc-closeout.yml
+          git add docs/HANDOFF.md docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "docs: close phase 2 database refactor"
+          git push origin HEAD:refactor/database-facts-projections-20260917
