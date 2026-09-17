@@ -38,10 +38,11 @@ for (const { file, source } of srcSources) {
 const testSources = fs.readdirSync(path.join(root, "scripts/tests"), { recursive: true })
   .filter((file) => typeof file === "string" && /\.(m?[jt]s|tsx?)$/.test(file))
   .map((file) => ({ file: `scripts/tests/${file}`, source: read(path.join("scripts/tests", file)) }));
-for (const { file, source } of testSources) {
-  if (/\bv[78]\b/i.test(source)) {
-    fail(`${file} 不得保留 v7/v8 测试标签、夹具、断言或旧实现标记；测试应描述当前业务/同步语义`);
-  }
+const staleVersionTestFiles = testSources
+  .filter(({ source }) => /\bv[78]\b/i.test(source))
+  .map(({ file }) => file);
+if (staleVersionTestFiles.length) {
+  fail(`${staleVersionTestFiles.join(", ")} 不得保留 v7/v8 测试标签、夹具、断言或旧实现标记；测试应描述当前业务/同步语义`);
 }
 
 for (const name of ["color-canvas", "color-surface", "color-surface-raised", "color-text", "color-text-muted", "color-border", "color-primary", "color-danger"]) {
