@@ -8,7 +8,7 @@ import { createGitHubRemote } from "../../src/lib/sync/github-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-context";
 import { validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
 import { createSyncCheckpoint, encodeSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-store";
-import { SYNC_CHECKPOINT_PREFIX, SYNC_HISTORY_PREFIX, type SyncHead } from "../../src/lib/sync/sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_HISTORY_PREFIX, type SyncHead } from "../../src/lib/sync/sync-head-types";
 import {
   createRemoteHistoryCheckpoint,
   encodeRemoteHistoryCheckpoint,
@@ -93,7 +93,7 @@ try {
   const client = createGitHubRemote({ owner: "qa", repo: "sync-history", branch: "main", token: "qa-token", apiBaseUrl: server.url, vaultId });
   const bounded = await createRemoteHistoryCheckpoint(client, full, { recentAttemptLimit: 2, recentPracticeRunLimit: 1, chunkCount: 2 });
   validateRemoteHistoryCheckpoint(bounded);
-  assert.equal(bounded.formatVersion, 9);
+  assert.equal(bounded.formatVersion, SYNC_FORMAT_VERSION);
   assert.equal(bounded.state.attempts.length, 2, "remote checkpoint keeps only recent attempts");
   assert.equal(bounded.state.practiceRuns.length, 1, "remote checkpoint keeps only recent practice run records");
   assert.equal(bounded.state.practiceRunSources.length, 1, "bounded state keeps only relations for retained runs");
@@ -148,7 +148,7 @@ try {
     generation: 1,
   };
   const head: SyncHead = {
-    formatVersion: 9,
+    formatVersion: SYNC_FORMAT_VERSION,
     vaultId,
     generatedAt: "2026-02-01T00:00:00.000Z",
     generation: 1,
@@ -161,7 +161,7 @@ try {
   assert.equal(published.ok, true);
   if (!published.ok) throw new Error("failed to publish test head");
 
-  const orphanBytes = new TextEncoder().encode(JSON.stringify({ formatVersion: 9, kind: "orphan" }));
+  const orphanBytes = new TextEncoder().encode(JSON.stringify({ formatVersion: SYNC_FORMAT_VERSION, kind: "orphan" }));
   const orphanPath = descriptorPath(SYNC_HISTORY_PREFIX, digest(orphanBytes));
   await client.putImmutable({ path: orphanPath, bytes: orphanBytes, kind: "history" });
   const beforeGc = server.contentPaths().filter((path) => path.startsWith(SYNC_HISTORY_PREFIX));
