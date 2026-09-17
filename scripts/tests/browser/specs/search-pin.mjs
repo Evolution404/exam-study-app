@@ -2,6 +2,54 @@ import * as harness from "../harness.mjs";
 import * as helpers from "../helpers.mjs";
 import * as fixtures from "../fixtures.mjs";
 
+async function assertVisibleNativeDateInputsContained(page, label) {
+  const geometry = await page.evaluate(() => {
+    const selector = 'input[type="date"],input[type="datetime-local"],input[type="time"],input[type="month"],input[type="week"]';
+    const inputs = Array.from(document.querySelectorAll(selector)).filter((element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    });
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      documentClientWidth: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      inputs: inputs.map((input) => {
+        const rect = input.getBoundingClientRect();
+        const parent = input.parentElement?.getBoundingClientRect();
+        const grid = input.closest(".search-filter-date-range > div")?.getBoundingClientRect();
+        const drawer = input.closest(".search-filter-drawer")?.getBoundingClientRect();
+        return {
+          ariaLabel: input.getAttribute("aria-label") || input.getAttribute("name") || input.type,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          parentLeft: parent?.left,
+          parentRight: parent?.right,
+          gridLeft: grid?.left,
+          gridRight: grid?.right,
+          drawerLeft: drawer?.left,
+          drawerRight: drawer?.right,
+        };
+      }),
+    };
+  });
+  harness.assert.ok(geometry.inputs.length > 0, `${label}: 至少应渲染一个原生日期/时间输入控件`);
+  harness.assert.ok(geometry.documentScrollWidth <= geometry.documentClientWidth + 1, `${label}: 页面不得因原生日期/时间控件产生横向滚动（scrollWidth=${geometry.documentScrollWidth}, clientWidth=${geometry.documentClientWidth}）`);
+  for (const input of geometry.inputs) {
+    harness.assert.ok(input.left >= -1 && input.right <= geometry.viewportWidth + 1, `${label}: ${input.ariaLabel} 必须保持在视口内（left=${input.left}, right=${input.right}, viewport=${geometry.viewportWidth}）`);
+    if (input.parentLeft !== undefined && input.parentRight !== undefined) {
+      harness.assert.ok(input.left >= input.parentLeft - 1 && input.right <= input.parentRight + 1, `${label}: ${input.ariaLabel} 不得撑破直接父容器`);
+    }
+    if (input.gridLeft !== undefined && input.gridRight !== undefined) {
+      harness.assert.ok(input.left >= input.gridLeft - 1 && input.right <= input.gridRight + 1, `${label}: ${input.ariaLabel} 不得撑破日期范围网格`);
+    }
+    if (input.drawerLeft !== undefined && input.drawerRight !== undefined) {
+      harness.assert.ok(input.left >= input.drawerLeft - 1 && input.right <= input.drawerRight + 1, `${label}: ${input.ariaLabel} 不得撑破筛选抽屉`);
+    }
+  }
+}
+
 // ===== 搜索页吸附几何断言 =====
 // 设计（2026-08 用户确认）：搜索页内全局顶栏随内容滚走，页面自己的搜索框钉在
 // 视口顶部，批量操作栏紧贴搜索框正下方。滚动后逐一断言，防止吸附目标回退到
@@ -55,6 +103,20 @@ export async function runSearchPinMobile(page) {
   await page.waitForTimeout(600);
   await helpers.clickButton(page, "进入搜索主页");
   await helpers.expectText(page, "搜索题库");
+
+  // 窄屏原生日期控件必须受父容器约束。Safari/WebKit 的 date input
+  // 有 intrinsic/min-content 宽度，单靠 input 自身的 min-width:0 不足以
+  // 防止 1fr grid track 被撑破，因此直接做真实几何断言。
+  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  const filterDrawer = page.getByRole("dialog", { name: "筛选条件" });
+  await filterDrawer.waitFor({ state: "visible" });
+  await filterDrawer.getByRole("button", { name: "更多统计条件" }).click();
+  await filterDrawer.locator('.search-filter-date-range input[type="date"]').first().waitFor({ state: "visible" });
+  await assertVisibleNativeDateInputsContained(page, "mobile search filter date range");
+  await helpers.capture(page, "search-pin", "native-date-range-mobile");
+  await filterDrawer.getByRole("button", { name: "关闭筛选条件" }).click();
+  await filterDrawer.waitFor({ state: "hidden" });
+
   // 空关键词条件搜索：展示全部题目，保证列表足够长可滚动。
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await helpers.expectText(page, /条件搜索找到 \d+ 道题/);
