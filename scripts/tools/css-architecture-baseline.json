@@ -1,8 +1,8 @@
 {
-  "totalBytes": 301081,
+  "totalBytes": 301063,
   "maxFileBytes": 13741,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 268720,
+  "totalDebtScore": 268702,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -221,7 +221,7 @@
       "important": 0
     },
     "src/app/search/search-main-2.css": {
-      "bytes": 12073,
+      "bytes": 12055,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
