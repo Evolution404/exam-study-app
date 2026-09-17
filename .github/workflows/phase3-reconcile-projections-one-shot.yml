@@ -1,0 +1,77 @@
+name: Phase3 reconcile projection cutover
+
+on:
+  push:
+    branches: [refactor/database-projection-sync-v10-20260917]
+    paths: [.github/workflows/phase3-reconcile-projections-one-shot.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-projection-sync-v10-20260917
+          fetch-depth: 0
+      - name: Rewrite reconcile to canonical install plus projection rebuild
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/db/db-reconcile.ts')
+          s = p.read_text()
+          def once(old, new):
+              global s
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, got {count}: {old[:80]!r}')
+              s = s.replace(old, new, 1)
+
+          once('import { studyDb } from "./db-core";\n', 'import { studyDb } from "./db-core";\nimport { rebuildAllProjections } from "./projection-engine";\n')
+
+          once('''  const attemptStatsPlan = await makePlan(studyDb.questionProgress, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);\n  const dailyStatsPlan = await makeCompoundPlan(\n    studyDb.questionDailyProgress,\n    state.attemptDailyStats,\n    (row) => [row.date, row.questionId],\n    (row) => row.key,\n    dirty?.attemptDailyStats,\n  );\n''', '')
+
+          once('''  const bankPracticeStats = state.practiceRunStats.map((row) => ({\n    bankId: row.bankId,\n    total: row.total,\n    completed: row.completed,\n    inProgress: row.inProgress,\n    abandoned: row.abandoned,\n    latestActivityAt: row.latestUpdatedAt,\n  }));\n  const practiceStatsPlan = await makePlan(studyDb.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);\n''', '')
+
+          once('''  const roundProgressPlan = await makeCompoundPlan(\n    studyDb.reviewRoundProgress,\n    state.reviewRoundProgress,\n    (row) => [row.roundId, row.questionId],\n    (row) => row.key,\n    dirty?.reviewRoundProgress,\n  );\n''', '')
+
+          for term in [
+              '    + attemptStatsPlan.puts.length + attemptStatsPlan.deletes.length\n',
+              '    + dailyStatsPlan.puts.length + dailyStatsPlan.deletes.length\n',
+              '    + practiceStatsPlan.puts.length + practiceStatsPlan.deletes.length\n',
+              '    + roundProgressPlan.puts.length + roundProgressPlan.deletes.length\n',
+          ]:
+              once(term, '')
+
+          once('''    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress,\n    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems,\n    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress, studyDb.tombstones, studyDb.changeSets,\n''', '''    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,\n    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,\n    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets,\n''')
+
+          once('  return studyDb.transaction("rw", transactionTables, async () => {\n', '  const reconciled = await studyDb.transaction("rw", transactionTables, async () => {\n')
+
+          for line in [
+              '      await applyPlan(studyDb.questionProgress, attemptStatsPlan, { put: "更新学习统计", remove: "清理学习统计" }, progress, options, mode);\n',
+              '      await applyPlan(studyDb.questionDailyProgress, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);\n',
+              '      await applyPlan(studyDb.bankPracticeStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);\n',
+              '      await applyPlan(studyDb.reviewRoundProgress, roundProgressPlan, { put: "更新轮次进度", remove: "清理轮次进度" }, progress, options, mode);\n',
+          ]:
+              once(line, '')
+
+          tail = '''  });\n}'''
+          replacement = '''  });\n\n  if (!reconciled) return false;\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });\n  await rebuildAllProjections();\n  options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });\n  return true;\n}'''
+          if not s.endswith(tail):
+              raise SystemExit('unexpected reconcile tail')
+          s = s[:-len(tail)] + replacement
+          p.write_text(s)
+          PY
+      - name: Commit cutover and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/phase3-reconcile-projections-one-shot.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/db/db-reconcile.ts .github/workflows/phase3-reconcile-projections-one-shot.yml
+          git commit -m "refactor: rebuild projections after canonical reconcile"
+          git push origin HEAD:refactor/database-projection-sync-v10-20260917
