@@ -21,17 +21,25 @@ export function attemptHasSelection(attempt: Pick<Attempt, "selected" | "respons
 }
 
 export function practiceRunRecord(run: PracticeRun): PracticeRunRecord {
-  const {
-    bankId: _bankId,
-    bankIds: _bankIds,
-    bankName,
-    questionIds: _questionIds,
-    questionTypes: _questionTypes,
-    answers: _answers,
-    optionOrders: _optionOrders,
-    ...record
-  } = run;
-  return { ...record, bankNameSnapshot: bankName, activityAt: runActivityAt(run) };
+  return {
+    id: run.id,
+    mode: run.mode,
+    modeLabel: run.modeLabel,
+    shuffleOptions: run.shuffleOptions,
+    startedAt: run.startedAt,
+    updatedAt: run.updatedAt,
+    status: run.status,
+    revision: run.revision,
+    bankNameSnapshot: run.bankName,
+    activityAt: runActivityAt(run),
+    ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+    ...(run.abandonedAt !== undefined ? { abandonedAt: run.abandonedAt } : {}),
+    ...(run.lastAnsweredIndex !== undefined ? { lastAnsweredIndex: run.lastAnsweredIndex } : {}),
+    ...(run.syncDeviceId !== undefined ? { syncDeviceId: run.syncDeviceId } : {}),
+    ...(run.syncEventId !== undefined ? { syncEventId: run.syncEventId } : {}),
+    ...(run.definitionSynced !== undefined ? { definitionSynced: run.definitionSynced } : {}),
+    ...(run.reviewRoundId !== undefined ? { reviewRoundId: run.reviewRoundId } : {}),
+  };
 }
 
 export function decomposePracticeRun(
@@ -126,16 +134,29 @@ export function assemblePracticeRunRecords(
       const answer = answerFromItem(item, item.submittedAttemptId ? attemptsById.get(item.submittedAttemptId) : undefined);
       if (answer) answers[item.questionId] = answer;
     }
-    const { bankNameSnapshot, activityAt: _activityAt, ...metadata } = record;
     return {
-      ...metadata,
+      id: record.id,
       bankId: runSources[0]?.bankId ?? "",
       bankIds: runSources.map((source) => source.bankId),
-      bankName: bankNameSnapshot,
+      bankName: record.bankNameSnapshot,
+      mode: record.mode,
+      modeLabel: record.modeLabel,
       questionIds: runItems.map((item) => item.questionId),
       questionTypes,
       answers,
+      shuffleOptions: record.shuffleOptions,
       optionOrders,
+      startedAt: record.startedAt,
+      updatedAt: record.updatedAt,
+      status: record.status,
+      revision: record.revision,
+      ...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
+      ...(record.abandonedAt !== undefined ? { abandonedAt: record.abandonedAt } : {}),
+      ...(record.lastAnsweredIndex !== undefined ? { lastAnsweredIndex: record.lastAnsweredIndex } : {}),
+      ...(record.syncDeviceId !== undefined ? { syncDeviceId: record.syncDeviceId } : {}),
+      ...(record.syncEventId !== undefined ? { syncEventId: record.syncEventId } : {}),
+      ...(record.definitionSynced !== undefined ? { definitionSynced: record.definitionSynced } : {}),
+      ...(record.reviewRoundId !== undefined ? { reviewRoundId: record.reviewRoundId } : {}),
     };
   });
 }
