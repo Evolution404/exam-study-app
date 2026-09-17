@@ -97,4 +97,4 @@ await assert.rejects(() => assertClaimedBatchDigest({ ...claim, digest: "0".repe
 assert.equal(await verifyChangeSetDigest({ ...base, digest: "0".repeat(64) }), false, "digest tamper rejected");
 assert.equal(recomputeChangeSetProjection(projection).banks[0].questionCount, projection.banks[0].questionCount);
 
-console.log("v7 change-set tests passed: mutations, projection recomputation, conflicts, queue dependencies and digest claims");
+console.log("change-set tests passed: mutations, projection recomputation, conflicts, queue dependencies and digest claims");
