@@ -6,11 +6,15 @@ import {
   createPracticeRunV7,
   dbV7,
   enqueueChangeSetV7,
+  getImageAssetBlobV7,
+  getPracticeRunV7,
   importQuestionBankV7,
+  putImageAssetV7,
   recordPracticeAnswerV7,
   resetV7Database,
   restoreV7Checkpoint,
 } from "../../src/lib/db/db-v7";
+import { sha256Blob } from "../../src/lib/io/image-assets";
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -34,9 +38,9 @@ assert.match(restoreSource, /imageAssets\.bulkUpdate/, "existing image descripto
 assert.match(restoreSource, /RESTORE_BATCH_SIZE = 400/, "large projection writes should be split into mobile-friendly IDB batches");
 assert.match(restoreSource, /transaction\.abort\(\)/, "a stalled Safari write transaction needs an atomic abort watchdog");
 
-const cachedImageId = "a".repeat(64);
 const cachedImageBlob = new Blob(["cached-image"], { type: "image/png" });
-await dbV7.imageAssets.put({ id: cachedImageId, mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10, blob: cachedImageBlob });
+const cachedImageId = await sha256Blob(cachedImageBlob);
+await putImageAssetV7({ id: cachedImageId, mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10, blob: cachedImageBlob });
 const restoreProgress: string[] = [];
 const restored = await restoreV7Checkpoint({
   banks: [],
@@ -57,7 +61,8 @@ const restored = await restoreV7Checkpoint({
 }, { onProgress: (progress) => restoreProgress.push(progress.label) });
 assert.equal(restored, true);
 const restoredImage = await dbV7.imageAssets.get(cachedImageId);
-assert.equal(await restoredImage?.blob?.text(), "cached-image", "descriptor refresh must preserve the local cached Blob");
+assert.equal(await (await getImageAssetBlobV7(cachedImageId))?.text(), "cached-image", "descriptor refresh must preserve the local cached Blob");
+assert.equal("blob" in (restoredImage as Record<string, unknown>), false, "Safari restore 后 imageAssets 仍只能保存 descriptor");
 assert.deepEqual(
   { mimeType: restoredImage?.mimeType, size: restoredImage?.size, width: restoredImage?.width, height: restoredImage?.height },
   { mimeType: "image/png", size: cachedImageBlob.size, width: 20, height: 10 },
@@ -88,7 +93,7 @@ assert.equal(bank.questionCount, 2, "Safari 模型下题库导入应完成");
 const run = await createPracticeRunV7({ bankId: bank.id, bankIds: [bank.id] });
 const result = await recordPracticeAnswerV7({ runId: run.id, questionId: run.questionIds[0]!, selected: ["A"], correct: true, elapsedMs: 1200 });
 assert.equal(result.answer.submitted, true, "Safari 模型下作答应保存并允许继续下一题");
-assert.equal((await dbV7.practiceRuns.get(run.id))?.answers[run.questionIds[0]!]?.submitted, true, "练习投影应包含已提交答案");
+assert.equal((await getPracticeRunV7(run.id))?.answers[run.questionIds[0]!]?.submitted, true, "练习读取模型应从 attempt + runItem 还原已提交答案");
 
 const records = await dbV7.changeSets.orderBy("localSequence").toArray();
 assert.ok(records.length >= 3, "导入、创建练习和作答都应生成同步事件");

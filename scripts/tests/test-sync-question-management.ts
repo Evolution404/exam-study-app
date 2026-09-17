@@ -9,6 +9,7 @@ import {
   deleteBankWithExclusiveQuestionsV7,
   deletePracticeRunV7,
   deleteQuestionV7,
+  getPracticeRunV7,
   importQuestionBankV7,
   recordPracticeAnswerV7,
   removeMembershipV7,
@@ -127,19 +128,19 @@ try {
     const question = await createQuestionV7(bank.id, singleChoice("将被删除且已作答", "A", ["对", "错"]));
     const run = await createPracticeRunV7({ bankId: bank.id, questionIds: [question.id] });
     await recordPracticeAnswerV7({ runId: run.id, questionId: question.id, selected: "A", correct: true, elapsedMs: 10 });
-    assert.ok(await dbV7.attemptStats.get(question.id), "作答应产生全局统计");
+    assert.ok(await dbV7.questionProgress.get(question.id), "作答应产生全局统计");
 
     await deleteQuestionV7(question.id);
     assert.equal(await dbV7.attempts.count(), 0, "本地级联应清理作答");
-    assert.equal(await dbV7.attemptStats.get(question.id), undefined, "本地级联应清理统计");
+    assert.equal(await dbV7.questionProgress.get(question.id), undefined, "本地级联应清理统计");
 
     await sync();
     await freshClient("device-b");
     await sync();
     assert.equal(await dbV7.questions.get(question.id), undefined, "新设备不应再看到已删题目");
     assert.equal(await dbV7.attempts.count(), 0, "新设备作答应被清理");
-    assert.equal(await dbV7.attemptStats.get(question.id), undefined, "新设备统计应被清理");
-    assert.equal(await dbV7.attemptDailyStats.where("questionId").equals(question.id).count(), 0, "每日统计应被清理");
+    assert.equal(await dbV7.questionProgress.get(question.id), undefined, "新设备统计应被清理");
+    assert.equal(await dbV7.questionDailyProgress.where("questionId").equals(question.id).count(), 0, "每日统计应被清理");
     console.log("scenario 3 passed: 删除题目级联清理作答与统计跨设备一致");
   }
 
@@ -250,7 +251,7 @@ try {
 
     // Delete q2 (not the currently-viewed q1) while the run is in progress.
     await deleteQuestionV7(q2.id);
-    const trimmed = await dbV7.practiceRuns.get(run.id);
+    const trimmed = await getPracticeRunV7(run.id);
     assert.ok(trimmed, "练习记录应保留");
     assert.deepEqual(trimmed?.questionIds, [q1.id, q3.id], "仅从练习中剔除被删题，其余题保留");
     assert.equal(trimmed?.answers[q1.id]?.submitted, true, "已作答的进度不受影响");
@@ -258,7 +259,7 @@ try {
     await sync();
     await freshClient("device-b");
     await sync();
-    const pulled = await dbV7.practiceRuns.get(run.id);
+    const pulled = await getPracticeRunV7(run.id);
     assert.deepEqual(pulled?.questionIds, [q1.id, q3.id], "新设备看到的练习同样不含被删题");
     assert.equal(await dbV7.questions.get(q2.id), undefined, "新设备不应看到已删题目");
     assert.equal((await dbV7.questions.get(q1.id))?.id, q1.id, "未删题目全局保留");
@@ -451,7 +452,7 @@ try {
     await freshClient("device-b");
     await sync();
     await recordPracticeAnswerV7({ runId: run.id, questionId: q1.id, selected: "A", correct: true, elapsedMs: 10 });
-    assert.deepEqual((await dbV7.practiceRuns.get(run.id))?.questionIds, [q1.id, q2.id], "B 拉取后 run 完整");
+    assert.deepEqual((await getPracticeRunV7(run.id))?.questionIds, [q1.id, q2.id], "B 拉取后 run 完整");
 
     // device-a 删 q1 并推送
     await freshClient("device-a");
@@ -464,7 +465,7 @@ try {
     await resetV7Database();
     await sync();
     assert.equal(await dbV7.questions.get(q1.id), undefined, "B 应感知到 q1 删除");
-    const bRun = await dbV7.practiceRuns.get(run.id);
+    const bRun = await getPracticeRunV7(run.id);
     assert.ok(bRun, "B 的 run 行应保留");
     assert.deepEqual(bRun?.questionIds, [q2.id], "B 的 run 应裁掉 q1、保留 q2");
     assert.equal(bRun?.answers[q1.id], undefined, "B 的 run answers 中 q1 应移除");
@@ -500,7 +501,7 @@ try {
     console.log("scenario 15 passed: 删独占题库级联（独占题删/共享题存活/靶向run墓碑）（S3.1）");
   }
 
-  // --- Scenario 16 (S3.4): deleteBankV7 总墓碑化靶向 run vs deletePracticeRunV7 条件墓碑 ---
+  // --- Scenario 16: 删除当前题库主数据必须保留历史 run attribution；直接删 run 仍按自身语义处理 ---
   {
     server.reset();
     await freshClient("device-a");
@@ -511,8 +512,9 @@ try {
     await sync();
     await deleteBankV7(bank.id);
     await sync();
-    assert.equal(await dbV7.practiceRuns.get(runNoAnswer.id), undefined, "靶向 run 应删除");
-    assert.ok(await dbV7.tombstones.get(`practiceRun:${runNoAnswer.id}`), "deleteBankV7 即使 run 无作答也总写墓碑");
+    assert.ok(await dbV7.practiceRuns.get(runNoAnswer.id), "删题库不得删除历史 run 元数据");
+    assert.equal(await dbV7.practiceRunSources.where("runId").equals(runNoAnswer.id).filter((source) => source.bankId === bank.id).count(), 1, "历史 run source attribution 必须保留");
+    assert.equal(await dbV7.tombstones.get(`practiceRun:${runNoAnswer.id}`), undefined, "删题库不得为仍保留的历史 run 写墓碑");
 
     // 对照：直接 deletePracticeRunV7 一个无作答 run → 无墓碑（E7 特征化）
     await freshClient("device-b");
@@ -524,7 +526,7 @@ try {
     await deletePracticeRunV7(directRun.id);
     assert.equal(await dbV7.practiceRuns.get(directRun.id), undefined, "直接删 run 应删除");
     assert.equal(await dbV7.tombstones.get(`practiceRun:${directRun.id}`), undefined, "deletePracticeRunV7 对无作答 run 不写墓碑（E7）");
-    console.log("scenario 16 passed: 题库删 run 总墓碑 vs 直接删 run 条件墓碑（S3.4/E7）");
+    console.log("scenario 16 passed: 删题库保留历史 run attribution，直接删 run 保持独立删除语义");
   }
 
   console.log("sync question management tests passed");

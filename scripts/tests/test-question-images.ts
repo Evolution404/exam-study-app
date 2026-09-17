@@ -18,7 +18,7 @@ import { importQuestionBankFile } from "../../src/lib/question/question-bank-fil
 import { sniffImageDimensions } from "../../src/lib/io/image-dimensions";
 import { sha256Bytes } from "../../src/lib/io/image-assets";
 import { IMPORT_LIMITS } from "../../src/lib/io/import-limits";
-import { dbV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
+import { dbV7, getImageAssetBlobV7, importQuestionBankV7, resetV7Database } from "../../src/lib/db/db-v7";
 import type { ContentBlock, QuestionV7 } from "../../src/lib/db/v7-types";
 
 // ---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ await resetV7Database();
   assert.equal(assetA.width, 640);
   assert.equal(assetA.height, 480);
   assert.equal(assetA.mimeType, "image/png");
-  assert.equal(assetA.blob?.size, pngA.byteLength, "资产字节与源图片一致");
+  assert.equal((await getImageAssetBlobV7(assetA.id))?.size, pngA.byteLength, "资产字节与源图片一致");
   const importRecord = (await dbV7.changeSets.toArray()).find((record) => record.mutations.some((mutation) => mutation.kind === "question.import" && mutation.bank.id === bank.id));
   assert.ok(importRecord, "Excel 导入应立即创建固定的导入事件");
   const importMutation = importRecord.mutations.find((mutation) => mutation.kind === "question.import");

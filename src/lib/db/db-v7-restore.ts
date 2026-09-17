@@ -75,9 +75,8 @@ function restoreRowCount(state: V7RestoreState): number {
  */
 export async function restoreV7Checkpoint(state: V7RestoreState, options: RestoreV7CheckpointOptions = {}): Promise<boolean> {
   const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRunV7(run, state.attempts));
-  // imageAssets is reconciled in place instead of clear+rewrite.  Cached image
-  // Blobs can be large; reading every Blob into JS and writing it back on each
-  // ordinary sync was the main iOS/WKWebView write-path pressure point.
+  // imageAssets is reconciled in place instead of clear+rewrite. imageBlobs is
+  // a local-only cache and is never installed from checkpoint state.
   const replaceTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
     dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress, dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems,
@@ -86,7 +85,7 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
 
-  return dbV7.transaction("rw", [...replaceTables, dbV7.imageAssets, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [...replaceTables, dbV7.imageAssets, dbV7.imageBlobs, dbV7.changeSets], async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -126,8 +125,9 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
         if (!queueMatches(current, options.queueGuard)) return false;
       }
 
-      // Clear only projection tables.  imageAssets stays live so its Blob cache
-      // does not make a round-trip through JavaScript memory on every sync.
+      // Clear replaceable canonical/projection tables. imageAssets is reconciled
+      // separately and imageBlobs stays local so cached bytes never round-trip
+      // through checkpoint JSON or JavaScript memory on ordinary sync.
       for (const table of replaceTables) {
         await table.clear();
         touched();
@@ -139,7 +139,9 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
       const incomingAssetIds = new Set(state.imageAssets.map((asset) => asset.id));
       const removedAssetIds = [...existingAssetIds].filter((id) => !incomingAssetIds.has(id));
       for (let index = 0; index < removedAssetIds.length; index += RESTORE_BATCH_SIZE) {
-        await dbV7.imageAssets.bulkDelete(removedAssetIds.slice(index, index + RESTORE_BATCH_SIZE));
+        const chunk = removedAssetIds.slice(index, index + RESTORE_BATCH_SIZE);
+        await dbV7.imageAssets.bulkDelete(chunk);
+        await dbV7.imageBlobs.bulkDelete(chunk);
         touched();
       }
 
@@ -151,7 +153,6 @@ export async function restoreV7Checkpoint(state: V7RestoreState, options: Restor
           size: asset.size,
           width: asset.width,
           height: asset.height,
-          ...(asset.blob ? { blob: asset.blob } : {}),
         },
       }))), "更新图片索引");
       await writeChunks(state.imageAssets.filter((asset) => !existingAssetIds.has(asset.id)), (chunk) => dbV7.imageAssets.bulkPut(chunk), "写入图片索引");

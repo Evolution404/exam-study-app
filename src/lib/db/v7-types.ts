@@ -239,6 +239,9 @@ export interface ImageAsset {
   blob?: Blob;
 }
 
+/** Canonical/sync-visible image metadata. Blob bytes live only in imageBlobs. */
+export type ImageAssetDescriptorV7 = Omit<ImageAsset, "blob">;
+
 export interface ImageBlobV7 {
   assetId: string;
   blob: Blob;

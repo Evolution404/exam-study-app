@@ -108,7 +108,7 @@ try {
   );
 
   assert.equal(await installProjection(target, { dirtyKeys }), true);
-  assert.equal((await dbV7.bankQuestionMemberships.get(membership.key))?.questionId, question.id);
+  assert.equal((await dbV7.bankQuestionMemberships.get([membership.bankId, membership.questionId]))?.questionId, question.id);
   assert.equal(await dbV7.tombstones.get(tombstoneKey), undefined, "restored membership must not retain its old removal tombstone");
   assert.equal((await dbV7.banks.get(bank.id))?.questionCount, 1, "restored membership must update the derived bank question count");
 } finally {

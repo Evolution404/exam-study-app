@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { createHash } from "node:crypto";
 import { createBankV7, createQuestionV7, dbV7, resetV7Database } from "../../src/lib/db/db-v7";
 import type { AttemptV7, PracticeRunV7 } from "../../src/lib/db/v7-types";
+import { decomposePracticeRunV7 } from "../../src/lib/db/practice-run-store-v7";
 import { createGitHubV7Remote } from "../../src/lib/sync/github-v7-remote";
 import { descriptorPath } from "../../src/lib/sync/sync-v7-context";
 import { validateSyncCheckpointV7 } from "../../src/lib/sync/sync-v7-checkpoint-validation";
@@ -76,7 +77,10 @@ try {
       completedAt: startedAt,
     };
   });
-  await dbV7.practiceRuns.bulkPut(runs);
+  const runBundles = runs.map((run) => decomposePracticeRunV7(run, attempts));
+  await dbV7.practiceRuns.bulkPut(runBundles.map((bundle) => bundle.record));
+  await dbV7.practiceRunSources.bulkPut(runBundles.flatMap((bundle) => bundle.sources));
+  await dbV7.practiceRunItems.bulkPut(runBundles.flatMap((bundle) => bundle.items));
 
   const full = await createSyncCheckpointV7();
   validateSyncCheckpointV7(full);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { dbV7, resetV7Database } from "../../src/lib/db/db-v7";
+import { decomposePracticeRunV7 } from "../../src/lib/db/practice-run-store-v7";
 import { installProjection } from "../../src/lib/sync/sync-v7-checkpoint-bridge";
 import { deriveDirtyInstallKeysV7 } from "../../src/lib/sync/sync-v7-dirty-install";
 import type { ChangeSetProjectionV7 } from "../../src/lib/sync/change-set-v7-projection";
@@ -132,7 +133,10 @@ try {
   assert.equal(finalProgressLabel, "本机数据无需改写", "property-order-only differences must not create needless IndexedDB writes");
 
   const imageDescriptor = { id: "a".repeat(64), mimeType: "image/webp" as const, size: 4, width: 1, height: 1 };
-  await dbV7.imageAssets.put({ ...imageDescriptor, blob: new Blob(["img"], { type: "image/webp" }) });
+  await dbV7.transaction("rw", [dbV7.imageAssets, dbV7.imageBlobs], async () => {
+    await dbV7.imageAssets.put(imageDescriptor);
+    await dbV7.imageBlobs.put({ assetId: imageDescriptor.id, blob: new Blob(["img!"], { type: "image/webp" }) });
+  });
   let imageBulkUpdateRows = 0;
   const originalImageBulkUpdate = dbV7.imageAssets.bulkUpdate.bind(dbV7.imageAssets);
   dbV7.imageAssets.bulkUpdate = ((updates) => {
@@ -147,14 +151,15 @@ try {
     assert.equal(imageNoOp, true);
     assert.equal(imageBulkUpdateRows, 0, "unchanged image descriptors must not generate IndexedDB writes");
     assert.equal(imageNoOpLabel, "本机数据无需改写", "unchanged image descriptors must remain a true no-op");
-    assert.ok((await dbV7.imageAssets.get(imageDescriptor.id))?.blob instanceof Blob, "no-op reconcile must preserve the cached Blob");
+    assert.ok((await dbV7.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob, "no-op reconcile must preserve the cached Blob");
 
     const changedDescriptor = { ...imageDescriptor, width: 2 };
     await installProjection(projection([reorderedFirst], [changedDescriptor]));
     assert.equal(imageBulkUpdateRows, 1, "a genuinely changed image descriptor must update exactly once");
     const changedImage = await dbV7.imageAssets.get(imageDescriptor.id);
     assert.equal(changedImage?.width, 2);
-    assert.ok(changedImage?.blob instanceof Blob, "descriptor updates must preserve the cached Blob bytes");
+    assert.ok((await dbV7.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob, "descriptor updates must preserve the cached Blob bytes");
+    assert.equal("blob" in (changedImage as Record<string, unknown>), false, "reconcile must never copy cache bytes back into imageAssets");
   } finally {
     dbV7.imageAssets.bulkUpdate = originalImageBulkUpdate;
   }
@@ -275,8 +280,8 @@ try {
   assert.equal(await installProjection(relationTarget, { dirtyKeys: relationKeys }), true);
   assert.equal((await dbV7.banks.get("bank-a"))?.questionCount, 0);
   assert.equal((await dbV7.banks.get("bank-b"))?.questionCount, 1);
-  assert.equal(await dbV7.bankQuestionMemberships.get(oldMembership.key), undefined);
-  assert.equal((await dbV7.bankQuestionMemberships.get(newMembership.key))?.bankId, "bank-b");
+  assert.equal(await dbV7.bankQuestionMemberships.get([oldMembership.bankId, oldMembership.questionId]), undefined);
+  assert.equal((await dbV7.bankQuestionMemberships.get([newMembership.bankId, newMembership.questionId]))?.bankId, "bank-b");
 
   // Attempt closure: moving an attempt between questions must clean the old and
   // install the new per-question stats, daily stats and round progress keys.
@@ -296,11 +301,18 @@ try {
   const newRoundProgress = { ...oldRoundProgress, key: `${round.id}:${attemptQ2.id}`, questionId: attemptQ2.id, correct: 1, wrong: 0, firstAttemptCorrect: true, hasBeenWrong: false, currentCorrectStreak: 1, recentOutcomes: newStats.recentOutcomes };
   await dbV7.banks.put(attemptBank);
   await dbV7.questions.bulkPut([attemptQ1, attemptQ2]);
-  await dbV7.practiceRuns.put(run);
-  await dbV7.reviewRounds.put(round);
+  const runBundle = decomposePracticeRunV7(run, []);
+  await dbV7.practiceRuns.put(runBundle.record);
+  await dbV7.practiceRunSources.bulkPut(runBundle.sources);
+  await dbV7.practiceRunItems.bulkPut(runBundle.items);
+  const { bankIds: _roundBankIds, finalQuestionIds: _roundItems, ...roundRecord } = round;
+  void _roundBankIds;
+  void _roundItems;
+  await dbV7.reviewRounds.put(roundRecord);
+  await dbV7.reviewRoundBanks.put({ roundId: round.id, bankId: attemptBank.id, position: 0 });
   await dbV7.attempts.put(oldAttempt);
-  await dbV7.attemptStats.put(oldStats);
-  await dbV7.attemptDailyStats.put(oldDaily);
+  await dbV7.questionProgress.put(oldStats);
+  await dbV7.questionDailyProgress.put(oldDaily);
   await dbV7.reviewRoundProgress.put(oldRoundProgress);
   const attemptTarget: ChangeSetProjectionV7 = {
     ...projection([attemptQ1, attemptQ2]),
@@ -319,12 +331,12 @@ try {
   assert.deepEqual(attemptKeys.reviewRoundProgress, [oldRoundProgress.key, newRoundProgress.key].sort());
   assert.equal(await installProjection(attemptTarget, { dirtyKeys: attemptKeys }), true);
   assert.equal((await dbV7.attempts.get(oldAttempt.id))?.questionId, attemptQ2.id);
-  assert.equal(await dbV7.attemptStats.get(attemptQ1.id), undefined);
-  assert.equal((await dbV7.attemptStats.get(attemptQ2.id))?.correct, 1);
-  assert.equal(await dbV7.attemptDailyStats.get(oldDaily.key), undefined);
-  assert.equal((await dbV7.attemptDailyStats.get(newDaily.key))?.questionId, attemptQ2.id);
-  assert.equal(await dbV7.reviewRoundProgress.get(oldRoundProgress.key), undefined);
-  assert.equal((await dbV7.reviewRoundProgress.get(newRoundProgress.key))?.questionId, attemptQ2.id);
+  assert.equal(await dbV7.questionProgress.get(attemptQ1.id), undefined);
+  assert.equal((await dbV7.questionProgress.get(attemptQ2.id))?.correct, 1);
+  assert.equal(await dbV7.questionDailyProgress.get([oldDaily.date, oldDaily.questionId]), undefined);
+  assert.equal((await dbV7.questionDailyProgress.get([newDaily.date, newDaily.questionId]))?.questionId, attemptQ2.id);
+  assert.equal(await dbV7.reviewRoundProgress.get([oldRoundProgress.roundId, oldRoundProgress.questionId]), undefined);
+  assert.equal((await dbV7.reviewRoundProgress.get([newRoundProgress.roundId, newRoundProgress.questionId]))?.questionId, attemptQ2.id);
 
   const cascadeKeys = await deriveDirtyInstallKeysV7(projection([]), [changeSet([{ kind: "question.delete.cascade", questionId: "unsafe-cascade", deletedAt: "2026-08-30T00:00:02.000Z" }], 4)]);
   assert.equal(cascadeKeys, null, "question cascade must force the orchestrator back to full reconcile");

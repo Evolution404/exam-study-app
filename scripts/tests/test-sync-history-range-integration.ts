@@ -56,7 +56,7 @@ try {
   await syncWithGitHub(baseSettings, "token");
   assert.equal(await dbV7.practiceRuns.count(), 2, "moving the device start earlier restores older remote runs");
   assert.equal(await dbV7.attempts.count(), 2, "moving the device start earlier restores older remote attempts");
-  assert.equal((await dbV7.attemptStats.get(question.id))?.total, 2, "statistics rebuild after expanding the history range");
+  assert.equal((await dbV7.questionProgress.get(question.id))?.total, 2, "statistics rebuild after expanding the history range");
 
   console.log("sync history range integration passed: per-device filtering, complete content, remote preservation and range expansion");
 } finally {

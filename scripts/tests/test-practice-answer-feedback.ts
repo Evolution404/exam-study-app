@@ -28,6 +28,7 @@ const practiceHistory = read("src/app/practice/practice-history.tsx");
 const styles = readStyles();
 const database = read("src/lib/db/db-v7.ts");
 const practiceDatabase = read("src/lib/db/db-v7-practice.ts");
+const attemptProjections = read("src/lib/db/db-v7-attempt-projections.ts");
 
 assert.match(practiceView, /className="option-status option-status-right"/, "correct status needs a dedicated overlay");
 assert.match(practiceView, /className="option-status option-status-wrong"/, "wrong status needs a dedicated overlay");
@@ -46,8 +47,8 @@ assert.doesNotMatch(practiceView, /await recordAttempt\(/, "the practice UI must
 assert.match(practiceDatabase, /export async function recordPracticeAnswerV7/, "answer submission must remain the single domain writer");
 assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must no longer touch the dormant events store");
 assert.match(dashboardController, /latestInProgressPracticeRunV7\(\)/, "home must use the indexed latest in-progress practiceRun read-model");
-assert.match(practiceRunRead, /where\("\[status\+updatedAt\]"\)[\s\S]*?\.between\(\["in_progress", Dexie\.minKey\],[\s\S]*?\.last\(\)/, "latest in-progress practice lookup must use the compound status+updatedAt index");
-assert.match(practiceController, /const run = runId \? await dbV7\.practiceRuns\.get\(runId\) : latestPracticeRun/, "every continue entry must resume the same v7 practiceRun by id");
+assert.match(practiceRunRead, /where\("\[status\+activityAt\]"\)[\s\S]*?\.between\(\["in_progress", Dexie\.minKey\],[\s\S]*?\.last\(\)/, "latest in-progress practice lookup must use the compound status+activityAt index");
+assert.match(practiceController, /const run = runId \? await getPracticeRunV7\(runId\) : latestPracticeRun/, "every continue entry must resume the same hydrated v7 practiceRun by id");
 assert.match(practiceController, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
 assert.match(practiceIntent, /localStorage/, "explicit pause suppression must survive a cold browser or WKWebView restart");
 assert.match(practiceIntent, /localStorage\.setItem\(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY, runId\)/, "pause intent must persist only the exact run id, not a second practice-session snapshot");
@@ -101,7 +102,7 @@ assert.equal((quickSyncController.match(/onResult: refreshPracticeFromSyncResult
 assert.doesNotMatch(quickSyncController, /pullResult/, "periodic pull must not replace the visible practice session");
 assert.doesNotMatch(practiceController, /setPracticeSession\(activePracticeFromRun\(mergedRun/, "sync must not rebuild the visible practice session via a separate merged-run path");
 assert.match(practiceController, /async function refreshActivePracticeAfterSync\(\) \{\s*if \(viewRef\.current !== "practice"\) return;/, "a sync finishing after the user leaves practice must not redirect another view");
-assert.match(practiceController, /await dbV7\.practiceRuns\.get\(session\.runId\);[\s\S]*?practiceSessionRef\.current;[\s\S]*?currentSession\?\.runId !== session\.runId/, "sync reconciliation must re-check the active run after the async DB read");
+assert.match(practiceController, /await getPracticeRunV7\(session\.runId\);[\s\S]*?practiceSessionRef\.current;[\s\S]*?currentSession\?\.runId !== session\.runId/, "sync reconciliation must re-check the active hydrated run after the async DB read");
 assert.match(practiceController, /activePracticeFromRun\(run, currentSession\.currentIndex\)/, "no new answers: keep the current question");
 assert.match(practiceController, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
 assert.match(practiceController, /isPracticeAutoResumeSuppressed\(latestPracticeRun\.id\)/, "startup auto-resume suppression must be scoped to the exact run id");
@@ -132,7 +133,7 @@ const derived = read("src/lib/sync/change-set-v7-derived.ts");
 assert.match(derived, /recentOutcomes: ordered\.slice\(-32\)\.map\(\(attempt\) => \(\{ id: attempt\.id, createdAt: attempt\.createdAt, correct: attempt\.correct, elapsedMs:/, "同步派生链必须把作答时间写进 outcomes");
 const checkpoint = read("src/lib/sync/sync-v7-checkpoint-validation.ts");
 assert.match(checkpoint, /assertSafeInt\(outcome\.elapsedMs/, "current checkpoint 必须要求 elapsedMs");
-assert.match(practiceDatabase, /elapsedMs: Math\.max\(0, attempt\.elapsedMs\) \}/, "作答写入链必须记录每次的作答时间且不得补缺省值");
+assert.match(attemptProjections, /elapsedMs: Math\.max\(0, attempt\.elapsedMs\) \}/, "作答写入链必须记录每次的作答时间且不得补缺省值");
 assert.match(practiceView, /document\.hidden \|\| editing \|\| overviewOpen \|\| submitted/, "后台、编辑、题目总览和已提交状态必须暂停有效计时");
 assert.match(practiceView, /activeTimer\.current\?\.reset\((?:window\.)?performance\.now\(\)/, "立即重答必须重置有效计时器");
 assert.doesNotMatch(practiceView, /Date\.now\(\) - startedAt/, "作答耗时不得恢复为包含后台停留的墙钟时间");

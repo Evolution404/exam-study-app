@@ -130,7 +130,7 @@ try {
   const imageDigest = createHash("sha256").update(imageBytes).digest("hex");
   await putImageAssetV7({ id: imageDigest, blob: new Blob([imageBytes]), mimeType: "image/png", size: imageBytes.length, width: 1, height: 1 });
   await syncWithGitHub(settings, "qa-token");
-  await dbV7.imageAssets.update(imageDigest, { blob: undefined });
+  await dbV7.imageBlobs.delete(imageDigest);
   const readsBefore = server.stats.blobReads;
   const freshRuntimeSettings = { ...settings, apiBaseUrl: `${server.url}/.` };
   const downloaded = await downloadImageAssetV7(freshRuntimeSettings, "qa-token", imageDigest);

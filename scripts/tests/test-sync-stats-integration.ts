@@ -9,6 +9,8 @@ import {
   dbV7,
   deleteBankWithExclusiveQuestionsV7,
   deletePracticeRunV7,
+  getPracticeRunV7,
+  listQuestionGroupsV7,
   recordPracticeAnswerV7,
   resetV7Database,
   saveBankFolderV7,
@@ -24,7 +26,7 @@ import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 // End-to-end sync integration for the learning-statistics projections. Each
 // scenario runs real operations on one or more simulated devices against the
 // in-memory mock GitHub backend, then pulls from a brand-new device and asserts
-// the derived stats (attemptStats / attemptDailyStats / practiceRunStats /
+// the derived stats (questionProgress / questionDailyProgress / bankPracticeStats /
 // reviewRoundProgress) and the entity tables converge to the same projection.
 
 let currentDeviceId = "device-a";
@@ -102,7 +104,7 @@ try {
     await answer(run.id, q3.id, false, "", DAY_1); // give-up
 
     await pushThenVerify("device-b", async () => {
-      const stats = await dbV7.attemptStats.toArray();
+      const stats = await dbV7.questionProgress.toArray();
       const byQuestion = new Map(stats.map((row) => [row.questionId, row]));
       assert.equal(stats.length, 3, "三道题应各有一条统计");
       assert.deepEqual(
@@ -121,7 +123,7 @@ try {
         "放弃一题：同时计入 wrong 与 giveUps",
       );
       assert.equal(await dbV7.attempts.count(), 3, "三条作答记录应完整同步");
-      const daily = await dbV7.attemptDailyStats.toArray();
+      const daily = await dbV7.questionDailyProgress.toArray();
       assert.equal(daily.length, 3, "同一天的三题各自一条每日统计");
       assert.ok(daily.every((row) => row.date === DAY_1.slice(0, 10)), "每日统计应落在作答当天");
       assert.equal(daily.reduce((sum, row) => sum + row.total, 0), 3, "当天作答总量为 3");
@@ -142,7 +144,7 @@ try {
     await answer(run.id, q.id, true, "A", DAY_3, 200);
 
     await pushThenVerify("device-b", async () => {
-      const stat = await dbV7.attemptStats.get(q.id);
+      const stat = await dbV7.questionProgress.get(q.id);
       assert.ok(stat, "应存在该题统计");
       assert.equal(stat.total, 3, "三次作答应累加");
       assert.equal(stat.correct, 2);
@@ -154,7 +156,7 @@ try {
       assert.equal(stat.recentOutcomes.length, 3, "最近作答轨迹保留");
       assert.equal(stat.recentOutcomes[2].correct, true, "轨迹按时间升序");
       // Daily stats split across three distinct dates.
-      const daily = await dbV7.attemptDailyStats.where("questionId").equals(q.id).toArray();
+      const daily = await dbV7.questionDailyProgress.where("questionId").equals(q.id).toArray();
       assert.equal(daily.length, 3, "跨三天应产生三条每日统计");
       const dates = daily.map((row) => row.date).sort();
       assert.deepEqual(dates, [DAY_1.slice(0, 10), DAY_2.slice(0, 10), DAY_3.slice(0, 10)].sort(), "每日统计分别落在作答当天");
@@ -181,12 +183,12 @@ try {
 
     await freshClient("device-a");
     await sync();
-    const stat = await dbV7.attemptStats.get(q.id);
+    const stat = await dbV7.questionProgress.get(q.id);
     assert.ok(stat);
     assert.equal(stat.total, 2, "两台设备各自一次作答应合并");
     assert.equal(stat.correct, 1);
     assert.equal(stat.wrong, 1);
-    const daily = await dbV7.attemptDailyStats.where("questionId").equals(q.id).toArray();
+    const daily = await dbV7.questionDailyProgress.where("questionId").equals(q.id).toArray();
     assert.equal(daily.length, 2, "两个不同日期的每日统计各一条");
     console.log("scenario 3 passed: 多设备并发作答双向合并（含不同日期）");
   }
@@ -203,10 +205,10 @@ try {
     await setPracticeRunStatusV7(run.id, "completed");
 
     await pushThenVerify("device-b", async () => {
-      const pulledRun = await dbV7.practiceRuns.get(run.id);
+      const pulledRun = await getPracticeRunV7(run.id);
       assert.equal(pulledRun?.status, "completed", "练习完成状态应同步");
       assert.equal(Object.keys(pulledRun!.answers).length, 1, "作答应随练习同步");
-      const runStats = await dbV7.practiceRunStats.get(bank.id);
+      const runStats = await dbV7.bankPracticeStats.get(bank.id);
       assert.ok(runStats);
       assert.deepEqual(
         { total: runStats.total, completed: runStats.completed, inProgress: runStats.inProgress },
@@ -230,7 +232,7 @@ try {
 
     await pushThenVerify("device-b", async () => {
       assert.equal(await dbV7.practiceRuns.get(run.id), undefined, "练习记录应被删除");
-      const stat = await dbV7.attemptStats.get(q.id);
+      const stat = await dbV7.questionProgress.get(q.id);
       assert.ok(stat, "删除练习不应回退全局作答统计");
       assert.equal(stat.total, 1);
       assert.equal(await dbV7.attempts.count(), 1, "作答记录保留为全局学习历史");
@@ -252,8 +254,8 @@ try {
     await pushThenVerify("device-b", async () => {
       assert.equal(await dbV7.questions.get(q.id), undefined, "级联删除应移除题目");
       assert.equal(await dbV7.attempts.count(), 0, "级联删除应移除作答");
-      assert.equal(await dbV7.attemptStats.get(q.id), undefined, "级联删除应移除全局统计");
-      assert.equal(await dbV7.attemptDailyStats.where("questionId").equals(q.id).count(), 0, "级联删除应移除每日统计");
+      assert.equal(await dbV7.questionProgress.get(q.id), undefined, "级联删除应移除全局统计");
+      assert.equal(await dbV7.questionDailyProgress.where("questionId").equals(q.id).count(), 0, "级联删除应移除每日统计");
     });
     console.log("scenario 6 passed: 题库级联删除同步清理作答与全部统计");
   }
@@ -310,7 +312,7 @@ try {
       assert.equal((await dbV7.questions.get(q1.id))?.favorite, true, "收藏状态应同步");
       const note = await dbV7.notes.get(q2.id);
       assert.equal(note?.content, "这是一条个人解析。", "解析应同步");
-      const group = (await dbV7.questionGroups.toArray())[0];
+      const group = (await listQuestionGroupsV7())[0];
       assert.ok(group, "题组应同步");
       assert.equal(group.items.length, 2, "题组成员应完整");
     });

@@ -29,7 +29,7 @@ const stats = (questionId: string): AttemptStatsV7 => ({
   recentOutcomes: [{ id: `outcome-${questionId}`, createdAt: at, correct: false, elapsedMs: 10 }],
 });
 const unrelatedStats = Array.from({ length: 20_000 }, (_, index) => stats(`unrelated-stats-${index}`));
-await dbV7.attemptStats.bulkPut([...unrelatedStats, ...targetIds.map(stats)]);
+await dbV7.questionProgress.bulkPut([...unrelatedStats, ...targetIds.map(stats)]);
 
 const progress = (questionId: string, index: number): ReviewRoundProgress => ({
   key: `round-${index}:${questionId}`,
@@ -80,19 +80,19 @@ let attemptReads = 0;
 const statsHook = (row: AttemptStatsV7) => { statsReads += 1; return row; };
 const progressHook = (row: ReviewRoundProgress) => { progressReads += 1; return row; };
 const attemptHook = (row: AttemptV7) => { attemptReads += 1; return row; };
-dbV7.attemptStats.hook("reading", statsHook);
+dbV7.questionProgress.hook("reading", statsHook);
 dbV7.reviewRoundProgress.hook("reading", progressHook);
 dbV7.attempts.hook("reading", attemptHook);
 
 const history = await readPracticeSetupHistoryForQuestionIdsV7([targetIds[0], targetIds[1], targetIds[0]]);
 
-dbV7.attemptStats.hook("reading").unsubscribe(statsHook);
+dbV7.questionProgress.hook("reading").unsubscribe(statsHook);
 dbV7.reviewRoundProgress.hook("reading").unsubscribe(progressHook);
 dbV7.attempts.hook("reading").unsubscribe(attemptHook);
 assert.deepEqual(history.stats.map((row) => row.questionId).sort(), [...targetIds].sort());
 assert.equal(history.roundsProgress.length, targetProgress.length, "大量无关轮次进度下必须完整读取当前题目记录");
 assert.equal(history.attempts.length, targetAttempts.length, "100,000 attempts 场景必须完整读取当前小题集历史");
-assert.equal(statsReads, targetIds.length, "20,000 unrelated attemptStats 不得被 Practice Setup materialize");
+assert.equal(statsReads, targetIds.length, "20,000 unrelated questionProgress 不得被 Practice Setup materialize");
 assert.equal(progressReads, targetProgress.length, "20,000 unrelated reviewRoundProgress 不得被 Practice Setup materialize");
 assert.equal(attemptReads, targetAttempts.length, "100,000 unrelated attempts 不得被 Practice Setup materialize");
 assert.ok(history.attempts.every((row) => targetIds.includes(row.questionId)));

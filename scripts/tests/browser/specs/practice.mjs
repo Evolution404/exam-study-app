@@ -76,9 +76,10 @@ async function assertDisplayedFrameMatchesRun(page) {
     if (!(card instanceof HTMLElement)) return { ok: false, reason: "missing-card" };
     const index = Number(card.dataset.questionIndex);
     const questionId = card.dataset.questionId;
-    const { dbV7 } = await import(dbModuleUrl);
-    const runs = await dbV7.practiceRuns.where("status").equals("in_progress").sortBy("updatedAt");
-    const run = runs.at(-1);
+    const { dbV7, getPracticeRunV7 } = await import(dbModuleUrl);
+    const records = await dbV7.practiceRuns.where("status").equals("in_progress").toArray();
+    const record = records.sort((left, right) => left.activityAt.localeCompare(right.activityAt)).at(-1);
+    const run = record ? await getPracticeRunV7(record.id) : undefined;
     return {
       ok: Boolean(run && Number.isInteger(index) && questionId && run.questionIds[index] === questionId),
       index,

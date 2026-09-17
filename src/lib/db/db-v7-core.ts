@@ -16,7 +16,7 @@ import type {
   BankPracticeStatsV7,
   BankV7,
   ContentBlock,
-  ImageAsset,
+  ImageAssetDescriptorV7,
   ImageBlobV7,
   NoteV7,
   PracticeRunItemV7,
@@ -108,7 +108,7 @@ export interface V7RestoreState {
   bankFolders: BankFolderV7[];
   questions: QuestionV7[];
   memberships: BankQuestionMembership[];
-  imageAssets: ImageAsset[];
+  imageAssets: ImageAssetDescriptorV7[];
   attempts: AttemptV7[];
   attemptStats: AttemptStatsV7[];
   attemptDailyStats: AttemptDailyStatsV7[];
@@ -255,7 +255,7 @@ class V7StudyDatabase extends Dexie {
   bankFolders!: EntityTable<BankFolderV7, "id">;
   questions!: EntityTable<QuestionV7, "id">;
   bankQuestionMemberships!: Table<BankQuestionMembership, [string, string]>;
-  imageAssets!: EntityTable<ImageAsset, "id">;
+  imageAssets!: EntityTable<ImageAssetDescriptorV7, "id">;
   imageBlobs!: EntityTable<ImageBlobV7, "assetId">;
   attempts!: EntityTable<AttemptV7, "id">;
   questionProgress!: EntityTable<AttemptStatsV7, "questionId">;

@@ -30,9 +30,15 @@ export async function uploadPendingImageAssetsV7(
   client: GitHubV7Remote,
   onProgress?: (progress: ImageAssetUploadProgress) => void,
 ): Promise<Array<Omit<ImageAsset, "blob">>> {
-  const assets = await dbV7.imageAssets.toArray();
+  const descriptors = await dbV7.imageAssets.toArray();
   // A brand-new device can enter sync before the remote projection has been installed locally.
-  if (!assets.length) return [];
+  if (!descriptors.length) return [];
+  const cachedRows = await dbV7.imageBlobs.bulkGet(descriptors.map((asset) => asset.id));
+  const cachedById = new Map(cachedRows.flatMap((row) => row ? [[row.assetId, row.blob] as const] : []));
+  const assets: ImageAsset[] = descriptors.map((asset) => {
+    const blob = cachedById.get(asset.id);
+    return blob ? { ...asset, blob } : asset;
+  });
 
   const pendingBeforeUpload = await listChangeSetsV7(["pending"]);
   const earliest = pendingBeforeUpload.reduce((min, record) => Math.min(min, Date.parse(record.createdAt)), Date.now());

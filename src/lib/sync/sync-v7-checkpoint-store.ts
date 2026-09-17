@@ -1,14 +1,8 @@
 import { dbV7, restoreV7Checkpoint, type ChangeSetQueueRecordV7, type V7RestoreState } from "../db/db-v7";
-import type { AttemptDailyStatsV7, ImageAsset } from "../db/v7-types";
+import type { AttemptDailyStatsV7 } from "../db/v7-types";
 import { assemblePracticeRunRecordsV7 } from "../db/practice-run-store-v7";
 import { SYNC_V7_CHECKPOINT_FORMAT, type SyncCheckpointV7, type SyncCheckpointV7Counts, type SyncCheckpointV7State } from "./sync-v7-checkpoint-types";
 import { validateSyncCheckpointV7 } from "./sync-v7-checkpoint-validation";
-
-function withoutBlobs(asset: ImageAsset): Omit<ImageAsset, "blob"> {
-  const descriptor = { ...asset } as Omit<ImageAsset, "blob"> & { blob?: Blob };
-  delete descriptor.blob;
-  return descriptor;
-}
 
 function canonicalAttemptDailyStats(rows: readonly AttemptDailyStatsV7[]): AttemptDailyStatsV7[] {
   const merged = new Map<string, AttemptDailyStatsV7>();
@@ -38,13 +32,13 @@ function countsFor(state: SyncCheckpointV7State): SyncCheckpointV7Counts {
   };
 }
 
-function cloneState(state: V7RestoreState & { imageAssets: ImageAsset[] }): SyncCheckpointV7State {
+function cloneState(state: V7RestoreState): SyncCheckpointV7State {
   return {
     banks: state.banks.map((item) => ({ ...item })),
     bankFolders: state.bankFolders.map((item) => ({ ...item })),
     questions: state.questions.map((item) => ({ ...item, content: item.content.map((block) => ({ ...block })), options: item.options.map((option) => option.map((block) => ({ ...block }))), tags: [...item.tags] })),
     memberships: state.memberships.map((item) => ({ ...item })),
-    imageAssets: state.imageAssets.map(withoutBlobs),
+    imageAssets: state.imageAssets.map((item) => ({ ...item })),
     attempts: state.attempts.map((item) => ({ ...item })),
     attemptStats: state.attemptStats.map((item) => ({ ...item, recentOutcomes: item.recentOutcomes.map((outcome) => ({ ...outcome })) })),
     attemptDailyStats: canonicalAttemptDailyStats(state.attemptDailyStats),

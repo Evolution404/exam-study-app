@@ -483,12 +483,16 @@ const txSnapshot = (): TxSnapshot | undefined => {
   for (const store of ["bankFolders", "tombstones", "changeSets", "syncMeta"]) assert.ok(folderRead?.storeNames.includes(store), `saveBankFolderV7 事务必须包含 ${store}`);
 }
 
-// R24：图片 descriptor/blob/cache 清理必须在同一写事务中读取最新缓存行，避免并发写互相覆盖 Blob 或 descriptor。
+// R24：图片 descriptor 与本地 Blob cache 必须分表；组合写入可跨两表原子提交，
+// descriptor-only 更新不得触碰缓存，清缓存只删除 imageBlobs。
 {
   const bytes = new TextEncoder().encode("abc");
   const id = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
   const blob = new Blob([bytes], { type: "image/png" });
   await putImageAssetV7({ id, blob, mimeType: "image/png", size: bytes.byteLength, width: 1, height: 1 });
+  const rawDescriptor = await dbV7.imageAssets.get(id) as Record<string, unknown> | undefined;
+  assert.equal(rawDescriptor && "blob" in rawDescriptor, false, "imageAssets 只能保存 descriptor，禁止内嵌 Blob");
+  assert.equal((await dbV7.imageBlobs.get(id))?.blob.size, bytes.byteLength, "Blob 必须保存到 imageBlobs");
 
   const originalGet = dbV7.imageAssets.get.bind(dbV7.imageAssets);
   const readSnapshots: TxSnapshot[] = [];
@@ -502,22 +506,30 @@ const txSnapshot = (): TxSnapshot | undefined => {
   } finally {
     dbV7.imageAssets.get = originalGet as typeof dbV7.imageAssets.get;
   }
-  assert.equal(readSnapshots.length, 2);
-  assert.ok(readSnapshots.every((snapshot) => snapshot.active && snapshot.mode === "readwrite" && snapshot.storeNames.includes("imageAssets")), "图片缓存 get 必须位于 imageAssets 写事务内");
+  assert.equal(readSnapshots.length, 1, "descriptor-only 更新不需要读取或触碰 blob cache；blob 写入才需要校验 descriptor");
+  assert.ok(
+    readSnapshots.every((snapshot) => snapshot.active && snapshot.mode === "readwrite" && snapshot.storeNames.includes("imageAssets") && snapshot.storeNames.includes("imageBlobs")),
+    "blob 写入必须在同时覆盖 imageAssets/imageBlobs 的写事务内校验 descriptor",
+  );
+  assert.equal((await dbV7.imageAssets.get(id) as Record<string, unknown> | undefined)?.blob, undefined, "descriptor 更新后 imageAssets 仍不得出现 Blob");
+  assert.equal((await dbV7.imageBlobs.get(id))?.blob.size, bytes.byteLength, "descriptor-only 更新不得清掉本地 Blob cache");
 
-  const originalToArray = dbV7.imageAssets.toArray.bind(dbV7.imageAssets);
+  const originalToArray = dbV7.imageBlobs.toArray.bind(dbV7.imageBlobs);
   let clearRead: TxSnapshot | undefined;
-  dbV7.imageAssets.toArray = (async () => {
+  dbV7.imageBlobs.toArray = (async () => {
     clearRead = txSnapshot();
     return originalToArray();
-  }) as typeof dbV7.imageAssets.toArray;
+  }) as typeof dbV7.imageBlobs.toArray;
   try {
     assert.equal(await clearImageCacheV7(), 1);
   } finally {
-    dbV7.imageAssets.toArray = originalToArray as typeof dbV7.imageAssets.toArray;
+    dbV7.imageBlobs.toArray = originalToArray as typeof dbV7.imageBlobs.toArray;
   }
   assert.equal(clearRead?.active, true);
   assert.equal(clearRead?.mode, "readwrite");
+  assert.deepEqual(clearRead?.storeNames, ["imageBlobs"], "清缓存事务只能触碰 imageBlobs");
+  assert.ok(await dbV7.imageAssets.get(id), "清缓存不得删除 descriptor");
+  assert.equal(await dbV7.imageBlobs.get(id), undefined, "清缓存必须删除 blob cache row");
 }
 
 // R25：删除题组必须在写事务内重读最新题组并分配删除序号，避免并发编辑后误删陈旧快照。

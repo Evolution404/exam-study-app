@@ -4,6 +4,7 @@ import {
   claimPendingChangeSetsV7,
   createBankV7,
   createPracticeRunV7,
+  getPracticeRunV7,
   createQuestionV7,
   dbV7,
   listChangeSetsV7,
@@ -66,7 +67,7 @@ await resetV7Database();
     recordPracticeAnswerV7({ runId: run.id, questionId: firstQuestion.id, selected: ["A"], correct: true, createdAt: "2026-01-01T00:00:00.001Z", elapsedMs: 10 }),
     recordPracticeAnswerV7({ runId: run.id, questionId: secondQuestion.id, selected: ["B"], correct: true, createdAt: "2026-01-01T00:00:00.002Z", elapsedMs: 10 }),
   ]);
-  const stored = await dbV7.practiceRuns.get(run.id);
+  const stored = await getPracticeRunV7(run.id);
   assert.ok(stored?.answers[firstQuestion.id]?.submitted, "第一道并发作答应保留");
   assert.ok(stored?.answers[secondQuestion.id]?.submitted, "第二道并发作答应保留");
   assert.equal(stored?.revision, 2, "并发作答应各自递增 run revision");

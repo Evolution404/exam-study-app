@@ -26,11 +26,11 @@ export interface ImageCacheDownloadProgress {
 export type ImageCacheDownloadProgressCallback = (progress: ImageCacheDownloadProgress) => void;
 
 async function getImageCacheStatsV7() {
-  const assets = await dbV7.imageAssets.toArray();
+  const [assets, cached] = await Promise.all([dbV7.imageAssets.toArray(), dbV7.imageBlobs.toArray()]);
   return {
     total: assets.length,
-    cached: assets.filter((asset) => Boolean(asset.blob)).length,
-    bytes: assets.reduce((sum, asset) => sum + (asset.blob?.size ?? 0), 0),
+    cached: cached.length,
+    bytes: cached.reduce((sum, asset) => sum + asset.blob.size, 0),
     totalBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
   };
 }
@@ -83,10 +83,16 @@ export async function downloadImageAssetsV7(
   if (!ids.length) return result;
   if (options.signal?.aborted) throw options.signal.reason ?? new Error("The operation was aborted");
 
-  const descriptors = await dbV7.imageAssets.bulkGet(ids);
-  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !asset.blob));
+  const [descriptors, cachedRows] = await Promise.all([
+    dbV7.imageAssets.bulkGet(ids),
+    dbV7.imageBlobs.bulkGet(ids),
+  ]);
+  const cachedById = new Map(cachedRows.flatMap((row) => row ? [[row.assetId, row.blob] as const] : []));
+  const pending = descriptors.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && !cachedById.has(asset.id)));
   for (const asset of descriptors) {
-    if (asset?.blob) result.set(asset.id, asset.blob);
+    if (!asset) continue;
+    const blob = cachedById.get(asset.id);
+    if (blob) result.set(asset.id, blob);
   }
   if (!pending.length) return result;
 
@@ -108,7 +114,8 @@ async function downloadAllImageAssetsV7(
   options: { fetch?: typeof fetch; transport?: GitHubTransport; signal?: AbortSignal; onProgress?: ImageCacheDownloadProgressCallback } = {},
 ): Promise<number> {
   const assets = await dbV7.imageAssets.toArray();
-  const pending = assets.filter((asset) => !asset.blob);
+  const cachedIds = new Set((await dbV7.imageBlobs.bulkGet(assets.map((asset) => asset.id))).flatMap((row) => row ? [row.assetId] : []));
+  const pending = assets.filter((asset) => !cachedIds.has(asset.id));
   const total = pending.length;
   const totalBytes = pending.reduce((sum, asset) => sum + asset.size, 0);
   let completed = 0;

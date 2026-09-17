@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import {
   createBankV7,
+  createPracticeRunV7,
   createQuestionV7,
+  getPracticeRunV7,
   dbV7,
   deleteBankWithExclusiveQuestionsV7,
   importQuestionBankV7,
   resetV7Database,
   saveBankFolderV7,
   saveNoteV7,
-  savePracticeRunV7,
 } from "../../src/lib/db/db-v7";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-v7";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
-import type { PracticeRunV7 } from "../../src/lib/db/v7-types";
 
 // End-to-end sync integration against the in-memory mock GitHub backend.
 // Each scenario simulates a fresh device (reset DB + switch deviceId) pulling
@@ -197,37 +197,19 @@ try {
     assert.equal(questionIds.length, 1800, "练习应覆盖全部题目");
 
     const runAt = new Date().toISOString();
-    const bigRun: PracticeRunV7 = {
-      id: "run-big",
-      bankId: bank.id,
-      bankIds: [bank.id],
-      bankName: "大练习",
-      mode: "sequential",
-      modeLabel: "练习",
-      questionIds,
-      questionTypes: Object.fromEntries(questionIds.map((id) => [id, "单选"])),
-      answers: Object.fromEntries(questionIds.map((id, index) => [id, { selected: ["A"], submitted: true, correct: true, updatedAt: runAt, deviceId: "device-a", eventId: `ev-${index}` }])),
-      shuffleOptions: false,
-      optionOrders: {},
-      startedAt: runAt,
-      updatedAt: runAt,
-      completedAt: runAt,
-      status: "completed",
-      revision: 1,
-    };
-    await savePracticeRunV7(bigRun);
+    await createPracticeRunV7({ id: "run-big", bankId: bank.id, questionIds, startedAt: runAt, updatedAt: runAt });
     const pushResult = await sync();
     assert.ok(pushResult.pushed > 0, "大练习应作为变更推送");
-    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v9/objects/")).length >= 2, "大题库导入与大练习都应各自卸载为不可变对象");
+    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v9/objects/")).length >= 1, "大题库导入仍应通过不可变对象卸载；练习不再靠巨大 answers map 制造大对象");
 
     await freshClient("device-b");
     await sync();
     assert.equal(await dbV7.questions.count(), 1800, "新设备应拉取到大题库");
-    const pulledRun = await dbV7.practiceRuns.get("run-big");
+    const pulledRun = await getPracticeRunV7("run-big");
     assert.ok(pulledRun, "新设备应拉取到大练习");
-    assert.equal(pulledRun!.status, "completed", "练习状态应一致");
-    assert.equal(Object.keys(pulledRun!.answers).length, 1800, "全部作答应随同步迁移到新设备");
-    console.log("scenario 6 passed: 超大练习（>256 KiB）通过不可变对象卸载后跨设备一致");
+    assert.equal(pulledRun!.questionIds.length, 1800, "标准化 run/source/item 关系应完整恢复 1800 道题");
+    assert.equal(Object.keys(pulledRun!.answers).length, 0, "PracticeRun 不得为构造大对象重复保存 submitted answers");
+    console.log("scenario 6 passed: 1800 题标准化练习关系跨设备一致且不重复保存 submitted answers");
   }
 
   console.log("mock sync integration tests passed");

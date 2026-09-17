@@ -1,11 +1,11 @@
 import type { V7RestoreState } from "../db/db-v7";
-import type { BankQuestionMembership, ImageAsset } from "../db/v7-types";
+import type { BankQuestionMembership, ImageAssetDescriptorV7 } from "../db/v7-types";
 
 export const SYNC_V7_CHECKPOINT_FORMAT = 7 as const;
 
 export interface SyncCheckpointV7State extends V7RestoreState {
   memberships: BankQuestionMembership[];
-  imageAssets: Array<Omit<ImageAsset, "blob">>;
+  imageAssets: ImageAssetDescriptorV7[];
 }
 
 export interface SyncCheckpointV7Counts {

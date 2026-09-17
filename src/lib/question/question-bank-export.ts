@@ -413,8 +413,7 @@ export async function collectExportImages(
 ): Promise<CollectedExportImages> {
   const target = options.target ?? "excel";
   const loadAsset = options.loadAsset ?? (async (assetId: string) => {
-    const { dbV7 } = await import("../db/db-v7");
-    return dbV7.imageAssets.get(assetId);
+    return (await import("../db/db-v7-images")).getImageAssetV7(assetId);
   });
   const convertWebp = options.convertWebp ?? browserWebpToPng;
   const images = new Map<string, ExportImageData>();

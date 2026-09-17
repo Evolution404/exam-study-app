@@ -1,6 +1,7 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { dbV7 } from "./db-v7-core";
 import { decomposePracticeRunV7 } from "./practice-run-store-v7";
+import { directImagePlanV7, planImageAssetsV7, type ImageReconcilePlan } from "./db-v7-reconcile-images";
 import type { V7RestoreState } from "./db-v7-core";
 import type { V7ChangeSetQueueGuard } from "./db-v7-restore";
 
@@ -52,14 +53,6 @@ interface ReconcileV7ProjectionOptions {
 interface ReconcilePlan<T, K extends IndexableType = string> {
   puts: T[];
   deletes: K[];
-  scannedRows: number;
-  comparedRows: number;
-}
-
-interface ImageReconcilePlan {
-  updates: V7RestoreState["imageAssets"];
-  inserts: V7RestoreState["imageAssets"];
-  deletes: string[];
   scannedRows: number;
   comparedRows: number;
 }
@@ -308,35 +301,6 @@ async function planTableTimed<T>(
   return plan;
 }
 
-function canonicalImageDescriptor(asset: {
-  id: string; mimeType: string; size: number; width: number; height: number;
-}): Record<string, unknown> {
-  return { id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height };
-}
-
-function directImagePlan(
-  mode: "fresh" | "dirty",
-  incoming: V7RestoreState["imageAssets"],
-  dirtyKeys: readonly string[] | undefined,
-): ImageReconcilePlan {
-  const wanted = mode === "dirty" ? new Set(dirtyKeys ?? []) : undefined;
-  const found = new Set<string>();
-  const inserts: V7RestoreState["imageAssets"] = [];
-  for (const asset of incoming) {
-    if (wanted && !wanted.has(asset.id)) continue;
-    if (found.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全${mode === "fresh" ? "首次安装" : "脏键同步"}。`);
-    found.add(asset.id);
-    inserts.push(asset);
-  }
-  return {
-    updates: [],
-    inserts,
-    deletes: mode === "dirty" ? [...wanted!].filter((id) => !found.has(id)) : [],
-    scannedRows: 0,
-    comparedRows: 0,
-  };
-}
-
 function directImagePlanTimed(
   mode: "fresh" | "dirty",
   incoming: V7RestoreState["imageAssets"],
@@ -344,7 +308,7 @@ function directImagePlanTimed(
   options: ReconcileV7ProjectionOptions,
 ): ImageReconcilePlan {
   const started = clockMs();
-  const plan = directImagePlan(mode, incoming, dirtyKeys);
+  const plan = directImagePlanV7(mode, incoming, dirtyKeys);
   emitTiming(options, mode, {
     phase: "plan",
     table: dbV7.imageAssets.name,
@@ -357,50 +321,12 @@ function directImagePlanTimed(
   return plan;
 }
 
-async function planImageAssets(incoming: V7RestoreState["imageAssets"]): Promise<ImageReconcilePlan> {
-  const rawCurrentKeys = await dbV7.imageAssets.toCollection().primaryKeys();
-  const currentKeys = rawCurrentKeys.map((key) => {
-    if (typeof key !== "string") throw new Error("本机 imageAssets 存在非字符串主键，无法安全增量同步。");
-    return key;
-  });
-  const currentIds = new Set(currentKeys);
-  const incomingIds = new Set<string>();
-  const updates: V7RestoreState["imageAssets"] = [];
-  const inserts: V7RestoreState["imageAssets"] = [];
-  const existing: V7RestoreState["imageAssets"] = [];
-
-  for (const asset of incoming) {
-    if (incomingIds.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全增量同步。`);
-    incomingIds.add(asset.id);
-    if (currentIds.has(asset.id)) existing.push(asset);
-    else inserts.push(asset);
-  }
-
-  for (let index = 0; index < existing.length; index += RECONCILE_PLAN_READ_BATCH_SIZE) {
-    const rows = existing.slice(index, index + RECONCILE_PLAN_READ_BATCH_SIZE);
-    const current = await dbV7.imageAssets.bulkGet(rows.map((asset) => asset.id));
-    for (let offset = 0; offset < rows.length; offset += 1) {
-      const old = current[offset];
-      if (!old) inserts.push(rows[offset]);
-      else if (!equivalent(canonicalImageDescriptor(old), canonicalImageDescriptor(rows[offset]))) updates.push(rows[offset]);
-    }
-  }
-
-  return {
-    updates,
-    inserts,
-    deletes: currentKeys.filter((id) => !incomingIds.has(id)),
-    scannedRows: currentKeys.length + existing.length,
-    comparedRows: existing.length,
-  };
-}
-
 async function planImageAssetsTimed(
   incoming: V7RestoreState["imageAssets"],
   options: ReconcileV7ProjectionOptions,
 ): Promise<ImageReconcilePlan> {
   const started = clockMs();
-  const plan = await planImageAssets(incoming);
+  const plan = await planImageAssetsV7(incoming);
   emitTiming(options, "full", {
     phase: "plan",
     table: dbV7.imageAssets.name,
@@ -652,7 +578,7 @@ export async function reconcileV7Projection(
 
   const transactionTables = [
     dbV7.banks, dbV7.bankFolders, dbV7.questions, dbV7.bankQuestionMemberships,
-    dbV7.imageAssets, dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress,
+    dbV7.imageAssets, dbV7.imageBlobs, dbV7.attempts, dbV7.questionProgress, dbV7.questionDailyProgress,
     dbV7.notes, dbV7.practiceRuns, dbV7.practiceRunSources, dbV7.practiceRunItems, dbV7.bankPracticeStats, dbV7.questionGroups, dbV7.questionGroupItems,
     dbV7.reviewRounds, dbV7.reviewRoundBanks, dbV7.reviewRoundItems, dbV7.reviewRoundProgress, dbV7.tombstones, dbV7.changeSets,
   ];
@@ -713,19 +639,15 @@ export async function reconcileV7Projection(
       for (let index = 0; index < imagePlan.deletes.length; index += RECONCILE_BATCH_SIZE) {
         const chunk = imagePlan.deletes.slice(index, index + RECONCILE_BATCH_SIZE);
         await dbV7.imageAssets.bulkDelete(chunk);
+        await dbV7.imageBlobs.bulkDelete(chunk);
         progress(chunk.length, "清理图片索引");
       }
       if (mode === "dirty") {
-        // Re-read only the dirty image ids INSIDE the write transaction and
-        // carry forward any cache Blob. Image bytes are device-local cache data
-        // and may be populated without a sync change-set while planning runs.
+        // Dirty descriptor writes never touch imageBlobs. Blob bytes are
+        // device-local cache rows with an independent lifecycle.
         for (let index = 0; index < imagePlan.inserts.length; index += RECONCILE_BATCH_SIZE) {
           const chunk = imagePlan.inserts.slice(index, index + RECONCILE_BATCH_SIZE);
-          const current = await dbV7.imageAssets.bulkGet(chunk.map((asset) => asset.id));
-          await dbV7.imageAssets.bulkPut(chunk.map((asset, offset) => {
-            const blob = current[offset]?.blob;
-            return blob ? { ...asset, blob } : asset;
-          }));
+          await dbV7.imageAssets.bulkPut(chunk);
           progress(chunk.length, "更新图片索引");
         }
       } else {
@@ -747,7 +669,7 @@ export async function reconcileV7Projection(
         phase: "write",
         table: dbV7.imageAssets.name,
         durationMs: Math.max(0, clockMs() - imageWriteStarted),
-        scannedRows: mode === "dirty" ? imagePlan.inserts.length : 0,
+        scannedRows: 0,
         comparedRows: 0,
         putRows: imagePlan.inserts.length + imagePlan.updates.length,
         deleteRows: imagePlan.deletes.length,

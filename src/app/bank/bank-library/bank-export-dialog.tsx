@@ -26,8 +26,12 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
    * once and are resolved by one Asset Index → shard → Pack batch. */
   async function loadExportAssets(assetIds: readonly string[]): Promise<Map<string, ImageAsset>> {
     const ids = [...new Set(assetIds)];
-    const descriptors = await dbV7.imageAssets.bulkGet(ids);
-    const missingIds = descriptors.flatMap((asset) => asset && !asset.blob ? [asset.id] : []);
+    const [descriptors, cachedRows] = await Promise.all([
+      dbV7.imageAssets.bulkGet(ids),
+      dbV7.imageBlobs.bulkGet(ids),
+    ]);
+    const cachedById = new Map(cachedRows.flatMap((row) => row ? [[row.assetId, row.blob] as const] : []));
+    const missingIds = descriptors.flatMap((asset) => asset && !cachedById.has(asset.id) ? [asset.id] : []);
     let downloaded = new Map<string, Blob>();
     if (missingIds.length && syncApplication.getConnection().ready) {
       try {
@@ -40,7 +44,7 @@ export function BankExportDialog({ bank, questions, notes, onClose, onNotice }: 
     const resolved = new Map<string, ImageAsset>();
     for (const asset of descriptors) {
       if (!asset) continue;
-      const blob = asset.blob ?? downloaded.get(asset.id);
+      const blob = cachedById.get(asset.id) ?? downloaded.get(asset.id);
       resolved.set(asset.id, blob ? { ...asset, blob } : asset);
     }
     return resolved;
