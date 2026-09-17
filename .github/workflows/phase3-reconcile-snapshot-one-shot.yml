@@ -1,0 +1,37 @@
+name: Phase3 reconcile snapshot rebuild
+on:
+  push:
+    branches: [refactor/database-projection-sync-v10-20260917]
+    paths: [.github/workflows/phase3-reconcile-snapshot-one-shot.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/database-projection-sync-v10-20260917
+          fetch-depth: 0
+      - name: Patch reconcile snapshot rebuild
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/lib/db/db-reconcile.ts')
+          s=p.read_text()
+          old='import { rebuildAllProjections } from "./projection-engine";'
+          new='import { rebuildProjectionsFromFacts } from "./projection-engine";'
+          if s.count(old)!=1: raise SystemExit('projection import mismatch')
+          s=s.replace(old,new,1)
+          old_tail='''  if (!reconciled) return false;\n  const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();\n  if (shouldRebuildProjections) {\n    options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });\n    await rebuildAllProjections();\n    options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });\n  }\n  return true;\n}'''
+          new_tail='''  if (!reconciled) return false;\n  const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();\n  if (shouldRebuildProjections) {\n    options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });\n    await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);\n    options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });\n  }\n  return true;\n}'''
+          if s.count(old_tail)!=1: raise SystemExit('reconcile tail mismatch')
+          p.write_text(s.replace(old_tail,new_tail,1))
+          PY
+          rm .github/workflows/phase3-reconcile-snapshot-one-shot.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/db/db-reconcile.ts .github/workflows/phase3-reconcile-snapshot-one-shot.yml
+          git commit -m "perf: rebuild reconciled projections from target facts"
+          git push origin HEAD:refactor/database-projection-sync-v10-20260917
