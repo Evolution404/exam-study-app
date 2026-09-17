@@ -11,6 +11,22 @@
 - 本轮目标：继续审计真实 Bug、数据一致性、并发竞态和规模级性能热点；测试先行，小提交推进。不要为了“代码更快”改变统计、同步恢复或数据完整性语义。
 - 数据库策略仍是唯一 Dexie `version(1)`；所有客户端统一升级、必要时清空本地后从远端重建，禁止新增 `.upgrade()`、历史 schema migration 或旧客户端兼容层。
 
+### 2026-09-17 后续审计收口补充
+
+后续审计转入 `audit/code-audit-20260917`，并继续完成以下已 push 修复；这些提交属于下一轮数据库重构的行为基线，不要回滚：
+
+- `6680a91`：创建 Practice Run / Review Round 时校验 bank/question/round 引用。
+- `243f70c`：更新/完成 Review Round 时校验引用。
+- `e5a8e04`：完整保存 Practice Run 时阻止悬空引用。
+- `16142b7`：删 bank/question 同步裁剪 Review Round 引用，本地 DB 与 reducer replay 保持 checkpoint-safe。
+- `09dc8ab`：删除题库及独占题改为一个父写事务，消除 membership 并发窗口。
+- `997c138`：Practice Run 内部 map invariant；状态切换不再用旧 UI snapshot 复活已删题答案；checkpoint/reducer 拒绝越界 map key。
+- `f86648c`：Bank Detail lifetime/rolling/round 历史读取按 scope 收窄，活动统计改用日聚合。
+- `2b36506`：Bank Detail 最近练习由全量 run materialize 改为只读最近 5 条。
+- `b903f9e`：Practice Result 单题详情 rolling/lifetime/round 读取按 scope 收窄。
+
+审计过程中进一步确认当前 schema 的结构性问题：derived stats 被混入 canonical/sync 状态、PracticeRun 与 attempts 双事实源、group/round/run 多值关系以内嵌数组/Map 表示、Attempt 缺少直接 round provenance。用户已明确要求停止“小修小补”，下一阶段按 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md` 做整体数据库重构。
+
 ## 本轮已确认并修复
 
 ### 1. 历史练习结果中的共享题题库归属错误
