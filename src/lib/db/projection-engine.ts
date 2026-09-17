@@ -51,7 +51,7 @@ function canonicalRunBankIds(run: PracticeRun): string[] {
   return [...new Set((run.bankIds?.length ? run.bankIds : [run.bankId]).filter(Boolean))];
 }
 
-export interface ProjectionRows {
+interface ProjectionRows {
   questionProgress: AttemptStats[];
   questionDailyProgress: AttemptDailyStats[];
   bankPracticeStats: BankPracticeStats[];
@@ -63,7 +63,7 @@ export interface ProjectionRows {
  * canonical facts in memory first, then perform one bulk write per projection
  * table instead of one IndexedDB round trip per attempt/run.
  */
-export function projectCanonicalFacts(
+function projectCanonicalFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
 ): ProjectionRows {
