@@ -4,7 +4,7 @@ import { createBank, createQuestion, resetDatabase } from "../../src/lib/db/db";
 import { restoreFullHistoryFromGitHub, SYNC_DOWNLOAD_CONCURRENCY, syncWithGitHub, type SyncProgress } from "../../src/lib/sync/github-sync-engine";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
-// 同步进度报告按当前 v7 协议重新设计后，进度必须是「工作量加权 + 单调不减 +
+// 同步进度报告按当前协议重新设计后，进度必须是「工作量加权 + 单调不减 +
 // 阶段终点 to」的。本测试在 mock 后端上跑真实的推送 / 多分段拉取 / 纯拉取 /
 // 远端恢复四种运行，逐条断言报告序列的形状。
 
