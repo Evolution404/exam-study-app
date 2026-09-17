@@ -13,13 +13,25 @@ const appSources = fs.readdirSync(path.join(root, "src/app"), { recursive: true 
 const srcSources = fs.readdirSync(path.join(root, "src"), { recursive: true })
   .filter((file) => typeof file === "string" && /\.(tsx?|ts)$/.test(file))
   .map((file) => ({ file: `src/${file}`, source: read(path.join("src", file)) }));
+const versionedSourceFile = /(?:^|[-_.])v\d+(?=[-_.]|$)|[A-Za-z0-9_$]+v\d+(?=[-_.]|$)/i;
+const versionedBusinessSymbol = /\b(?:[A-Za-z_$][A-Za-z0-9_$]*(?:V|v)\d+|(?:V|v)\d+[A-Za-z_$][A-Za-z0-9_$]*)\b/;
 for (const { file, source } of srcSources) {
+  if (versionedSourceFile.test(path.basename(file))) {
+    fail(`${file} 不得使用 V数字/v数字 版本化源码文件名；当前业务实现必须使用版本无关命名`);
+  }
+  const symbol = source.match(versionedBusinessSymbol)?.[0];
+  if (symbol) {
+    fail(`${file} 不得声明或引用版本化业务符号 ${symbol}；禁止通过 alias 保留旧 API`);
+  }
+  if (/\bv[78]\b/i.test(source)) {
+    fail(`${file} 不得保留 v7/v8 运行时文案、注释、错误消息、配置键或实现标记`);
+  }
   if (file.startsWith("src/platform/")) continue;
   if (/@capacitor\//.test(source) || /\b(?:window\.)?Capacitor\./.test(source)) {
     fail(`${file} 不得直接依赖 Capacitor；请通过 src/platform 适配层访问原生能力`);
   }
-  if (/["'](?:study|shijuan-study)-v[0-6]-/.test(source)) {
-    fail(`${file} 不得恢复 v6 及更早的本地配置键兼容；所有客户端统一使用当前配置命名空间`);
+  if (/["'](?:study|shijuan-study)-v\d+-/i.test(source)) {
+    fail(`${file} 不得恢复带版本号的本地配置键；所有客户端统一使用当前版本无关命名空间`);
   }
 }
 
@@ -39,10 +51,10 @@ const studyApp = read("src/app/shell/app-shell.tsx");
 if (/prefers-color-scheme|dataset\.theme/.test(studyApp)) fail("主题解析只能存在于 use-app-environment Hook");
 
 const studyDbCore = read("src/lib/db/db-core.ts");
-const v7DatabaseVersions = [...studyDbCore.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
+const databaseVersions = [...studyDbCore.matchAll(/this\.version\((\d+)\)/g)].map((match) => Number(match[1]));
 if (!/DATABASE_NAME\s*=\s*["']shijuan-study["']/.test(studyDbCore) || !/super\(DATABASE_NAME\)/.test(studyDbCore)
-  || v7DatabaseVersions.length !== 1 || v7DatabaseVersions[0] !== 1) {
-  fail("公开客户端必须使用全新 shijuan-study 数据库命名空间，schema 只声明一次且从版本 1 开始");
+  || databaseVersions.length !== 1 || databaseVersions[0] !== 1) {
+  fail("公开客户端必须使用 shijuan-study 数据库命名空间，schema 只声明一次且固定为 version(1)");
 }
 const dbSources = fs.readdirSync(path.join(root, "src/lib/db"), { recursive: true })
   .filter((file) => typeof file === "string" && /\.ts$/.test(file))
@@ -54,35 +66,24 @@ if (dbSources.some(({ file }) => /(?:schema-)?migration|legacy-schema|schema-com
   || fs.existsSync(path.join(root, "scripts/tests/test-db-schema-migration.ts"))) {
   fail("本地数据库不得新增历史 schema migration/compat 文件；所有客户端统一使用当前 schema");
 }
-if (/migrateLegacy|indexedDB\.open|dropLegacyLocalDatabases|["']shijuan-study-v[67]["']/.test(studyDbCore)) {
-  fail("本地数据库核心不得保留旧 schema、旧命名空间或迁移清理代码");
+if (/migrateLegacy|indexedDB\.open|dropLegacyLocalDatabases|["']shijuan-study-v\d+["']/.test(studyDbCore)) {
+  fail("本地数据库核心不得保留旧 schema、带版本号命名空间或迁移清理代码");
 }
 
-const sync = read("src/lib/sync/github-sync.ts");
-const sync = read("src/lib/sync/github-sync-engine.ts");
+const syncFacade = read("src/lib/sync/github-sync.ts");
+const syncEngine = read("src/lib/sync/github-sync-engine.ts");
+const syncRuntime = `${syncFacade}\n${syncEngine}`;
 const syncHeadTypes = read("src/lib/sync/sync-head-types.ts");
 const syncRemote = read("src/lib/sync/github-remote.ts");
 const syncLocalCheckpointTypes = read("src/lib/sync/sync-checkpoint-types.ts");
 const syncHistory = read("src/lib/sync/sync-history.ts");
-if (fs.existsSync(path.join(root, "src/lib/sync/sync-v6-head.ts")) || fs.existsSync(path.join(root, "src/lib/sync/sync-v6-checkpoint.ts"))) {
-  fail("sync-v6 head/checkpoint 文件必须删除，统一使用 sync-checkpoint");
+if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(syncRuntime)) fail("客户端不得包含早期同步协议回退");
+if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");
+if (!/syncWithGitHub/.test(syncFacade) || !/from ["']\.\/github-sync-engine["']/.test(syncFacade)) {
+  fail("公开 syncWithGitHub 必须仅通过稳定门面委托当前同步引擎");
 }
-for (const retired of [
-  "src/lib/sync/sync-v9-protocol-migration.ts",
-  "scripts/tools/migrate-vault-v9-protocol.mts",
-  "scripts/tools/migrate-vault-compressed.mts",
-]) {
-  if (fs.existsSync(path.join(root, retired))) fail(`${retired} 属于已完成的 v7/v8 兼容迁移，必须保持删除`);
-}
-if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(sync)) fail("客户端不得包含同步协议 v1 回退");
-if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(sync)) fail("客户端不得写入同步协议 v2");
-if (/sync\/v[23]\//.test(sync) || /LegacyV[23]|migrateV[23]/.test(sync)) fail("公开同步模块不得保留 v2/v3 兼容层");
-if (/github-sync-v5|github-v5-remote|sync-v5|from ["']\.\/db["']/.test(sync)) fail("公开同步门面不得导入 v5 或旧 DB");
-if (/github-sync-v6|github-v6-remote|sync-v6-head|sync-v6-checkpoint/.test(sync)) fail("公开同步门面不得依赖已移除的 v6 transport");
-if (/sync\/v[67]\//.test(sync) || /sync\/v[67]\//.test(syncRemote)) fail("公开同步模块不得读写旧 v6/v7 namespace");
-if (!/syncWithGitHub/.test(sync) || !/from ["']\.\/github-sync-engine["']/.test(sync)) fail("公开 syncWithGitHub 必须委托 v7");
-if (!/restoreFromGitHub/.test(sync) || !/restoreFullHistoryFromGitHub/.test(sync)) {
-  fail("公开恢复入口必须委托 v7");
+if (!/restoreFromGitHub/.test(syncFacade) || !/restoreFullHistoryFromGitHub/.test(syncFacade)) {
+  fail("公开恢复入口必须仅通过稳定门面委托当前同步引擎");
 }
 if (!/SYNC_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncHeadTypes)
   || !/SYNC_CHECKPOINT_PREFIX\s*=\s*["']sync\/v9\/checkpoints\/["']/.test(syncHeadTypes)
@@ -90,20 +91,20 @@ if (!/SYNC_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncHeadTypes)
   || !/SYNC_OBJECT_PREFIX\s*=\s*["']sync\/v9\/objects\/["']/.test(syncHeadTypes)
   || !/SYNC_ASSET_PREFIX\s*=\s*["']sync\/v9\/assets\/["']/.test(syncHeadTypes)
   || !/SYNC_FORMAT_VERSION\s*=\s*9\s+as\s+const/.test(syncHeadTypes)
-  || !/GitHubRemote/.test(syncRemote) || !/syncWithGitHub/.test(sync)
+  || !/GitHubRemote/.test(syncRemote) || !/syncWithGitHub/.test(syncRuntime)
   || !/SYNC_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncHeadTypes)
   || !/SYNC_CHECKPOINT_FORMAT\s*=\s*7/.test(syncLocalCheckpointTypes)
   || !/REMOTE_HISTORY_FORMAT\s*=\s*9/.test(syncHistory)
   || !/createRemoteHistoryCheckpoint/.test(syncHistory)
 ) {
-  fail("公开同步入口必须仅使用 v9 固定 head/热窗口 transport，并以 format 9 bounded checkpoint + history archive 写远端");
+  fail("公开同步入口必须仅使用当前 v9 固定 head/热窗口 transport，并以 format 9 bounded checkpoint + history archive 写远端");
 }
 
 const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
   .filter((file) => typeof file === "string" && file.endsWith(".ts"))
   .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
 for (const { file, source } of activeSyncSources) {
-  if (/sync\/v[1-8]\//.test(source) || /migratedFrom/.test(source)) {
+  if (/sync\/v(?:[1-8])\//.test(source) || /migratedFrom/.test(source)) {
     fail(`${file} 不得保留历史远端 namespace 或迁移来源元数据；生产同步只允许当前 v9`);
   }
 }
@@ -125,17 +126,16 @@ for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".t
 }
 
 for (const { file, source } of appSources.filter(({ file }) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
-  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-v7)?|github-credentials|github-remote|change-set-v7(?:-queue)?|sync-[^"']+)["']/.test(source)) {
+  if (/from ["']@\/lib\/sync\/(?:github-sync(?:-engine)?|github-credentials|github-remote|change-set(?:-queue)?|sync-[^"']+)["']/.test(source)) {
     fail(`${file} 不得直接依赖同步实现；请通过 sync-application / sync-runtime`);
   }
 }
 
-if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(sync)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
-
-console.log("架构检查通过：全新 shijuan-study 数据库命名空间、同步 application boundary、主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");
+if (/db\.sessions|savePracticeSession|clearPracticeSession|preserveSessions/.test(syncRuntime)) fail("练习进度只能持久化到 practiceRuns，不得保留 active session 双写路径");
 
 const latestOnlySources = appSources.map(({ source }) => source).join("\n") + "\n" + activeSyncSources.map(({ source }) => source).join("\n");
 if (/rebuildAttemptStatsFromAttempts|study-stats-outcomes/.test(latestOnlySources)) fail("客户端不得恢复一次性 attemptStats 历史回填");
 if (/ImageAssetRemoteDescriptor|LEGACY_SINGLE_ASSET_PATH|hydrateLegacyAsset|migratedFrom/.test(latestOnlySources)) fail("客户端不得恢复旧图片布局或历史迁移来源兼容");
-
 if (/scopedStatsToLegacyAttemptStats/.test(latestOnlySources)) fail("客户端不得恢复旧统计 bridge 命名或兼容入口");
+
+console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");
