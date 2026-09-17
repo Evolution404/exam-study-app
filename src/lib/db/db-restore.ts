@@ -176,14 +176,32 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
         abandoned: stats.abandoned,
         latestActivityAt: stats.latestUpdatedAt,
       }))), "写入练习统计");
-      await writeChunks(state.questionGroups.map(({ items: _items, ...group }) => group), (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
+      await writeChunks(state.questionGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        type: group.type,
+        description: group.description,
+        createdAt: group.createdAt,
+        updatedAt: group.updatedAt,
+        deviceId: group.deviceId,
+        ...(group.syncEventId !== undefined ? { syncEventId: group.syncEventId } : {}),
+      })), (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
       await writeChunks(state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
         groupId: group.id,
         questionId: item.questionId,
         position,
         ...(item.note ? { note: item.note } : {}),
       }))), (chunk) => studyDb.questionGroupItems.bulkPut(chunk), "写入题组关系");
-      await writeChunks(state.reviewRounds.map(({ bankIds: _bankIds, finalQuestionIds: _finalQuestionIds, ...round }) => round), (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");
+      await writeChunks(state.reviewRounds.map((round) => ({
+        id: round.id,
+        name: round.name,
+        startedAt: round.startedAt,
+        status: round.status,
+        createdAt: round.createdAt,
+        updatedAt: round.updatedAt,
+        deviceId: round.deviceId,
+        ...(round.completedAt !== undefined ? { completedAt: round.completedAt } : {}),
+      })), (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");
       await writeChunks(state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({
         roundId: round.id,
         bankId,
