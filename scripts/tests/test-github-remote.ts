@@ -131,8 +131,6 @@ const loaded = await remote.readBlob(uploaded.blobSha, { size: segmentBytes.byte
 assert.deepEqual([...loaded], [...segmentBytes]);
 await assert.rejects(remote.readBlob(uploaded.blobSha, { size: segmentBytes.byteLength + 1, storedSize: uploaded.storedSize, sha256: digest(segmentBytes), path: segmentPath }), SyncBlobIntegrityError);
 
-// Immutable paths are content-addressed and therefore safe to retry. A relay
-// 503 must not strand an object/segment upload on its first transient failure.
 const retryPayload = bytes("retryable immutable payload");
 const retryPath = `${SYNC_OBJECT_PREFIX}${digest(retryPayload)}.json`;
 let immutablePutAttempts = 0;
@@ -150,9 +148,6 @@ const retryRemote = new GitHubRemote({
 assert.equal((await retryRemote.putImmutable({ path: retryPath, bytes: retryPayload, kind: "object" })).created, true);
 assert.equal(immutablePutAttempts, 2, "content-addressed immutable PUT should retry one transient 503");
 
-// Head CAS is intentionally not blindly retried. If the tiny PUT response is
-// lost after GitHub accepted it, a short timeout must read the head back and
-// recognize the exact committed value instead of reporting a phantom failure.
 const beforeLostResponse = await remote.readHead();
 assert.equal(beforeLostResponse.initialized, true);
 if (!beforeLostResponse.initialized) throw new Error("head must exist before lost-response regression");
@@ -182,8 +177,6 @@ const headRecoveryRemote = new GitHubRemote({
 const recoveredPublish = await headRecoveryRemote.putHead(recoveredHead, beforeLostResponse.cache);
 assert.equal(recoveredPublish.ok, true, "lost head PUT response should recover by exact remote read-back");
 
-// Streamed blob reads must expose intermediate wire-byte progress instead of
-// jumping only after response.arrayBuffer() has consumed the entire payload.
 const progressPayload = bytes("checkpoint-progress-is-streamed");
 const progressPath = `${SYNC_ASSET_PREFIX}${digest(progressPayload)}.bin`;
 const progressReports: Array<[number, number]> = [];
@@ -215,8 +208,6 @@ const tokenErrorRemote = new GitHubRemote({ owner, repo, token, vaultId, apiBase
 await assert.rejects(tokenErrorRemote.readHead(), (error: unknown) => error instanceof Error && !error.message.includes(token));
 assert.ok(calls.every((call) => call.headers.get("Authorization") === `Bearer ${token}`));
 
-// A conflicting immutable object is detected from authenticated blob bytes,
-// never accepted merely because Contents returned 422.
 const conflictingObjectPath = `${SYNC_OBJECT_PREFIX}${digest("object")}.json`;
 files.set(conflictingObjectPath, { bytes: bytes("bad"), sha: sha1("d") });
 blobs.set(sha1("d"), bytes("bad"));
