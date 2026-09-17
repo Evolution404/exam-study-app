@@ -107,7 +107,7 @@ export async function runSearchPinMobile(page) {
   // 窄屏原生日期控件必须受父容器约束。Safari/WebKit 的 date input
   // 有 intrinsic/min-content 宽度，单靠 input 自身的 min-width:0 不足以
   // 防止 1fr grid track 被撑破，因此直接做真实几何断言。
-  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  await page.getByRole("button", { name: /^筛选/ }).click();
   const filterDrawer = page.getByRole("dialog", { name: "筛选条件" });
   await filterDrawer.waitFor({ state: "visible" });
   await filterDrawer.getByRole("button", { name: "更多统计条件" }).click();
