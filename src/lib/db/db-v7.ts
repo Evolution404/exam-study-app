@@ -69,7 +69,6 @@ export {
 } from "./db-v7-question";
 
 export {
-  createPracticeRunV7,
   savePracticeRunV7,
   savePracticeProgressV7,
   getReviewRoundQuestionIdsV7,
@@ -80,6 +79,10 @@ export {
   setPracticeRunStatusV7,
   recordPracticeAnswerV7,
 } from "./db-v7-practice";
+
+export {
+  createPracticeRunV7,
+} from "./db-v7-practice-run-create";
 
 export {
   deletePracticeRunV7,

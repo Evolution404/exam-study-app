@@ -12,6 +12,19 @@ export async function listPracticeRunsForBankV7(bankId: string): Promise<Practic
   return dbV7.practiceRuns.where("bankIds").equals(bankId).toArray();
 }
 
+/** Read only the newest visible runs for a bank without materializing its full history. */
+export async function listRecentPracticeRunsForBankV7(bankId: string, limit: number): Promise<PracticeRunV7[]> {
+  if (!bankId) return [];
+  const safeLimit = Math.max(0, Math.floor(limit));
+  if (!safeLimit) return [];
+  return dbV7.practiceRuns
+    .orderBy("updatedAt")
+    .reverse()
+    .filter((run) => run.bankIds.includes(bankId))
+    .limit(safeLimit)
+    .toArray();
+}
+
 /** Read only runs affected by one or more question ids through the current multiEntry index. */
 export async function listPracticeRunsForQuestionIdsV7(questionIds: readonly string[]): Promise<PracticeRunV7[]> {
   const ids = uniqueIds(questionIds);

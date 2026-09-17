@@ -4,7 +4,9 @@
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
-> 2026-09-17 新一轮 Bug / 性能审计正在 `audit/bug-performance-20260917` 分支进行，专项交接见 `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`。接手时优先阅读该文件，不要从 `main` 重新做已完成的定位。
+> **下一阶段最高优先级：数据库架构整体重构。** 完整执行基线见 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`。不要继续为当前 schema 增加页面级查询补丁、兼容层或临时复合读取 helper。当前审计分支 `audit/code-audit-20260917` 已完成一轮正确性与规模性能修复；其 PR 合并后，从最新 `origin/main` 新建 `refactor/database-facts-projections-20260917` 实施数据库 cutover。
+
+> 2026-09-17 Bug / 性能审计记录见 `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`；后续又在 `audit/code-audit-20260917` 完成数据库写入竞态、删除引用完整性与 Bank Detail / Practice Detail 大历史读取优化。不要从 `main` 重复定位这些问题。
 >
 > 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。PR #55 已合并并发布，生产基线 merge commit 为 `694cb5ecb2edb4eab55da50eaa50af2640a61a61`。
 

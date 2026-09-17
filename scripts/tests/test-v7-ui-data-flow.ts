@@ -94,13 +94,15 @@ assert.match(componentStyles, /font-xlarge[^}]*\.practice-stem[^}]*clamp\(29px,4
 assert.match(componentStyles, /\.practice-option-content\{[^}]*font-size:15px/, "富内容选项必须恢复标准阅读字号");
 
 const history = source("practice/practice-history.tsx");
+const historyScopedRead = source("shell/dashboard-read-data.ts");
 assert.match(history, /<QuestionDetail/, "练习结果详情应复用共享 QuestionDetail");
 assert.match(history, /data-question-id=/, "结果列表应带 question id 供详情跟随定位");
 assert.match(history, /scrollIntoView\(/, "结果详情切换时应滚动到当前题目");
 assert.match(history, /buildScopedQuestionStats/, "练习结果详情应按全局口径统计题目数据");
 assert.match(history, /progressScope/, "练习结果详情应使用全局进度口径");
 assert.match(history, /const runBankRank = new Map\(run\.bankIds/, "练习结果中的共享题必须优先选择本次 run 题库范围内的 membership，不能被其他题库关系覆盖");
-assert.match(history, /reviewRoundProgress/, "练习结果题目详情必须读取命名复习轮次进度，不能把 round scope 当成空数据");
+assert.match(history, /readDashboardScopedRowsV7/, "练习结果题目详情必须复用统一 scoped history reader");
+assert.match(historyScopedRead, /reviewRoundProgress\.where\("roundId"\)\.equals\(normalized\.roundId\)/, "统一 scoped reader 的 round 口径必须只读取命名复习轮次进度");
 assert.doesNotMatch(history, /buildScopedQuestionStats\(\[question\.id\], progressScope, attempts \?\? \[\], \[\], referenceTime\)/, "练习结果题目详情不得给 round progress 固定传空数组");
 assert.match(history, /activeResultQuestionId/, "结果详情关闭后应保留当前题目高亮");
 assert.match(history, /加入题组/, "练习结果详情应保留加入题组入口");
@@ -163,8 +165,8 @@ assert.match(dashboardController, /dbV7\.bankQuestionMemberships\.where\("bankId
 assert.doesNotMatch(dashboardController, /listQuestionViewsForBanksV7/, "Dashboard controller 不应为首页统计加载完整题目 join");
 assert.match(dashboardController, /dbV7\.attemptStats\.bulkGet\(ids\)/, "首页题库范围进度不得 materialize 全量 attemptStats");
 assert.match(dashboardController, /readDashboardScopedRowsV7\(/, "首页区间统计必须委托独立 read-model，避免 React owner 内联大表读取策略");
-assert.match(dashboardRead, /dbV7\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "首页题库范围统计必须只读取当前题集 attempts");
 assert.match(dashboardRead, /dbV7\.attempts\.where\("createdAt"\)\.between\(/, "首页全题库滚动统计必须按 createdAt 时间窗口读取 attempts");
+assert.match(dashboardRead, /rows\.filter\(\(row\) => idSet\.has\(row\.questionId\)\)/, "首页指定题集滚动统计必须先按时间窗读取，再过滤到当前题集");
 assert.match(dashboardRead, /dbV7\.reviewRoundProgress\.where\("roundId"\)\.equals\(normalized\.roundId\)\.toArray\(\)/, "首页轮次统计必须只读取当前 round progress");
 assert.match(dashboardRead, /dbV7\.notes\.bulkGet\(ids\)/, "首页题库范围统计必须按主键读取当前题集解析");
 assert.doesNotMatch(dashboardController, /dbV7\.attempts\.toArray\(\)|dbV7\.reviewRoundProgress\.toArray\(\)|dbV7\.notes\.toArray\(\)/, "Dashboard controller 不得重新内联全表历史读取");

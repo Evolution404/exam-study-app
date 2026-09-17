@@ -1,5 +1,18 @@
 import { dbV7 } from "@/lib/db/db-v7";
+import type { AttemptStatsV7 } from "@/lib/db/v7-types";
 import { normalizeProgressScope, progressScopeCutoff, type ProgressScope } from "@/lib/practice/progress-scope";
+
+export function summarizeDashboardLifetimeStatsV7(attemptStats: readonly AttemptStatsV7[]) {
+  let attempts = 0;
+  let correct = 0;
+  let lastAttemptAt: string | undefined;
+  for (const row of attemptStats) {
+    attempts += row.total;
+    correct += row.correct;
+    if (!lastAttemptAt || row.latestAttemptAt > lastAttemptAt) lastAttemptAt = row.latestAttemptAt;
+  }
+  return { attempts, correct, lastAttemptAt };
+}
 
 export async function readDashboardScopedRowsV7(
   questionIds: readonly string[],
@@ -8,7 +21,7 @@ export async function readDashboardScopedRowsV7(
   options: { allQuestions: boolean },
 ) {
   const ids = [...new Set(questionIds.filter(Boolean))];
-  if (!ids.length) return { attempts: [], roundProgress: [], notes: [] };
+  if (!ids.length) return { attempts: [], attemptStats: [], roundProgress: [], notes: [] };
   const normalized = normalizeProgressScope(scope);
   const idSet = new Set(ids);
 
@@ -23,21 +36,31 @@ export async function readDashboardScopedRowsV7(
     ]);
     return {
       attempts: [],
+      attemptStats: [],
       roundProgress: options.allQuestions ? roundRows : roundRows.filter((row) => idSet.has(row.questionId)),
       notes,
     };
   }
 
-  const attemptsPromise = options.allQuestions
-    ? normalized.type === "rolling"
-      ? dbV7.attempts.where("createdAt").between(
-          new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
-          new Date(referenceTime).toISOString(),
-          true,
-          true,
-        ).toArray()
-      : dbV7.attempts.toArray()
-    : dbV7.attempts.where("questionId").anyOf(ids).toArray();
+  if (normalized.type === "lifetime") {
+    const [attemptStatsRows, notes] = await Promise.all([
+      dbV7.attemptStats.bulkGet(ids),
+      notesPromise,
+    ]);
+    return {
+      attempts: [],
+      attemptStats: attemptStatsRows.filter((row): row is AttemptStatsV7 => row !== undefined),
+      roundProgress: [],
+      notes,
+    };
+  }
+
+  const attemptsPromise = dbV7.attempts.where("createdAt").between(
+    new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
+    new Date(referenceTime).toISOString(),
+    true,
+    true,
+  ).toArray().then((rows) => options.allQuestions ? rows : rows.filter((row) => idSet.has(row.questionId)));
   const [attempts, notes] = await Promise.all([attemptsPromise, notesPromise]);
-  return { attempts, roundProgress: [], notes };
+  return { attempts, attemptStats: [], roundProgress: [], notes };
 }

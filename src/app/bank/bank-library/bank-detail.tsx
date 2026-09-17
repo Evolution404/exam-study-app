@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, ArrowLeft, BarChart3, BookOpenCheck, Bookmark, CalendarClock, CheckCircle2, ChevronRight, Clock3, Download, Edit3, FileText, Gauge, History, NotebookPen, Tag, Target, Trash2 } from "lucide-react";
 import { calendarDate, statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
-import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope } from "@/lib/practice/progress-scope";
+import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, summarizeScopedQuestionStats, type ProgressScope, type ScopedQuestionStats } from "@/lib/practice/progress-scope";
 import { bankTitle, formatDateTime, formatDuration, fullDate, percent, runAccuracy, runAnswered, type ActivityRange, type AttemptStats, type Bank, type BankFolder, type Question, type QuestionPreset, type QuestionType } from "./bank-library-shared";
 import { BankExportDialog } from "./bank-export-dialog";
 import { QuestionManager } from "./question-manager";
@@ -28,16 +28,33 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
   const defaultCustomFrom = new Date(referenceTime);
   defaultCustomFrom.setDate(defaultCustomFrom.getDate() - 6);
   const [customActivityRange, setCustomActivityRange] = useState({ from: calendarDate(defaultCustomFrom), to: calendarDate(new Date(referenceTime)) });
-  const dataset = useLiveQuery(() => readBankDetailDatasetV7(bank), [bank.id]);
+  const normalizedScope = useMemo(() => normalizeProgressScope(progressScope), [progressScope]);
+  const activityTo = activityRange === "custom" ? customActivityRange.to : calendarDate(new Date(referenceTime));
+  const activityFrom = (() => {
+    if (activityRange === "custom") return customActivityRange.from;
+    const cutoff = new Date(referenceTime);
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - (activityRange - 1));
+    return calendarDate(cutoff);
+  })();
+  const dataset = useLiveQuery(
+    () => readBankDetailDatasetV7(bank, normalizedScope, referenceTime, { from: activityFrom, to: activityTo }),
+    [bank.id, normalizedScope.type, normalizedScope.type === "rolling" ? normalizedScope.days : normalizedScope.type === "round" ? normalizedScope.roundId : "", referenceTime, activityFrom, activityTo],
+  );
   const questions = useMemo(() => dataset?.questions ?? [], [dataset]);
   const lifetimeAttemptStats = useMemo(() => dataset?.lifetimeAttemptStats ?? [], [dataset]);
   const attempts = useMemo(() => dataset?.attempts ?? [], [dataset]);
+  const activityDailyStats = useMemo(() => dataset?.activityDailyStats ?? [], [dataset]);
   const notes = useMemo(() => dataset?.notes ?? [], [dataset]);
   const runs = useMemo(() => dataset?.runs ?? [], [dataset]);
   const runStats = dataset?.runStats;
   const roundProgress = useMemo(() => dataset?.roundProgress ?? [], [dataset?.roundProgress]);
-  const normalizedScope = useMemo(() => normalizeProgressScope(progressScope), [progressScope]);
-  const scopedStatsByQuestion = useMemo(() => buildScopedQuestionStats(questions.map((q) => q.id), normalizedScope, attempts, roundProgress, referenceTime), [questions, normalizedScope, attempts, roundProgress, referenceTime]);
+  const scopedStatsByQuestion = useMemo<Map<string, ScopedQuestionStats>>(
+    () => normalizedScope.type === "lifetime"
+      ? new Map(lifetimeAttemptStats.map((stats) => [stats.questionId, stats]))
+      : buildScopedQuestionStats(questions.map((q) => q.id), normalizedScope, attempts, roundProgress, referenceTime),
+    [questions, normalizedScope, attempts, roundProgress, lifetimeAttemptStats, referenceTime],
+  );
   const attemptStats = useMemo<AttemptStats[]>(() => [...scopedStatsByQuestion.values()].map((stats) => scopedStatsToAttemptStats(stats, bank.id)), [bank.id, scopedStatsByQuestion]);
   const statsByQuestion = useMemo(() => new Map(attemptStats.map((s) => [s.questionId, s])), [attemptStats]);
   const dashboard = useMemo(() => {
@@ -65,20 +82,8 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
       return { name, count: tagged.length, wrong: taggedWrong, accuracy: percent(totals.correct, totals.total) };
     }).sort((a, b) => b.wrong - a.wrong || b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
     const orderedRuns = [...runs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const activityTo = activityRange === "custom" ? customActivityRange.to : calendarDate(new Date(referenceTime));
-    const activityFrom = (() => {
-      if (activityRange === "custom") return customActivityRange.from;
-      const cutoff = new Date(referenceTime);
-      cutoff.setHours(0, 0, 0, 0);
-      cutoff.setDate(cutoff.getDate() - (activityRange - 1));
-      return calendarDate(cutoff);
-    })();
-    const rangeAttempts = attempts.filter((attempt) => {
-      const date = calendarDate(attempt.createdAt);
-      return activityFrom <= activityTo && date >= activityFrom && date <= activityTo;
-    });
-    const activeQuestionIds = new Set(rangeAttempts.map((attempt) => attempt.questionId));
-    const activityTotals = rangeAttempts.reduce((result, attempt) => ({ total: result.total + 1, correct: result.correct + (attempt.correct ? 1 : 0) }), { total: 0, correct: 0 });
+    const activeQuestionIds = new Set(activityDailyStats.map((row) => row.questionId));
+    const activityTotals = activityDailyStats.reduce((result, row) => ({ total: result.total + row.total, correct: result.correct + row.correct }), { total: 0, correct: 0 });
     const newQuestions = lifetimeAttemptStats.filter((stats) => activeQuestionIds.has(stats.questionId) && calendarDate(stats.firstAttemptAt) >= activityFrom && calendarDate(stats.firstAttemptAt) <= activityTo).length;
     const totals = summarizeScopedQuestionStats(scopedStatsByQuestion);
     const averageDifficulty = attempted.length ? Math.round(attempted.reduce((sum, question) => sum + (summaries.get(question.id)?.difficulty ?? 0), 0) / attempted.length) : 0;
@@ -106,7 +111,7 @@ export function BankDetail({ bank, folders, progressScope, progressScopeLabel, t
         staleWrong: wrong.filter((question) => (summaries.get(question.id)?.latest ?? referenceTime) < referenceTime - 30 * 86_400_000).length,
       },
     };
-  }, [questions, attemptStats, attempts, lifetimeAttemptStats, notes, runs, runStats, roundProgress, statsByQuestion, scopedStatsByQuestion, wrongRemovalStreak, activityRange, customActivityRange, referenceTime, normalizedScope]);
+  }, [questions, attemptStats, lifetimeAttemptStats, activityDailyStats, notes, runs, runStats, roundProgress, statsByQuestion, scopedStatsByQuestion, wrongRemovalStreak, activityFrom, activityTo, referenceTime, normalizedScope]);
 
   function openQuestions(preset: QuestionPreset) {
     setQuestionPreset(preset);

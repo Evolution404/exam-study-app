@@ -14,6 +14,7 @@ import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/pr
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
 import { latestInProgressPracticeRunV7, readPracticeHistoryV7 } from "@/lib/db/practice-run-read-v7";
+import { readDashboardScopedRowsV7 } from "@/app/shell/dashboard-read-data";
 
 const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
@@ -149,19 +150,18 @@ export function PracticeRunResult({ runId, onBack, onContinue, onRepeat, onNotic
 }
 
 function ResultQuestionDetail({ question, answer, entries, progressScope, scopeLabel, onClose, onNavigate, onNotice, onGroup }: { question: QuestionViewModel; answer?: PracticeRunV7["answers"][string]; entries: QuestionViewModel[]; progressScope: ProgressScope; scopeLabel: string; onClose: () => void; onNavigate: (id: string) => void; onNotice?: (message: string) => void; onGroup?: (questionIds: string[]) => void }) {
-  const note = useLiveQuery(() => dbV7.notes.get(question.id), [question.id]);
   const scopeKey = progressScopeKey(progressScope);
-  const attempts = useLiveQuery(async () => progressScope.type === "round" ? [] : dbV7.attempts.where("questionId").equals(question.id).toArray(), [question.id, scopeKey]);
-  const reviewRoundProgress = useLiveQuery(async () => {
-    if (progressScope.type !== "round") return [];
-    const row = await dbV7.reviewRoundProgress.get(`${progressScope.roundId}:${question.id}`);
-    return row ? [row] : [];
-  }, [question.id, scopeKey]);
   const [referenceTime] = useState(() => Date.now());
+  const scopedRows = useLiveQuery(
+    () => readDashboardScopedRowsV7([question.id], progressScope, referenceTime, { allQuestions: false }),
+    [question.id, scopeKey, referenceTime],
+  );
+  const note = scopedRows?.notes[0];
   const metric = useMemo(() => {
-    const scoped = buildScopedQuestionStats([question.id], progressScope, attempts ?? [], reviewRoundProgress ?? [], referenceTime).get(question.id);
+    const lifetime = progressScope.type === "lifetime" ? scopedRows?.attemptStats[0] : undefined;
+    const scoped = lifetime ?? buildScopedQuestionStats([question.id], progressScope, scopedRows?.attempts ?? [], scopedRows?.roundProgress ?? [], referenceTime).get(question.id);
     return scoped ? summarizeAttemptStats(scopedStatsToAttemptStats(scoped)) : summarizeAttemptStats();
-  }, [question.id, attempts, progressScope, referenceTime, reviewRoundProgress]);
+  }, [question.id, progressScope, referenceTime, scopedRows]);
   const navPrefs = useMemo(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("study-v7-preferences") ?? "{}");

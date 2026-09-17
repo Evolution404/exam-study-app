@@ -23,7 +23,7 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
   if (!uniqueIds.length) return 0;
   return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
-    dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRoundProgress,
+    dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.banks, dbV7.tombstones,
     dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
@@ -101,6 +101,16 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
     await dbV7.attemptStats.bulkDelete(existingIds);
     await dbV7.attemptDailyStats.where("questionId").anyOf(existingIds).delete();
     await dbV7.reviewRoundProgress.where("questionId").anyOf(existingIds).delete();
+    const reviewRounds = await dbV7.reviewRounds.toArray();
+    for (const round of reviewRounds) {
+      if (!round.finalQuestionIds?.some((questionId) => deletingIds.has(questionId))) continue;
+      await dbV7.reviewRounds.put({
+        ...round,
+        finalQuestionIds: round.finalQuestionIds.filter((questionId) => !deletingIds.has(questionId)),
+        updatedAt: timestamp,
+        deviceId,
+      });
+    }
     await dbV7.notes.bulkDelete(existingIds);
     const groups = await dbV7.questionGroups.toArray();
     const emptiedGroupIds: string[] = [];
@@ -151,13 +161,20 @@ export async function deleteQuestionV7(questionId: string): Promise<boolean> {
 export const deleteQuestionGlobalV7 = deleteQuestionV7;
 
 export async function deleteBankWithExclusiveQuestionsV7(bankId: string): Promise<{ bankDeleted: boolean; deletedQuestions: number }> {
-  const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
-  const questionIds = memberships.map((membership) => membership.questionId);
-  const allMemberships = questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(questionIds).toArray() : [];
-  const membershipCounts = new Map<string, number>();
-  for (const membership of allMemberships) membershipCounts.set(membership.questionId, (membershipCounts.get(membership.questionId) ?? 0) + 1);
-  const exclusiveQuestionIds = questionIds.filter((questionId) => membershipCounts.get(questionId) === 1);
-  const bankDeleted = await deleteBankV7(bankId);
-  if (!bankDeleted) return { bankDeleted: false, deletedQuestions: 0 };
-  return { bankDeleted: true, deletedQuestions: await deleteQuestionsV7(exclusiveQuestionIds) };
+  return dbV7.transaction("rw", [
+    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
+    dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRounds,
+    dbV7.reviewRoundProgress, dbV7.practiceRuns, dbV7.practiceRunActivity,
+    dbV7.practiceRunStats, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+  ], async () => {
+    const memberships = await dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
+    const questionIds = memberships.map((membership) => membership.questionId);
+    const allMemberships = questionIds.length ? await dbV7.bankQuestionMemberships.where("questionId").anyOf(questionIds).toArray() : [];
+    const membershipCounts = new Map<string, number>();
+    for (const membership of allMemberships) membershipCounts.set(membership.questionId, (membershipCounts.get(membership.questionId) ?? 0) + 1);
+    const exclusiveQuestionIds = questionIds.filter((questionId) => membershipCounts.get(questionId) === 1);
+    const bankDeleted = await deleteBankV7(bankId);
+    if (!bankDeleted) return { bankDeleted: false, deletedQuestions: 0 };
+    return { bankDeleted: true, deletedQuestions: await deleteQuestionsV7(exclusiveQuestionIds) };
+  });
 }
