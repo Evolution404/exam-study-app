@@ -319,4 +319,4 @@ await oldCheck.close();
   assert.deepEqual((await getPracticeRun(calculationRun.id))?.answers[calculationQuestion.id]?.selected, ["1", "1"]);
 }
 await studyDb.delete();
-console.log("v7 database tests passed: namespace, joins, import, split, rounds, answers, deletion and image cache");
+console.log("database tests passed: namespace, joins, import, split, rounds, answers, deletion and image cache");
