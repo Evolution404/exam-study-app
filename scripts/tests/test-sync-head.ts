@@ -15,7 +15,7 @@ const descriptor = (prefix: string, content: string): SyncDescriptor => {
   const hash = digest(content);
   return { path: `${prefix}${hash}.json`, blobSha: sha1("a"), sha256: hash, size: bytes(content).byteLength, storedSize: bytes(content).byteLength };
 };
-const vaultId = "vault:test-v7";
+const vaultId = "vault:test-current";
 const createdAt = "2026-08-13T00:00:00.000Z";
 const checkpoint = descriptor(SYNC_CHECKPOINT_PREFIX, "initial checkpoint");
 const head: SyncHead = {
@@ -109,7 +109,6 @@ assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
   assert.equal(rejected, true, "负 storedSize 必须被拒");
 }
 
-
 // Orchestrator structure helpers are behavior contracts: extracting them must
 // not change upload labels, interrupted-claim recovery, or history preservation.
 assert.equal(formatTransferBytes(1023), "1023 B");
@@ -162,4 +161,4 @@ assert.equal((mergedHistory.attempts[0] as unknown as { marker?: string }).marke
 assert.equal(mergedHistory.questions, projection.questions, "history merge must leave unrelated projection tables untouched");
 assert.notEqual(mergedHistory.practiceRuns, projection.practiceRuns, "history merge must return a fresh run collection");
 
-console.log("sync v7 head tests passed: vault identity, explicit byte compaction, append-only publication, replay ordering, refs and limits");
+console.log("sync head tests passed: vault identity, explicit byte compaction, append-only publication, replay ordering, refs and limits");
