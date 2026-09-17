@@ -1,4 +1,5 @@
 import { studyDb } from "@/lib/db/db";
+import { readAttemptsForQuestionIdsInWindow } from "@/lib/db/attempt-read";
 import type { AttemptStats } from "@/lib/db/types";
 import { normalizeProgressScope, progressScopeCutoff, type ProgressScope } from "@/lib/practice/progress-scope";
 
@@ -55,12 +56,11 @@ export async function readDashboardScopedRows(
     };
   }
 
-  const attemptsPromise = studyDb.attempts.where("createdAt").between(
-    new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
-    new Date(referenceTime).toISOString(),
-    true,
-    true,
-  ).toArray().then((rows) => options.allQuestions ? rows : rows.filter((row) => idSet.has(row.questionId)));
+  const from = new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString();
+  const to = new Date(referenceTime).toISOString();
+  const attemptsPromise = options.allQuestions
+    ? studyDb.attempts.where("createdAt").between(from, to, true, true).toArray()
+    : readAttemptsForQuestionIdsInWindow(ids, from, to);
   const [attempts, notes] = await Promise.all([attemptsPromise, notesPromise]);
   return { attempts, attemptStats: [], roundProgress: [], notes };
 }
