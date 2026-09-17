@@ -45,8 +45,6 @@ const segment = (generation: number, ordinal: number, size = 100, pathSeed = `${
   return { path: `${SYNC_SEGMENT_PREFIX}${hash}.json`, blobSha: sha1("b"), sha256: hash, size, storedSize: size, generation, ordinal, count: 1, cursors: { "device-a": generation * 100 + ordinal }, metadata: { vaultId, createdAt, deviceId: "device-a" } };
 };
 
-// One hundred ordinary appends retain the original checkpoint and never ask
-// for a checkpoint publication merely because the segment/page count grew.
 let appended = head;
 for (let index = 0; index < 100; index += 1) {
   const next = appendSyncSegments(appended, [segment(1, index)]);
@@ -57,14 +55,11 @@ for (let index = 0; index < 100; index += 1) {
 }
 assert.equal(appended.segments.length, 100);
 
-// Repack/page count and CAS retries are not checkpoint reasons.
 const repack = planSyncCompaction({ head: appended, hotSegments: Array.from({ length: 5000 }, () => ({ size: 1 })) });
 assert.equal(repack.required, false);
 assert.equal(repack.reason, "none");
 assert.equal(createSyncCompactionPlan({ head: appended, hotBytes: 0, hotSegments: [] }).required, false);
 
-// The byte threshold is strict: exactly 4 MiB does not compact, one byte over
-// requires one explicit checkpoint publication.
 assert.equal(planSyncCompaction({ head: appended, hotBytes: SYNC_MAX_HOT_BYTES }).required, false);
 const overflow = planSyncCompaction({ head: appended, hotBytes: SYNC_MAX_HOT_BYTES + 1 });
 assert.equal(overflow.required, true);
@@ -77,8 +72,6 @@ const compactedPublication = createSyncPublicationPlan({ expectedHead: appended,
 assert.equal(compactedPublication.mode, "compaction");
 assert.deepEqual(compactedPublication.order, ["checkpoint", "objects", "segments", "head-cas"]);
 
-// Replay order follows generation/ordinal even when paths/hashes are reverse
-// ordered. No lexical path tie-breaker is consulted.
 const replayInput = [
   { generation: 2, ordinal: 0, path: "sync/v9/segments/ffff.json", events: ["g2"] },
   { generation: 1, ordinal: 1, path: "sync/v9/segments/0000.json", events: ["g1b"] },
@@ -88,8 +81,6 @@ assert.deepEqual(replaySyncSegments(replayInput), ["g1a", "g1b", "g2"]);
 assert.deepEqual(orderSyncSegments(replayInput).map((item) => [item.generation, item.ordinal]), [[1, 0], [1, 1], [2, 0]]);
 assert.throws(() => orderSyncSegments([...replayInput, { generation: 1, ordinal: 0, events: ["duplicate"] }]), /duplicate/);
 
-// Large payloads are represented by immutable refs, not oversized inline
-// events. References themselves are typed and path/digest checked.
 const objectHash = digest("large immutable object");
 const objectRef = createSyncObjectRef(`${SYNC_OBJECT_PREFIX}${objectHash}.json`, objectHash, 22);
 assert.equal(objectRef.kind, "object");
@@ -99,7 +90,6 @@ const pages = paginateSyncEvents(Array.from({ length: 100 }, (_, index) => ({ id
 assert.ok(pages.length >= 1);
 assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
 
-// storedSize（实际存储/线上字节）：合法可选字段；非法值被拒。
 {
   const base = { path: "sync/v9/checkpoints/" + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
   const withStored = { ...base, storedSize: 42 };
@@ -109,8 +99,6 @@ assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
   assert.equal(rejected, true, "负 storedSize 必须被拒");
 }
 
-// Orchestrator structure helpers are behavior contracts: extracting them must
-// not change upload labels, interrupted-claim recovery, or history preservation.
 assert.equal(formatTransferBytes(1023), "1023 B");
 assert.equal(formatTransferBytes(1024), "1.0 KB");
 assert.equal(formatTransferBytes(1024 * 1024), "1.0 MB");
