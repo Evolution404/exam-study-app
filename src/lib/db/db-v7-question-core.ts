@@ -59,18 +59,43 @@ export async function updateQuestionV7(questionId: string, changes: Partial<Stru
     const current = await dbV7.questions.get(questionId);
     if (!current) throw new Error("题目不存在或已被删除。");
     const timestamp = nowIso();
-    const draft: StructuredQuestionDraftV7 = {
-      type: changes.type ?? current.type,
-      content: changes.content ?? current.content,
-      options: changes.options ?? current.options,
-      optionIds: changes.optionIds ?? current.optionIds,
-      solution: changes.solution ?? current.solution,
-      tags: changes.tags ?? current.tags,
-      favorite: changes.favorite ?? current.favorite,
-    };
-    const updated = questionFromDraft(current.id, draft, timestamp, getV7DeviceId());
+    const updated = questionFromDraft(current.id, questionDraftWithChanges(current, changes), timestamp, getV7DeviceId());
     await dbV7.questions.put(updated);
     await enqueueChangeSetV7([{ kind: "question.upsert", question: updated }], timestamp);
+    return updated;
+  });
+}
+
+function questionDraftWithChanges(current: QuestionV7, changes: Partial<StructuredQuestionDraftV7>): StructuredQuestionDraftV7 {
+  return {
+    type: changes.type ?? current.type,
+    content: changes.content ?? current.content,
+    options: changes.options ?? current.options,
+    optionIds: changes.optionIds ?? current.optionIds,
+    solution: changes.solution ?? current.solution,
+    tags: changes.tags ?? current.tags,
+    favorite: changes.favorite ?? current.favorite,
+  };
+}
+
+export async function updateQuestionsV7(
+  questionIds: readonly string[],
+  changes: Partial<StructuredQuestionDraftV7> | ((question: QuestionV7) => Partial<StructuredQuestionDraftV7>),
+): Promise<QuestionV7[]> {
+  const uniqueIds = uniqueStrings(questionIds);
+  if (!uniqueIds.length) return [];
+  return dbV7.transaction("rw", [dbV7.questions, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const currentQuestions = await dbV7.questions.bulkGet(uniqueIds);
+    if (currentQuestions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const updated = currentQuestions.map((current) => {
+      const question = current!;
+      const patch = typeof changes === "function" ? changes(question) : changes;
+      return questionFromDraft(question.id, questionDraftWithChanges(question, patch), timestamp, deviceId);
+    });
+    await dbV7.questions.bulkPut(updated);
+    await enqueueChangeSetV7([{ kind: "question.bulk.upsert", questions: updated }], timestamp);
     return updated;
   });
 }

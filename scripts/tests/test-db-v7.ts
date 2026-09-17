@@ -33,6 +33,7 @@ import {
   setPracticeRunStatusV7,
   splitQuestionV7,
   updateQuestionV7,
+  updateQuestionsV7,
   saveNoteV7,
   savePracticeProgressV7,
 } from "../../src/lib/db/db-v7";
@@ -238,6 +239,38 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   await deleteQuestionV7(raceQuestion.id);
   await assert.rejects(() => updateQuestionV7(raceQuestion.id, { tags: ["删除后的编辑"] }), /不存在或已被删除/, "删除完成后后续编辑必须失败");
   assert.equal(await originalGet(raceQuestion.id), undefined, "已删除题目不得被后续编辑复活");
+}
+
+// R6：批量题目属性更新必须是一个原子写事务，并只产生一条 bulk change set。
+// 任一题在事务开始时已不存在时，整批更新都失败，不能留下部分题目修改或同步事件。
+{
+  const bulkBank = await createBankV7("R6批量题目更新");
+  const bulkQ1 = await createQuestionV7(bulkBank.id, { type: "单选", stem: "R6题一", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] }, tags: ["原标签"] });
+  const bulkQ2 = await createQuestionV7(bulkBank.id, { type: "单选", stem: "R6题二", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] }, tags: ["原标签"] });
+  const changeSetCountBefore = await dbV7.changeSets.count();
+  const updated = await updateQuestionsV7([bulkQ1.id, bulkQ2.id], (question) => ({
+    tags: [...question.tags, "批量标签"],
+    favorite: true,
+  }));
+  assert.equal(updated.length, 2);
+  assert.equal(await dbV7.changeSets.count(), changeSetCountBefore + 1, "一批更新只能新增一条 change set");
+  const bulkChangeSet = await dbV7.changeSets.orderBy("createdAt").last();
+  assert.equal(bulkChangeSet?.mutations.length, 1);
+  assert.equal(bulkChangeSet?.mutations[0]?.kind, "question.bulk.upsert");
+  if (bulkChangeSet?.mutations[0]?.kind === "question.bulk.upsert") {
+    assert.deepEqual(new Set(bulkChangeSet.mutations[0].questions.map((question) => question.id)), new Set([bulkQ1.id, bulkQ2.id]));
+  }
+  assert.deepEqual((await dbV7.questions.get(bulkQ1.id))?.tags, ["原标签", "批量标签"]);
+  assert.equal((await dbV7.questions.get(bulkQ2.id))?.favorite, true);
+
+  const beforeFailedBatch = await dbV7.questions.get(bulkQ1.id);
+  const changeSetCountBeforeFailure = await dbV7.changeSets.count();
+  await assert.rejects(
+    () => updateQuestionsV7([bulkQ1.id, "question_missing_r6"], { favorite: false }),
+    /部分题目不存在或已被删除/,
+  );
+  assert.deepEqual(await dbV7.questions.get(bulkQ1.id), beforeFailedBatch, "缺一题时已存在题目也不得半更新");
+  assert.equal(await dbV7.changeSets.count(), changeSetCountBeforeFailure, "失败批次不得产生 change set");
 }
 
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。

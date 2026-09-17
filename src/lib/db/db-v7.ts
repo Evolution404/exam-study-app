@@ -51,6 +51,7 @@ export {
 export {
   createQuestionV7,
   updateQuestionV7,
+  updateQuestionsV7,
   splitQuestionV7,
   addMembershipV7,
   addMembershipsV7,

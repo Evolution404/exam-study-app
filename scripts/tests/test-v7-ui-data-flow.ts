@@ -205,6 +205,8 @@ assert.match(searchReadModel, /buildScopedQuestionStats/, "搜索 read-model 领
 assert.match(search, /作答 \{metric\.total\} 次 · 错误 \{metric\.wrong\} 次（\{scopeLabel\}）/, "搜索结果应标注区间口径");
 assert.doesNotMatch(search, /if \(!normalized\) return/, "搜索页不应再因空关键词直接短路");
 assert.match(search, /<SearchFilterDrawer/, "搜索页应使用桌面/手机共用的筛选抽屉");
+assert.match(search, /updateQuestionsV7\(targets\.map/, "搜索批量收藏应使用单次原子 bulk update");
+assert.match(search, /updateQuestionsV7\(selectedQuestions\.map/, "搜索批量加标签应使用单次原子 bulk update");
 
 const searchFilters = source("search/search-filter-drawer.tsx");
 assert.match(searchFilters, /"current" \| "all" \| "custom"/, "搜索范围应包含已选、全部和指定题库三个并列模式");
@@ -224,6 +226,7 @@ assert.match(group, /DndContext/, "题组列表必须使用 DndContext 管理拖
 assert.doesNotMatch(group, /ArrowUp|ArrowDown/, "题组编辑不应保留上下箭头排序按钮");
 assert.match(group, /data-question-id=/, "题组列表应带 question id 供详情跟随定位");
 assert.match(group, /scrollIntoView\(/, "题组详情切换时应滚动到当前题目");
+assert.match(group, /updateQuestionsV7\(targets\.map/, "知识整理标签重命名/删除应使用单次原子 bulk update");
 
 assert.match(bank, /detail-current/, "题库管理列表应为当前详情题目标记样式");
 assert.match(bank, /\(viewing\?\.id \?\? activeQuestionId\) === question\.id/, "题库管理列表应知道当前详情题目");
