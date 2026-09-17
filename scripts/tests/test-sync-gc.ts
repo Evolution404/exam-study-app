@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createGitHubRemote } from "../../src/lib/sync/github-remote";
 import { checkpointFromProjection } from "../../src/lib/sync/sync-checkpoint-bridge";
 import { gcSyncRemote } from "../../src/lib/sync/sync-gc";
-import { SYNC_CHECKPOINT_PREFIX, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncDescriptor, type SyncSegmentDescriptor } from "../../src/lib/sync/sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncDescriptor, type SyncSegmentDescriptor } from "../../src/lib/sync/sync-head-types";
 import { encodeSyncSegment } from "../../src/lib/sync/sync-head-operations";
 import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
@@ -51,7 +51,7 @@ try {
   async function segment(label: string, generation: number): Promise<SyncSegmentDescriptor> {
     const metadata = { vaultId, createdAt: new Date(1_700_000_000_000 + generation * 1_000).toISOString(), producer: "gc-test" };
     const cursors = { [deviceId]: generation + 1 };
-    const bytes = encodeSyncSegment({ formatVersion: 9, vaultId, generation, ordinal: 0, metadata, cursors, events: [{ label, deviceId, localSequence: generation + 1 }] });
+    const bytes = encodeSyncSegment({ formatVersion: SYNC_FORMAT_VERSION, vaultId, generation, ordinal: 0, metadata, cursors, events: [{ label, deviceId, localSequence: generation + 1 }] });
     const path = `${SYNC_SEGMENT_PREFIX}${sha256(bytes)}.json`;
     const uploaded = await client.putImmutable({ path, bytes, kind: "segment" });
     return { path, blobSha: uploaded.blobSha, sha256: uploaded.sha256, size: uploaded.size, storedSize: uploaded.storedSize, generation, ordinal: 0, count: 1, cursors, metadata };
@@ -61,7 +61,7 @@ try {
   const [s0, s1, s2, orphan] = await Promise.all([segment("segment-0", 0), segment("segment-1", 1), segment("segment-2", 2), segment("orphan", 99)]);
 
   const head = (generation: number, checkpointDescriptor: SyncDescriptor, segments: SyncSegmentDescriptor[]): SyncHead => ({
-    formatVersion: 9,
+    formatVersion: SYNC_FORMAT_VERSION,
     vaultId,
     generatedAt: new Date(1_700_000_100_000 + generation * 1_000).toISOString(),
     generation,
