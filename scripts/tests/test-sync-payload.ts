@@ -10,7 +10,7 @@ const bank: Bank = { id: "bank-1", name: "载荷题库", sortOrder: 0, questionC
 
 // A change-set body of ~300 KiB — comfortably above both the 128 KiB inline
 // budget and the 256 KiB hard event ceiling. This is the exact shape that used
-// to throw "v7 event exceeds 262144 UTF-8 bytes".
+// to exceed the sync event byte limit.
 function bigQuestion(): Question {
   return { id: "q-big", type: "单选", content: [{ id: "stem-0", type: "text", text: "考点".repeat(150000) }], options: [[{ id: "a", type: "text", text: "A" }], [{ id: "b", type: "text", text: "B" }]], answer: "A", tags: [], contentFingerprint: "fp-big", updatedAt: at, deviceId: "dev-a" };
 }
@@ -37,7 +37,7 @@ const offloaded = await offloadSyncEvents([big as unknown as Record<string, unkn
 assert.equal(offloaded.objects.length, 1, "the oversized body becomes exactly one immutable object");
 assert.equal(offloaded.events.length, 1);
 const objectFile = offloaded.objects[0];
-assert.ok(objectFile.path.startsWith(SYNC_OBJECT_PREFIX), "object lives in the v7 objects namespace");
+assert.ok(objectFile.path.startsWith(SYNC_OBJECT_PREFIX), "object lives in the current sync objects namespace");
 const objectBytes = objectFile.bytes as Uint8Array;
 const objectSha = await sha256Hex(objectBytes);
 const stub = offloaded.events[0];
@@ -90,4 +90,4 @@ assert.equal(tinyResult.events[0], small, "an inline event is passed through unt
 const forced = await offloadSyncEvents([small as unknown as Record<string, unknown>], 0);
 assert.equal(forced.objects.length, 1, "a zero budget offloads even small events");
 
-console.log("sync v7 payload offload tests passed: ceiling bypass, lossless round-trip, ordering, integrity, idempotency and budget boundary");
+console.log("sync payload offload tests passed: ceiling bypass, lossless round-trip, ordering, integrity, idempotency and budget boundary");
