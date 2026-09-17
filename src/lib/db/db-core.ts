@@ -311,7 +311,6 @@ class StudyDatabase extends Dexie {
 
 /** The sole database instance for this release train. */
 export const studyDb = new StudyDatabase();
-/** Short alias used by callers that prefer `v7Db`. */
 /**
  * Startup health gate: the app awaits this before render so namespace-open
  * failures surface before interaction.
