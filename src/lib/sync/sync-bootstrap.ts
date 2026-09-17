@@ -6,14 +6,14 @@ import { saveHeadCache, saveInstalledHead, saveRemoteCache } from "./sync-cache"
 import { checkpointFromProjection, projectionFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
 import { createSyncCheckpointSnapshot } from "./sync-checkpoint-store";
 import { createRemoteHistoryCheckpoint, encodeRemoteHistoryCheckpoint } from "./sync-history";
-import { SYNC_CHECKPOINT_PREFIX, type SyncHead, type SyncDescriptor } from "./sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, type SyncHead, type SyncDescriptor } from "./sync-head-types";
 import { installFingerprint } from "./sync-watermark";
 import { SYNC_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssets } from "./sync-upload";
 import { filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
 import { assetUploadProgressLabel } from "./sync-orchestrator-model";
 
 /**
- * Bootstrap an empty v9 remote without changing the normal sync phase order.
+ * Bootstrap an empty current-protocol remote without changing the normal sync phase order.
  * This phase owns only initial remote publication plus the matching local cache
  * installation; normal download/rebase/publish remains in the orchestrator.
  */
@@ -34,7 +34,7 @@ export async function initializeSyncRemote(
     const label = assetUploadProgressLabel({ completed, total, uploadedBytes, totalBytes, concurrency: SYNC_ASSET_UPLOAD_CONCURRENCY });
     report(callback, "upload", label, 4 + 2 * (total ? completed / total : 0), 6);
   });
-  report(callback, "prepare", "正在初始化 v9 热窗口", 6, 8);
+  report(callback, "prepare", "正在初始化同步热窗口", 6, 8);
 
   const localSnapshot = await createSyncCheckpointSnapshot();
   const historySyncStart = historySyncStartFor(settings);
@@ -48,7 +48,7 @@ export async function initializeSyncRemote(
   const now = new Date().toISOString();
   const vault = vaultId(settings);
   const head: SyncHead = {
-    formatVersion: 9,
+    formatVersion: SYNC_FORMAT_VERSION,
     vaultId: vault,
     generatedAt: now,
     generation: 0,
@@ -61,7 +61,7 @@ export async function initializeSyncRemote(
   const committed = await client.putHead(head);
   if (!committed.ok) {
     const winner = await client.readHead();
-    if (!winner.initialized) throw new Error("v9 初始化冲突，请重试。");
+    if (!winner.initialized) throw new Error("同步初始化冲突，请重试。");
     return winner.cache;
   }
 
@@ -69,7 +69,7 @@ export async function initializeSyncRemote(
   // accept a later writer. Re-read before committing local queue state so the
   // device only adopts a bootstrap head it actually owns.
   const confirmed = await client.readHead();
-  if (!confirmed.initialized) throw new Error("v9 初始化冲突，请重试。");
+  if (!confirmed.initialized) throw new Error("同步初始化冲突，请重试。");
   if (confirmed.cache.blobSha !== committed.blobSha) return confirmed.cache;
 
   await saveHeadCache(settings, committed.cache);
