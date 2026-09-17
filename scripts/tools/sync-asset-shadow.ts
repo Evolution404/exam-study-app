@@ -172,9 +172,19 @@ export async function buildLegacyAssetShadowPlan(source: LegacyAssetSource, expe
       const packBytes = await source.readAssetBlob(packDescriptor);
       await verifyBytes(packBytes, packDescriptor, `legacy asset pack ${sha}`);
       const parsed = parseImageAssetPack(packBytes);
-      const headerIds = new Set(parsed.header.entries.map((entry) => entry.id));
+      const headers = new Map(parsed.header.entries.map((entry) => [entry.id, entry]));
+      for (const header of parsed.header.entries) {
+        const image = packBytes.slice(parsed.payloadOffset + header.offset, parsed.payloadOffset + header.offset + header.length);
+        if (await sha256DigestHex(image) !== header.id) throw new Error(`legacy asset pack ${sha} contains corrupt image ${header.id}`);
+      }
       for (const [id, entry] of Object.entries(shard.entries)) {
-        if (entry.packSha256 === sha && !headerIds.has(id)) throw new Error(`legacy asset pack ${sha} does not contain indexed image ${id}`);
+        if (entry.packSha256 !== sha) continue;
+        const header = headers.get(id);
+        if (!header) throw new Error(`legacy asset pack ${sha} does not contain indexed image ${id}`);
+        if (header.offset !== entry.offset || header.length !== entry.length || header.mimeType !== entry.mimeType
+          || header.size !== entry.size || header.width !== entry.width || header.height !== entry.height) {
+          throw new Error(`legacy asset index metadata differs from pack header for image ${id}`);
+        }
       }
       packs.set(sha, { descriptor: packDescriptor, bytes: packBytes });
     }
