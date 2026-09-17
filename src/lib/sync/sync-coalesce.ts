@@ -1,6 +1,6 @@
 import type { GitHubRemote, SyncHeadCache } from "./github-remote";
 import { cursorsFor, descriptorPath, report, sha256, type SyncProgressCallback } from "./sync-context";
-import { SYNC_MAX_SEGMENT_BYTES, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
+import { SYNC_FORMAT_VERSION, SYNC_MAX_SEGMENT_BYTES, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
 import { createSyncPublicationPlan, decodeSyncSegment, encodeSyncSegment, paginateSyncEvents } from "./sync-head-operations";
 import { uploadedDescriptor } from "./sync-upload";
 import { gcSyncRemote } from "./sync-gc";
@@ -65,7 +65,7 @@ export async function maybeCoalesceHotWindow(client: GitHubRemote, cache: SyncHe
   for (let index = 0; index < pages.length; index += 1) {
     const ordinal = index;
     const pageCursors = cursorsFor(pages[index].events as Array<{ deviceId: string; localSequence: number }>);
-    const segmentBytes = encodeSyncSegment({ formatVersion: 9 as const, vaultId: head.vaultId, generation, ordinal, metadata, cursors: pageCursors, events: pages[index].events });
+    const segmentBytes = encodeSyncSegment({ formatVersion: SYNC_FORMAT_VERSION, vaultId: head.vaultId, generation, ordinal, metadata, cursors: pageCursors, events: pages[index].events });
     const digest = await sha256(segmentBytes);
     const path = descriptorPath(SYNC_SEGMENT_PREFIX, digest);
     const base = await uploadedDescriptor(client, path, segmentBytes, "segment");
