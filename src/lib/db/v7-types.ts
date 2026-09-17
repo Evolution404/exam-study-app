@@ -172,6 +172,13 @@ export interface ReviewRoundProgress {
 
 export type PracticeRunV7 = PracticeRun & { reviewRoundId?: string };
 
+/** Device-local derived index for practice-history paging; never synchronized. */
+export interface PracticeRunActivityV7 {
+  runId: string;
+  status: PracticeRunV7["status"];
+  activityAt: string;
+}
+
 export interface ImageAsset {
   id: string;
   mimeType: "image/webp" | "image/jpeg" | "image/png";

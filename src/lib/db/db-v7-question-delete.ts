@@ -14,6 +14,7 @@ import {
   type ChangeSetQueueRecordV7,
 } from "./db-v7-change-sets";
 import { deleteBankV7, refreshBankQuestionCountInTx } from "./db-v7-bank";
+import { putPracticeRunInTx } from "./db-v7-practice-activity";
 import { listPracticeRunsForQuestionIdsV7 } from "./practice-run-read-v7";
 import type { QuestionV7, TombstoneV7 } from "./v7-types";
 
@@ -23,7 +24,7 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
   return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.attempts, dbV7.attemptStats,
     dbV7.attemptDailyStats, dbV7.notes, dbV7.questionGroups, dbV7.reviewRoundProgress,
-    dbV7.practiceRuns, dbV7.banks, dbV7.tombstones,
+    dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.banks, dbV7.tombstones,
     dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     const questions = (await dbV7.questions.bulkGet(uniqueIds)).filter((question): question is QuestionV7 => Boolean(question));
@@ -120,7 +121,7 @@ export async function deleteQuestionsV7(questionIds: readonly string[]): Promise
     for (const run of runs) {
       const answers = Object.fromEntries(Object.entries(run.answers).filter(([questionId]) => !deletingIds.has(questionId)));
       const questionTypes = Object.fromEntries(Object.entries(run.questionTypes).filter(([questionId]) => !deletingIds.has(questionId)));
-      await dbV7.practiceRuns.put({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
+      await putPracticeRunInTx({ ...run, questionIds: run.questionIds.filter((id) => !deletingIds.has(id)), answers, questionTypes, updatedAt: timestamp });
     }
     for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
     const tombstones: TombstoneV7[] = publishedIds.map((questionId) => ({

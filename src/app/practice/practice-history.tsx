@@ -13,7 +13,7 @@ import { buildScopedQuestionStats, progressScopeKey, scopedStatsToAttemptStats, 
 import { DEFAULT_KEYBOARD_SHORTCUTS, normalizeKeyboardShortcuts } from "@/lib/practice/keyboard-shortcuts";
 import type { PracticeRunV7, QuestionTypeV7 } from "@/lib/db/v7-types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
-import { latestInProgressPracticeRunV7 } from "@/lib/db/practice-run-read-v7";
+import { latestInProgressPracticeRunV7, readPracticeHistoryV7 } from "@/lib/db/practice-run-read-v7";
 
 const TYPE_ORDER: QuestionTypeV7[] = [...QUESTION_TYPE_ORDER];
 
@@ -76,19 +76,16 @@ function HistoryRunCard({ run, onOpen, onContinue, onAbandon, onDelete }: { run:
 }
 
 export function PracticeHistory({ onOpen, onContinue, onAbandon, onDelete }: { onOpen: (runId: string) => void; onContinue: (runId: string) => void; onAbandon: (runId: string) => void; onDelete: (runId: string) => void }) {
-  const runsQuery = useLiveQuery(() => dbV7.practiceRuns.toArray(), []);
-  const runs = runsQuery ?? [];
-  // 排序口径：最后活动时间（已完成=完成时间，其余=最后一道作答题的时间），不再按开始时间。
-  const ordered = useMemo(() => (runsQuery ?? []).slice().sort((a, b) => runActivityAt(b).localeCompare(runActivityAt(a))), [runsQuery]);
   const [status, setStatus] = useState<"all" | PracticeRunV7["status"]>("all");
   const [visibleLimit, setVisibleLimit] = useState(50);
-  const filtered = status === "all" ? ordered : ordered.filter((run) => run.status === status);
-  const visible = filtered.slice(0, visibleLimit);
+  const history = useLiveQuery(() => readPracticeHistoryV7(status, visibleLimit), [status, visibleLimit]);
+  const visible = history?.runs ?? [];
+  const counts = history?.counts ?? { in_progress: 0, completed: 0, abandoned: 0 };
   return <section className="practice-history-card">
     <header><div><span className="section-kicker">每次练习都有迹可循</span><h2>练习记录</h2><p>进行中、已完成和已放弃的练习都会保留。</p></div><History size={24} /></header>
-    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => { setStatus(item); setVisibleLimit(50); }}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? runs.length : runs.filter((run) => run.status === item).length}</span></button>)}</div>
+    <div className="history-filters">{(["all", "in_progress", "completed", "abandoned"] as const).map((item) => <button key={item} className={status === item ? "active" : ""} onClick={() => { setStatus(item); setVisibleLimit(50); }}>{item === "all" ? "全部" : statusText[item]}<span>{item === "all" ? history?.total ?? 0 : counts[item]}</span></button>)}</div>
     {visible.length ? <div className="history-list">{visible.map((run) => <HistoryRunCard key={run.id} run={run} onOpen={onOpen} onContinue={onContinue} onAbandon={onAbandon} onDelete={onDelete} />)}</div> : <div className="history-empty"><Clock3 /><h3>这里还没有记录</h3><p>开始一组练习后，会立即建立可恢复的练习记录。</p></div>}
-    {visible.length < filtered.length && <button className="search-load-more" onClick={() => setVisibleLimit((current) => current + 50)}>继续加载（{visible.length} / {filtered.length}）</button>}
+    {visible.length < (history?.filteredTotal ?? 0) && <button className="search-load-more" onClick={() => setVisibleLimit((current) => current + 50)}>继续加载（{visible.length} / {history?.filteredTotal ?? 0}）</button>}
   </section>;
 }
 

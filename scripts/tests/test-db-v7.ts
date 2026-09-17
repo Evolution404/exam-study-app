@@ -377,6 +377,29 @@ assert.equal((await dbV7.questions.bulkGet(detachIds)).filter(Boolean).length, 0
   }
 }
 
+// R11：练习历史的本机活动索引必须严格跟随领域 run，同时保持 runActivityAt 口径：
+// 导航进度可以改变 updatedAt，但不得把“最后活动时间”从最后一次已提交作答推迟。
+{
+  const historyIndexBank = await createBankV7("R11练习历史索引");
+  const historyIndexQuestion = await createQuestionV7(historyIndexBank.id, { type: "判断", stem: "R11历史题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const startedAt = "2026-09-17T00:00:00.000Z";
+  const answeredAt = "2026-09-17T00:10:00.000Z";
+  const navigationAt = "2026-09-17T00:20:00.000Z";
+  const historyRun = await createPracticeRunV7({ bankIds: [historyIndexBank.id], questionIds: [historyIndexQuestion.id], startedAt, updatedAt: startedAt });
+  assert.equal((await dbV7.practiceRunActivity.get(historyRun.id))?.activityAt, startedAt);
+  await recordPracticeAnswerV7({ runId: historyRun.id, questionId: historyIndexQuestion.id, selected: "A", correct: true, elapsedMs: 10, createdAt: answeredAt });
+  assert.equal((await dbV7.practiceRunActivity.get(historyRun.id))?.activityAt, answeredAt);
+  const afterAnswer = await dbV7.practiceRuns.get(historyRun.id);
+  assert.ok(afterAnswer);
+  await savePracticeProgressV7({ ...afterAnswer!, updatedAt: navigationAt, lastAnsweredIndex: 0 });
+  assert.equal((await dbV7.practiceRunActivity.get(historyRun.id))?.activityAt, answeredAt, "未提交的导航进度不得改变历史排序时间");
+  const completedRun = await setPracticeRunStatusV7(historyRun.id, "completed");
+  assert.ok(completedRun?.completedAt);
+  assert.equal((await dbV7.practiceRunActivity.get(historyRun.id))?.activityAt, completedRun?.completedAt, "已完成记录必须按完成时间排序");
+  assert.equal(await deletePracticeRunV7(historyRun.id), true);
+  assert.equal(await dbV7.practiceRunActivity.get(historyRun.id), undefined, "删除 run 必须同步删除本机活动索引");
+}
+
 // S1.4 [E5] 删题级联清空该题跨所有历史 run 的 attempts（全局清理语义，非按 run 隔离）。
 {
   const e5Bank = await createBankV7("E5跨run清理");

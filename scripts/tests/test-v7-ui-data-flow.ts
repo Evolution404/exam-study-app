@@ -109,7 +109,8 @@ assert.match(history, /已收藏这道题/, "练习结果详情应支持收藏�
 assert.doesNotMatch(history, /只练这一题/, "全项目不应再保留只练这一题入口");
 assert.match(history, /重练本次题目/);
 assert.match(history, /onRepeat\(ordered/);
-assert.match(history, /runActivityAt\(b\)\.localeCompare\(runActivityAt\(a\)\)/, "练习记录必须按活动时间倒序");
+assert.match(history, /readPracticeHistoryV7\(status, visibleLimit\)/, "练习记录必须通过活动时间派生索引分页读取");
+assert.doesNotMatch(history, /practiceRuns\.toArray\(\)/, "练习记录页不得再全量物化历史 run");
 assert.doesNotMatch(history, /orderBy\("startedAt"\)/, "练习记录不得再按开始时间排序");
 assert.match(history, /formatTime\(runActivityAt\(run\)\)/, "记录卡片时间戳应与排序同口径（最后活动时间）");
 assert.match(history, /<button className="danger"[\s\S]*?<XCircle size=\{16\} \/>只练本次错题<\/button>/, "只练本次错题按钮应带 danger 红色调");

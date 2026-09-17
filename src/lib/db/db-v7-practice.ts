@@ -15,6 +15,7 @@ import {
 import type { CreatePracticeRunInputV7, PracticeAnswerInputV7, PracticeAnswerV7 } from "./db-v7-core";
 import { enqueueChangeSetV7 } from "./db-v7-change-sets";
 import { bankLabel, getQuestionsForBanksV7 } from "./db-v7-bank";
+import { deletePracticeRunInTx, putPracticeRunInTx } from "./db-v7-practice-activity";
 import { updatePracticeRunStatsInTx } from "./db-v7-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
 import { stableQuestionOptionIds } from "../question/question-utils";
@@ -73,8 +74,8 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
     lastAnsweredIndex: input.lastAnsweredIndex,
     reviewRoundId: input.reviewRoundId,
   };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
-    await dbV7.practiceRuns.put(run);
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+    await putPracticeRunInTx(run);
     await updatePracticeRunStatsInTx(undefined, run);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run }], timestamp);
   });
@@ -84,9 +85,9 @@ export async function createPracticeRunV7(input: CreatePracticeRunInputV7 = {}):
 export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRunV7> {
   const current = await dbV7.practiceRuns.get(run.id);
   const updated = { ...run, updatedAt: run.updatedAt || nowIso() };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     await updatePracticeRunStatsInTx(current, updated);
-    await dbV7.practiceRuns.put(updated);
+    await putPracticeRunInTx(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.saved", run: updated }], updated.updatedAt);
   });
   return updated;
@@ -109,7 +110,7 @@ export async function savePracticeRunV7(run: PracticeRunV7): Promise<PracticeRun
  * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
 export async function savePracticeProgressV7(run: PracticeRunV7): Promise<PracticeRunV7 | undefined> {
-  return withSyncLock(() => dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats], async () => {
+  return withSyncLock(() => dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats], async () => {
     const current = await dbV7.practiceRuns.get(run.id);
     if (!current) return undefined;
     const liveQuestionIds = new Set(current.questionIds);
@@ -125,7 +126,7 @@ export async function savePracticeProgressV7(run: PracticeRunV7): Promise<Practi
       revision: current.revision + 1,
     };
     await updatePracticeRunStatsInTx(current, updated);
-    await dbV7.practiceRuns.put(updated);
+    await putPracticeRunInTx(updated);
     return updated;
   }));
 }
@@ -222,9 +223,9 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
     abandonedAt: status === "abandoned" ? updatedAt : undefined,
     revision: current.revision + 1,
   };
-  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
+  await dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.changeSets, dbV7.syncMeta], async () => {
     await updatePracticeRunStatsInTx(current, updated);
-    await dbV7.practiceRuns.put(updated);
+    await putPracticeRunInTx(updated);
     await enqueueChangeSetV7([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
   });
   return updated;
@@ -232,7 +233,7 @@ export async function setPracticeRunStatusV7(runId: string, status: PracticeRunV
 
 /** Remove the run projection without deleting global question learning stats. */
 export async function deletePracticeRunV7(runId: string): Promise<boolean> {
-  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+  return dbV7.transaction("rw", [dbV7.practiceRuns, dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
     const current = await dbV7.practiceRuns.get(runId);
     if (!current) return false;
     const hasSubmittedAnswer = Object.values(current.answers).some((answer) => answer.submitted);
@@ -240,7 +241,7 @@ export async function deletePracticeRunV7(runId: string): Promise<boolean> {
     const deviceId = getV7DeviceId();
     const runDeleteSequence = hasSubmittedAnswer ? await nextV7Sequence(deviceId) : undefined;
     await updatePracticeRunStatsInTx(current, undefined);
-    await dbV7.practiceRuns.delete(runId);
+    await deletePracticeRunInTx(runId);
     if (!hasSubmittedAnswer || runDeleteSequence === undefined) return true;
     await dbV7.tombstones.put({
       key: tombstoneKey("practiceRun", runId), entityType: "practiceRun", entityId: runId,
@@ -358,7 +359,7 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
   const selectedAnswer = selected.join("");
   return dbV7.transaction("rw", [
     dbV7.attempts, dbV7.attemptStats, dbV7.attemptDailyStats, dbV7.practiceRuns,
-    dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
+    dbV7.practiceRunActivity, dbV7.practiceRunStats, dbV7.reviewRounds, dbV7.reviewRoundProgress,
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
     // Re-read the authoritative run after the write transaction has acquired
@@ -433,7 +434,7 @@ export async function recordPracticeAnswerV7(input: StructuredPracticeAnswerInpu
     const key = dailyStatsKey(timestamp, input.questionId);
     await dbV7.attemptDailyStats.put(addDailyStatsV7(await dbV7.attemptDailyStats.get(key), attempt));
     await updatePracticeRunStatsInTx(run, nextRun);
-    await dbV7.practiceRuns.put(nextRun);
+    await putPracticeRunInTx(nextRun);
     if (reviewRoundId) {
       await progressForAnswerInTx(reviewRoundId, input.questionId, attempt);
       await autoCompleteRoundIfReadyInTx(reviewRoundId);
