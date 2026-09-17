@@ -115,7 +115,7 @@ const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
   .filter((file) => typeof file === "string" && file.endsWith(".ts"))
   .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
 for (const { file, source } of activeSyncSources) {
-  if (/sync\/v(?:[1-9])\//.test(source) || /\bv9\b/i.test(source) || /migratedFrom/.test(source)) {
+  if (/sync\/v(?:[1-9])\//.test(source) || /\bv9\b/i.test(source) || /\bformatVersion\s*:\s*9\b/.test(source) || /migratedFrom/.test(source)) {
     fail(`${file} 不得保留历史远端 namespace、v9 运行时标记或迁移来源元数据；生产同步只允许当前 v10`);
   }
 }
