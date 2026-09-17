@@ -116,6 +116,11 @@ export interface SyncV10ShadowPlan {
   };
 }
 
+export interface SyncShadowStore {
+  read(path: string): Promise<string | undefined>;
+  writeImmutable(path: string, content: string): Promise<void>;
+}
+
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -418,4 +423,29 @@ export function buildSyncV10ShadowPlan(input: {
     ],
     cutoverHead: { path: "sync/v10/head.json", authorized: false },
   };
+}
+
+export async function applySyncShadowPlan(
+  plan: SyncV10ShadowPlan,
+  store: SyncShadowStore,
+): Promise<{ created: number; reused: number }> {
+  if (plan.cutoverHead.authorized !== false) throw new Error("shadow conversion must not authorize cutover");
+  let created = 0;
+  let reused = 0;
+  for (const file of plan.files) {
+    if (!file.path.startsWith("sync/v10/") || file.path.startsWith("sync/v9/") || file.path === plan.cutoverHead.path) {
+      throw new Error(`unsafe shadow path: ${file.path}`);
+    }
+    const existing = await store.read(file.path);
+    if (existing !== undefined) {
+      if (existing !== file.content) throw new Error(`immutable shadow conflict at ${file.path}`);
+      reused += 1;
+      continue;
+    }
+    await store.writeImmutable(file.path, file.content);
+    const written = await store.read(file.path);
+    if (written !== file.content) throw new Error(`shadow write verification failed at ${file.path}`);
+    created += 1;
+  }
+  return { created, reused };
 }
