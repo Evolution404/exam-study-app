@@ -8,6 +8,7 @@ import {
 } from "../tools/sync-v9-to-v10-converter";
 
 const timestamp = "2026-09-17T00:00:00.000Z";
+const imageAssetId = "b".repeat(64);
 
 const legacy = {
   formatVersion: 7,
@@ -33,7 +34,7 @@ const legacy = {
     totalPracticeRuns: 1,
   },
   state: {
-    banks: [{ id: "bank-1", name: "题库", questionCount: 1, sortOrder: 0, importedAt: timestamp, updatedAt: timestamp }],
+    banks: [{ id: "bank-1", name: "题库", questionCount: 1, sortOrder: 0, importedAt: timestamp, updatedAt: timestamp, deviceId: "device-a" }],
     bankFolders: [],
     questions: [{
       id: "question-1",
@@ -56,7 +57,7 @@ const legacy = {
       updatedAt: timestamp,
       deviceId: "device-a",
     }],
-    imageAssets: [{ id: "asset-1", mimeType: "image/png", size: 123, width: 10, height: 10 }],
+    imageAssets: [{ id: imageAssetId, mimeType: "image/png", size: 123, width: 10, height: 10 }],
     attempts: [{
       id: "attempt-1",
       runId: "run-1",
