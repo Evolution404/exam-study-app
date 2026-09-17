@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { sha256DigestHex } from "../../src/lib/crypto/sha256";
 import { canonicalSerialize } from "../../src/lib/sync/change-set-codec";
-import { encodeSyncSegment } from "../../src/lib/sync/sync-head-operations";
 import { validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
-import type { SyncDescriptor, SyncHead, SyncImmutableRef, SyncSegmentDescriptor } from "../../src/lib/sync/sync-head-types";
 import {
   hydrateLegacyRemoteSnapshot,
+  type LegacySyncDescriptor,
+  type LegacySyncHead,
+  type LegacySyncImmutableRef,
   type LegacySyncRemoteSource,
+  type LegacySyncSegmentDescriptor,
 } from "../tools/sync-remote-reader";
 import type { LegacySyncCheckpoint } from "../tools/sync-v9-to-v10-converter";
 
@@ -20,7 +22,7 @@ function bytes(value: unknown): Uint8Array {
   return encoder.encode(JSON.stringify(value));
 }
 
-async function immutableDescriptor(prefix: string, value: unknown): Promise<{ descriptor: SyncDescriptor; bytes: Uint8Array }> {
+async function immutableDescriptor(prefix: string, value: unknown): Promise<{ descriptor: LegacySyncDescriptor; bytes: Uint8Array }> {
   const body = bytes(value);
   const sha256 = await sha256DigestHex(body);
   return {
@@ -191,13 +193,13 @@ const legacyDigest = await sha256DigestHex(encoder.encode(canonicalSerialize(leg
 const legacyChange = { ...legacyChangeBase, digest: legacyDigest };
 const offloadedBody = bytes(legacyChange);
 const offloadedSha = await sha256DigestHex(offloadedBody);
-const offloadedRef: SyncImmutableRef = {
+const offloadedRef: LegacySyncImmutableRef = {
   path: `sync/v9/objects/${offloadedSha}.json`,
   sha256: offloadedSha,
   size: offloadedBody.byteLength,
   kind: "object",
 };
-const segmentBytes = encodeSyncSegment({
+const segmentBytes = bytes({
   formatVersion: 9,
   vaultId,
   generation: 1,
@@ -216,7 +218,7 @@ const segmentBytes = encodeSyncSegment({
   }],
 });
 const segmentSha = await sha256DigestHex(segmentBytes);
-const segmentDescriptor: SyncSegmentDescriptor = {
+const segmentDescriptor: LegacySyncSegmentDescriptor = {
   path: `sync/v9/segments/${segmentSha}.json`,
   blobSha: "2".repeat(40),
   sha256: segmentSha,
@@ -229,7 +231,7 @@ const segmentDescriptor: SyncSegmentDescriptor = {
   metadata: { vaultId, createdAt: hotAt, deviceId: "device-a" },
 };
 
-const head: SyncHead = {
+const head: LegacySyncHead = {
   formatVersion: 9,
   vaultId,
   generatedAt: hotAt,
@@ -243,19 +245,19 @@ const head: SyncHead = {
 class MemoryLegacySource implements LegacySyncRemoteSource {
   readonly files = new Map<string, Uint8Array>();
 
-  constructor(readonly head: SyncHead, readonly headSha: string) {}
+  constructor(readonly head: LegacySyncHead, readonly headSha: string) {}
 
   async readHead() {
     return { head: structuredClone(this.head), headSha: this.headSha };
   }
 
-  async readDescriptor(descriptor: SyncDescriptor) {
+  async readDescriptor(descriptor: LegacySyncDescriptor) {
     const value = this.files.get(descriptor.path);
     if (!value) throw new Error(`missing descriptor ${descriptor.path}`);
     return value.slice();
   }
 
-  async readImmutable(ref: SyncImmutableRef) {
+  async readImmutable(ref: LegacySyncImmutableRef) {
     const value = this.files.get(ref.path);
     if (!value) throw new Error(`missing immutable object ${ref.path}`);
     return value.slice();
