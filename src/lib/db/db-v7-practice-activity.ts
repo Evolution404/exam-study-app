@@ -25,10 +25,3 @@ export async function deletePracticeRunInTx(runId: string): Promise<void> {
   await dbV7.practiceRuns.delete(runId);
   await dbV7.practiceRunActivity.delete(runId);
 }
-
-/** Internal: caller must include practiceRuns + practiceRunActivity in its transaction. */
-export async function deletePracticeRunsInTx(runIds: readonly string[]): Promise<void> {
-  if (!runIds.length) return;
-  await dbV7.practiceRuns.bulkDelete([...runIds]);
-  await dbV7.practiceRunActivity.bulkDelete([...runIds]);
-}
