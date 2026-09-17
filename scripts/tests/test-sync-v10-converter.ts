@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
 import {
+  applySyncShadowPlan,
   buildSyncV10ShadowPlan,
   convertLegacySyncCheckpoint,
   verifyLegacySyncConversion,
   type LegacySyncCheckpoint,
+  type SyncShadowStore,
 } from "../tools/sync-v9-to-v10-converter";
 
 const timestamp = "2026-09-17T00:00:00.000Z";
@@ -198,4 +200,32 @@ assert.ok(shadow.files.every((file) => file.path !== "sync/v10/head.json"), "dry
 assert.equal(shadow.cutoverHead.path, "sync/v10/head.json");
 assert.equal(shadow.cutoverHead.authorized, false, "head publication remains separately authorized");
 
-console.log("sync v9 -> v10 converter contract passed: canonical facts, deterministic conversion, invariant checks and shadow-only writes");
+class MemoryShadowStore implements SyncShadowStore {
+  readonly files = new Map<string, string>();
+  writes = 0;
+
+  async read(path: string) {
+    return this.files.get(path);
+  }
+
+  async writeImmutable(path: string, content: string) {
+    this.writes += 1;
+    this.files.set(path, content);
+  }
+}
+
+const shadowStore = new MemoryShadowStore();
+const firstApply = await applySyncShadowPlan(shadow, shadowStore);
+assert.deepEqual(firstApply, { created: shadow.files.length, reused: 0 });
+assert.equal(shadowStore.files.has(shadow.cutoverHead.path), false, "shadow application must never publish the cutover head");
+const writesAfterFirstApply = shadowStore.writes;
+const secondApply = await applySyncShadowPlan(shadow, shadowStore);
+assert.deepEqual(secondApply, { created: 0, reused: shadow.files.length }, "rerun must reuse byte-identical shadow files");
+assert.equal(shadowStore.writes, writesAfterFirstApply, "rerun must not rewrite immutable shadow files");
+
+const conflictingStore = new MemoryShadowStore();
+conflictingStore.files.set(shadow.files[0].path, "tampered");
+await assert.rejects(() => applySyncShadowPlan(shadow, conflictingStore), /immutable shadow conflict/);
+assert.equal(conflictingStore.files.has(shadow.cutoverHead.path), false, "conflict must fail closed before head publication");
+
+console.log("sync converter contract passed: canonical facts, deterministic conversion, invariant checks, idempotent shadow writes and no implicit cutover");
