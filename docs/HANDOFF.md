@@ -13,10 +13,11 @@
 - Phase 0–2：PR #58 已完成并合并。
 - Phase 3：已完成并收口。
 - Phase 4：已完成并在 `ab85baf` 上全门禁通过。
-- Phase 5：当前进行中，目标是让 sync/checkpoint/history wire 只承载 canonical facts。
-- Phase 6–8：未开始。
+- Phase 5：功能实现已完成，当前做最终 CI / 文档收口；checkpoint/history 已是 canonical-only。
+- Phase 6：下一阶段，一次性 Sync v9 → v10 converter；只允许 dry-run/shadow conversion，未经授权不得生产 cutover。
+- Phase 7–8：未开始。
 
-**禁止回退到本文旧版本中的“Phase 3 未开始”状态。** PR #59 当前代码和 CI 是事实基线。
+**禁止回退到本文旧版本中的“Phase 3 未开始 / Phase 5 仍在设计”状态。** PR #59 当前代码和 CI 是事实基线。
 
 未经用户明确授权：
 
@@ -110,7 +111,7 @@ rolling 统计按 `questionId + createdAt` 定向读取，不 materialize 同时
 - 必须使用 `[questionId+createdAt]`。
 - 禁止恢复 `rows.filter(row => idSet.has(row.questionId))` 的时间窗全量读取路径。
 
-`1fbe9ab` 已更新该契约；随后发现测试文件自身少一个右括号，`ab85baf` 只修了这个语法错误，没有改变查询策略。
+`1fbe9ab` 已更新该契约；`ab85baf` 只修了测试文件自身的语法错误，没有改变查询策略。
 
 ## 4. Phase 4 最终验证
 
@@ -125,69 +126,107 @@ rolling 统计按 `questionId + createdAt` 定向读取，不 materialize 同时
 
 不要重新处理已经完成的 Phase 0–4。
 
-## 5. 当前 Phase 5 审计结果
+## 5. Phase 5 收口：canonical-only sync/checkpoint/history
 
-目标：sync/change-set/checkpoint/history 只承载 canonical facts；projection/cache/read-model 不进入远端 wire。
+目标已经落地：sync/checkpoint/history wire 只承载 canonical facts；projection/cache/read-model 不进入远端 payload。
 
-已经确认一个明确残余：`src/lib/sync/sync-checkpoint-store.ts` 当前仍读取并序列化 derived projections：
+### 已完成
 
-- `studyDb.questionProgress`
-- `studyDb.questionDailyProgress`
-- `studyDb.bankPracticeStats`
-- `studyDb.reviewRoundProgress`
+- `sync-checkpoint-store` snapshot transaction 不再读取：
+  - `questionProgress`
+  - `questionDailyProgress`
+  - `bankPracticeStats`
+  - `reviewRoundProgress`
+  - `imageBlobs`
+- `SyncCheckpointState/Counts` 已改为 canonical fact 集合；validator 使用 exact-key contract，旧 derived 字段不能静默混入。
+- current checkpoint canonical facts 包括正常化关系：
+  - `practiceRuns`
+  - `practiceRunSources`
+  - `practiceRunItems`
+  - `questionGroups`
+  - `questionGroupItems`
+  - `reviewRounds`
+  - `reviewRoundBanks`
+  - `reviewRoundItems`
+- `Attempt.elapsedMs` 等提交事实继续由 canonical Attempt validator 校验；已删除旧 `recentOutcomes` projection checkpoint 断言。
+- history practice-run chunk 不再保存旧聚合 PracticeRun 大对象，改为：
+  - `PracticeRunRecord[]`
+  - `PracticeRunSource[]`
+  - `PracticeRunItem[]`
+- partial-history hydration 保证引用闭包：
+  - retained Attempt 会带入其 run；
+  - retained run 会带入对应 source/item；
+  - run item 的 `submittedAttemptId` 会带入被引用 Attempt。
+- history merge/filter 只处理 canonical facts，不重新生成旧 `bankIds/questionIds/answers/optionOrders` 聚合结构。
+- `test-sync-integrity` 已改为 canonical relation round-trip，并明确禁止 derived projection/cache 字段重新进入 wire。
 
-`src/lib/sync/sync-checkpoint-types.ts` 当前 `SyncCheckpointCounts` 也仍保留：
+### 结构治理
 
-- `attemptStats`
-- `attemptDailyStats`
-- `practiceRunStats`
-- `reviewRoundProgress`
+Phase 5 改造一度使 `sync-history.ts` 增长到 30,572 B，触发 code-size ratchet。没有提高 baseline，而是拆出 `src/lib/sync/sync-history-state.ts` 承担纯状态算法；主文件已降到 22,818 B，低于原 22,844 B 门禁。
 
-这些都必须在 Phase 5 删除，而不是改名后继续同步。
+Export surface 同步收紧：
 
-`imageBlobs` 是纯本地 cache，永远不得进入 checkpoint/change-set/history wire。
+- unused exports：`107 → 104`
+- unused exported types：`36 → 33`
 
-`db-restore.ts` 已经具备正确方向：canonical install 后调用 `rebuildProjectionsFromFacts(...)`，并明确忽略旧 payload 中的 projection rows。Phase 5 应继续收紧类型和 validator，让新 wire 根本不允许这些 derived 字段存在。
+这两项只能继续下降，禁止反向抬高预算。
 
-## 6. Phase 5 执行顺序
+### Phase 5 当前验证
 
-按以下顺序继续，测试先行：
+在 `bbd0c1c`：
 
-1. 新增/收紧 canonical-only checkpoint contract：新 checkpoint state/counts 不得出现 projection/cache 字段；测试应先让当前实现失败。
-2. 改 `sync-checkpoint-types.ts` / `sync-checkpoint-store.ts`：snapshot transaction 只读取 canonical tables + queue/cursor 所需基础设施；不再读取 projection tables。
-3. 改 `sync-checkpoint-validation.ts`：只校验 canonical facts 与 canonical referential integrity，删除 derived stats/progress validator。
-4. 审计 change-set reducer/projection：mutation 只描述 canonical facts；删除 derived arrays / reducer-only bridge state。
-5. 审计 history chunk：明确只携带 attempts + practice-run bundle 所需 canonical facts。
-6. restore/hydration 完成后统一调用 projection rebuild。
-7. 删除 `attemptRoundIds`、derived dirty-install fields、derived checkpoint counts/bridge。
-8. 跑双设备 replay、conflict、tombstone、history hydration、partial-history、sync storage、完整 `make test`。
-9. Phase 5 全绿后更新本文和数据库计划，再进入 Phase 6。
+- 完整 Pull request CI：PASS
+  - `make test`：PASS
+  - Chromium browser smoke：PASS
+  - WebKit browser smoke：PASS
+- Sync storage CI：PASS
+- PR Preview：PASS
+- Governance：code-size / dependency audit / dead-code / export-surface 本体均 PASS；只要求把自动收紧后的 unused-type baseline `36 → 33` 提交。
 
-## 7. Phase 6 要求：v9 → v10 一次性 converter
+该 baseline 已在 `79e3237` 提交。确认最新 Governance 全绿后，Phase 5 可标记完成。
 
-Phase 5 收口后才开始。
+## 6. Phase 6 要求：v9 → v10 一次性 converter
 
-- converter 只能在 `scripts/tools/` 或隔离的实施环境中存在；runtime 不得 import。
-- 先读取 v9 数据做 dry-run/shadow conversion。
-- 必须校验：questions/fingerprints、banks/memberships、attempt IDs/totals、practice runs/status、review rounds/items、notes/groups、image asset IDs/size、lifetime/90d/round 指标。
-- converter 必须可重复执行；失败不得破坏或修改生产 v9 remote。
-- 不保留 v9 reader、v10 fallback、双栈协议。
-- 未经用户授权，不做生产 cutover。
+Phase 5 全绿后立即进入，但只能做代码、测试和 dry-run/shadow conversion；未经用户授权不得写生产 v10 head。
 
-## 8. Phase 7–8
+### 强制实现边界
+
+- converter 只能位于 `scripts/tools/` 或隔离实施代码；runtime 不得 import。
+- 读取 v9 remote 必须只读；先完整 hydrate 当前 v9 canonical projection。
+- 输出 v10 shadow data，不能覆盖/删除生产 v9 namespace。
+- converter 必须可重复执行、结果确定；失败后再次执行不能产生额外副作用。
+- 不允许 App runtime 同时理解 v9/v10；不保留 fallback reader、协议协商、旧 wire alias。
+- converter 成功不等于 cutover 获授权。
+
+### dry-run 必须核对的不变量
+
+- question ID / fingerprint。
+- bank / membership。
+- Attempt ID、总数、按 question/run/round 归属。
+- practice run ID、状态、source/item 关系。
+- review round / bank / item 关系。
+- note / group / group item。
+- image asset ID / size descriptor。
+- tombstone/cursor 必要一致性。
+- lifetime / 90d / review-round 指标 old-vs-new differential。
+
+任何 mismatch 都必须 fail closed；不得靠 fallback 或兼容层继续。
+
+## 7. Phase 7–8
 
 Phase 7：删除剩余旧结构、旧命名和兼容技术债，并加强 architecture guards。重点包括：
 
-- 旧 PracticeRun 大对象持久化残余。
-- `practiceRunActivity`。
-- canonical/sync 身份的 derived stats/progress。
-- `attemptRoundIds`。
-- derived checkpoint validator/counts/bridge。
-- 旧 reader/helper。
+- 旧 PracticeRun 大对象持久化/转换残余。
+- `practiceRunActivity` 残余。
+- canonical/sync 身份的 derived stats/progress 残余。
+- `attemptRoundIds` 残余。
+- derived checkpoint validator/counts/bridge 残余。
+- 旧 reader/helper 与版本号式业务命名。
+- 加门禁阻止旧 wire/store/API/compatibility 结构重新出现。
 
 Phase 8：最终全量验证、converter dry-run/cutover、发布和生产 smoke。只有用户明确授权后才能执行生产 cutover / merge / release。
 
-## 9. 关键架构边界
+## 8. 关键架构边界
 
 ### Local database
 
@@ -209,11 +248,11 @@ Phase 8：最终全量验证、converter dry-run/cutover、发布和生产 smoke
 - 每个阶段拆小 commit。
 - GitHub CI 是云端验证基线；不要连接用户 Mac。
 
-## 10. 相关文档
+## 9. 相关文档
 
 - `AGENTS.md`
 - `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`
 - `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`
 - `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`
 
-后续接手者先核对 PR #59 最新 HEAD / commits / CI / diff，再按本文 Phase 5 顺序继续；不要以历史文档中的旧 HEAD 或“Phase 3 未开始”描述覆盖当前实现。
+后续接手者先核对 PR #59 最新 HEAD / commits / CI / diff，再按本文当前阶段继续；不要以历史文档中的旧 HEAD、旧 projection-wire 设计或“Phase 3 未开始”描述覆盖当前实现。
