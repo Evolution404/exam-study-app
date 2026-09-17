@@ -21,12 +21,15 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           path = Path('scripts/tools/check-architecture.mjs')
-          text = path.read_text()
-          old = r'if (/message:\s*[`\'\"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");'
-          new = r'if (/message:\s*[`\'"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one architecture regex occurrence, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
+          lines = path.read_text().splitlines(keepends=True)
+          indexes = [i for i, line in enumerate(lines) if line.startswith('if (/message:')]
+          if len(indexes) != 1:
+              raise SystemExit(f'expected one message protocol guard, found {len(indexes)}')
+          index = indexes[0]
+          if lines[index].count('\\"') != 1:
+              raise SystemExit(f'expected one redundant quote escape, found {lines[index].count(chr(92) + chr(34))}')
+          lines[index] = lines[index].replace('\\"', '"', 1)
+          path.write_text(''.join(lines))
           PY
           git diff --check
       - name: Commit fix and remove one-shot workflow
