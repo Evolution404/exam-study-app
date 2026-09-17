@@ -7,6 +7,7 @@ import {
   createQuestionV7,
   createReviewRoundV7,
   dbV7,
+  addMembershipsV7,
   archiveReviewRoundV7,
   completeReviewRoundV7,
   deleteBankFolderV7,
@@ -21,7 +22,9 @@ import {
   savePracticeRunV7,
   savePracticeProgressV7,
   saveQuestionGroupV7,
+  setQuestionMembershipsV7,
   setPracticeRunStatusV7,
+  splitQuestionV7,
   toggleQuestionFavoriteV7,
   updateQuestionV7,
   updateQuestionsV7,
@@ -315,6 +318,77 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.ok(reads.length >= 1);
   assert.ok(reads.every((readTransaction) => readTransaction.active && readTransaction.mode === "readwrite"), "收藏切换不得在写事务外读取题目");
+}
+
+// R17：批量新增 membership 必须在同一写事务中确认题库、题目与当前排序，避免并发删题库后写入悬空关系。
+{
+  const source = await createBankV7("R17来源题库");
+  const target = await createBankV7("R17目标题库");
+  const question = await createQuestionV7(source.id, { type: "判断", stem: "R17题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalGet = dbV7.banks.get.bind(dbV7.banks);
+  let bankRead: TxSnapshot | undefined;
+  dbV7.banks.get = (async (key) => {
+    if (key === target.id) bankRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.banks.get;
+  try {
+    assert.equal(await addMembershipsV7(target.id, [question.id]), 1);
+  } finally {
+    dbV7.banks.get = originalGet as typeof dbV7.banks.get;
+  }
+  assert.equal(bankRead?.active, true);
+  assert.equal(bankRead?.mode, "readwrite");
+  for (const store of ["banks", "questions", "bankQuestionMemberships", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(bankRead?.storeNames.includes(store), `addMembershipsV7 事务必须包含 ${store}`);
+  }
+}
+
+// R18：替换题目 membership 必须在写事务内读取题目、目标题库和当前 membership。
+{
+  const source = await createBankV7("R18来源题库");
+  const target = await createBankV7("R18目标题库");
+  const question = await createQuestionV7(source.id, { type: "判断", stem: "R18题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  const originalGet = dbV7.questions.get.bind(dbV7.questions);
+  let questionRead: TxSnapshot | undefined;
+  dbV7.questions.get = (async (key) => {
+    if (key === question.id) questionRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.questions.get;
+  try {
+    assert.deepEqual(await setQuestionMembershipsV7(question.id, [target.id]), { added: 1, removed: 1 });
+  } finally {
+    dbV7.questions.get = originalGet as typeof dbV7.questions.get;
+  }
+  assert.equal(questionRead?.active, true);
+  assert.equal(questionRead?.mode, "readwrite");
+  for (const store of ["questions", "banks", "bankQuestionMemberships", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(questionRead?.storeNames.includes(store), `setQuestionMembershipsV7 事务必须包含 ${store}`);
+  }
+}
+
+// R19：拆题必须在写事务内确定原题、membership 与解析，不能搬运事务外的陈旧关系快照。
+{
+  const bankA = await createBankV7("R19题库A");
+  const bankB = await createBankV7("R19题库B");
+  const question = await createQuestionV7(bankA.id, { type: "判断", stem: "R19共享题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
+  await addMembershipsV7(bankB.id, [question.id]);
+  const originalGet = dbV7.questions.get.bind(dbV7.questions);
+  let questionRead: TxSnapshot | undefined;
+  dbV7.questions.get = (async (key) => {
+    if (key === question.id) questionRead = txSnapshot();
+    return originalGet(key);
+  }) as typeof dbV7.questions.get;
+  try {
+    const result = await splitQuestionV7(question.id, [bankB.id]);
+    assert.equal(result.clones.length, 1);
+  } finally {
+    dbV7.questions.get = originalGet as typeof dbV7.questions.get;
+  }
+  assert.equal(questionRead?.active, true);
+  assert.equal(questionRead?.mode, "readwrite");
+  for (const store of ["questions", "bankQuestionMemberships", "notes", "banks", "tombstones", "changeSets", "syncMeta"]) {
+    assert.ok(questionRead?.storeNames.includes(store), `splitQuestionV7 事务必须包含 ${store}`);
+  }
 }
 
 await dbV7.close();

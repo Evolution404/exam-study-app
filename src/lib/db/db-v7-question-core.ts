@@ -122,44 +122,44 @@ export async function splitQuestionV7(
 ): Promise<{ original: QuestionV7; clones: QuestionV7[] }> {
   const questionId = typeof questionIdOrInput === "string" ? questionIdOrInput : questionIdOrInput.questionId;
   const selectedBankIds = typeof questionIdOrInput === "string" ? selectedBankIdsArgument ?? [] : questionIdOrInput.selectedBankIds;
-  const original = await dbV7.questions.get(questionId);
-  if (!original) throw new Error("题目不存在或已被删除。");
-  const wanted = new Set(uniqueStrings(selectedBankIds));
-  const memberships = await dbV7.bankQuestionMemberships.where("questionId").equals(questionId).toArray();
-  const selected = memberships.filter((membership) => wanted.has(membership.bankId));
-  if (!selected.length) return { original, clones: [] };
-  const sourceNote = await dbV7.notes.get(questionId);
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const clone: QuestionV7 = {
-    ...original,
-    id: makeV7Id("question"),
-    content: original.content.map((block) => ({ ...block })),
-    options: original.options.map((option) => option.map((block) => ({ ...block }))),
-    tags: [...original.tags],
-    favorite: original.favorite,
-    updatedAt: timestamp,
-    deviceId,
-  };
-  const movedMemberships = selected.map((membership) => ({
-    ...membership,
-    key: membershipKey(membership.bankId, clone.id),
-    questionId: clone.id,
-    updatedAt: timestamp,
-    deviceId,
-  }));
-  const clonedNote: NoteV7 | undefined = sourceNote ? {
-    ...sourceNote,
-    questionId: clone.id,
-    revision: 1,
-    updatedAt: timestamp,
-    deviceId,
-  } : undefined;
-  const splitSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [
+  return dbV7.transaction("rw", [
     dbV7.questions, dbV7.bankQuestionMemberships, dbV7.notes, dbV7.banks,
-    dbV7.tombstones, dbV7.changeSets,
+    dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
   ], async () => {
+    const original = await dbV7.questions.get(questionId);
+    if (!original) throw new Error("题目不存在或已被删除。");
+    const wanted = new Set(uniqueStrings(selectedBankIds));
+    const memberships = await dbV7.bankQuestionMemberships.where("questionId").equals(questionId).toArray();
+    const selected = memberships.filter((membership) => wanted.has(membership.bankId));
+    if (!selected.length) return { original, clones: [] };
+    const sourceNote = await dbV7.notes.get(questionId);
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const clone: QuestionV7 = {
+      ...original,
+      id: makeV7Id("question"),
+      content: original.content.map((block) => ({ ...block })),
+      options: original.options.map((option) => option.map((block) => ({ ...block }))),
+      tags: [...original.tags],
+      favorite: original.favorite,
+      updatedAt: timestamp,
+      deviceId,
+    };
+    const movedMemberships = selected.map((membership) => ({
+      ...membership,
+      key: membershipKey(membership.bankId, clone.id),
+      questionId: clone.id,
+      updatedAt: timestamp,
+      deviceId,
+    }));
+    const clonedNote: NoteV7 | undefined = sourceNote ? {
+      ...sourceNote,
+      questionId: clone.id,
+      revision: 1,
+      updatedAt: timestamp,
+      deviceId,
+    } : undefined;
+    const splitSequence = await nextV7Sequence(deviceId);
     await dbV7.questions.put(clone);
     for (const membership of selected) {
       await dbV7.bankQuestionMemberships.delete(membership.key);
@@ -172,8 +172,8 @@ export async function splitQuestionV7(
     if (clonedNote) await dbV7.notes.put(clonedNote);
     await enqueueChangeSetV7([{ kind: "question.split", originalQuestionId: original.id, clone, memberships: movedMemberships, deletedMembershipKeys: selected.map((membership) => membership.key), note: clonedNote }], timestamp, { localSequence: splitSequence });
     for (const membership of selected) await refreshBankQuestionCountInTx(membership.bankId);
+    return { original, clones: [clone] };
   });
-  return { original, clones: [clone] };
 }
 
 export const splitQuestion = splitQuestionV7;
@@ -182,36 +182,39 @@ export const splitQuestion = splitQuestionV7;
 export async function addMembershipsV7(bankId: string, questionIds: readonly string[]): Promise<number> {
   const uniqueIds = uniqueStrings(questionIds);
   if (!bankId || !uniqueIds.length) return 0;
-  const [bank, questions, existingMemberships, currentMemberships] = await Promise.all([
-    dbV7.banks.get(bankId),
-    dbV7.questions.bulkGet(uniqueIds),
-    dbV7.bankQuestionMemberships.bulkGet(uniqueIds.map((questionId) => membershipKey(bankId, questionId))),
-    dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray(),
-  ]);
-  if (!bank) throw new Error("题库不存在或已被删除。");
-  if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
-  const existingIds = new Set(existingMemberships.filter(Boolean).map((membership) => membership!.questionId));
-  const missingIds = uniqueIds.filter((questionId) => !existingIds.has(questionId));
-  if (!missingIds.length) return 0;
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const sequence = await nextV7Sequence(deviceId);
-  let sortOrder = currentMemberships.reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
-  const memberships: BankQuestionMembership[] = missingIds.map((questionId) => ({
-    key: membershipKey(bankId, questionId),
-    bankId,
-    questionId,
-    sortOrder: sortOrder++,
-    addedAt: timestamp,
-    updatedAt: timestamp,
-    deviceId,
-  }));
-  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [
+    dbV7.bankQuestionMemberships, dbV7.banks, dbV7.questions,
+    dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+  ], async () => {
+    const [bank, questions, existingMemberships, currentMemberships] = await Promise.all([
+      dbV7.banks.get(bankId),
+      dbV7.questions.bulkGet(uniqueIds),
+      dbV7.bankQuestionMemberships.bulkGet(uniqueIds.map((questionId) => membershipKey(bankId, questionId))),
+      dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray(),
+    ]);
+    if (!bank) throw new Error("题库不存在或已被删除。");
+    if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
+    const existingIds = new Set(existingMemberships.filter(Boolean).map((membership) => membership!.questionId));
+    const missingIds = uniqueIds.filter((questionId) => !existingIds.has(questionId));
+    if (!missingIds.length) return 0;
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const sequence = await nextV7Sequence(deviceId);
+    let sortOrder = currentMemberships.reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
+    const memberships: BankQuestionMembership[] = missingIds.map((questionId) => ({
+      key: membershipKey(bankId, questionId),
+      bankId,
+      questionId,
+      sortOrder: sortOrder++,
+      addedAt: timestamp,
+      updatedAt: timestamp,
+      deviceId,
+    }));
     for (const membership of memberships) await saveMembershipInTx(membership);
     await refreshBankQuestionCountInTx(bankId);
     await enqueueChangeSetV7([{ kind: "membership.bulk.save", memberships }], timestamp, { localSequence: sequence });
+    return memberships.length;
   });
-  return memberships.length;
 }
 
 export async function addMembershipV7(bankId: string, questionId: string): Promise<boolean> {
@@ -221,37 +224,40 @@ export async function addMembershipV7(bankId: string, questionId: string): Promi
 /** Atomically replace one question's bank memberships; an empty list means unfiled. */
 export async function setQuestionMembershipsV7(questionId: string, bankIds: readonly string[]): Promise<{ added: number; removed: number }> {
   const targetBankIds = uniqueStrings(bankIds);
-  const [question, currentMemberships, targetBanks] = await Promise.all([
-    dbV7.questions.get(questionId),
-    dbV7.bankQuestionMemberships.where("questionId").equals(questionId).toArray(),
-    dbV7.banks.bulkGet(targetBankIds),
-  ]);
-  if (!question) throw new Error("题目不存在或已被删除。");
-  if (targetBanks.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
-  const currentBankIds = new Set(currentMemberships.map((membership) => membership.bankId));
-  const targetBankIdSet = new Set(targetBankIds);
-  const removedMemberships = currentMemberships.filter((membership) => !targetBankIdSet.has(membership.bankId));
-  const addedBankIds = targetBankIds.filter((bankId) => !currentBankIds.has(bankId));
-  if (!removedMemberships.length && !addedBankIds.length) return { added: 0, removed: 0 };
+  return dbV7.transaction("rw", [
+    dbV7.questions, dbV7.bankQuestionMemberships, dbV7.banks,
+    dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta,
+  ], async () => {
+    const [question, currentMemberships, targetBanks] = await Promise.all([
+      dbV7.questions.get(questionId),
+      dbV7.bankQuestionMemberships.where("questionId").equals(questionId).toArray(),
+      dbV7.banks.bulkGet(targetBankIds),
+    ]);
+    if (!question) throw new Error("题目不存在或已被删除。");
+    if (targetBanks.some((bank) => !bank)) throw new Error("部分题库不存在或已被删除。");
+    const currentBankIds = new Set(currentMemberships.map((membership) => membership.bankId));
+    const targetBankIdSet = new Set(targetBankIds);
+    const removedMemberships = currentMemberships.filter((membership) => !targetBankIdSet.has(membership.bankId));
+    const addedBankIds = targetBankIds.filter((bankId) => !currentBankIds.has(bankId));
+    if (!removedMemberships.length && !addedBankIds.length) return { added: 0, removed: 0 };
 
-  const existingByAddedBank = await Promise.all(addedBankIds.map((bankId) => dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray()));
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const sequence = await nextV7Sequence(deviceId);
-  const addedMemberships: BankQuestionMembership[] = addedBankIds.map((bankId, index) => {
-    const sortOrder = existingByAddedBank[index].reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
-    return {
-      key: membershipKey(bankId, questionId),
-      bankId,
-      questionId,
-      sortOrder,
-      addedAt: timestamp,
-      updatedAt: timestamp,
-      deviceId,
-    };
-  });
-  const affectedBankIds = uniqueStrings([...addedBankIds, ...removedMemberships.map((membership) => membership.bankId)]);
-  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+    const existingByAddedBank = await Promise.all(addedBankIds.map((bankId) => dbV7.bankQuestionMemberships.where("bankId").equals(bankId).toArray()));
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const sequence = await nextV7Sequence(deviceId);
+    const addedMemberships: BankQuestionMembership[] = addedBankIds.map((bankId, index) => {
+      const sortOrder = existingByAddedBank[index].reduce((max, membership) => Math.max(max, membership.sortOrder), -1) + 1;
+      return {
+        key: membershipKey(bankId, questionId),
+        bankId,
+        questionId,
+        sortOrder,
+        addedAt: timestamp,
+        updatedAt: timestamp,
+        deviceId,
+      };
+    });
+    const affectedBankIds = uniqueStrings([...addedBankIds, ...removedMemberships.map((membership) => membership.bankId)]);
     if (removedMemberships.length) {
       await dbV7.bankQuestionMemberships.bulkDelete(removedMemberships.map((membership) => membership.key));
       await dbV7.tombstones.bulkPut(removedMemberships.map((membership) => ({
@@ -266,8 +272,8 @@ export async function setQuestionMembershipsV7(questionId: string, bankIds: read
     ];
     await enqueueChangeSetV7(mutations, timestamp, { localSequence: sequence });
     for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
+    return { added: addedMemberships.length, removed: removedMemberships.length };
   });
-  return { added: addedMemberships.length, removed: removedMemberships.length };
 }
 
 export function removeMembershipV7(bankId: string, questionId: string): Promise<boolean>;
@@ -280,12 +286,12 @@ export async function removeMembershipV7(
   const questionId = typeof bankIdOrInput === "string" ? questionIdArgument ?? "" : bankIdOrInput.questionId;
   if (!bankId || !questionId) return false;
   const key = membershipKey(bankId, questionId);
-  const current = await dbV7.bankQuestionMemberships.get(key);
-  if (!current) return false;
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const membershipDeleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const current = await dbV7.bankQuestionMemberships.get(key);
+    if (!current) return false;
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const membershipDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankQuestionMemberships.delete(key);
     await dbV7.tombstones.put({
       key: tombstoneKey("membership", key), entityType: "membership", entityId: key,
@@ -293,20 +299,20 @@ export async function removeMembershipV7(
     });
     await enqueueChangeSetV7([{ kind: "membership.remove", bankId, questionId, key, removedAt: timestamp }], timestamp, { localSequence: membershipDeleteSequence });
     await refreshBankQuestionCountInTx(bankId);
+    return true;
   });
-  return true;
 }
 
 export async function removeMembershipsV7(bankId: string, questionIds: readonly string[]): Promise<number> {
   const uniqueIds = [...new Set(questionIds.filter(Boolean))];
   if (!bankId || !uniqueIds.length) return 0;
   const keys = uniqueIds.map((questionId) => membershipKey(bankId, questionId));
-  const memberships = (await dbV7.bankQuestionMemberships.bulkGet(keys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
-  if (!memberships.length) return 0;
-  const timestamp = nowIso();
-  const deviceId = getV7DeviceId();
-  const membershipBulkDeleteSequence = await nextV7Sequence(deviceId);
-  await dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets], async () => {
+  return dbV7.transaction("rw", [dbV7.bankQuestionMemberships, dbV7.banks, dbV7.tombstones, dbV7.changeSets, dbV7.syncMeta], async () => {
+    const memberships = (await dbV7.bankQuestionMemberships.bulkGet(keys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
+    if (!memberships.length) return 0;
+    const timestamp = nowIso();
+    const deviceId = getV7DeviceId();
+    const membershipBulkDeleteSequence = await nextV7Sequence(deviceId);
     await dbV7.bankQuestionMemberships.bulkDelete(memberships.map((membership) => membership.key));
     await dbV7.tombstones.bulkPut(memberships.map((membership) => ({
       key: tombstoneKey("membership", membership.key), entityType: "membership" as const, entityId: membership.key,
@@ -314,8 +320,8 @@ export async function removeMembershipsV7(bankId: string, questionIds: readonly 
     })));
     await enqueueChangeSetV7([{ kind: "membership.bulk.remove", keys: memberships.map((membership) => membership.key), bankId, removedAt: timestamp }], timestamp, { localSequence: membershipBulkDeleteSequence });
     await refreshBankQuestionCountInTx(bankId);
+    return memberships.length;
   });
-  return memberships.length;
 }
 
 export async function toggleQuestionFavoriteV7(questionId: string): Promise<QuestionV7> {
