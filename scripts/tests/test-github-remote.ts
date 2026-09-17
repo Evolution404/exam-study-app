@@ -7,7 +7,7 @@ import {
   SyncBlobIntegrityError,
   SyncImmutableConflictError,
 } from "../../src/lib/sync/github-remote";
-import { SYNC_ASSET_PREFIX, SYNC_CHECKPOINT_PREFIX, SYNC_OBJECT_PREFIX, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
+import { SYNC_ASSET_PREFIX, SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_HEAD_PATH, SYNC_OBJECT_PREFIX, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
 import type { SyncHead } from "../../src/lib/sync/sync-head-types";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
@@ -30,7 +30,7 @@ const generatedAt = "2026-08-13T00:00:00.000Z";
 const checkpointBytes = bytes("checkpoint bytes");
 const checkpointPath = `${SYNC_CHECKPOINT_PREFIX}${digest(checkpointBytes)}.json`;
 const head: SyncHead = {
-  formatVersion: 9,
+  formatVersion: SYNC_FORMAT_VERSION,
   vaultId,
   generatedAt,
   generation: 0,
@@ -56,7 +56,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
   const method = String(init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   calls.push({ method, path: url.pathname, headers, ...(typeof init.body === "string" ? { body: init.body } : {}) });
-  const headPath = `/repos/${owner}/${repo}/contents/sync/v9/head.json`;
+  const headPath = `/repos/${owner}/${repo}/contents/${SYNC_HEAD_PATH}`;
   if (url.pathname === headPath) {
     if (method === "GET") {
       if (!headBytes || !headSha) return new Response("missing", { status: 404 });
@@ -70,7 +70,7 @@ const fakeFetch: typeof fetch = async (input, init = {}) => {
       headBytes = decode(String(request.content));
       headSha = nextSha();
       headEtag = `"head-${counter + 1}"`;
-      return json({ content: { path: "sync/v9/head.json", sha: headSha } }, counter === 1 ? 201 : 200, { ETag: headEtag });
+      return json({ content: { path: SYNC_HEAD_PATH, sha: headSha } }, counter === 1 ? 201 : 200, { ETag: headEtag });
     }
   }
   const contentsMarker = `/repos/${owner}/${repo}/contents/`;
@@ -161,7 +161,7 @@ const headRecoveryRemote = new GitHubRemote({
   owner, repo, branch, token, vaultId, apiBaseUrl: "https://head-recovery.github.test", retryDelayMs: 0, timeoutMs: 500, headTimeoutMs: 20,
   fetch: async (input, init = {}) => {
     const url = new URL(String(input));
-    const isHeadPut = String(init.method ?? "GET").toUpperCase() === "PUT" && url.pathname.endsWith("/contents/sync/v9/head.json");
+    const isHeadPut = String(init.method ?? "GET").toUpperCase() === "PUT" && url.pathname.endsWith(`/contents/${SYNC_HEAD_PATH}`);
     if (isHeadPut && !swallowedHeadResponse) {
       swallowedHeadResponse = true;
       await fakeFetch(input, init);
