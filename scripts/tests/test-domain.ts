@@ -183,4 +183,4 @@ assert.deepEqual(moveContentBlock(textBlocks, "b", 0).map((block) => block.id), 
 assert.deepEqual(replaceContentBlock(textBlocks, "b", { id: "c", type: "text", text: "替换" }).map((block) => block.id), ["a", "c"]);
 assert.deepEqual(deleteContentBlock(textBlocks, "a").map((block) => block.id), ["b"]);
 
-console.log("v7 domain tests passed: scopes, rounds, content blocks, fingerprints and pure editor operations");
+console.log("domain tests passed: scopes, rounds, content blocks, fingerprints and pure editor operations");
