@@ -35,6 +35,15 @@ for (const { file, source } of srcSources) {
   }
 }
 
+const testSources = fs.readdirSync(path.join(root, "scripts/tests"), { recursive: true })
+  .filter((file) => typeof file === "string" && /\.(m?[jt]s|tsx?)$/.test(file))
+  .map((file) => ({ file: `scripts/tests/${file}`, source: read(path.join("scripts/tests", file)) }));
+for (const { file, source } of testSources) {
+  if (/\bv[78]\b/i.test(source)) {
+    fail(`${file} 不得保留 v7/v8 测试标签、夹具、断言或旧实现标记；测试应描述当前业务/同步语义`);
+  }
+}
+
 for (const name of ["color-canvas", "color-surface", "color-surface-raised", "color-text", "color-text-muted", "color-border", "color-primary", "color-danger"]) {
   const definitions = tokens.match(new RegExp(`--${name}:`, "g"))?.length ?? 0;
   if (definitions !== 2) fail(`主题令牌 --${name} 必须同时定义日间和夜间值`);
@@ -78,7 +87,7 @@ const syncRemote = read("src/lib/sync/github-remote.ts");
 const syncLocalCheckpointTypes = read("src/lib/sync/sync-checkpoint-types.ts");
 const syncHistory = read("src/lib/sync/sync-history.ts");
 if (/formatVersion:\s*1\b|legacyEntries|events\/seed/.test(syncRuntime)) fail("客户端不得包含早期同步协议回退");
-if (/message:\s*[`'"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");
+if (/message:\s*[`'\"]sync:[^\n]*v2|contents\/events\/v2/.test(syncRuntime)) fail("客户端不得写入已退役同步协议");
 if (!/syncWithGitHub/.test(syncFacade) || !/from ["']\.\/github-sync-engine["']/.test(syncFacade)) {
   fail("公开 syncWithGitHub 必须仅通过稳定门面委托当前同步引擎");
 }
@@ -138,4 +147,4 @@ if (/rebuildAttemptStatsFromAttempts|study-stats-outcomes/.test(latestOnlySource
 if (/ImageAssetRemoteDescriptor|LEGACY_SINGLE_ASSET_PATH|hydrateLegacyAsset|migratedFrom/.test(latestOnlySources)) fail("客户端不得恢复旧图片布局或历史迁移来源兼容");
 if (/scopedStatsToLegacyAttemptStats/.test(latestOnlySources)) fail("客户端不得恢复旧统计 bridge 命名或兼容入口");
 
-console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");
+console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务/测试命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");
