@@ -14,6 +14,7 @@ export const testGroups = {
     "test:overview",
     "test:progress-boundaries",
     "test:projection-edge",
+    "test:projection-rebuild",
     "test:search-filters",
     "test:practice-setup-model",
     "test:practice-answer-state",
