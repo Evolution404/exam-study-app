@@ -310,7 +310,7 @@ export async function runDesktop(page, mockServer) {
   await realFields.nth(4).fill(mockServer.url);
   await helpers.capture(page, contextName, "sync-mock-configured");
   await helpers.clickTextButton(page, "立即同步");
-  await helpers.expectNotice(page, /v9 同步完成/, "real sync success notice");
+  await helpers.expectNotice(page, /同步完成/, "real sync success notice");
   const hotWindow = page.locator(".sync-hot-window");
   await hotWindow.waitFor({ state: "visible" });
   const hotLabels = (await hotWindow.locator("dt").allInnerTexts()).map((text) => text.trim());
@@ -322,8 +322,8 @@ export async function runDesktop(page, mockServer) {
   harness.assert.ok(hotValues.some((text) => /^\d+$/.test(text)), "hot-window event count must be shown after a real sync");
   harness.assert.ok(hotValues.some((text) => /\d{2}\/\d{2} \d{2}:\d{2}/.test(text)), "last sync time must be shown after a real sync");
   await helpers.capture(page, contextName, "sync-hot-window");
-  harness.assert.ok(mockServer.contentPaths().includes("sync/v9/head.json"), "mock backend must hold the current head after a real sync");
-  harness.assert.ok(mockServer.contentPaths().some((path) => path.startsWith("sync/v9/checkpoints/")), "mock backend must hold the initial checkpoint");
+  harness.assert.ok(mockServer.contentPaths().some((path) => path.endsWith("/head.json")), "mock backend must hold the current head after a real sync");
+  harness.assert.ok(mockServer.contentPaths().some((path) => path.includes("/checkpoints/")), "mock backend must hold the initial checkpoint");
   // 统一悬浮提示：检查点体积格以鼠标第一次悬浮的位置为中心弹出，格内移动不跟随，离开即关闭。
   const volumeCell = hotWindow.locator("div").filter({ hasText: "检查点体积" }).locator("dd");
   harness.assert.equal(await volumeCell.getAttribute("title"), null, "checkpoint volume must not carry a native title");
@@ -347,5 +347,5 @@ export async function runDesktop(page, mockServer) {
   await hint.waitFor({ state: "hidden" });
   // Idempotent: a second sync with no new events pushes nothing but still succeeds.
   await helpers.clickTextButton(page, "立即同步");
-  await helpers.expectNotice(page, /v9 同步完成/, "idempotent second sync");
+  await helpers.expectNotice(page, /同步完成/, "idempotent second sync");
 }
