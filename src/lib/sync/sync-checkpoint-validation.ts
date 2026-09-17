@@ -1,11 +1,33 @@
 import { QUESTION_TYPE_ORDER } from "../../types/types";
-import type { Attempt, BankQuestionMembership, Bank, ImageAsset, PracticeRun, QuestionSolution, Question } from "../db/types";
-import { practiceRunPayloadIssue } from "../practice/practice-run-invariants";
+import type { BankQuestionMembership, Bank, ImageAsset, QuestionSolution, Question } from "../db/types";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const QUESTION_TYPES = new Set<string>(QUESTION_TYPE_ORDER);
+const STATE_FIELDS = [
+  "banks",
+  "bankFolders",
+  "questions",
+  "memberships",
+  "imageAssets",
+  "attempts",
+  "notes",
+  "practiceRuns",
+  "practiceRunSources",
+  "practiceRunItems",
+  "questionGroups",
+  "questionGroupItems",
+  "reviewRounds",
+  "reviewRoundBanks",
+  "reviewRoundItems",
+  "tombstones",
+] as const satisfies readonly (keyof SyncCheckpointState)[];
+const COUNT_FIELDS = [
+  ...STATE_FIELDS,
+  "totalAttempts",
+  "totalPracticeRuns",
+] as const satisfies readonly (keyof SyncCheckpointCounts)[];
 
 function fail(message: string): never {
   throw new Error(`invalid checkpoint: ${message}`);
@@ -23,8 +45,12 @@ function assertString(value: unknown, field: string, allowEmpty = false): assert
   if (typeof value !== "string" || (!allowEmpty && value.length === 0)) fail(`${field} must be a string`);
 }
 
-function assertSha(value: unknown, field: string, pattern = SHA256): asserts value is string {
-  if (typeof value !== "string" || !pattern.test(value)) fail(`${field} must be a lowercase digest`);
+function assertOptionalString(value: unknown, field: string, allowEmpty = false): void {
+  if (value !== undefined) assertString(value, field, allowEmpty);
+}
+
+function assertSha(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || !SHA256.test(value)) fail(`${field} must be a lowercase digest`);
 }
 
 function assertArray(value: unknown, field: string): asserts value is unknown[] {
@@ -40,7 +66,12 @@ function assertEntityId(value: unknown, field: string): asserts value is string 
   if (value.length > 512) fail(`${field} is too long`);
 }
 
-function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "blob">>, index: number): asserts asset is Omit<ImageAsset, "blob"> {
+function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], field: string): void {
+  const allowedSet = new Set(allowed);
+  for (const key of Object.keys(value)) if (!allowedSet.has(key)) fail(`${field}.${key} is not part of the current canonical wire`);
+}
+
+function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "blob">>, index: number): void {
   if (!isRecord(asset)) fail(`state.imageAssets[${index}] must be an object`);
   assertSha(asset.id, `state.imageAssets[${index}].id`);
   if (asset.mimeType !== "image/webp" && asset.mimeType !== "image/jpeg" && asset.mimeType !== "image/png") fail(`state.imageAssets[${index}].mimeType is not supported`);
@@ -49,6 +80,7 @@ function assertImageAsset(asset: unknown, assets: Map<string, Omit<ImageAsset, "
   assertSafeInt(asset.height, `state.imageAssets[${index}].height`, 1);
   if ("blob" in asset && asset.blob !== undefined) fail(`state.imageAssets[${index}] must not contain a Blob`);
   if ("remote" in asset) fail(`state.imageAssets[${index}] must not contain retired remote metadata`);
+  if (assets.has(asset.id)) fail(`duplicate image asset ${asset.id}`);
   assets.set(asset.id, asset as Omit<ImageAsset, "blob">);
 }
 
@@ -62,8 +94,8 @@ function validateContentBlocks(value: unknown, assets: Map<string, Omit<ImageAss
     else if (block.type === "image") {
       assertString(block.assetId, `${field}[${index}].assetId`);
       if (!assets.has(block.assetId)) fail(`${field}[${index}] references missing image asset ${block.assetId}`);
-      if (block.alt !== undefined) assertString(block.alt, `${field}[${index}].alt`, true);
-      if (block.caption !== undefined) assertString(block.caption, `${field}[${index}].caption`, true);
+      assertOptionalString(block.alt, `${field}[${index}].alt`, true);
+      assertOptionalString(block.caption, `${field}[${index}].caption`, true);
     } else fail(`${field}[${index}].type is invalid`);
   }
 }
@@ -167,111 +199,7 @@ function validateMembership(value: unknown, banks: Set<string>, questions: Set<s
   assertString(value.deviceId, `state.memberships[${index}].deviceId`);
 }
 
-function validateAttempt(value: unknown, questions: Set<string>, index: number): asserts value is Attempt {
-  if (!isRecord(value)) fail(`state.attempts[${index}] must be an object`);
-  assertEntityId(value.id, `state.attempts[${index}].id`);
-  assertEntityId(value.runId, `state.attempts[${index}].runId`);
-  assertEntityId(value.questionId, `state.attempts[${index}].questionId`);
-  if (!questions.has(value.questionId)) fail(`state.attempts[${index}] references missing question ${value.questionId}`);
-  assertString(value.selected, `state.attempts[${index}].selected`, true);
-  if (typeof value.correct !== "boolean") fail(`state.attempts[${index}].correct must be boolean`);
-  assertSafeInt(value.elapsedMs, `state.attempts[${index}].elapsedMs`);
-  assertDate(value.createdAt, `state.attempts[${index}].createdAt`);
-  assertString(value.deviceId, `state.attempts[${index}].deviceId`);
-  if (value.sourceBankId !== undefined) assertString(value.sourceBankId, `state.attempts[${index}].sourceBankId`);
-}
-
-function validateRun(value: unknown, banks: Set<string>, questions: Set<string>, rounds: Set<string>, index: number): asserts value is PracticeRun {
-  if (!isRecord(value)) fail(`state.practiceRuns[${index}] must be an object`);
-  assertEntityId(value.id, `state.practiceRuns[${index}].id`);
-  assertEntityId(value.bankId, `state.practiceRuns[${index}].bankId`);
-  if (!banks.has(value.bankId)) fail(`state.practiceRuns[${index}] references missing bank ${value.bankId}`);
-  assertArray(value.bankIds, `state.practiceRuns[${index}].bankIds`);
-  value.bankIds.forEach((bankId, bankIndex) => {
-    assertString(bankId, `state.practiceRuns[${index}].bankIds[${bankIndex}]`);
-    if (!banks.has(bankId)) fail(`state.practiceRuns[${index}] references missing bank ${bankId}`);
-  });
-  assertString(value.bankName, `state.practiceRuns[${index}].bankName`, true);
-  assertString(value.mode, `state.practiceRuns[${index}].mode`);
-  assertString(value.modeLabel, `state.practiceRuns[${index}].modeLabel`, true);
-  assertArray(value.questionIds, `state.practiceRuns[${index}].questionIds`);
-  value.questionIds.forEach((questionId, questionIndex) => {
-    assertString(questionId, `state.practiceRuns[${index}].questionIds[${questionIndex}]`);
-    if (!questions.has(questionId)) fail(`state.practiceRuns[${index}] references missing question ${questionId}`);
-  });
-  const payloadIssue = practiceRunPayloadIssue(value, value.questionIds as string[]);
-  if (payloadIssue) fail(`state.practiceRuns[${index}].${payloadIssue}`);
-  if (value.reviewRoundId !== undefined) {
-    assertString(value.reviewRoundId, `state.practiceRuns[${index}].reviewRoundId`);
-    if (!rounds.has(value.reviewRoundId)) fail(`state.practiceRuns[${index}] references missing round ${value.reviewRoundId}`);
-  }
-}
-
-function validateStats(state: SyncCheckpointState, questions: Set<string>, attempts: Set<string>, rounds: Set<string>): void {
-  state.attemptStats.forEach((stats, index) => {
-    if (!isRecord(stats)) fail(`state.attemptStats[${index}] must be an object`);
-    assertString(stats.questionId, `state.attemptStats[${index}].questionId`);
-    if (!questions.has(stats.questionId)) fail(`state.attemptStats[${index}] references missing question`);
-    ["total", "correct", "wrong", "giveUps", "totalElapsedMs", "currentCorrectStreak", "correctStreakAfterWrong"].forEach((field) => assertSafeInt(stats[field], `state.attemptStats[${index}].${field}`));
-    assertDate(stats.firstAttemptAt, `state.attemptStats[${index}].firstAttemptAt`);
-    assertDate(stats.latestAttemptAt, `state.attemptStats[${index}].latestAttemptAt`);
-    if (typeof stats.firstAttemptCorrect !== "boolean" || typeof stats.hasBeenWrong !== "boolean") fail(`state.attemptStats[${index}] boolean fields are invalid`);
-    assertArray(stats.recentOutcomes, `state.attemptStats[${index}].recentOutcomes`);
-    stats.recentOutcomes.forEach((outcome, outcomeIndex) => {
-      if (!isRecord(outcome)) fail(`state.attemptStats[${index}].recentOutcomes[${outcomeIndex}] must be an object`);
-      assertString(outcome.id, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].id`);
-      if (!attempts.has(outcome.id)) fail(`state.attemptStats[${index}] references missing attempt ${outcome.id}`);
-      assertDate(outcome.createdAt, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
-      if (typeof outcome.correct !== "boolean") fail(`state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
-      assertSafeInt(outcome.elapsedMs, `state.attemptStats[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
-    });
-  });
-  state.attemptDailyStats.forEach((stats, index) => {
-    if (!isRecord(stats)) fail(`state.attemptDailyStats[${index}] must be an object`);
-    assertString(stats.key, `state.attemptDailyStats[${index}].key`);
-    assertString(stats.date, `state.attemptDailyStats[${index}].date`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(stats.date)) fail(`state.attemptDailyStats[${index}].date is invalid`);
-    assertString(stats.questionId, `state.attemptDailyStats[${index}].questionId`);
-    if (!questions.has(stats.questionId)) fail(`state.attemptDailyStats[${index}] references missing question`);
-    if (stats.key !== `${stats.date}:${stats.questionId}`) fail(`state.attemptDailyStats[${index}].key is not canonical`);
-    ["total", "correct", "wrong", "giveUps", "totalElapsedMs"].forEach((field) => assertSafeInt(stats[field], `state.attemptDailyStats[${index}].${field}`));
-  });
-  state.reviewRoundProgress.forEach((progress, index) => {
-    if (!isRecord(progress)) fail(`state.reviewRoundProgress[${index}] must be an object`);
-    assertString(progress.key, `state.reviewRoundProgress[${index}].key`);
-    assertString(progress.roundId, `state.reviewRoundProgress[${index}].roundId`);
-    assertString(progress.questionId, `state.reviewRoundProgress[${index}].questionId`);
-    if (!rounds.has(progress.roundId) || !questions.has(progress.questionId)) fail(`state.reviewRoundProgress[${index}] references missing round/question`);
-    if (progress.key !== `${progress.roundId}:${progress.questionId}`) fail(`state.reviewRoundProgress[${index}].key is not canonical`);
-    ["attempts", "correct", "wrong", "giveUps", "totalElapsedMs", "currentCorrectStreak", "correctStreakAfterWrong"].forEach((field) => assertSafeInt(progress[field], `state.reviewRoundProgress[${index}].${field}`));
-    if (progress.attempts < 1) fail(`state.reviewRoundProgress[${index}].attempts must be >= 1`);
-    assertDate(progress.firstAttemptAt, `state.reviewRoundProgress[${index}].firstAttemptAt`);
-    assertDate(progress.latestAttemptAt, `state.reviewRoundProgress[${index}].latestAttemptAt`);
-    if (typeof progress.firstAttemptCorrect !== "boolean" || typeof progress.hasBeenWrong !== "boolean") fail(`state.reviewRoundProgress[${index}] boolean fields are invalid`);
-    assertArray(progress.recentOutcomes, `state.reviewRoundProgress[${index}].recentOutcomes`);
-    if (!progress.recentOutcomes.length) fail(`state.reviewRoundProgress[${index}].recentOutcomes must contain evidence`);
-    progress.recentOutcomes.forEach((outcome, outcomeIndex) => {
-      if (!isRecord(outcome)) fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}] must be an object`);
-      assertString(outcome.id, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].id`);
-      if (!attempts.has(outcome.id)) fail(`state.reviewRoundProgress[${index}] references missing attempt ${outcome.id}`);
-      assertDate(outcome.createdAt, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].createdAt`);
-      if (typeof outcome.correct !== "boolean") fail(`state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].correct must be boolean`);
-      assertSafeInt(outcome.elapsedMs, `state.reviewRoundProgress[${index}].recentOutcomes[${outcomeIndex}].elapsedMs`);
-    });
-  });
-}
-
-/** Strictly validate an unknown value as a complete current checkpoint. */
-export function validateSyncCheckpoint(value: unknown): asserts value is SyncCheckpoint {
-  if (!isRecord(value) || value.formatVersion !== SYNC_CHECKPOINT_FORMAT) fail("formatVersion must be 7");
-  assertDate(value.generatedAt, "generatedAt");
-  if (!isRecord(value.state)) fail("state must be an object");
-  const state = value.state as unknown as SyncCheckpointState;
-  const arrayFields: Array<keyof SyncCheckpointState> = [
-    "banks", "bankFolders", "questions", "memberships", "imageAssets", "attemptStats", "attemptDailyStats", "attempts", "notes", "practiceRuns", "practiceRunStats", "questionGroups", "reviewRounds", "reviewRoundProgress", "tombstones",
-  ];
-  for (const field of arrayFields) assertArray((state as unknown as Record<string, unknown>)[field], `state.${field}`);
-
+function validateCanonicalState(state: SyncCheckpointState): void {
   const folders = new Set<string>();
   state.bankFolders.forEach((folder, index) => {
     if (!isRecord(folder)) fail(`state.bankFolders[${index}] must be an object`);
@@ -281,16 +209,33 @@ export function validateSyncCheckpoint(value: unknown): asserts value is SyncChe
     assertDate(folder.createdAt, `state.bankFolders[${index}].createdAt`);
     assertDate(folder.updatedAt, `state.bankFolders[${index}].updatedAt`);
     assertString(folder.deviceId, `state.bankFolders[${index}].deviceId`);
+    if (folders.has(folder.id)) fail(`duplicate bank folder ${folder.id}`);
     folders.add(folder.id);
   });
+
   const banks = new Set<string>();
-  state.banks.forEach((bank, index) => { validateBank(bank, folders, index); if (banks.has(bank.id)) fail(`duplicate bank ${bank.id}`); banks.add(bank.id); });
+  state.banks.forEach((bank, index) => {
+    validateBank(bank, folders, index);
+    if (banks.has(bank.id)) fail(`duplicate bank ${bank.id}`);
+    banks.add(bank.id);
+  });
+
   const assets = new Map<string, Omit<ImageAsset, "blob">>();
-  state.imageAssets.forEach((asset, index) => { assertImageAsset(asset, assets, index); });
+  state.imageAssets.forEach((asset, index) => assertImageAsset(asset, assets, index));
+
   const questions = new Set<string>();
-  state.questions.forEach((question, index) => { validateQuestion(question, assets, index); if (questions.has(question.id)) fail(`duplicate question ${question.id}`); questions.add(question.id); });
+  state.questions.forEach((question, index) => {
+    validateQuestion(question, assets, index);
+    if (questions.has(question.id)) fail(`duplicate question ${question.id}`);
+    questions.add(question.id);
+  });
+
   const memberships = new Set<string>();
-  state.memberships.forEach((membership, index) => { validateMembership(membership, banks, questions, index); if (memberships.has(membership.key)) fail(`duplicate membership ${membership.key}`); memberships.add(membership.key); });
+  state.memberships.forEach((membership, index) => {
+    validateMembership(membership, banks, questions, index);
+    if (memberships.has(membership.key)) fail(`duplicate membership ${membership.key}`);
+    memberships.add(membership.key);
+  });
   for (const bank of state.banks) {
     const expected = state.memberships.filter((membership) => membership.bankId === bank.id).length;
     if (bank.questionCount !== expected) fail(`bank ${bank.id} questionCount does not match memberships`);
@@ -301,50 +246,217 @@ export function validateSyncCheckpoint(value: unknown): asserts value is SyncChe
     if (!isRecord(round)) fail(`state.reviewRounds[${index}] must be an object`);
     assertEntityId(round.id, `state.reviewRounds[${index}].id`);
     assertString(round.name, `state.reviewRounds[${index}].name`, true);
-    assertArray(round.bankIds, `state.reviewRounds[${index}].bankIds`);
-    round.bankIds.forEach((bankId, bankIndex) => { assertString(bankId, `state.reviewRounds[${index}].bankIds[${bankIndex}]`); if (!banks.has(bankId)) fail(`state.reviewRounds[${index}] references missing bank`); });
     if (!["active", "completed", "archived"].includes(String(round.status))) fail(`state.reviewRounds[${index}].status is invalid`);
     assertDate(round.startedAt, `state.reviewRounds[${index}].startedAt`);
     assertDate(round.createdAt, `state.reviewRounds[${index}].createdAt`);
     assertDate(round.updatedAt, `state.reviewRounds[${index}].updatedAt`);
     assertString(round.deviceId, `state.reviewRounds[${index}].deviceId`);
     if (round.completedAt !== undefined) assertDate(round.completedAt, `state.reviewRounds[${index}].completedAt`);
-    if (round.finalQuestionIds !== undefined) {
-      assertArray(round.finalQuestionIds, `state.reviewRounds[${index}].finalQuestionIds`);
-      round.finalQuestionIds.forEach((questionId, questionIndex) => { assertString(questionId, `state.reviewRounds[${index}].finalQuestionIds[${questionIndex}]`); if (!questions.has(questionId)) fail(`state.reviewRounds[${index}] references missing final question`); });
-    }
     if (rounds.has(round.id)) fail(`duplicate review round ${round.id}`);
     rounds.add(round.id);
   });
 
+  const roundBanks = new Set<string>();
+  state.reviewRoundBanks.forEach((relation, index) => {
+    if (!isRecord(relation)) fail(`state.reviewRoundBanks[${index}] must be an object`);
+    assertEntityId(relation.roundId, `state.reviewRoundBanks[${index}].roundId`);
+    assertEntityId(relation.bankId, `state.reviewRoundBanks[${index}].bankId`);
+    assertSafeInt(relation.position, `state.reviewRoundBanks[${index}].position`);
+    if (!rounds.has(relation.roundId)) fail(`state.reviewRoundBanks[${index}] references missing round`);
+    if (!banks.has(relation.bankId)) fail(`state.reviewRoundBanks[${index}] references missing bank`);
+    const key = `${relation.roundId}:${relation.bankId}`;
+    if (roundBanks.has(key)) fail(`duplicate review round bank ${key}`);
+    roundBanks.add(key);
+  });
+
+  const roundItems = new Set<string>();
+  state.reviewRoundItems.forEach((relation, index) => {
+    if (!isRecord(relation)) fail(`state.reviewRoundItems[${index}] must be an object`);
+    assertEntityId(relation.roundId, `state.reviewRoundItems[${index}].roundId`);
+    assertEntityId(relation.questionId, `state.reviewRoundItems[${index}].questionId`);
+    assertSafeInt(relation.position, `state.reviewRoundItems[${index}].position`);
+    if (!rounds.has(relation.roundId)) fail(`state.reviewRoundItems[${index}] references missing round`);
+    if (!questions.has(relation.questionId)) fail(`state.reviewRoundItems[${index}] references missing question`);
+    const key = `${relation.roundId}:${relation.questionId}`;
+    if (roundItems.has(key)) fail(`duplicate review round item ${key}`);
+    roundItems.add(key);
+  });
+
   const runs = new Set<string>();
-  state.practiceRuns.forEach((run, index) => { validateRun(run, banks, questions, rounds, index); if (runs.has(run.id)) fail(`duplicate practice run ${run.id}`); runs.add(run.id); });
+  state.practiceRuns.forEach((run, index) => {
+    if (!isRecord(run)) fail(`state.practiceRuns[${index}] must be an object`);
+    assertEntityId(run.id, `state.practiceRuns[${index}].id`);
+    assertString(run.mode, `state.practiceRuns[${index}].mode`);
+    assertString(run.modeLabel, `state.practiceRuns[${index}].modeLabel`, true);
+    assertString(run.bankNameSnapshot, `state.practiceRuns[${index}].bankNameSnapshot`, true);
+    if (!["in_progress", "completed", "abandoned"].includes(String(run.status))) fail(`state.practiceRuns[${index}].status is invalid`);
+    assertDate(run.startedAt, `state.practiceRuns[${index}].startedAt`);
+    assertDate(run.updatedAt, `state.practiceRuns[${index}].updatedAt`);
+    assertDate(run.activityAt, `state.practiceRuns[${index}].activityAt`);
+    assertSafeInt(run.revision, `state.practiceRuns[${index}].revision`);
+    if (run.lastAnsweredIndex !== undefined) assertSafeInt(run.lastAnsweredIndex, `state.practiceRuns[${index}].lastAnsweredIndex`);
+    if (run.reviewRoundId !== undefined) {
+      assertEntityId(run.reviewRoundId, `state.practiceRuns[${index}].reviewRoundId`);
+      if (!rounds.has(run.reviewRoundId)) fail(`state.practiceRuns[${index}] references missing round ${run.reviewRoundId}`);
+    }
+    if (runs.has(run.id)) fail(`duplicate practice run ${run.id}`);
+    runs.add(run.id);
+  });
+
+  const runSources = new Set<string>();
+  state.practiceRunSources.forEach((source, index) => {
+    if (!isRecord(source)) fail(`state.practiceRunSources[${index}] must be an object`);
+    assertEntityId(source.runId, `state.practiceRunSources[${index}].runId`);
+    assertEntityId(source.bankId, `state.practiceRunSources[${index}].bankId`);
+    assertString(source.bankNameSnapshot, `state.practiceRunSources[${index}].bankNameSnapshot`, true);
+    assertSafeInt(source.position, `state.practiceRunSources[${index}].position`);
+    if (!runs.has(source.runId)) fail(`state.practiceRunSources[${index}] references missing run`);
+    const key = `${source.runId}:${source.bankId}`;
+    if (runSources.has(key)) fail(`duplicate practice run source ${key}`);
+    runSources.add(key);
+  });
+
+  const runItems = new Set<string>();
+  state.practiceRunItems.forEach((item, index) => {
+    if (!isRecord(item)) fail(`state.practiceRunItems[${index}] must be an object`);
+    assertEntityId(item.runId, `state.practiceRunItems[${index}].runId`);
+    assertEntityId(item.questionId, `state.practiceRunItems[${index}].questionId`);
+    assertSafeInt(item.position, `state.practiceRunItems[${index}].position`);
+    if (!QUESTION_TYPES.has(String(item.questionTypeSnapshot))) fail(`state.practiceRunItems[${index}].questionTypeSnapshot is invalid`);
+    assertArray(item.optionOrder, `state.practiceRunItems[${index}].optionOrder`);
+    item.optionOrder.forEach((position, positionIndex) => assertSafeInt(position, `state.practiceRunItems[${index}].optionOrder[${positionIndex}]`));
+    if (!runs.has(item.runId)) fail(`state.practiceRunItems[${index}] references missing run`);
+    if (!questions.has(item.questionId)) fail(`state.practiceRunItems[${index}] references missing question`);
+    assertOptionalString(item.submittedAttemptId, `state.practiceRunItems[${index}].submittedAttemptId`);
+    const key = `${item.runId}:${item.questionId}`;
+    if (runItems.has(key)) fail(`duplicate practice run item ${key}`);
+    runItems.add(key);
+  });
+
   const attempts = new Set<string>();
-  state.attempts.forEach((attempt, index) => { validateAttempt(attempt, questions, index); if (attempts.has(attempt.id)) fail(`duplicate attempt ${attempt.id}`); attempts.add(attempt.id); });
-  validateStats(state, questions, attempts, rounds);
-  state.notes.forEach((note, index) => { if (!isRecord(note)) fail(`state.notes[${index}] must be an object`); assertString(note.questionId, `state.notes[${index}].questionId`); if (!questions.has(note.questionId)) fail(`state.notes[${index}] references missing question`); assertString(note.content, `state.notes[${index}].content`, true); assertSafeInt(note.revision, `state.notes[${index}].revision`); assertDate(note.updatedAt, `state.notes[${index}].updatedAt`); assertString(note.deviceId, `state.notes[${index}].deviceId`); });
-  state.questionGroups.forEach((group, index) => { if (!isRecord(group)) fail(`state.questionGroups[${index}] must be an object`); assertEntityId(group.id, `state.questionGroups[${index}].id`); assertString(group.name, `state.questionGroups[${index}].name`); assertArray(group.items, `state.questionGroups[${index}].items`); group.items.forEach((item, itemIndex) => { if (!isRecord(item)) fail(`state.questionGroups[${index}].items[${itemIndex}] must be an object`); assertString(item.questionId, `state.questionGroups[${index}].items[${itemIndex}].questionId`); if (!questions.has(item.questionId)) fail(`state.questionGroups[${index}] references missing question`); assertString(item.note, `state.questionGroups[${index}].items[${itemIndex}].note`, true); }); assertDate(group.createdAt, `state.questionGroups[${index}].createdAt`); assertDate(group.updatedAt, `state.questionGroups[${index}].updatedAt`); assertString(group.deviceId, `state.questionGroups[${index}].deviceId`); });
-  state.practiceRunStats.forEach((stats, index) => { if (!isRecord(stats)) fail(`state.practiceRunStats[${index}] must be an object`); assertString(stats.key, `state.practiceRunStats[${index}].key`); assertString(stats.bankId, `state.practiceRunStats[${index}].bankId`); if (stats.key !== stats.bankId) fail(`state.practiceRunStats[${index}].key must equal bankId`); if (stats.bankId !== "__all__" && !banks.has(stats.bankId)) fail(`state.practiceRunStats[${index}] references missing bank`); ["total", "completed", "inProgress", "abandoned"].forEach((field) => assertSafeInt(stats[field], `state.practiceRunStats[${index}].${field}`)); assertDate(stats.latestUpdatedAt, `state.practiceRunStats[${index}].latestUpdatedAt`); });
-  state.tombstones.forEach((tombstone, index) => { if (!isRecord(tombstone)) fail(`state.tombstones[${index}] must be an object`); assertString(tombstone.key, `state.tombstones[${index}].key`); assertString(tombstone.entityType, `state.tombstones[${index}].entityType`); if (!["bank", "bankFolder", "question", "practiceRun", "questionGroup", "membership", "imageAsset", "note", "attempt"].includes(tombstone.entityType)) fail(`state.tombstones[${index}].entityType is invalid`); assertString(tombstone.entityId, `state.tombstones[${index}].entityId`); assertDate(tombstone.deletedAt, `state.tombstones[${index}].deletedAt`); assertString(tombstone.deviceId, `state.tombstones[${index}].deviceId`); assertString(tombstone.eventId, `state.tombstones[${index}].eventId`); assertSafeInt(tombstone.sequence, `state.tombstones[${index}].sequence`); });
+  state.attempts.forEach((attempt, index) => {
+    if (!isRecord(attempt)) fail(`state.attempts[${index}] must be an object`);
+    assertEntityId(attempt.id, `state.attempts[${index}].id`);
+    assertEntityId(attempt.runId, `state.attempts[${index}].runId`);
+    assertEntityId(attempt.questionId, `state.attempts[${index}].questionId`);
+    if (!runs.has(attempt.runId)) fail(`state.attempts[${index}] references missing run ${attempt.runId}`);
+    if (!questions.has(attempt.questionId)) fail(`state.attempts[${index}] references missing question ${attempt.questionId}`);
+    assertString(attempt.selected, `state.attempts[${index}].selected`, true);
+    if (typeof attempt.correct !== "boolean") fail(`state.attempts[${index}].correct must be boolean`);
+    assertSafeInt(attempt.elapsedMs, `state.attempts[${index}].elapsedMs`);
+    assertDate(attempt.createdAt, `state.attempts[${index}].createdAt`);
+    assertString(attempt.deviceId, `state.attempts[${index}].deviceId`);
+    if (attempt.reviewRoundId !== undefined) {
+      assertEntityId(attempt.reviewRoundId, `state.attempts[${index}].reviewRoundId`);
+      if (!rounds.has(attempt.reviewRoundId)) fail(`state.attempts[${index}] references missing round`);
+    }
+    assertOptionalString(attempt.sourceBankId, `state.attempts[${index}].sourceBankId`);
+    if (attempts.has(attempt.id)) fail(`duplicate attempt ${attempt.id}`);
+    attempts.add(attempt.id);
+  });
+  state.practiceRunItems.forEach((item, index) => {
+    if (item.submittedAttemptId !== undefined && !attempts.has(item.submittedAttemptId)) fail(`state.practiceRunItems[${index}] references missing submitted attempt ${item.submittedAttemptId}`);
+  });
+
+  state.notes.forEach((note, index) => {
+    if (!isRecord(note)) fail(`state.notes[${index}] must be an object`);
+    assertEntityId(note.questionId, `state.notes[${index}].questionId`);
+    if (!questions.has(note.questionId)) fail(`state.notes[${index}] references missing question`);
+    assertString(note.content, `state.notes[${index}].content`, true);
+    assertSafeInt(note.revision, `state.notes[${index}].revision`);
+    assertDate(note.updatedAt, `state.notes[${index}].updatedAt`);
+    assertString(note.deviceId, `state.notes[${index}].deviceId`);
+  });
+
+  const groups = new Set<string>();
+  state.questionGroups.forEach((group, index) => {
+    if (!isRecord(group)) fail(`state.questionGroups[${index}] must be an object`);
+    assertEntityId(group.id, `state.questionGroups[${index}].id`);
+    assertString(group.name, `state.questionGroups[${index}].name`);
+    assertString(group.type, `state.questionGroups[${index}].type`);
+    assertString(group.description, `state.questionGroups[${index}].description`, true);
+    assertDate(group.createdAt, `state.questionGroups[${index}].createdAt`);
+    assertDate(group.updatedAt, `state.questionGroups[${index}].updatedAt`);
+    assertString(group.deviceId, `state.questionGroups[${index}].deviceId`);
+    if (groups.has(group.id)) fail(`duplicate question group ${group.id}`);
+    groups.add(group.id);
+  });
+  const groupItems = new Set<string>();
+  state.questionGroupItems.forEach((item, index) => {
+    if (!isRecord(item)) fail(`state.questionGroupItems[${index}] must be an object`);
+    assertEntityId(item.groupId, `state.questionGroupItems[${index}].groupId`);
+    assertEntityId(item.questionId, `state.questionGroupItems[${index}].questionId`);
+    assertSafeInt(item.position, `state.questionGroupItems[${index}].position`);
+    assertOptionalString(item.note, `state.questionGroupItems[${index}].note`, true);
+    if (!groups.has(item.groupId)) fail(`state.questionGroupItems[${index}] references missing group`);
+    if (!questions.has(item.questionId)) fail(`state.questionGroupItems[${index}] references missing question`);
+    const key = `${item.groupId}:${item.questionId}`;
+    if (groupItems.has(key)) fail(`duplicate question group item ${key}`);
+    groupItems.add(key);
+  });
+
+  state.tombstones.forEach((tombstone, index) => {
+    if (!isRecord(tombstone)) fail(`state.tombstones[${index}] must be an object`);
+    assertString(tombstone.key, `state.tombstones[${index}].key`);
+    assertString(tombstone.entityType, `state.tombstones[${index}].entityType`);
+    if (!["bank", "bankFolder", "question", "practiceRun", "questionGroup", "membership", "imageAsset", "note", "attempt"].includes(tombstone.entityType)) fail(`state.tombstones[${index}].entityType is invalid`);
+    assertEntityId(tombstone.entityId, `state.tombstones[${index}].entityId`);
+    assertDate(tombstone.deletedAt, `state.tombstones[${index}].deletedAt`);
+    assertString(tombstone.deviceId, `state.tombstones[${index}].deviceId`);
+    assertString(tombstone.eventId, `state.tombstones[${index}].eventId`);
+    assertSafeInt(tombstone.sequence, `state.tombstones[${index}].sequence`);
+  });
+}
+
+/** Strictly validate an unknown value as a complete current checkpoint. */
+export function validateSyncCheckpoint(value: unknown): asserts value is SyncCheckpoint {
+  if (!isRecord(value) || value.formatVersion !== SYNC_CHECKPOINT_FORMAT) fail(`formatVersion must be ${SYNC_CHECKPOINT_FORMAT}`);
+  assertDate(value.generatedAt, "generatedAt");
+  if (!isRecord(value.state)) fail("state must be an object");
+  assertExactKeys(value.state, STATE_FIELDS, "state");
+  for (const field of STATE_FIELDS) assertArray(value.state[field], `state.${field}`);
+  const state = value.state as unknown as SyncCheckpointState;
+  validateCanonicalState(state);
 
   if (!isRecord(value.cursors)) fail("cursors must be an object");
-  for (const [deviceId, sequence] of Object.entries(value.cursors)) { assertString(deviceId, "cursor device id"); assertSafeInt(sequence, `cursors.${deviceId}`); }
+  for (const [deviceId, sequence] of Object.entries(value.cursors)) {
+    assertString(deviceId, "cursor device id");
+    assertSafeInt(sequence, `cursors.${deviceId}`);
+  }
+
   if (!isRecord(value.counts)) fail("counts must be an object");
-  const counts = value.counts;
+  assertExactKeys(value.counts, COUNT_FIELDS, "counts");
   const expected: SyncCheckpointCounts = {
-    banks: state.banks.length, bankFolders: state.bankFolders.length, questions: state.questions.length, memberships: state.memberships.length,
-    imageAssets: state.imageAssets.length, attempts: state.attempts.length, attemptStats: state.attemptStats.length, attemptDailyStats: state.attemptDailyStats.length,
-    notes: state.notes.length, practiceRuns: state.practiceRuns.length, practiceRunStats: state.practiceRunStats.length, questionGroups: state.questionGroups.length,
-    reviewRounds: state.reviewRounds.length, reviewRoundProgress: state.reviewRoundProgress.length, tombstones: state.tombstones.length,
-    totalAttempts: state.attempts.length, totalPracticeRuns: state.practiceRuns.length,
+    banks: state.banks.length,
+    bankFolders: state.bankFolders.length,
+    questions: state.questions.length,
+    memberships: state.memberships.length,
+    imageAssets: state.imageAssets.length,
+    attempts: state.attempts.length,
+    notes: state.notes.length,
+    practiceRuns: state.practiceRuns.length,
+    practiceRunSources: state.practiceRunSources.length,
+    practiceRunItems: state.practiceRunItems.length,
+    questionGroups: state.questionGroups.length,
+    questionGroupItems: state.questionGroupItems.length,
+    reviewRounds: state.reviewRounds.length,
+    reviewRoundBanks: state.reviewRoundBanks.length,
+    reviewRoundItems: state.reviewRoundItems.length,
+    tombstones: state.tombstones.length,
+    totalAttempts: state.attempts.length,
+    totalPracticeRuns: state.practiceRuns.length,
   };
   for (const [field, number] of Object.entries(expected)) {
-    if (counts[field] !== undefined && counts[field] !== number && field !== "totalAttempts" && field !== "totalPracticeRuns") fail(`counts.${field} does not match state`);
+    assertSafeInt(value.counts[field], `counts.${field}`);
+    if (value.counts[field] !== number) fail(`counts.${field} does not match state`);
   }
-  if (counts.totalAttempts !== undefined) { assertSafeInt(counts.totalAttempts, "counts.totalAttempts"); if (counts.totalAttempts < state.attempts.length) fail("counts.totalAttempts is smaller than attempts"); }
-  if (counts.totalPracticeRuns !== undefined) { assertSafeInt(counts.totalPracticeRuns, "counts.totalPracticeRuns"); if (counts.totalPracticeRuns < state.practiceRuns.length) fail("counts.totalPracticeRuns is smaller than practiceRuns"); }
 }
 
 export function isSyncCheckpoint(value: unknown): value is SyncCheckpoint {
-  try { validateSyncCheckpoint(value); return true; } catch { return false; }
+  try {
+    validateSyncCheckpoint(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
