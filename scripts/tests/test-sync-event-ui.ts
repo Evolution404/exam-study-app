@@ -105,4 +105,4 @@ assert.match(styles, /prefers-reduced-motion/, "motion respects user preferences
 assert.doesNotMatch(styles, /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i, "new UI uses semantic theme tokens only");
 assert.doesNotMatch(styles, /\.sync-event-drawer\s*\{[^}]*border-top/si, "drawer has no decorative colored top edge");
 
-console.log("sync event UI tests passed: controlled v7 manager, typed editing, batch drawer, cascade confirmation and responsive ARIA surface");
+console.log("sync event UI tests passed: controlled manager, typed editing, batch drawer, cascade confirmation and responsive ARIA surface");
