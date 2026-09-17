@@ -521,7 +521,11 @@ function legacyCheckpointFromProjection(
       bankFolders: structuredClone(projection.bankFolders),
       questions: structuredClone(projection.questions),
       memberships: structuredClone(projection.memberships),
-      imageAssets: projection.imageAssets.map(({ blob: _blob, ...asset }) => structuredClone(asset)),
+      imageAssets: projection.imageAssets.map((asset) => {
+        const copy = structuredClone(asset);
+        delete copy.blob;
+        return copy;
+      }),
       attempts: structuredClone(projection.attempts),
       attemptStats: structuredClone(projection.attemptStats),
       attemptDailyStats: structuredClone(projection.attemptDailyStats),
