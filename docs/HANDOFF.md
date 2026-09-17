@@ -1,10 +1,12 @@
 # 项目交接文档
 
-> 更新时间：2026-09-16（Asia/Tokyo）
+> 更新时间：2026-09-17（Asia/Tokyo）
 > 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
 > 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
 
-> 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。该轮已完成本地性能收口和完整回归；PR #55 进入 CI / 合并 / 发布阶段，不再追加新的性能功能。
+> 2026-09-17 新一轮 Bug / 性能审计正在 `audit/bug-performance-20260917` 分支进行，专项交接见 `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`。接手时优先阅读该文件，不要从 `main` 重新做已完成的定位。
+>
+> 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。PR #55 已合并并发布，生产基线 merge commit 为 `694cb5ecb2edb4eab55da50eaa50af2640a61a61`。
 
 ## 1. 当前基线
 
