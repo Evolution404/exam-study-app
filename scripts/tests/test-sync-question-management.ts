@@ -20,6 +20,7 @@ import {
   updateQuestion,
 } from "../../src/lib/db/db";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { SYNC_OBJECT_PREFIX } from "../../src/lib/sync/sync-head-types";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Integration tests for question lifecycle (import / edit / delete / membership
@@ -81,7 +82,7 @@ try {
     assert.equal(await studyDb.questions.count(), 200, "本地应导入 200 题");
     const fingerprints = new Set((await studyDb.questions.toArray()).map((question) => question.contentFingerprint));
     await sync();
-    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "大导入应卸载为不可变对象");
+    assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_OBJECT_PREFIX)), "大导入应卸载为不可变对象");
 
     await freshClient("device-b");
     await sync();
