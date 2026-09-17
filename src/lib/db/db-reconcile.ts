@@ -1,5 +1,6 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
+import { rebuildAllProjections } from "./projection-engine";
 import { decomposePracticeRun } from "./practice-run-store";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { RestoreState } from "./db-core";
@@ -417,14 +418,6 @@ export async function reconcileProjection(
     dirty?.memberships,
   );
   const attemptPlan = await makePlan(studyDb.attempts, state.attempts, (row) => row.id, dirty?.attempts);
-  const attemptStatsPlan = await makePlan(studyDb.questionProgress, state.attemptStats, (row) => row.questionId, dirty?.attemptStats);
-  const dailyStatsPlan = await makeCompoundPlan(
-    studyDb.questionDailyProgress,
-    state.attemptDailyStats,
-    (row) => [row.date, row.questionId],
-    (row) => row.key,
-    dirty?.attemptDailyStats,
-  );
   const notePlan = await makePlan(studyDb.notes, state.notes, (row) => row.questionId, dirty?.notes);
   const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRun(run, state.attempts));
   const practiceRunRecords = practiceRunBundles.map((bundle) => bundle.record);
@@ -459,15 +452,6 @@ export async function reconcileProjection(
   };
   const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId);
   const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId);
-  const bankPracticeStats = state.practiceRunStats.map((row) => ({
-    bankId: row.bankId,
-    total: row.total,
-    completed: row.completed,
-    inProgress: row.inProgress,
-    abandoned: row.abandoned,
-    latestActivityAt: row.latestUpdatedAt,
-  }));
-  const practiceStatsPlan = await makePlan(studyDb.bankPracticeStats, bankPracticeStats, (row) => row.bankId, dirty?.practiceRunStats);
   const questionGroupRecords = state.questionGroups.map((group) => ({
     id: group.id,
     name: group.name,
@@ -559,13 +543,6 @@ export async function reconcileProjection(
   };
   const roundBankPlan = await makeRoundRelationPlan(studyDb.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId);
   const roundItemPlan = await makeRoundRelationPlan(studyDb.reviewRoundItems, reviewRoundItems, (row) => row.questionId);
-  const roundProgressPlan = await makeCompoundPlan(
-    studyDb.reviewRoundProgress,
-    state.reviewRoundProgress,
-    (row) => [row.roundId, row.questionId],
-    (row) => row.key,
-    dirty?.reviewRoundProgress,
-  );
   const tombstonePlan = await makePlan(studyDb.tombstones, state.tombstones, (row) => row.key, dirty?.tombstones);
   const imagePlan = mode === "full"
     ? await planImageAssetsTimed(state.imageAssets, options)
@@ -577,31 +554,27 @@ export async function reconcileProjection(
     + questionPlan.puts.length + questionPlan.deletes.length
     + membershipPlan.puts.length + membershipPlan.deletes.length
     + attemptPlan.puts.length + attemptPlan.deletes.length
-    + attemptStatsPlan.puts.length + attemptStatsPlan.deletes.length
-    + dailyStatsPlan.puts.length + dailyStatsPlan.deletes.length
     + notePlan.puts.length + notePlan.deletes.length
     + practiceRunPlan.puts.length + practiceRunPlan.deletes.length
     + practiceRunSourcePlan.puts.length + practiceRunSourcePlan.deletes.length
     + practiceRunItemPlan.puts.length + practiceRunItemPlan.deletes.length
-    + practiceStatsPlan.puts.length + practiceStatsPlan.deletes.length
     + groupPlan.puts.length + groupPlan.deletes.length
     + groupItemPlan.puts.length + groupItemPlan.deletes.length
     + roundPlan.puts.length + roundPlan.deletes.length
     + roundBankPlan.puts.length + roundBankPlan.deletes.length
     + roundItemPlan.puts.length + roundItemPlan.deletes.length
-    + roundProgressPlan.puts.length + roundProgressPlan.deletes.length
     + tombstonePlan.puts.length + tombstonePlan.deletes.length
     + imagePlan.deletes.length + imagePlan.updates.length + imagePlan.inserts.length;
   const totalOps = Math.max(1, rowOps);
 
   const transactionTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
-    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress,
-    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems,
-    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress, studyDb.tombstones, studyDb.changeSets,
+    studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,
+    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,
+    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets,
   ];
 
-  return studyDb.transaction("rw", transactionTables, async () => {
+  const reconciled = await studyDb.transaction("rw", transactionTables, async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -638,19 +611,15 @@ export async function reconcileProjection(
       await applyPlan(studyDb.questions, questionPlan, { put: "更新题目", remove: "清理题目" }, progress, options, mode);
       await applyPlan(studyDb.bankQuestionMemberships, membershipPlan, { put: "更新题库关系", remove: "清理题库关系" }, progress, options, mode);
       await applyPlan(studyDb.attempts, attemptPlan, { put: "更新作答记录", remove: "清理作答记录" }, progress, options, mode);
-      await applyPlan(studyDb.questionProgress, attemptStatsPlan, { put: "更新学习统计", remove: "清理学习统计" }, progress, options, mode);
-      await applyPlan(studyDb.questionDailyProgress, dailyStatsPlan, { put: "更新每日统计", remove: "清理每日统计" }, progress, options, mode);
       await applyPlan(studyDb.notes, notePlan, { put: "更新解析笔记", remove: "清理解析笔记" }, progress, options, mode);
       await applyPlan(studyDb.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunSources, practiceRunSourcePlan, { put: "更新练习来源关系", remove: "清理练习来源关系" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunItems, practiceRunItemPlan, { put: "更新练习题目关系", remove: "清理练习题目关系" }, progress, options, mode);
-      await applyPlan(studyDb.bankPracticeStats, practiceStatsPlan, { put: "更新练习统计", remove: "清理练习统计" }, progress, options, mode);
       await applyPlan(studyDb.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
       await applyPlan(studyDb.questionGroupItems, groupItemPlan, { put: "更新题组关系", remove: "清理题组关系" }, progress, options, mode);
       await applyPlan(studyDb.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);
       await applyPlan(studyDb.reviewRoundBanks, roundBankPlan, { put: "更新复习轮次题库关系", remove: "清理复习轮次题库关系" }, progress, options, mode);
       await applyPlan(studyDb.reviewRoundItems, roundItemPlan, { put: "更新复习轮次题目关系", remove: "清理复习轮次题目关系" }, progress, options, mode);
-      await applyPlan(studyDb.reviewRoundProgress, roundProgressPlan, { put: "更新轮次进度", remove: "清理轮次进度" }, progress, options, mode);
       await applyPlan(studyDb.tombstones, tombstonePlan, { put: "更新删除标记", remove: "清理删除标记" }, progress, options, mode);
 
       const imageWriteStarted = clockMs();
@@ -712,4 +681,10 @@ export async function reconcileProjection(
       if (stallTimer !== undefined) clearTimeout(stallTimer);
     }
   });
+
+  if (!reconciled) return false;
+  options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
+  await rebuildAllProjections();
+  options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
+  return true;
 }
