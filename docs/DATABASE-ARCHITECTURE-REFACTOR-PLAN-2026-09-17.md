@@ -1,12 +1,12 @@
 # 数据库架构重构执行计划（2026-09-17）
 
-> 状态：Phase 0–4 已实施并完成收口；当前进入 Phase 5（Sync canonical-only）。Phase 6–8 尚未执行。
+> 状态：Phase 0–8 已实施；生产 Sync v10 head-last cutover 已完成。当前仅剩最终 docs/retired-tool CI、PR #59 merge 与正式发布 smoke。
 >
 > 当前 Draft PR：#59 `refactor: rebuildable projections and canonical sync v10`
 >
 > 当前分支：`refactor/database-projection-sync-v10-20260917`
 >
-> PR #58 已完成 Phase 0–2 并合并到 `main`；PR #59 在其基础上继续 Phase 3–8。未经用户明确授权，不执行生产 remote cutover、不合并 `main`、不发布。
+> PR #58 已完成 Phase 0–2 并合并到 `main`；PR #59 完成 Phase 3–8。用户已明确授权完成后合并并发布；生产 v10 cutover 已执行成功。
 
 ## 0. 当前执行状态（2026-09-17）
 
@@ -18,7 +18,7 @@
 - Bank Detail rolling 查询使用 questionId + createdAt 定向读取；同一时间窗加入 2,000 条无关 attempts 后，materialize 从约 2,003 行降为 3 行。
 - `scripts/tests/test-ui-data-flow.ts` 已明确锁定新契约：指定题集必须走 `readAttemptsForQuestionIdsInWindow(ids, from, to)`，禁止恢复“按 createdAt 全读时间窗后再 filter(questionId)”的旧实现。
 - Phase 4 收口 HEAD `ab85baf`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部 PASS。
-- 下一步：Phase 5 只允许 canonical facts 进入 change-set/checkpoint/history wire；projection/cache/read-model 必须彻底退出远端 payload。
+- 下一步：只做最终 docs/retired-tool CI，随后 PR #59 ready/merge、正式发布与生产 smoke。
 
 ## 1. 为什么现在要重构
 
@@ -419,7 +419,7 @@ current schema/types 已切换到正常化 canonical facts 与关系表；attemp
 
 ### Phase 5 — Sync canonical-only 重写
 
-状态：**进行中**。
+状态：**完成（PR #59）**。
 
 执行：
 
@@ -436,29 +436,23 @@ current schema/types 已切换到正常化 canonical facts 与关系表；attemp
 
 ### Phase 6 — 一次性 v9 → v10 数据转换
 
-状态：**未开始**。
+状态：**完成**。
 
-若远端数据要保留：
+真实生产执行结果：
 
-- 先对真实数据只读导出/快照。
-- converter 生成 v10 shadow data。
-- 比较以下不变量：
-  - question ID/fingerprint 数。
-  - bank/membership 数。
-  - attempt ID 总数与每题统计。
-  - practice run 总数/状态分布。
-  - review round 数与最终题目集合。
-  - note/group 内容。
-  - image asset ID/size。
-- 对 lifetime/90d/round 指标做 old-vs-new differential check。
-- converter 必须可重复执行；失败不得改变生产 v9 remote。
-- 先 dry-run，再由用户明确授权 cutover。
-
-任何 mismatch 都停止 cutover，不加 fallback。
+- 首次 dry-run 正确 fail-closed：发现生产历史中 Attempt 引用已删除 PracticeRun。
+- 领域核对确认 `Attempt.runId` 是历史归属 ID；删除 PracticeRun 正式语义保留 Attempt，并写 practiceRun tombstone。
+- 补回归测试并修正 checkpoint validator 后，全 CI PASS。
+- 第二次真实 dry-run PASS：4,117 questions / 9,706 attempts / 96 practiceRuns / 320 imageAssets；indexedAssets=320。
+- 4,367 archived attempts、345 hot change sets 均被 hydrate/转换。
+- 正式 cutover PASS：v9 source head SHA `35666d08c74a272e307915c82a0a1402a5f4c104` 未变化后才发布 v10 head。
+- v10 checkpoint：`sync/v10/checkpoints/8638bea95c74872834527b4a5ba44282fcde9b7ddaba542091d5ed57bd00df3b.json`。
+- v9 namespace 完整保留作为历史备份；runtime 不提供 fallback。
+- 一次性 converter 在成功 cutover 后删除。
 
 ### Phase 7 — 技术债删除
 
-状态：**未开始**。
+状态：**完成**。
 
 必须在同一个重构 PR 内删除：
 
@@ -474,7 +468,7 @@ current schema/types 已切换到正常化 canonical facts 与关系表；attemp
 
 ### Phase 8 — 完整验收与 cutover
 
-状态：**未开始；未经用户授权禁止执行生产 cutover/merge/release**。
+状态：**生产 cutover 已完成；最终 merge/release 收口中**。
 
 代码验收：
 
@@ -501,7 +495,7 @@ make test-browser-headless
 4. 发布新客户端。
 5. 每个平台执行 cold restore + sync + practice submit + relaunch smoke。
 
-不得在用户授权前升级生产 remote head、合并 main 或发布应用。
+用户已授权完成后合并/发布；生产 v10 remote head 已完成安全 cutover。最终 docs/retired-tool CI 全绿后即可合并 main 并发布。
 
 ## 8. 建议 commit 边界
 
