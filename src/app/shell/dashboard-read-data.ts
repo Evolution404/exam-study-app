@@ -55,14 +55,12 @@ export async function readDashboardScopedRowsV7(
     };
   }
 
-  const attemptsPromise = options.allQuestions
-    ? dbV7.attempts.where("createdAt").between(
-        new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
-        new Date(referenceTime).toISOString(),
-        true,
-        true,
-      ).toArray()
-    : dbV7.attempts.where("questionId").anyOf(ids).toArray();
+  const attemptsPromise = dbV7.attempts.where("createdAt").between(
+    new Date(progressScopeCutoff(normalized, referenceTime)!).toISOString(),
+    new Date(referenceTime).toISOString(),
+    true,
+    true,
+  ).toArray().then((rows) => options.allQuestions ? rows : rows.filter((row) => idSet.has(row.questionId)));
   const [attempts, notes] = await Promise.all([attemptsPromise, notesPromise]);
   return { attempts, attemptStats: [], roundProgress: [], notes };
 }

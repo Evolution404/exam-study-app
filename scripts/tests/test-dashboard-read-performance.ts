@@ -40,6 +40,13 @@ assert.equal(rolling.attempts.length, 3, "全题库滚动统计只应读取时�
 assert.equal(attemptReads, 3, "10,000 条窗口外 attempts 不得被 Dashboard materialize");
 assert.equal(rolling.roundProgress.length, 0, "非轮次统计不得读取 round progress");
 
+attemptReads = 0;
+dbV7.attempts.hook("reading", attemptHook);
+const scopedRolling = await readDashboardScopedRowsV7(["q-1"], { type: "rolling", days: 90 }, referenceTime, { allQuestions: false });
+dbV7.attempts.hook("reading").unsubscribe(attemptHook);
+assert.equal(scopedRolling.attempts.length, 1, "指定题集滚动统计只需要窗口内且命中的 attempts");
+assert.equal(attemptReads, 3, "指定题集滚动统计可扫描窗口内行，但不得 materialize 10,000 条窗口外历史");
+
 const round = (id: string, roundId: string, questionId: string): ReviewRoundProgress => ({
   key: `${roundId}:${questionId}:${id}`,
   roundId,
