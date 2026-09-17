@@ -4,7 +4,6 @@ import { imageAssetIndexShardKey, parseImageAssetPack } from "../../src/lib/sync
 import { SYNC_ASSET_PREFIX, type SyncDescriptor } from "../../src/lib/sync/sync-head-types";
 
 const SOURCE_ASSET_PREFIX = "sync/v9/assets/";
-const SOURCE_INDEX_PATH = `${SOURCE_ASSET_PREFIX}index.json`;
 export const TARGET_ASSET_INDEX_PATH = `${SYNC_ASSET_PREFIX}index.json`;
 const SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
