@@ -10,6 +10,7 @@ import {
 import { syncWithGitHub, restoreFullHistoryFromGitHub } from "../../src/lib/sync/github-sync-engine";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { SYNC_FORMAT_VERSION } from "../../src/lib/sync/sync-head-types";
 
 // Sync fault-tolerance tests: CAS retry, interrupted-claim recovery, partial
 // upload, network errors, blob corruption, download failure, restore guards,
@@ -49,7 +50,7 @@ function singleChoice(stem: string, answer: string, options: string[]): Paramete
 // segment，使 downloaded.changes 非空——用于触发依赖远端 changes 的路径。
 async function clearRemoteCache(): Promise<void> {
   const keys = (await studyDb.syncMeta.toCollection().primaryKeys()) as string[];
-  for (const key of keys) if (key.startsWith("v9:sync:checkpoint")) await studyDb.syncMeta.delete(key);
+  for (const key of keys) if (key.startsWith(`v${SYNC_FORMAT_VERSION}:sync:checkpoint`)) await studyDb.syncMeta.delete(key);
 }
 
 // 手动 seed 一条 change-set（可精确控制 id / createdAt / mutations），用于
