@@ -20,6 +20,7 @@ export const testGroups = {
     "test:io-worker",
     "test:review-scope-ui",
     "test:change-set-v7",
+    "test:database-schema-contract",
     "test:sync-payload",
     "test:sync-v7-multidevice",
     "test:sync-v7-protocol",
