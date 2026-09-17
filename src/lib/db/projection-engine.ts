@@ -41,12 +41,50 @@ function compareAttempts(left: Attempt, right: Attempt): number {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
+async function rebuildProjectionRowsInTx(
+  attempts: readonly Attempt[],
+  runs: readonly PracticeRun[],
+): Promise<void> {
+  const orderedAttempts = [...attempts].sort(compareAttempts);
+  await Promise.all([
+    studyDb.questionProgress.clear(),
+    studyDb.questionDailyProgress.clear(),
+    studyDb.bankPracticeStats.clear(),
+    studyDb.reviewRoundProgress.clear(),
+  ]);
+
+  for (const attempt of orderedAttempts) await applyAttemptProjectionInTx(attempt);
+  for (const run of runs) await applyPracticeRunProjectionInTx(undefined, run);
+}
+
+/**
+ * Rebuild local projections directly from an already materialized canonical
+ * snapshot. Restore/reconcile callers use this path so they do not write the
+ * canonical snapshot and then immediately materialize the same large tables
+ * from IndexedDB again.
+ */
+export async function rebuildProjectionsFromFacts(
+  attempts: readonly Attempt[],
+  runs: readonly PracticeRun[],
+): Promise<void> {
+  await studyDb.transaction(
+    "rw",
+    [
+      studyDb.questionProgress,
+      studyDb.questionDailyProgress,
+      studyDb.bankPracticeStats,
+      studyDb.reviewRoundProgress,
+    ],
+    () => rebuildProjectionRowsInTx(attempts, runs),
+  );
+}
+
 /**
  * Rebuild every device-local projection from canonical facts only.
  *
  * This intentionally does not touch changeSets/syncMeta and therefore cannot
- * generate a sync event. It is safe to run after projection loss, checkpoint
- * restore or a fresh canonical install.
+ * generate a sync event. It is safe to run after projection loss or when no
+ * in-memory canonical snapshot is already available.
  */
 export async function rebuildAllProjections(): Promise<void> {
   await studyDb.transaction(
@@ -68,19 +106,8 @@ export async function rebuildAllProjections(): Promise<void> {
         studyDb.practiceRunSources.toArray(),
         studyDb.practiceRunItems.toArray(),
       ]);
-      attempts.sort(compareAttempts);
-
       const runs = assemblePracticeRunRecords(records, sources, items, attempts);
-
-      await Promise.all([
-        studyDb.questionProgress.clear(),
-        studyDb.questionDailyProgress.clear(),
-        studyDb.bankPracticeStats.clear(),
-        studyDb.reviewRoundProgress.clear(),
-      ]);
-
-      for (const attempt of attempts) await applyAttemptProjectionInTx(attempt);
-      for (const run of runs) await applyPracticeRunProjectionInTx(undefined, run);
+      await rebuildProjectionRowsInTx(attempts, runs);
     },
   );
 }
