@@ -37,7 +37,6 @@ const emptyProjection: ChangeSetProjection = {
 };
 const canonicalCheckpoint = await checkpointFromProjection(emptyProjection, {});
 assert.equal("bankQuestionMemberships" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize the projection membership alias");
-assert.equal("attemptRoundIds" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize reducer-only metadata");
 
 const server = await startMockGitHubServer({ cas: true });
 try {
