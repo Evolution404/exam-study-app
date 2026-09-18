@@ -292,7 +292,7 @@ await oldCheck.close();
   assert.equal(targetImport.id, targetBank.id, "目标导入不得派生新题库 id");
   assert.equal(targetImport.name, targetBank.name, "目标导入不得改动题库原名");
   assert.equal(targetImport.importedCount, 2, "重复指纹不计入新增计数");
-  assert.equal(targetImport.questionCount, 3, "题库计数刷新为 1（已有）+2（新增）");
+  assert.equal((await studyDb.bankQuestionStats.get(targetImport.id))?.questionCount, 3, "题库计数刷新为 1（已有）+2（新增）");
   assert.equal(await studyDb.banks.count(), bankCountBefore, "目标导入不新建题库");
   assert.equal((await studyDb.questions.count()), questionCountBefore + 2, "全局只新增 2 道题（重复指纹复用）");
   const memberships = (await studyDb.bankQuestionMemberships.where("bankId").equals(targetBank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
