@@ -15,6 +15,7 @@ import {
 } from "../../src/lib/db/db";
 import { createSyncCheckpoint, createSyncCheckpointSnapshot } from "../../src/lib/sync/sync-checkpoint-store";
 import { nextSequence } from "../../src/lib/db/db-core";
+import { pendingQueueSnapshotChanged } from "../../src/lib/sync/sync-orchestrator-model";
 
 const memoryLocalStorage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -27,6 +28,40 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 await resetDatabase();
+
+// Pending snapshot comparison is on the sync hot path. It must preserve the
+// existing semantics while indexing the current queue once instead of doing a
+// nested snapshot × current scan.
+{
+  assert.equal(pendingQueueSnapshotChanged(
+    [{ id: "a", digest: "1" }],
+    [{ id: "a", digest: "1" }, { id: "new", digest: "2" }],
+  ), false, "newer pending rows outside the snapshot must not invalidate the current rebase");
+  assert.equal(pendingQueueSnapshotChanged(
+    [{ id: "a", digest: "1" }],
+    [],
+  ), true, "a snapshot row removed while yielding must invalidate the rebase");
+  assert.equal(pendingQueueSnapshotChanged(
+    [{ id: "a", digest: "1" }],
+    [{ id: "a", digest: "changed" }],
+  ), true, "a changed digest must invalidate the rebase");
+
+  let currentIdReads = 0;
+  const size = 1_000;
+  const current = Array.from({ length: size }, (_, index) => ({
+    get id() { currentIdReads += 1; return `queue-${index}`; },
+    digest: `digest-${index}`,
+  }));
+  const snapshot = Array.from({ length: size }, (_, index) => ({
+    id: `queue-${size - 1 - index}`,
+    digest: `digest-${size - 1 - index}`,
+  }));
+  assert.equal(pendingQueueSnapshotChanged(snapshot, current), false);
+  assert.ok(
+    currentIdReads <= size * 2,
+    `pending snapshot comparison must index current rows once; observed ${currentIdReads} id reads for ${size} rows`,
+  );
+}
 
 // A claim made after rebase may only contain the exact snapshot. A later
 // pending event must stay pending for the next sync attempt.

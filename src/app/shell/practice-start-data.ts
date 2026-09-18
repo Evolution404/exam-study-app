@@ -1,21 +1,28 @@
-import { readPracticeSetupHistoryForQuestionIds } from "@/lib/db/practice-setup-read";
+import { readPracticeSetupScopedHistoryForQuestionIds } from "@/lib/db/practice-setup-read";
 import { statsNeedWrongReview } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, completedQuestionIdsInScope, normalizeProgressScope, scopedStatsToAttemptStats, type ProgressScope } from "@/lib/practice/progress-scope";
 import { TYPE_ORDER, balancedRandomSample, shuffle, summarizeAttemptStats, type PracticeFilter, type PracticePreferences, type Question } from "./helpers";
 
 export async function readPracticeStartData(questionIds: readonly string[], progressScope: ProgressScope, referenceTime: number, wrongRemovalStreak?: number) {
-  const history = await readPracticeSetupHistoryForQuestionIds(questionIds, {
-    includeAttempts: wrongRemovalStreak !== undefined && progressScope.type !== "round",
+  const normalizedScope = normalizeProgressScope(progressScope);
+  const history = await readPracticeSetupScopedHistoryForQuestionIds(questionIds, normalizedScope, referenceTime, {
+    includeRollingAttempts: wrongRemovalStreak !== undefined,
   });
   const wrongQuestionIds = new Set<string>();
   if (wrongRemovalStreak !== undefined) {
-    for (const [questionId, stats] of buildScopedQuestionStats(questionIds, progressScope, history.attempts, history.roundsProgress, referenceTime)) {
-      if (statsNeedWrongReview(scopedStatsToAttemptStats(stats), wrongRemovalStreak)) wrongQuestionIds.add(questionId);
+    if (normalizedScope.type === "lifetime") {
+      for (const stats of history.stats) {
+        if (statsNeedWrongReview(stats, wrongRemovalStreak)) wrongQuestionIds.add(stats.questionId);
+      }
+    } else {
+      for (const [questionId, stats] of buildScopedQuestionStats(questionIds, normalizedScope, history.attempts, history.roundsProgress, referenceTime)) {
+        if (statsNeedWrongReview(scopedStatsToAttemptStats(stats), wrongRemovalStreak)) wrongQuestionIds.add(questionId);
+      }
     }
   }
   return {
     attemptMetrics: new Map(history.stats.map((stats) => [stats.questionId, summarizeAttemptStats(stats)])),
-    doneQuestionIds: completedQuestionIdsInScope(questionIds, progressScope, history.stats, history.roundsProgress, referenceTime),
+    doneQuestionIds: completedQuestionIdsInScope(questionIds, normalizedScope, history.stats, history.roundsProgress, referenceTime),
     wrongQuestionIds,
   };
 }

@@ -220,7 +220,9 @@ export function buildAttemptStats(attempts: Attempt[]) {
   return result;
 }
 
-export function summarizeAttemptStats(stats?: AttemptStats, referenceTime: number | Date = Date.now()): AttemptSummary {
+type AttemptStatsSummaryInput = Omit<AttemptStats, "bankId"> & { bankId?: string };
+
+export function summarizeAttemptStats(stats?: AttemptStatsSummaryInput, referenceTime: number | Date = Date.now()): AttemptSummary {
   if (!stats) return { total: 0, correct: 0, wrong: 0, latest: null, difficulty: 50, personalDifficulty: 50, reviewPriority: 50 };
   const latest = new Date(stats.latestAttemptAt).getTime();
   const difficulty = difficultyFromOutcomes(stats.recentOutcomes);
@@ -235,7 +237,10 @@ export function summarizeAttemptStats(stats?: AttemptStats, referenceTime: numbe
   };
 }
 
-export function statsNeedWrongReview(stats: AttemptStats | undefined, requiredCorrectStreak: number) {
+export function statsNeedWrongReview(
+  stats: Pick<AttemptStats, "hasBeenWrong" | "correctStreakAfterWrong"> | undefined,
+  requiredCorrectStreak: number,
+) {
   return Boolean(stats?.hasBeenWrong && stats.correctStreakAfterWrong < Math.max(1, requiredCorrectStreak));
 }
 

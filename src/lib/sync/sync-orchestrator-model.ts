@@ -33,6 +33,14 @@ export function mergeActiveHistoryProjection(
   return { ...projection, practiceRuns: [...runs.values()], attempts: [...attempts.values()] };
 }
 
+export function pendingQueueSnapshotChanged(
+  snapshot: readonly Pick<ChangeSetQueueRecord, "id" | "digest">[],
+  current: readonly Pick<ChangeSetQueueRecord, "id" | "digest">[],
+): boolean {
+  const currentById = new Map(current.map((record) => [record.id, record.digest] as const));
+  return snapshot.some((record) => currentById.get(record.id) !== record.digest);
+}
+
 export function reconcileInterruptedClaims(
   records: readonly ChangeSetQueueRecord[],
   remoteChanges: readonly Pick<ChangeSet, "id" | "digest">[],

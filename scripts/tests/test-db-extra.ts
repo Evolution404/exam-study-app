@@ -146,7 +146,11 @@ await resetDatabase();
   await putImageAsset({ id, blob: new Blob([bytes], { type: "image/png" }), mimeType: "image/png", size: bytes.length, width: 1, height: 1 });
   const snapshot = {
     banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [{ id, mimeType: "image/png", size: bytes.length, width: 1, height: 1 }],
-    attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [], practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [],
+    attempts: [], notes: [],
+    practiceRuns: [], practiceRunSources: [], practiceRunItems: [],
+    questionGroups: [], questionGroupItems: [],
+    reviewRounds: [], reviewRoundBanks: [], reviewRoundItems: [],
+    tombstones: [],
   } as const;
   await restoreLocalCheckpoint(snapshot);
   assert.ok(await getImageAssetBlob(id), "恢复检查点后应保留已缓存 blob");

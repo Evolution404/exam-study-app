@@ -1,5 +1,4 @@
-import { studyDb, restoreLocalCheckpoint, type ChangeSetQueueRecord, type RestoreState } from "../db/db";
-import { assemblePracticeRunRecords } from "../db/practice-run-store";
+import { studyDb, restoreLocalCheckpoint, type ChangeSetQueueRecord } from "../db/db";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
 import { validateSyncCheckpoint } from "./sync-checkpoint-validation";
 
@@ -159,54 +158,11 @@ export function parseSyncCheckpoint(bytes: Uint8Array | string): SyncCheckpoint 
 }
 
 /**
- * Restore the current canonical checkpoint. The temporary RestoreState assembly
- * is a local DB write adapter only; it never enters the checkpoint wire. Phase 7
- * removes this old aggregate restore surface after sync cutover is complete.
+ * Restore the current canonical checkpoint through the local canonical write
+ * adapter. Rebuildable projections are intentionally absent from RestoreState
+ * and are regenerated only after canonical facts commit.
  */
 export async function applySyncCheckpoint(checkpoint: SyncCheckpoint): Promise<void> {
   validateSyncCheckpoint(checkpoint);
-  const state = checkpoint.state;
-  const practiceRuns = assemblePracticeRunRecords(
-    state.practiceRuns,
-    state.practiceRunSources,
-    state.practiceRunItems,
-    state.attempts,
-  );
-  const restoreState: RestoreState = {
-    banks: state.banks,
-    bankFolders: state.bankFolders,
-    questions: state.questions,
-    memberships: state.memberships,
-    imageAssets: state.imageAssets,
-    attempts: state.attempts,
-    attemptStats: [],
-    attemptDailyStats: [],
-    notes: state.notes,
-    practiceRuns,
-    practiceRunStats: [],
-    questionGroups: state.questionGroups.map((group) => ({
-      ...group,
-      items: state.questionGroupItems
-        .filter((item) => item.groupId === group.id)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => ({ questionId: item.questionId, note: item.note ?? "" })),
-    })),
-    reviewRounds: state.reviewRounds.map((round) => {
-      const finalQuestionIds = state.reviewRoundItems
-        .filter((item) => item.roundId === round.id)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.questionId);
-      return {
-        ...round,
-        bankIds: state.reviewRoundBanks
-          .filter((bank) => bank.roundId === round.id)
-          .sort((left, right) => left.position - right.position)
-          .map((bank) => bank.bankId),
-        ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
-      };
-    }),
-    reviewRoundProgress: [],
-    tombstones: state.tombstones,
-  };
-  await restoreLocalCheckpoint(restoreState);
+  await restoreLocalCheckpoint(checkpoint.state);
 }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import "fake-indexeddb/auto";
 import { readDashboardScopedRows, summarizeDashboardLifetimeStats } from "../../src/app/shell/dashboard-read-data";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
@@ -8,6 +9,18 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: { getItem: () => null, setItem: () => undefined },
 });
+
+const dashboardOwnerSource = readFileSync(new URL("../../src/app/shell/use-dashboard-data.ts", import.meta.url), "utf8");
+assert.equal(
+  (dashboardOwnerSource.match(/bankQuestionMemberships\.where\("bankId"\)/g) ?? []).length,
+  1,
+  "Dashboard selected-bank scope must resolve memberships once for progress + stats",
+);
+assert.doesNotMatch(
+  dashboardOwnerSource,
+  /const scopeProgress = useLiveQuery/,
+  "Dashboard progress must derive from the shared scoped query instead of owning a duplicate live query",
+);
 
 await resetDatabase();
 const referenceTime = Date.parse("2026-09-16T12:00:00.000Z");

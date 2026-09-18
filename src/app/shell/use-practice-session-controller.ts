@@ -13,6 +13,7 @@ import {
   deletePracticeRun,
   modeLabels,
   randomOptionOrder,
+  savePracticeDraft,
   savePracticeProgress,
   setPracticeRunStatus,
   type PracticeAnswerState,
@@ -77,9 +78,7 @@ export function usePracticeSessionController({
       if (!current) return current;
       const changed = mutator(current);
       if (changed === current) return current;
-      const next = { ...changed, updatedAt: new Date().toISOString(), revision: current.revision + 1 };
-      if (changed.answers !== current.answers) void savePracticeProgress(next);
-      return next;
+      return { ...changed, updatedAt: new Date().toISOString(), revision: current.revision + 1 };
     });
   }
 
@@ -376,12 +375,20 @@ export function usePracticeSessionController({
   }
 
   function saveAnswerState(questionId: string, answerState: PracticeAnswerState) {
-    const stamped = { ...answerState, updatedAt: new Date().toISOString(), deviceId: getDeviceId(), eventId: crypto.randomUUID() };
-    changeSession((session) => ({
-      ...session,
-      answers: { ...session.answers, [questionId]: stamped },
-      lastAnsweredIndex: stamped.submitted ? session.questionIds.indexOf(questionId) : session.lastAnsweredIndex,
-    }));
+    const updatedAt = new Date().toISOString();
+    const stamped = { ...answerState, updatedAt, deviceId: getDeviceId(), eventId: crypto.randomUUID() };
+    setPracticeSession((current) => {
+      if (!current) return current;
+      const next = {
+        ...current,
+        answers: { ...current.answers, [questionId]: stamped },
+        lastAnsweredIndex: stamped.submitted ? current.questionIds.indexOf(questionId) : current.lastAnsweredIndex,
+        updatedAt,
+        revision: current.revision + 1,
+      };
+      if (!stamped.submitted) void savePracticeDraft(current.runId, questionId, stamped, updatedAt);
+      return next;
+    });
   }
 
   function jumpPractice(index: number) {

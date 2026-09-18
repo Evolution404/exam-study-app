@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
+import { readFile } from "node:fs/promises";
 import { studyDb } from "../../src/lib/db/db";
 
 type StoreContract = {
@@ -33,7 +34,7 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
     ],
   },
   questionProgress: { primaryKey: "questionId", indexes: ["latestAttemptAt"] },
-  questionDailyProgress: { primaryKey: "[date+questionId]", indexes: ["date", "questionId"] },
+  questionDailyProgress: { primaryKey: "[date+questionId]", indexes: ["date", "questionId", "[questionId+date]"] },
   notes: { primaryKey: "questionId", indexes: ["updatedAt"] },
   practiceRuns: {
     primaryKey: "id",
@@ -96,5 +97,34 @@ for (const [storeName, contract] of Object.entries(NEXT_SCHEMA)) {
 for (const retiredStore of ["attemptStats", "attemptDailyStats", "practiceRunActivity", "practiceRunStats"] as const) {
   assert.equal(studyDb.tables.some((table) => table.name === retiredStore), false, `${retiredStore} must not survive the schema cutover`);
 }
+
+const dbCoreSource = await readFile(new URL("../../src/lib/db/db-core.ts", import.meta.url), "utf8");
+const restoreStateMatch = dbCoreSource.match(/export interface RestoreState \{([\s\S]*?)\n\}/);
+assert.ok(restoreStateMatch, "RestoreState interface must remain discoverable");
+for (const derivedField of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
+  assert.doesNotMatch(
+    restoreStateMatch[1],
+    new RegExp(`\\b${derivedField}\\b`),
+    `RestoreState must not accept rebuildable projection field ${derivedField}`,
+  );
+}
+for (const canonicalRelation of [
+  "practiceRunSources",
+  "practiceRunItems",
+  "questionGroupItems",
+  "reviewRoundBanks",
+  "reviewRoundItems",
+]) {
+  assert.match(
+    restoreStateMatch[1],
+    new RegExp(`\\b${canonicalRelation}\\b`),
+    `RestoreState must expose normalized canonical relation ${canonicalRelation}`,
+  );
+}
+
+const checkpointStoreSource = await readFile(new URL("../../src/lib/sync/sync-checkpoint-store.ts", import.meta.url), "utf8");
+assert.doesNotMatch(checkpointStoreSource, /assemblePracticeRunRecords/, "checkpoint restore must not assemble normalized runs into aggregate PracticeRun objects");
+const restoreSource = await readFile(new URL("../../src/lib/db/db-restore.ts", import.meta.url), "utf8");
+assert.doesNotMatch(restoreSource, /decomposePracticeRuns/, "DB restore must write normalized PracticeRun facts directly");
 
 console.log("database next-schema contract passed");

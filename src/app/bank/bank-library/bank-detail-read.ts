@@ -15,7 +15,6 @@ export async function readBankDetailDataset(
   const views = await listQuestionViewsForBank(bank.id);
   const questions = views.map((view) => toQuestionViewModel(view.question, bank.id, bankTitle(bank), view.memberships[0]?.sortOrder ?? 0));
   const questionIds = questions.map((question) => question.id);
-  const questionIdSet = new Set(questionIds);
   const normalizedScope = normalizeProgressScope(scope);
   const rollingAttempts = normalizedScope.type === "rolling" && questionIds.length
     ? readAttemptsForQuestionIdsInWindow(
@@ -25,12 +24,17 @@ export async function readBankDetailDataset(
       )
     : Promise.resolve([]);
   const roundRows = normalizedScope.type === "round" && questionIds.length
-    ? studyDb.reviewRoundProgress.where("roundId").equals(normalizedScope.roundId).toArray()
-      .then((rows) => rows.filter((row) => questionIdSet.has(row.questionId)))
+    ? studyDb.reviewRoundProgress.bulkGet(
+        questionIds.map((questionId) => [normalizedScope.roundId, questionId] as [string, string]),
+      ).then((rows) => rows.filter((row) => row !== undefined))
     : Promise.resolve([]);
   const dailyRows = activityWindow && questionIds.length
-    ? studyDb.questionDailyProgress.where("date").between(activityWindow.from, activityWindow.to, true, true).toArray()
-      .then((rows) => rows.filter((row) => questionIdSet.has(row.questionId)))
+    ? Promise.all(questionIds.map((questionId) =>
+        studyDb.questionDailyProgress
+          .where("[questionId+date]")
+          .between([questionId, activityWindow.from], [questionId, activityWindow.to], true, true)
+          .toArray()
+      )).then((groups) => groups.flat())
     : Promise.resolve([]);
   const [rawStats, attempts, notes, runs, runStats, roundProgress, activityDailyStats] = await Promise.all([
     studyDb.questionProgress.bulkGet(questionIds),

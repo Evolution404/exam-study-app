@@ -18,6 +18,7 @@ import { stableQuestionOptionIds } from "../question/question-utils";
 import { getReviewRound, putReviewRoundInTx } from "./review-round-store";
 import {
   getPracticeRun,
+  putPracticeRunMetadataInTx,
   putPracticeRunRecordInTx,
 } from "./practice-run-store";
 import type {
@@ -89,6 +90,43 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
     await enqueueChangeSet([{ kind: "practice.run.saved", run: updated }], updated.updatedAt);
     return updated;
   });
+}
+
+export async function savePracticeDraft(
+  runId: string,
+  questionId: string,
+  draft: { selected: string[]; response?: PracticeResponse } | undefined,
+  updatedAt = nowIso(),
+): Promise<boolean> {
+  return withSyncLock(() => studyDb.transaction(
+    "rw",
+    [studyDb.practiceRuns, studyDb.practiceRunItems],
+    async () => {
+      const [record, item] = await Promise.all([
+        studyDb.practiceRuns.get(runId),
+        studyDb.practiceRunItems.get([runId, questionId]),
+      ]);
+      if (!record || record.status !== "in_progress" || !item) return false;
+
+      if (!item.submittedAttemptId) {
+        await studyDb.practiceRunItems.put({
+          ...item,
+          ...(draft?.selected.length ? { draftSelected: [...draft.selected] } : { draftSelected: undefined }),
+          ...(draft?.response ? { draftResponse: draft.response } : { draftResponse: undefined }),
+        });
+      }
+
+      // Draft edits are local navigation state, not submitted activity.
+      // Preserve activityAt exactly: runActivityAt only advances on submitted
+      // answers (or completion/abandon transitions).
+      await putPracticeRunMetadataInTx({
+        ...record,
+        updatedAt,
+        revision: record.revision + 1,
+      });
+      return true;
+    },
+  ));
 }
 
 /**
@@ -318,28 +356,31 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     studyDb.bankPracticeStats, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
-    // Re-read the authoritative run after the write transaction has acquired
-    // its lock. Two answers submitted concurrently must merge their answers
-    // and increment revision from the same serial order; using a snapshot read
-    // before this transaction let the later writer erase the earlier answer.
-    const run = await getPracticeRun(input.runId);
-    if (!run) throw new Error("练习记录不存在或已被删除。");
-    const runItem = await studyDb.practiceRunItems.get([input.runId, input.questionId]);
+    // Acquire the authoritative run record and current item inside the write
+    // transaction. Submitted answers are canonical Attempts referenced by the
+    // item, so one answer write must not hydrate every other item/attempt in a
+    // large run merely to increment revision and lastAnsweredIndex.
+    const [runRecord, runItem, runSources] = await Promise.all([
+      studyDb.practiceRuns.get(input.runId),
+      studyDb.practiceRunItems.get([input.runId, input.questionId]),
+      studyDb.practiceRunSources.where("runId").equals(input.runId).toArray(),
+    ]);
+    if (!runRecord) throw new Error("练习记录不存在或已被删除。");
     if (!runItem) throw new Error("练习记录不包含当前题目。");
-    if (input.reviewRoundId !== undefined && input.reviewRoundId !== run.reviewRoundId) {
+    if (input.reviewRoundId !== undefined && input.reviewRoundId !== runRecord.reviewRoundId) {
       throw new Error("reviewRoundId 必须与练习记录绑定的 active 复习轮次一致。");
     }
-    const reviewRoundId = run.reviewRoundId;
+    const reviewRoundId = runRecord.reviewRoundId;
     if (reviewRoundId) {
       const round = await studyDb.reviewRounds.get(reviewRoundId);
       if (!round || round.status !== "active") throw new Error("reviewRoundId 必须匹配 active 复习轮次。");
       const targetIds = await getReviewRoundQuestionIds(reviewRoundId);
       if (!targetIds.includes(input.questionId)) throw new Error("当前题目不属于 active 复习轮次。");
-      if (run.reviewRoundId && run.reviewRoundId !== reviewRoundId) throw new Error("reviewRoundId 与练习记录不匹配。");
     }
+    const orderedSources = [...runSources].sort((left, right) => left.position - right.position || left.bankId.localeCompare(right.bankId));
     const deviceId = getDeviceId();
     const eventId = makeId("answer");
-    const sourceBankId = input.sourceBankId ?? input.bankId ?? run.bankIds[0];
+    const sourceBankId = input.sourceBankId ?? input.bankId ?? orderedSources[0]?.bankId;
     const question = await studyDb.questions.get(input.questionId);
     const outcome = input.outcome ?? (selected.length ? (input.correct ? "correct" : "incorrect") : "skipped");
     const response: PracticeResponse | undefined = input.response ?? (question?.type === "简答"
@@ -375,18 +416,6 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
       ...(response ? { response } : {}),
       outcome,
     };
-    const answers = { ...run.answers, [input.questionId]: answer };
-    const lastSubmittedIndex = run.questionIds.reduce(
-      (last, questionId, index) => answers[questionId]?.submitted ? index : last,
-      -1,
-    );
-    const nextRun: PracticeRun = {
-      ...run,
-      answers,
-      updatedAt: timestamp,
-      revision: run.revision + 1,
-      lastAnsweredIndex: lastSubmittedIndex >= 0 ? lastSubmittedIndex : run.lastAnsweredIndex,
-    };
     await studyDb.attempts.put(attempt);
     await studyDb.practiceRunItems.put({
       ...runItem,
@@ -395,8 +424,26 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
       draftResponse: undefined,
     });
     await applyAttemptProjectionInTx(attempt);
-    await applyPracticeRunProjectionInTx(run, nextRun);
-    await putPracticeRunRecordInTx(nextRun);
+
+    const lastAnsweredIndex = Math.max(runRecord.lastAnsweredIndex ?? -1, runItem.position);
+    const activityAt = runRecord.status === "in_progress" && timestamp > runRecord.activityAt
+      ? timestamp
+      : runRecord.activityAt;
+    await putPracticeRunMetadataInTx({
+      ...runRecord,
+      updatedAt: timestamp,
+      activityAt,
+      revision: runRecord.revision + 1,
+      ...(lastAnsweredIndex >= 0 ? { lastAnsweredIndex } : {}),
+    });
+    if (activityAt > runRecord.activityAt) {
+      for (const bankId of new Set(runSources.map((source) => source.bankId))) {
+        const stats = await studyDb.bankPracticeStats.get(bankId);
+        if (stats && activityAt > stats.latestActivityAt) {
+          await studyDb.bankPracticeStats.put({ ...stats, latestActivityAt: activityAt });
+        }
+      }
+    }
     if (reviewRoundId) {
       await autoCompleteRoundIfReadyInTx(reviewRoundId);
     }

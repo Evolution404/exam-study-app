@@ -58,8 +58,65 @@ export function list<T>(value: readonly T[] | undefined): T[] {
   return value ? clone([...value]) : [];
 }
 
+type LookupCacheEntry = {
+  length: number;
+  positions: Map<string, number>;
+};
+
+const idLookupCache = new WeakMap<object, LookupCacheEntry>();
+const keyLookupCache = new WeakMap<object, LookupCacheEntry>();
+const questionIdLookupCache = new WeakMap<object, LookupCacheEntry>();
+const copyOnWriteBacking = new WeakMap<object, () => unknown[]>();
+
+function lookupSource<T>(values: T[]): T[] {
+  const backing = copyOnWriteBacking.get(values);
+  return backing ? backing() as T[] : values;
+}
+
+function stringIndexOf<T>(
+  values: T[],
+  key: string,
+  cache: WeakMap<object, LookupCacheEntry>,
+  keyOf: (value: T) => string,
+): number {
+  const source = lookupSource(values);
+  let cached = cache.get(source);
+  if (!cached || cached.length !== source.length) {
+    cached = {
+      length: source.length,
+      positions: new Map(source.map((value, index) => [keyOf(value), index])),
+    };
+    cache.set(source, cached);
+  }
+  let index = cached.positions.get(key);
+  if (index === undefined) return -1;
+  if (!source[index] || keyOf(source[index]) !== key) {
+    cached = {
+      length: source.length,
+      positions: new Map(source.map((value, position) => [keyOf(value), position])),
+    };
+    cache.set(source, cached);
+    index = cached.positions.get(key);
+  }
+  return index ?? -1;
+}
+
+function idIndexOf<T extends { id: string }>(values: T[], id: string): number {
+  return stringIndexOf(values, id, idLookupCache, (value) => value.id);
+}
+
+function keyIndexOf<T extends { key: string }>(values: T[], key: string): number {
+  return stringIndexOf(values, key, keyLookupCache, (value) => value.key);
+}
+
+function questionIdIndexOf<T extends { questionId: string }>(values: T[], questionId: string): number {
+  return stringIndexOf(values, questionId, questionIdLookupCache, (value) => value.questionId);
+}
+
 export function byId<T extends { id: string }>(values: T[], id: string): T | undefined {
-  return values.find((value) => value.id === id);
+  const source = lookupSource(values);
+  const index = idIndexOf(values, id);
+  return index < 0 ? undefined : source[index];
 }
 
 export function requireById<T extends { id: string }>(values: T[], id: string, entity: string): T {
@@ -150,7 +207,7 @@ export function normalizeProjection(input: ChangeSetProjectionInput): ChangeSetP
 }
 
 export function setById<T extends { id: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = values.findIndex((item) => item.id === value.id);
+  const index = idIndexOf(values, value.id);
   if (index < 0) {
     if (!allowInsert) fail(`实体 ${value.id} 不存在`);
     values.push(clone(value));
@@ -158,14 +215,26 @@ export function setById<T extends { id: string }>(values: T[], value: T, allowIn
 }
 
 export function removeById<T extends { id: string }>(values: T[], id: string, entity: string): T {
-  const index = values.findIndex((item) => item.id === id);
+  const index = idIndexOf(values, id);
   if (index < 0) fail(`${entity} ${id} 不存在`);
   const [removed] = values.splice(index, 1);
   return removed;
 }
 
+export function byKey<T extends { key: string }>(values: T[], key: string): T | undefined {
+  const source = lookupSource(values);
+  const index = keyIndexOf(values, key);
+  return index < 0 ? undefined : source[index];
+}
+
+export function byQuestionId<T extends { questionId: string }>(values: T[], questionId: string): T | undefined {
+  const source = lookupSource(values);
+  const index = questionIdIndexOf(values, questionId);
+  return index < 0 ? undefined : source[index];
+}
+
 export function removeMembership(projection: ChangeSetProjection, key: string): BankQuestionMembership {
-  const index = projection.memberships.findIndex((membership) => membership.key === key);
+  const index = keyIndexOf(projection.memberships, key);
   if (index < 0) fail(`题库关系 ${key} 不存在`);
   const [removed] = projection.memberships.splice(index, 1);
   return removed;
@@ -192,7 +261,7 @@ export function ensureFolder(projection: ChangeSetProjection, folderId: string):
 }
 
 export function ensureAsset(projection: ChangeSetProjection, assetId: string): ImageAsset {
-  const asset = projection.imageAssets.find((item) => item.id === assetId);
+  const asset = byId(projection.imageAssets, assetId);
   if (!asset) fail(`图片资产 ${assetId} 不存在`);
   return asset;
 }
@@ -202,7 +271,7 @@ export function ensureRound(projection: ChangeSetProjection, roundId: string): R
 }
 
 export function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = values.findIndex((item) => item.key === value.key);
+  const index = keyIndexOf(values, value.key);
   if (index < 0) {
     if (!allowInsert) fail(`实体 ${value.key} 不存在`);
     values.push(clone(value));
@@ -210,25 +279,27 @@ export function setByKey<T extends { key: string }>(values: T[], value: T, allow
 }
 
 export function setByQuestionId(values: Note[], value: Note): void {
-  const index = values.findIndex((item) => item.questionId === value.questionId);
+  const index = questionIdIndexOf(values, value.questionId);
   if (index < 0) values.push(clone(value));
   else values[index] = clone(value);
 }
 
 export function putTombstone(projection: ChangeSetProjection, entityType: Tombstone["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   const key = `${entityType}:${entityId}`;
-  const old = projection.tombstones.find((item) => item.key === key);
+  const index = keyIndexOf(projection.tombstones, key);
+  const old = index >= 0 ? lookupSource(projection.tombstones)[index] : undefined;
   const next: Tombstone = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
   if (!old) projection.tombstones.push(next);
-  else if (compareClock(next, old) > 0) projection.tombstones[projection.tombstones.indexOf(old)] = next;
+  else if (compareClock(next, old) > 0) projection.tombstones[index] = next;
 }
 
 export function removeTombstone(projection: ChangeSetProjection, type: string, id: string): void {
-  projection.tombstones = projection.tombstones.filter((item) => item.key !== `${type}:${id}`);
+  const index = keyIndexOf(projection.tombstones, `${type}:${id}`);
+  if (index >= 0) projection.tombstones.splice(index, 1);
 }
 
 export function rejectTombstoned(projection: ChangeSetProjection, type: string, id: string): void {
-  if (projection.tombstones.some((item) => item.key === `${type}:${id}`)) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
+  if (keyIndexOf(projection.tombstones, `${type}:${id}`) >= 0) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
 }
 
 export function runBankIds(run: Pick<PracticeRun, "bankId" | "bankIds">): string[] {
@@ -255,28 +326,118 @@ export function runWithAnswer(run: PracticeRun, questionId: string, answer: Prac
   return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
 }
 
-/** Shallow replay envelope: a new projection object whose top-level arrays are
- *  fresh (pointer-copied) but whose elements are shared with the base until a
- *  mutation writes them.  Every mutation path writes either a whole array or a
- *  CLONED entity into a slot (see runWithAnswer for the one former exception),
- *  so the base projection is never observably mutated and a failed record can
- *  be rolled back by simply discarding its envelope. */
-export function shallowEnvelope(base: ChangeSetProjection): ChangeSetProjection {
+type CopyOnWriteArrayHandle<T> = {
+  proxy: T[];
+  current(): T[];
+};
+
+function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
+  let current = base;
+  let copied = false;
+  const ensureCopy = () => {
+    if (copied) return;
+    current = [...base];
+    copied = true;
+  };
+  const proxy = new Proxy(base, {
+    get(_target, property) {
+      return Reflect.get(current, property, proxy);
+    },
+    set(_target, property, value) {
+      ensureCopy();
+      return Reflect.set(current, property, value);
+    },
+    deleteProperty(_target, property) {
+      ensureCopy();
+      return Reflect.deleteProperty(current, property);
+    },
+    defineProperty(_target, property, descriptor) {
+      ensureCopy();
+      return Reflect.defineProperty(current, property, descriptor);
+    },
+    has(_target, property) {
+      return Reflect.has(current, property);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(current);
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      return Reflect.getOwnPropertyDescriptor(current, property);
+    },
+  });
+  copyOnWriteBacking.set(proxy, () => current);
+  return { proxy, current: () => current };
+}
+
+function committedArray<T>(value: T[], handle: CopyOnWriteArrayHandle<T>): T[] {
+  return value === handle.proxy ? handle.current() : value;
+}
+
+/**
+ * Per-change replay envelope with table-level copy-on-write.
+ *
+ * Reads reuse the caller-owned projection arrays directly. The first write to
+ * a table clones only that one top-level array; tables untouched by the
+ * change-set keep reference identity. If a later mutation in the same
+ * change-set throws, discarding this envelope rolls back every write because
+ * the base arrays were never mutated.
+ */
+export function shallowEnvelope(base: ChangeSetProjection): {
+  projection: ChangeSetProjection;
+  commit(): ChangeSetProjection;
+} {
+  const banks = copyOnWriteArray(base.banks);
+  const bankFolders = copyOnWriteArray(base.bankFolders);
+  const questions = copyOnWriteArray(base.questions);
+  const memberships = copyOnWriteArray(base.memberships);
+  const imageAssets = copyOnWriteArray(base.imageAssets);
+  const attempts = copyOnWriteArray(base.attempts);
+  const attemptStats = copyOnWriteArray(base.attemptStats);
+  const attemptDailyStats = copyOnWriteArray(base.attemptDailyStats);
+  const notes = copyOnWriteArray(base.notes);
+  const practiceRuns = copyOnWriteArray(base.practiceRuns);
+  const practiceRunStats = copyOnWriteArray(base.practiceRunStats);
+  const questionGroups = copyOnWriteArray(base.questionGroups);
+  const reviewRounds = copyOnWriteArray(base.reviewRounds);
+  const reviewRoundProgress = copyOnWriteArray(base.reviewRoundProgress);
+  const tombstones = copyOnWriteArray(base.tombstones);
+
+  const projection: ChangeSetProjection = {
+    banks: banks.proxy,
+    bankFolders: bankFolders.proxy,
+    questions: questions.proxy,
+    memberships: memberships.proxy,
+    imageAssets: imageAssets.proxy,
+    attempts: attempts.proxy,
+    attemptStats: attemptStats.proxy,
+    attemptDailyStats: attemptDailyStats.proxy,
+    notes: notes.proxy,
+    practiceRuns: practiceRuns.proxy,
+    practiceRunStats: practiceRunStats.proxy,
+    questionGroups: questionGroups.proxy,
+    reviewRounds: reviewRounds.proxy,
+    reviewRoundProgress: reviewRoundProgress.proxy,
+    tombstones: tombstones.proxy,
+  };
+
   return {
-    banks: [...base.banks],
-    bankFolders: [...base.bankFolders],
-    questions: [...base.questions],
-    memberships: [...base.memberships],
-    imageAssets: [...base.imageAssets],
-    attempts: [...base.attempts],
-    attemptStats: [...base.attemptStats],
-    attemptDailyStats: [...base.attemptDailyStats],
-    notes: [...base.notes],
-    practiceRuns: [...base.practiceRuns],
-    practiceRunStats: [...base.practiceRunStats],
-    questionGroups: [...base.questionGroups],
-    reviewRounds: [...base.reviewRounds],
-    reviewRoundProgress: [...base.reviewRoundProgress],
-    tombstones: [...base.tombstones],
+    projection,
+    commit: () => ({
+      banks: committedArray(projection.banks, banks),
+      bankFolders: committedArray(projection.bankFolders, bankFolders),
+      questions: committedArray(projection.questions, questions),
+      memberships: committedArray(projection.memberships, memberships),
+      imageAssets: committedArray(projection.imageAssets, imageAssets),
+      attempts: committedArray(projection.attempts, attempts),
+      attemptStats: committedArray(projection.attemptStats, attemptStats),
+      attemptDailyStats: committedArray(projection.attemptDailyStats, attemptDailyStats),
+      notes: committedArray(projection.notes, notes),
+      practiceRuns: committedArray(projection.practiceRuns, practiceRuns),
+      practiceRunStats: committedArray(projection.practiceRunStats, practiceRunStats),
+      questionGroups: committedArray(projection.questionGroups, questionGroups),
+      reviewRounds: committedArray(projection.reviewRounds, reviewRounds),
+      reviewRoundProgress: committedArray(projection.reviewRoundProgress, reviewRoundProgress),
+      tombstones: committedArray(projection.tombstones, tombstones),
+    }),
   };
 }

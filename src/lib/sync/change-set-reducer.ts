@@ -9,6 +9,8 @@ import { type ChangeSetMutation, type ChangeSet } from "./change-set-types";
 import { assertChangeSet } from "./change-set-codec";
 import {
   byId,
+  byKey,
+  byQuestionId,
   clone,
   ensureAsset,
   ensureBank,
@@ -120,7 +122,7 @@ function applyMutation(projection: ChangeSetProjection, mutation: ChangeSetMutat
       }
       projection.questions.push(clone(mutation.clone));
       for (const membership of mutation.memberships) {
-        if (projection.memberships.some((item) => item.key === membership.key)) fail(`题库关系 ${membership.key} 已存在`);
+        if (byKey(projection.memberships, membership.key)) fail(`题库关系 ${membership.key} 已存在`);
         projection.memberships.push(clone(membership));
       }
       if (mutation.note) setByQuestionId(projection.notes, mutation.note);
@@ -180,13 +182,13 @@ function applyMutation(projection: ChangeSetProjection, mutation: ChangeSetMutat
     }
     case "membership.bulk.save": for (const membership of mutation.memberships) applyMutation(projection, { kind: "membership.save", membership }, context); return;
     case "membership.bulk.remove": for (const key of mutation.keys) {
-      const current = projection.memberships.find((item) => item.key === key);
+      const current = byKey(projection.memberships, key);
       if (!current) fail(`题库关系 ${key} 不存在`);
       applyMutation(projection, { kind: "membership.remove", bankId: current.bankId, questionId: current.questionId, key, removedAt: mutation.removedAt }, context);
     } return;
     case "image.asset.save": {
       rejectTombstoned(projection, "imageAsset", mutation.asset.id);
-      const old = projection.imageAssets.find((asset) => asset.id === mutation.asset.id);
+      const old = byId(projection.imageAssets, mutation.asset.id);
       if (old && JSON.stringify({ ...old, blob: undefined }) !== JSON.stringify(mutation.asset)) fail(`图片资产 ${mutation.asset.id} 不可变内容冲突`);
       if (!old) projection.imageAssets.push(clone(mutation.asset));
       return;
@@ -259,7 +261,7 @@ function applyMutation(projection: ChangeSetProjection, mutation: ChangeSetMutat
       return;
     case "note.deleted":
       ensureQuestion(projection, mutation.questionId);
-      if (!projection.notes.some((note) => note.questionId === mutation.questionId)) fail(`解析 ${mutation.questionId} 不存在`);
+      if (!byQuestionId(projection.notes, mutation.questionId)) fail(`解析 ${mutation.questionId} 不存在`);
       projection.notes = projection.notes.filter((note) => note.questionId !== mutation.questionId);
       putTombstone(projection, "note", mutation.questionId, mutation.deletedAt ?? context.createdAt, context.deviceId, context.eventId, context.localSequence);
       return;
@@ -299,8 +301,8 @@ export function applyChangeSetToOwnedProjection(projection: ChangeSetProjection,
   const context = { createdAt: changeSet.createdAt, deviceId: changeSet.deviceId, eventId: changeSet.id, localSequence: changeSet.localSequence };
   // Mutations are intentionally kept in their supplied order: a createQuestion
   // batch may create a question before its membership/answer.
-  for (const mutation of changeSet.mutations) applyMutation(envelope, mutation, context);
-  return envelope;
+  for (const mutation of changeSet.mutations) applyMutation(envelope.projection, mutation, context);
+  return envelope.commit();
 }
 
 /** One recompute + one validation pass for a finished rebase/replay chain. */

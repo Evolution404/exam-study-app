@@ -1,6 +1,6 @@
 "use client";
 import { lazy } from "react";
-import { deletePracticeRun as deletePracticeRunRecord, getPracticeRun, recordPracticeAnswer as recordPracticeAnswerRecord, saveNote as saveNoteRecord, savePracticeProgress as savePracticeProgressRecord, setPracticeRunStatus as setPracticeRunStatusRecord, toggleQuestionFavorite as toggleQuestionFavoriteRecord } from "@/lib/db/db";
+import { deletePracticeRun as deletePracticeRunRecord, getPracticeRun, recordPracticeAnswer as recordPracticeAnswerRecord, saveNote as saveNoteRecord, savePracticeDraft as savePracticeDraftRecord, savePracticeProgress as savePracticeProgressRecord, setPracticeRunStatus as setPracticeRunStatusRecord, toggleQuestionFavorite as toggleQuestionFavoriteRecord } from "@/lib/db/db";
 import { resumeIndexAfterLastAnswer } from "@/lib/practice/practice-resume";
 import { summarizeAttemptStats as summarizeAttemptStatsRecord } from "@/lib/practice/practice-metrics";
 import { type QuestionViewModel } from "@/app/bank/question-editor";
@@ -33,6 +33,7 @@ export async function saveNote(questionId: string, content: string) { return sav
 export async function toggleQuestionFavorite(questionId: string) { return toggleQuestionFavoriteRecord(questionId); }
 export async function recordPracticeAnswer(input: { runId: string; questionId: string; bankId?: string; selected: string | string[]; correct: boolean; elapsedMs: number; reviewRoundId?: string; response?: PracticeResponse; outcome?: AttemptOutcome }) { return recordPracticeAnswerRecord({ ...input, sourceBankId: input.bankId }); }
 export async function savePracticeProgress(session: ActivePractice) { const current = await getPracticeRun(session.runId); if (!current) return; return savePracticeProgressRecord({ ...current, answers: session.answers, lastAnsweredIndex: session.lastAnsweredIndex, updatedAt: session.updatedAt, revision: session.revision }); }
+export async function savePracticeDraft(runId: string, questionId: string, answer: PracticeAnswerState | undefined, updatedAt: string) { return savePracticeDraftRecord(runId, questionId, answer && !answer.submitted ? { selected: [...answer.selected], ...(answer.response ? { response: answer.response } : {}) } : undefined, updatedAt); }
 export async function setPracticeRunStatus(runId: string, status: PracticeRun["status"], answers?: PracticeRun["answers"]) { return setPracticeRunStatusRecord(runId, status, answers); }
 export async function deletePracticeRun(runId: string) { return deletePracticeRunRecord(runId); }
 

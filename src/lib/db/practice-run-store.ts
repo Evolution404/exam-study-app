@@ -80,6 +80,25 @@ export function decomposePracticeRun(
   return { record: practiceRunRecord(run), sources, items };
 }
 
+/**
+ * Decompose many runs without rescanning the complete immutable attempt history
+ * once per run. Checkpoint/reconcile paths can contain thousands of attempts;
+ * build the run buckets once, then preserve the exact single-run semantics.
+ */
+export function decomposePracticeRuns(
+  runs: readonly PracticeRun[],
+  attempts: readonly Attempt[],
+): Array<{ record: PracticeRunRecord; sources: PracticeRunSource[]; items: PracticeRunItem[] }> {
+  if (!runs.length) return [];
+  const attemptsByRun = new Map<string, Attempt[]>();
+  for (const attempt of attempts) {
+    const bucket = attemptsByRun.get(attempt.runId);
+    if (bucket) bucket.push(attempt);
+    else attemptsByRun.set(attempt.runId, [attempt]);
+  }
+  return runs.map((run) => decomposePracticeRun(run, attemptsByRun.get(run.id) ?? []));
+}
+
 function answerFromItem(item: PracticeRunItem, attempt: Attempt | undefined): PracticeRun["answers"][string] | undefined {
   if (item.submittedAttemptId && attempt) {
     return {
@@ -190,6 +209,11 @@ export async function bulkGetPracticeRuns(runIds: readonly string[]): Promise<Ar
 
 export async function putPracticeRunRecordInTx(run: PracticeRun): Promise<void> {
   await studyDb.practiceRuns.put(practiceRunRecord(run));
+}
+
+/** Persist already-normalized run metadata without hydrating child relations. */
+export async function putPracticeRunMetadataInTx(record: PracticeRunRecord): Promise<void> {
+  await studyDb.practiceRuns.put(record);
 }
 
 export async function deletePracticeRunBundleInTx(runId: string): Promise<void> {

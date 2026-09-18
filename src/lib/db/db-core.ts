@@ -22,14 +22,11 @@ import type {
   PracticeRunItem,
   PracticeRunRecord,
   PracticeRunSource,
-  PracticeRunStats,
   PracticeRun,
   QuestionGroupItem,
   QuestionGroupRecord,
-  QuestionGroup,
   QuestionType,
   Question,
-  ReviewRound,
   ReviewRoundRecord,
   ReviewRoundBank,
   ReviewRoundItem,
@@ -102,7 +99,7 @@ export interface CreatePracticeRunInput {
   reviewRoundId?: string;
 }
 
-/** Complete projection shape accepted by the atomic restore helper. */
+/** Canonical normalized facts accepted by the atomic restore helper. */
 export interface RestoreState {
   banks: Bank[];
   bankFolders: BankFolder[];
@@ -110,14 +107,15 @@ export interface RestoreState {
   memberships: BankQuestionMembership[];
   imageAssets: ImageAssetDescriptor[];
   attempts: Attempt[];
-  attemptStats: AttemptStats[];
-  attemptDailyStats: AttemptDailyStats[];
   notes: Note[];
-  practiceRuns: PracticeRun[];
-  practiceRunStats: PracticeRunStats[];
-  questionGroups: QuestionGroup[];
-  reviewRounds: ReviewRound[];
-  reviewRoundProgress: ReviewRoundProgress[];
+  practiceRuns: PracticeRunRecord[];
+  practiceRunSources: PracticeRunSource[];
+  practiceRunItems: PracticeRunItem[];
+  questionGroups: QuestionGroupRecord[];
+  questionGroupItems: QuestionGroupItem[];
+  reviewRounds: ReviewRoundRecord[];
+  reviewRoundBanks: ReviewRoundBank[];
+  reviewRoundItems: ReviewRoundItem[];
   tombstones: Tombstone[];
 }
 
@@ -289,7 +287,7 @@ class StudyDatabase extends Dexie {
       imageBlobs: "assetId, cachedAt, lastUsedAt",
       attempts: "id, runId, questionId, reviewRoundId, sourceBankId, createdAt, deviceId, [questionId+createdAt], [runId+createdAt], [reviewRoundId+createdAt], [reviewRoundId+questionId+createdAt]",
       questionProgress: "questionId, latestAttemptAt",
-      questionDailyProgress: "[date+questionId], date, questionId",
+      questionDailyProgress: "[date+questionId], date, questionId, [questionId+date]",
       notes: "questionId, updatedAt",
       practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
       practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",

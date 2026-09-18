@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
-import { readPracticeSetupHistoryForQuestionIds } from "../../src/lib/db/practice-setup-read";
+import { readPracticeSetupHistoryForQuestionIds, readPracticeSetupScopedHistoryForQuestionIds } from "../../src/lib/db/practice-setup-read";
 import type { AttemptStats, Attempt, ReviewRoundProgress } from "../../src/lib/db/types";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -97,6 +97,57 @@ assert.equal(progressReads, targetProgress.length, "20,000 unrelated reviewRound
 assert.equal(attemptReads, targetAttempts.length, "100,000 unrelated attempts 不得被 Practice Setup materialize");
 assert.ok(history.attempts.every((row) => targetIds.includes(row.questionId)));
 assert.ok(history.roundsProgress.every((row) => targetIds.includes(row.questionId)));
+
+const oldTargetAttempts: Attempt[] = Array.from({ length: 5_000 }, (_, index) => ({
+  id: `old-target-attempt-${index}`,
+  runId: "perf-run-old",
+  questionId: targetIds[index % targetIds.length],
+  selected: "B",
+  correct: false,
+  elapsedMs: 2,
+  createdAt: "2025-01-01T00:00:00.000Z",
+  deviceId: "practice-perf-test",
+}));
+await studyDb.attempts.bulkPut(oldTargetAttempts);
+
+let scopedAttemptReads = 0;
+const scopedAttemptHook = (row: Attempt) => { scopedAttemptReads += 1; return row; };
+studyDb.attempts.hook("reading", scopedAttemptHook);
+const rollingHistory = await readPracticeSetupScopedHistoryForQuestionIds(
+  targetIds,
+  { type: "rolling", days: 30 },
+  Date.parse("2026-09-18T00:00:00.000Z"),
+);
+studyDb.attempts.hook("reading").unsubscribe(scopedAttemptHook);
+assert.equal(rollingHistory.attempts.length, targetAttempts.length, "rolling read-model 只应返回窗口内当前题目 attempts");
+assert.equal(scopedAttemptReads, targetAttempts.length, "5,000 条窗口外目标题历史不得被练习中心 materialize");
+
+scopedAttemptReads = 0;
+studyDb.attempts.hook("reading", scopedAttemptHook);
+const lifetimeHistory = await readPracticeSetupScopedHistoryForQuestionIds(
+  targetIds,
+  { type: "lifetime" },
+  Date.parse("2026-09-18T00:00:00.000Z"),
+);
+studyDb.attempts.hook("reading").unsubscribe(scopedAttemptHook);
+assert.equal(lifetimeHistory.attempts.length, 0, "lifetime 练习中心应复用 questionProgress，而不是读取 immutable attempts");
+assert.equal(scopedAttemptReads, 0, "lifetime 练习中心不得 materialize attempts");
+
+let scopedRoundReads = 0;
+const scopedRoundHook = (row: ReviewRoundProgress | undefined) => {
+  if (row) scopedRoundReads += 1;
+  return row;
+};
+studyDb.reviewRoundProgress.hook("reading", scopedRoundHook);
+const roundHistory = await readPracticeSetupScopedHistoryForQuestionIds(
+  targetIds,
+  { type: "round", roundId: "round-20001" },
+  Date.parse("2026-09-18T00:00:00.000Z"),
+);
+studyDb.reviewRoundProgress.hook("reading").unsubscribe(scopedRoundHook);
+assert.equal(roundHistory.attempts.length, 0);
+assert.equal(roundHistory.roundsProgress.length, 1, "round 练习中心只应读取目标轮次的当前题目 progress");
+assert.equal(scopedRoundReads, 1, "其他轮次 progress 不得被 round 练习中心 materialize");
 
 let skippedAttemptReads = 0;
 const skippedAttemptHook = (row: Attempt) => { skippedAttemptReads += 1; return row; };

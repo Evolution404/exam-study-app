@@ -1,5 +1,5 @@
 import { studyDb, reconcileProjection, type ChangeSetQueueGuard } from "../db/db";
-import { assemblePracticeRunRecords, decomposePracticeRun } from "../db/practice-run-store";
+import { assemblePracticeRunRecords, decomposePracticeRuns } from "../db/practice-run-store";
 import type { QuestionGroupItem, QuestionGroupRecord, ReviewRoundBank, ReviewRoundItem, ReviewRoundRecord } from "../db/types";
 import type { ChangeSet } from "./change-set-types";
 import { recomputeChangeSetProjection, replayChangeSetBatch, type ChangeSetProjection } from "./change-set-projection";
@@ -130,18 +130,14 @@ export function projectionFromCheckpoint(checkpoint: SyncCheckpoint): Promise<Ch
  * Convert the reducer's internal aggregate model back to canonical facts only.
  * Device-local projections are deliberately omitted from the checkpoint state.
  */
-export function checkpointFromProjection(
+export function canonicalStateFromProjection(
   projection: ChangeSetProjection,
-  cursors: Record<string, number>,
-  options?: { tombstoneGc?: { devices: Record<string, SyncDeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
-): Promise<SyncCheckpoint> {
-  let tombstones = projection.tombstones;
-  if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
-
-  const runBundles = projection.practiceRuns.map((run) => decomposePracticeRun(run, projection.attempts));
+  tombstones: readonly ChangeSetProjection["tombstones"][number][] = projection.tombstones,
+): SyncCheckpointState {
+  const runBundles = decomposePracticeRuns(projection.practiceRuns, projection.attempts);
   const groups = canonicalQuestionGroups(projection);
   const rounds = canonicalReviewRounds(projection);
-  const state: SyncCheckpointState = {
+  return {
     banks: structuredClone(projection.banks),
     bankFolders: structuredClone(projection.bankFolders),
     questions: structuredClone(projection.questions),
@@ -163,8 +159,18 @@ export function checkpointFromProjection(
     reviewRounds: rounds.records,
     reviewRoundBanks: rounds.banks,
     reviewRoundItems: rounds.items,
-    tombstones: structuredClone(tombstones),
+    tombstones: structuredClone([...tombstones]),
   };
+}
+
+export function checkpointFromProjection(
+  projection: ChangeSetProjection,
+  cursors: Record<string, number>,
+  options?: { tombstoneGc?: { devices: Record<string, SyncDeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
+): Promise<SyncCheckpoint> {
+  let tombstones = projection.tombstones;
+  if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
+  const state = canonicalStateFromProjection(projection, tombstones);
   return Promise.resolve({
     formatVersion: SYNC_CHECKPOINT_FORMAT,
     generatedAt: new Date().toISOString(),
@@ -201,15 +207,5 @@ export async function installProjection(
     }) => void;
   },
 ): Promise<boolean> {
-  return reconcileProjection({
-    ...projection,
-    memberships: projection.memberships,
-    imageAssets: projection.imageAssets.map((asset) => ({
-      id: asset.id,
-      mimeType: asset.mimeType,
-      size: asset.size,
-      width: asset.width,
-      height: asset.height,
-    })),
-  }, options);
+  return reconcileProjection(canonicalStateFromProjection(projection), options);
 }
