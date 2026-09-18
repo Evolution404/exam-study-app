@@ -80,6 +80,16 @@ function normalizeMutation(mutation: ChangeSetMutation): ChangeSetMutation {
   if (value.kind === "question.import") value.questions = [...value.questions].sort((a, b) => a.id.localeCompare(b.id));
   if ("memberships" in value && value.memberships) value.memberships = [...value.memberships].sort((a, b) => a.key.localeCompare(b.key));
   if ("images" in value && value.images) value.images = [...value.images].sort((a, b) => a.id.localeCompare(b.id));
+  if ("sources" in value && value.sources) {
+    value.sources = [...value.sources].sort((a, b) => a.position - b.position || a.bankId.localeCompare(b.bankId));
+  }
+  if ("banks" in value && value.banks) {
+    value.banks = [...value.banks].sort((a, b) => a.position - b.position || a.bankId.localeCompare(b.bankId));
+  }
+  if ("items" in value && value.items) {
+    value.items = [...value.items].sort((a, b) => a.position - b.position
+      || ("questionId" in a && "questionId" in b ? a.questionId.localeCompare(b.questionId) : 0));
+  }
   return value;
 }
 
@@ -96,7 +106,7 @@ const mutationKinds = new Set<ChangeSetKind>([
 
 function validateMutationShape(value: Record<string, unknown>): value is ChangeSetMutation {
   if (typeof value.kind !== "string" || !mutationKinds.has(value.kind as ChangeSetKind)) return false;
-  const requiresObject = ["bank", "folder", "question", "clone", "membership", "attempt", "answer", "run", "note", "group", "round", "asset"];
+  const requiresObject = ["bank", "folder", "question", "clone", "membership", "attempt", "note", "asset", "record", "runRecord", "item"];
   for (const field of requiresObject) {
     if (field in value && !isRecord(value[field])) return false;
   }
@@ -104,7 +114,7 @@ function validateMutationShape(value: Record<string, unknown>): value is ChangeS
   for (const field of requiresId) {
     if (field in value && (typeof value[field] !== "string" || !(value[field]).trim())) return false;
   }
-  for (const field of ["bankIds", "questionIds", "keys", "questions", "memberships", "images"]) {
+  for (const field of ["bankIds", "questionIds", "keys", "questions", "memberships", "images", "sources", "items", "banks"]) {
     if (field in value && !Array.isArray(value[field])) return false;
   }
   const hasString = (field: string): boolean => typeof value[field] === "string" && Boolean((value[field]).trim());
@@ -129,15 +139,16 @@ function validateMutationShape(value: Record<string, unknown>): value is ChangeS
   if (value.kind === "image.asset.delete") return hasString("assetId");
   if (value.kind === "attempt.create") return hasObject("attempt");
   if (value.kind === "attempt.delete") return hasString("attemptId");
-  if (value.kind === "practice.answer.submitted") return hasObject("attempt") && hasObject("answer") && hasString("runId") && hasString("questionId");
-  if (value.kind === "practice.answer.deleted") return hasString("attemptId") && hasString("runId") && hasString("questionId");
-  if (value.kind === "practice.run.saved" || value.kind === "practice.run.status.changed") return hasObject("run");
+  if (value.kind === "practice.answer.submitted") return hasObject("attempt") && hasObject("runRecord") && hasObject("item");
+  if (value.kind === "practice.answer.deleted") return hasString("attemptId") && hasObject("runRecord") && hasObject("item");
+  if (value.kind === "practice.run.saved") return hasObject("record") && Array.isArray(value.sources) && Array.isArray(value.items);
+  if (value.kind === "practice.run.status.changed") return hasObject("record");
   if (value.kind === "practice.run.deleted") return hasString("runId");
   if (value.kind === "note.upserted") return hasObject("note");
   if (value.kind === "note.deleted") return hasString("questionId");
-  if (value.kind === "questionGroup.saved") return hasObject("group");
+  if (value.kind === "questionGroup.saved") return hasObject("record") && Array.isArray(value.items);
   if (value.kind === "questionGroup.deleted") return hasString("groupId");
-  if (value.kind === "review.round.saved" || value.kind === "review.round.completed" || value.kind === "review.round.archived") return hasObject("round");
+  if (value.kind === "review.round.saved" || value.kind === "review.round.completed" || value.kind === "review.round.archived") return hasObject("record") && Array.isArray(value.banks) && Array.isArray(value.items);
   return true;
 }
 

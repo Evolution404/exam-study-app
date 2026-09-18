@@ -31,14 +31,15 @@ interface ReconcileDirtyKeys {
   memberships: readonly string[];
   imageAssets: readonly string[];
   attempts: readonly string[];
-  attemptStats: readonly string[];
-  attemptDailyStats: readonly string[];
   notes: readonly string[];
   practiceRuns: readonly string[];
-  practiceRunStats: readonly string[];
+  practiceRunSources: readonly string[];
+  practiceRunItems: readonly string[];
   questionGroups: readonly string[];
+  questionGroupItems: readonly string[];
   reviewRounds: readonly string[];
-  reviewRoundProgress: readonly string[];
+  reviewRoundBanks: readonly string[];
+  reviewRoundItems: readonly string[];
   tombstones: readonly string[];
 }
 
@@ -457,7 +458,11 @@ export async function reconcileProjection(
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.runId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const dirtyRunIds = dirty?.practiceRuns ?? [];
+    const relationKeys = table === studyDb.practiceRunSources ? dirty?.practiceRunSources ?? [] : dirty?.practiceRunItems ?? [];
+    const dirtyRunIds = [...new Set([
+      ...(dirty?.practiceRuns ?? []),
+      ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const dirtyRunSet = new Set(dirtyRunIds);
     const incomingRows = incoming.filter((row) => dirtyRunSet.has(row.runId));
     const currentRows = dirtyRunIds.length ? await table.where("runId").anyOf(dirtyRunIds).toArray() : [];
@@ -480,7 +485,10 @@ export async function reconcileProjection(
   const groupPlan = await makePlan(studyDb.questionGroups, questionGroupRecords, (row) => row.id, dirty?.questionGroups);
   let groupItemPlan: ReconcilePlan<(typeof questionGroupItems)[number], [string, string]>;
   if (mode === "dirty") {
-    const dirtyGroupIds = dirty?.questionGroups ?? [];
+    const dirtyGroupIds = [...new Set([
+      ...(dirty?.questionGroups ?? []),
+      ...(dirty?.questionGroupItems ?? []).map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const incomingItems = questionGroupItems.filter((item) => dirtyGroupIds.includes(item.groupId));
     const currentItems = dirtyGroupIds.length
       ? await studyDb.questionGroupItems.where("groupId").anyOf(dirtyGroupIds).toArray()
@@ -525,7 +533,11 @@ export async function reconcileProjection(
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.roundId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const dirtyRoundIds = dirty?.reviewRounds ?? [];
+    const relationKeys = table === studyDb.reviewRoundBanks ? dirty?.reviewRoundBanks ?? [] : dirty?.reviewRoundItems ?? [];
+    const dirtyRoundIds = [...new Set([
+      ...(dirty?.reviewRounds ?? []),
+      ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const dirtyRoundSet = new Set(dirtyRoundIds);
     const incomingRows = incoming.filter((row) => dirtyRoundSet.has(row.roundId));
     const currentRows = dirtyRoundIds.length ? await table.where("roundId").anyOf(dirtyRoundIds).toArray() : [];

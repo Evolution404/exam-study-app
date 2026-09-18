@@ -1,4 +1,3 @@
-import type { PracticeRun } from "../db/types";
 import type { ChangeSetEntityRef, ChangeSetMutation } from "./change-set-types";
 
 export function mutationEntityRefs(mutation: ChangeSetMutation): ChangeSetEntityRef[] {
@@ -23,20 +22,31 @@ export function mutationEntityRefs(mutation: ChangeSetMutation): ChangeSetEntity
     case "image.asset.delete": return [add("imageAsset", mutation.assetId)];
     case "attempt.create": return [add("attempt", mutation.attempt.id), add("question", mutation.attempt.questionId)];
     case "attempt.delete": return [add("attempt", mutation.attemptId)];
-    case "practice.answer.submitted": return [add("attempt", mutation.attempt.id), add("practiceRun", mutation.runId), add("question", mutation.questionId)];
-    case "practice.answer.deleted": return [add("attempt", mutation.attemptId), add("practiceRun", mutation.runId), add("question", mutation.questionId)];
-    case "practice.run.saved": case "practice.run.status.changed": return [add("practiceRun", mutation.run.id), ...runRefs(mutation.run)];
+    case "practice.answer.submitted":
+      return [add("attempt", mutation.attempt.id), add("practiceRun", mutation.runRecord.id), add("question", mutation.item.questionId)];
+    case "practice.answer.deleted":
+      return [add("attempt", mutation.attemptId), add("practiceRun", mutation.runRecord.id), add("question", mutation.item.questionId)];
+    case "practice.run.saved":
+      return [
+        add("practiceRun", mutation.record.id),
+        ...mutation.sources.map((row) => add("bank", row.bankId)),
+        ...mutation.items.map((row) => add("question", row.questionId)),
+      ];
+    case "practice.run.status.changed":
+      return [add("practiceRun", mutation.record.id)];
     case "practice.run.deleted": return [add("practiceRun", mutation.runId)];
     case "note.upserted": return [add("note", mutation.note.questionId), add("question", mutation.note.questionId)];
     case "note.deleted": return [add("note", mutation.questionId), add("question", mutation.questionId)];
-    case "questionGroup.saved": return [add("questionGroup", mutation.group.id)];
+    case "questionGroup.saved":
+      return [add("questionGroup", mutation.record.id), ...mutation.items.map((row) => add("question", row.questionId))];
     case "questionGroup.deleted": return [add("questionGroup", mutation.groupId)];
-    case "review.round.saved": case "review.round.completed": case "review.round.archived": return [add("reviewRound", mutation.round.id), ...mutation.round.bankIds.map((id) => add("bank", id))];
+    case "review.round.saved":
+    case "review.round.completed":
+    case "review.round.archived":
+      return [
+        add("reviewRound", mutation.record.id),
+        ...mutation.banks.map((row) => add("bank", row.bankId)),
+        ...mutation.items.map((row) => add("question", row.questionId)),
+      ];
   }
 }
-
-function runRefs(run: PracticeRun): ChangeSetEntityRef[] {
-  return [...new Set([...(run.bankIds ?? []), run.bankId])].filter(Boolean).map((id) => ({ type: "bank", id }))
-    .concat(run.questionIds.map((id) => ({ type: "question", id })));
-}
-

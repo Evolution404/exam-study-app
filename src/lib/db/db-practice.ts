@@ -15,9 +15,10 @@ import { applyAttemptProjectionInTx, applyPracticeRunProjectionInTx } from "./pr
 import { withSyncLock } from "../sync/sync-lock";
 import { restrictPracticeRunMappings } from "../practice/practice-run-invariants";
 import { stableQuestionOptionIds } from "../question/question-utils";
-import { getReviewRound, putReviewRoundInTx } from "./review-round-store";
+import { getReviewRound, putReviewRoundInTx, reviewRoundBundle } from "./review-round-store";
 import {
   getPracticeRun,
+  practiceRunRecord,
   putPracticeRunMetadataInTx,
   putPracticeRunRecordInTx,
 } from "./practice-run-store";
@@ -64,16 +65,14 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
       }
     }
     await applyPracticeRunProjectionInTx(current, updated);
-    await putPracticeRunRecordInTx(updated);
-    await studyDb.practiceRunSources.where("runId").equals(run.id).delete();
-    await studyDb.practiceRunSources.bulkPut(updated.bankIds.map((bankId, position) => ({
+    const record = practiceRunRecord(updated);
+    const sources = updated.bankIds.map((bankId, position) => ({
       runId: run.id,
       bankId,
       bankNameSnapshot: position === 0 ? updated.bankName : (banks[position]?.displayName || banks[position]?.name || bankId),
       position,
-    })));
-    await studyDb.practiceRunItems.where("runId").equals(run.id).delete();
-    await studyDb.practiceRunItems.bulkPut(updated.questionIds.map((questionId, position) => {
+    }));
+    const items = updated.questionIds.map((questionId, position) => {
       const answer = updated.answers[questionId];
       const existing = existingItemByQuestion.get(questionId);
       return {
@@ -86,8 +85,13 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
         ...(!answer?.submitted && answer?.selected ? { draftSelected: [...answer.selected] } : {}),
         ...(!answer?.submitted && answer?.response ? { draftResponse: answer.response } : {}),
       };
-    }));
-    await enqueueChangeSet([{ kind: "practice.run.saved", run: updated }], updated.updatedAt);
+    });
+    await studyDb.practiceRuns.put(record);
+    await studyDb.practiceRunSources.where("runId").equals(run.id).delete();
+    await studyDb.practiceRunSources.bulkPut(sources);
+    await studyDb.practiceRunItems.where("runId").equals(run.id).delete();
+    await studyDb.practiceRunItems.bulkPut(items);
+    await enqueueChangeSet([{ kind: "practice.run.saved", record, sources, items }], updated.updatedAt);
     return updated;
   });
 }
@@ -205,7 +209,7 @@ export async function createReviewRound(input: Pick<ReviewRound, "name" | "bankI
       deviceId: getDeviceId(),
     };
     await putReviewRoundInTx(round, { replaceBanks: true, replaceItems: true });
-    await enqueueChangeSet([{ kind: "review.round.saved", round }], timestamp);
+    await enqueueChangeSet([{ kind: "review.round.saved", ...reviewRoundBundle(round) }], timestamp);
     return round;
   });
 }
@@ -228,7 +232,7 @@ export async function updateReviewRound(roundId: string, changes: Partial<Pick<R
       deviceId: getDeviceId(),
     };
     await putReviewRoundInTx(updated, { replaceBanks: true, replaceItems: false });
-    await enqueueChangeSet([{ kind: "review.round.saved", round: updated }], updated.updatedAt);
+    await enqueueChangeSet([{ kind: "review.round.saved", ...reviewRoundBundle(updated) }], updated.updatedAt);
     return updated;
   });
 }
@@ -259,7 +263,7 @@ export async function completeReviewRound(roundId: string, finalQuestionIds?: re
       if (questions.some((question) => !question)) throw new Error("部分题目不存在或已被删除。");
     }
     const completed = await completeRoundInTx(current, targets);
-    await enqueueChangeSet([{ kind: "review.round.completed", round: completed }], completed.updatedAt);
+    await enqueueChangeSet([{ kind: "review.round.completed", ...reviewRoundBundle(completed) }], completed.updatedAt);
     return completed;
   });
 }
@@ -271,7 +275,7 @@ export async function archiveReviewRound(roundId: string): Promise<ReviewRound> 
     if (current.status === "archived") return current;
     const updated: ReviewRound = { ...current, status: "archived", updatedAt: nowIso(), deviceId: getDeviceId() };
     await putReviewRoundInTx(updated, { replaceBanks: false, replaceItems: false });
-    await enqueueChangeSet([{ kind: "review.round.archived", round: updated }], updated.updatedAt);
+    await enqueueChangeSet([{ kind: "review.round.archived", ...reviewRoundBundle(updated) }], updated.updatedAt);
     return updated;
   });
 }
@@ -323,7 +327,7 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     });
     await applyPracticeRunProjectionInTx(current, updated);
     await putPracticeRunRecordInTx(updated);
-    await enqueueChangeSet([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
+    await enqueueChangeSet([{ kind: "practice.run.status.changed", record: practiceRunRecord(updated) }], updatedAt);
     return updated;
   });
 }
@@ -416,26 +420,28 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
       ...(response ? { response } : {}),
       outcome,
     };
-    await studyDb.attempts.put(attempt);
-    await studyDb.practiceRunItems.put({
+    const submittedItem = {
       ...runItem,
       submittedAttemptId: attempt.id,
       draftSelected: undefined,
       draftResponse: undefined,
-    });
+    };
+    await studyDb.attempts.put(attempt);
+    await studyDb.practiceRunItems.put(submittedItem);
     await applyAttemptProjectionInTx(attempt);
 
     const lastAnsweredIndex = Math.max(runRecord.lastAnsweredIndex ?? -1, runItem.position);
     const activityAt = runRecord.status === "in_progress" && timestamp > runRecord.activityAt
       ? timestamp
       : runRecord.activityAt;
-    await putPracticeRunMetadataInTx({
+    const nextRunRecord = {
       ...runRecord,
       updatedAt: timestamp,
       activityAt,
       revision: runRecord.revision + 1,
       ...(lastAnsweredIndex >= 0 ? { lastAnsweredIndex } : {}),
-    });
+    };
+    await putPracticeRunMetadataInTx(nextRunRecord);
     if (activityAt > runRecord.activityAt) {
       for (const bankId of new Set(runSources.map((source) => source.bankId))) {
         const stats = await studyDb.bankPracticeStats.get(bankId);
@@ -449,8 +455,10 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     }
     const completedRound = reviewRoundId ? await getReviewRound(reviewRoundId) : undefined;
     await enqueueChangeSet([
-      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId },
-      ...(completedRound?.status === "completed" ? [{ kind: "review.round.completed" as const, round: completedRound }] : []),
+      { kind: "practice.answer.submitted", attempt, runRecord: nextRunRecord, item: submittedItem },
+      ...(completedRound?.status === "completed"
+        ? [{ kind: "review.round.completed" as const, ...reviewRoundBundle(completedRound) }]
+        : []),
     ], timestamp);
     return { attempt, answer };
   });

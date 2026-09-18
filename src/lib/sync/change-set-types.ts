@@ -13,12 +13,16 @@ import type {
   Bank,
   ImageAsset,
   Note,
-  PracticeRun,
-  QuestionGroup,
+  PracticeRunItem,
+  PracticeRunRecord,
+  PracticeRunSource,
+  QuestionGroupItem,
+  QuestionGroupRecord,
   Question,
-  ReviewRound,
+  ReviewRoundBank,
+  ReviewRoundItem,
+  ReviewRoundRecord,
 } from "../db/types";
-import type { PracticeAnswer } from "../db/db";
 
 export const CHANGE_SET_FORMAT = 7 as const;
 export const CHANGE_SET_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -86,21 +90,32 @@ export type ChangeSetMutation =
   | {
       kind: "practice.answer.submitted";
       attempt: Attempt;
-      answer: PracticeAnswer;
-      runId: string;
-      questionId: string;
+      runRecord: PracticeRunRecord;
+      item: PracticeRunItem;
     }
-  | { kind: "practice.answer.deleted"; attemptId: string; runId: string; questionId: string; deletedAt?: string }
-  | { kind: "practice.run.saved"; run: PracticeRun; definition?: ImmutablePayloadRef }
-  | { kind: "practice.run.status.changed"; run: PracticeRun; definition?: ImmutablePayloadRef }
+  | {
+      kind: "practice.answer.deleted";
+      attemptId: string;
+      runRecord: PracticeRunRecord;
+      item: PracticeRunItem;
+      deletedAt?: string;
+    }
+  | {
+      kind: "practice.run.saved";
+      record: PracticeRunRecord;
+      sources: PracticeRunSource[];
+      items: PracticeRunItem[];
+      definition?: ImmutablePayloadRef;
+    }
+  | { kind: "practice.run.status.changed"; record: PracticeRunRecord; definition?: ImmutablePayloadRef }
   | { kind: "practice.run.deleted"; runId: string; deletedAt?: string }
   | { kind: "note.upserted"; note: Note }
   | { kind: "note.deleted"; questionId: string; deletedAt?: string }
-  | { kind: "questionGroup.saved"; group: QuestionGroup }
+  | { kind: "questionGroup.saved"; record: QuestionGroupRecord; items: QuestionGroupItem[] }
   | { kind: "questionGroup.deleted"; groupId: string; deletedAt?: string }
-  | { kind: "review.round.saved"; round: ReviewRound }
-  | { kind: "review.round.completed"; round: ReviewRound }
-  | { kind: "review.round.archived"; round: ReviewRound };
+  | { kind: "review.round.saved"; record: ReviewRoundRecord; banks: ReviewRoundBank[]; items: ReviewRoundItem[] }
+  | { kind: "review.round.completed"; record: ReviewRoundRecord; banks: ReviewRoundBank[]; items: ReviewRoundItem[] }
+  | { kind: "review.round.archived"; record: ReviewRoundRecord; banks: ReviewRoundBank[]; items: ReviewRoundItem[] };
 
 export type ChangeSetKind = ChangeSetMutation["kind"] | "batch";
 

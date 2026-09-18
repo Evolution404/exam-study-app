@@ -61,17 +61,17 @@ function summarizeMutation(mutation: ChangeSetMutation): string {
     case "image.asset.delete": return `删除图片资产 ${mutation.assetId}`;
     case "attempt.create": return `保存作答记录 ${mutation.attempt.id}`;
     case "attempt.delete": return `删除作答记录 ${mutation.attemptId}`;
-    case "practice.answer.submitted": return `提交练习答案 ${mutation.questionId}`;
-    case "practice.answer.deleted": return `删除练习答案 ${mutation.questionId}`;
-    case "practice.run.saved": case "practice.run.status.changed": return `保存练习 ${mutation.run.id}`;
+    case "practice.answer.submitted": return `提交练习答案 ${mutation.item.questionId}`;
+    case "practice.answer.deleted": return `删除练习答案 ${mutation.item.questionId}`;
+    case "practice.run.saved": case "practice.run.status.changed": return `保存练习 ${mutation.record.id}`;
     case "practice.run.deleted": return `删除练习 ${mutation.runId}`;
     case "note.upserted": return `保存解析 ${mutation.note.questionId}`;
     case "note.deleted": return `删除解析 ${mutation.questionId}`;
-    case "questionGroup.saved": return `保存题组“${mutation.group.name}”`;
+    case "questionGroup.saved": return `保存题组“${mutation.record.name}”`;
     case "questionGroup.deleted": return `删除题组 ${mutation.groupId}`;
-    case "review.round.saved": return `保存复习轮次“${mutation.round.name}”`;
-    case "review.round.completed": return `完成复习轮次“${mutation.round.name}”`;
-    case "review.round.archived": return `归档复习轮次“${mutation.round.name}”`;
+    case "review.round.saved": return `保存复习轮次“${mutation.record.name}”`;
+    case "review.round.completed": return `完成复习轮次“${mutation.record.name}”`;
+    case "review.round.archived": return `归档复习轮次“${mutation.record.name}”`;
   }
 }
 
@@ -163,10 +163,10 @@ function mutationCreatedRefs(mutation: ChangeSetMutation): ChangeSetEntityRef[] 
     case "image.asset.save": return [{ type: "imageAsset", id: mutation.asset.id }];
     case "attempt.create": return [{ type: "attempt", id: mutation.attempt.id }];
     case "practice.answer.submitted": return [{ type: "attempt", id: mutation.attempt.id }];
-    case "practice.run.saved": return [{ type: "practiceRun", id: mutation.run.id }];
+    case "practice.run.saved": return [{ type: "practiceRun", id: mutation.record.id }];
     case "note.upserted": return [{ type: "note", id: mutation.note.questionId }];
-    case "questionGroup.saved": return [{ type: "questionGroup", id: mutation.group.id }];
-    case "review.round.saved": return [{ type: "reviewRound", id: mutation.round.id }];
+    case "questionGroup.saved": return [{ type: "questionGroup", id: mutation.record.id }];
+    case "review.round.saved": return [{ type: "reviewRound", id: mutation.record.id }];
     default: return [];
   }
 }

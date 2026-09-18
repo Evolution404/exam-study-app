@@ -86,7 +86,7 @@ export async function saveQuestionGroup(input: Pick<QuestionGroup, "name" | "typ
     await studyDb.questionGroupItems.bulkPut(groupItems);
     await studyDb.tombstones.delete(tombstoneKey("questionGroup", groupRecord.id));
     const group: QuestionGroup = { ...groupRecord, items };
-    await enqueueChangeSet([{ kind: "questionGroup.saved", group }], updatedAt);
+    await enqueueChangeSet([{ kind: "questionGroup.saved", record: groupRecord, items: groupItems }], updatedAt);
     return group;
   });
 }

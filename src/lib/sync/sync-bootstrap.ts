@@ -3,13 +3,13 @@ import type { GitHubSettings } from "../../types/types";
 import type { SyncHeadCache } from "./github-remote";
 import { descriptorPath, remote, report, sha256, vaultId, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-context";
 import { saveHeadCache, saveInstalledHead, saveRemoteCache } from "./sync-cache";
-import { checkpointFromProjection, projectionFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
+import { checkpointFromCanonicalState, canonicalStateFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
 import { createSyncCheckpointSnapshot } from "./sync-checkpoint-store";
 import { createRemoteHistoryCheckpoint, encodeRemoteHistoryCheckpoint } from "./sync-history";
 import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, type SyncHead, type SyncDescriptor } from "./sync-head-types";
 import { installFingerprint } from "./sync-watermark";
 import { SYNC_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssets } from "./sync-upload";
-import { filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
+import { filterCanonicalHistory, historySyncStartFor } from "./history-sync-range";
 import { assetUploadProgressLabel } from "./sync-orchestrator-model";
 
 /**
@@ -38,8 +38,8 @@ export async function initializeSyncRemote(
 
   const localSnapshot = await createSyncCheckpointSnapshot();
   const historySyncStart = historySyncStartFor(settings);
-  const localProjection = filterProjectionHistory(await projectionFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
-  const localCheckpoint = await checkpointFromProjection(localProjection, localSnapshot.checkpoint.cursors);
+  const localProjection = filterCanonicalHistory(await canonicalStateFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
+  const localCheckpoint = await checkpointFromCanonicalState(localProjection, localSnapshot.checkpoint.cursors);
   const checkpoint = await createRemoteHistoryCheckpoint(client, localCheckpoint);
   const bytes = encodeRemoteHistoryCheckpoint(checkpoint);
   const digest = await sha256(bytes);

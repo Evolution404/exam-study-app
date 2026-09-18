@@ -1,18 +1,8 @@
-/**
- * Public barrel for the projection reducer. The implementation is
- * split into layered modules; this facade exposes only the surface consumed by
- * application/runtime code.
- */
-export type {
-  ChangeSetProjection,
-} from "./change-set-projection-core";
+/** Canonical change-set reducer facade. */
+export { assertCanonicalState, canonicalStateValidationIssues, normalizeCanonicalStateForReplay } from "./change-set-derived";
 export {
-  recomputeChangeSetProjection,
-  assertChangeSetProjection,
-} from "./change-set-derived";
-export {
-  applyChangeSetToOwnedProjection,
-  finalizeRebasedProjection,
+  applyChangeSetToOwnedState,
+  finalizeRebasedState,
   reduceChangeSet,
   replayChangeSetBatch,
   reduceChangeSets,

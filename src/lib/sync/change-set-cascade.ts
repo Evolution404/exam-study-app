@@ -1,113 +1,57 @@
-/**
- * Cascade delete helpers for the projection reducer.  These are separated
- * from the core so the reducer can share the bulk-delete path while keeping the
- * dependency graph one-way (core -> cascade -> derived -> reducer).
- */
-import {
-  ensureQuestion,
-  putTombstone,
-  runBankIds,
-  type ChangeSetProjection,
-} from "./change-set-projection-core";
+/** Canonical cascade-delete helpers for the change-set reducer. */
+import type { CanonicalState } from "../db/types";
+import { ensureQuestion, putTombstone } from "./change-set-projection-core";
+
+function removeRun(state: CanonicalState, runId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  state.practiceRuns = state.practiceRuns.filter((row)=>row.id!==runId);
+  state.practiceRunSources = state.practiceRunSources.filter((row)=>row.runId!==runId);
+  state.practiceRunItems = state.practiceRunItems.filter((row)=>row.runId!==runId);
+  putTombstone(state,"practiceRun",runId,deletedAt,deviceId,eventId,sequence);
+}
 
 export function updateBankDeleteCascade(
-  projection: ChangeSetProjection,
-  bankId: string,
-  deletedAt: string,
-  deviceId: string,
-  eventId: string,
-  sequence: number,
+  state: CanonicalState, bankId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number,
 ): void {
-  projection.memberships = projection.memberships.filter((membership) => membership.bankId !== bankId);
-  projection.banks = projection.banks.filter((bank) => bank.id !== bankId);
-  for (const run of projection.practiceRuns.filter((run) => runBankIds(run).includes(bankId))) {
-    putTombstone(projection, "practiceRun", run.id, deletedAt, deviceId, eventId, sequence);
-  }
-  projection.practiceRuns = projection.practiceRuns.filter((run) => !runBankIds(run).includes(bankId));
-  projection.reviewRounds = projection.reviewRounds.map((round) => {
-    if (!round.bankIds.includes(bankId)) return round;
-    return { ...round, bankIds: round.bankIds.filter((id) => id !== bankId), updatedAt: deletedAt, deviceId };
-  });
-  putTombstone(projection, "bank", bankId, deletedAt, deviceId, eventId, sequence);
+  state.memberships=state.memberships.filter((row)=>row.bankId!==bankId);
+  const runIds=new Set(state.practiceRunSources.filter((row)=>row.bankId===bankId).map((row)=>row.runId));
+  for(const runId of runIds) removeRun(state,runId,deletedAt,deviceId,eventId,sequence);
+  const affectedRounds=new Set(state.reviewRoundBanks.filter((row)=>row.bankId===bankId).map((row)=>row.roundId));
+  state.reviewRoundBanks=state.reviewRoundBanks.filter((row)=>row.bankId!==bankId);
+  state.reviewRounds=state.reviewRounds.map((round)=>affectedRounds.has(round.id)?{...round,updatedAt:deletedAt,deviceId}:round);
+  state.banks=state.banks.filter((bank)=>bank.id!==bankId);
+  putTombstone(state,"bank",bankId,deletedAt,deviceId,eventId,sequence);
 }
 
-export function updateQuestionDeleteCascade(projection: ChangeSetProjection, questionId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
-  ensureQuestion(projection, questionId);
-  projection.questions = projection.questions.filter((question) => question.id !== questionId);
-  projection.memberships = projection.memberships.filter((membership) => membership.questionId !== questionId);
-  projection.attempts = projection.attempts.filter((attempt) => attempt.questionId !== questionId);
-  projection.notes = projection.notes.filter((note) => note.questionId !== questionId);
-  projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => item.questionId !== questionId);
-  projection.reviewRounds = projection.reviewRounds.map((round) => {
-    if (!round.finalQuestionIds?.includes(questionId)) return round;
-    return {
-      ...round,
-      finalQuestionIds: round.finalQuestionIds.filter((id) => id !== questionId),
-      updatedAt: deletedAt,
-      deviceId,
-    };
-  });
-  projection.questionGroups = projection.questionGroups.flatMap((group) => {
-    const items = group.items.filter((item) => item.questionId !== questionId);
-    if (!items.length) {
-      // 题目删除把组裁空时，一并写墓碑，使后续到达的陈旧 questionGroup.saved 被
-      // rejectTombstoned 拦截（题组不可复活）。此前只丢弃组不写墓碑，远端 replay 后
-      // saved 仍能重建含 dangling 题目引用的组。
-      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId, sequence);
-      return [];
-    }
-    return [{ ...group, items }];
-  });
-  projection.practiceRuns = projection.practiceRuns.map((run) => {
-    if (!run.questionIds.includes(questionId)) return run;
-    const answers = { ...run.answers };
-    delete answers[questionId];
-    const questionTypes = { ...run.questionTypes };
-    delete questionTypes[questionId];
-    return { ...run, questionIds: run.questionIds.filter((id) => id !== questionId), answers, questionTypes, updatedAt: deletedAt };
-  });
-  putTombstone(projection, "question", questionId, deletedAt, deviceId, eventId, sequence);
+function deleteQuestionRelations(state: CanonicalState, ids: ReadonlySet<string>, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  const keep=(id:string)=>!ids.has(id);
+  state.questions=state.questions.filter((row)=>keep(row.id));
+  state.memberships=state.memberships.filter((row)=>keep(row.questionId));
+  state.attempts=state.attempts.filter((row)=>keep(row.questionId));
+  state.notes=state.notes.filter((row)=>keep(row.questionId));
+
+  const affectedRuns=new Set(state.practiceRunItems.filter((row)=>ids.has(row.questionId)).map((row)=>row.runId));
+  state.practiceRunItems=state.practiceRunItems.filter((row)=>keep(row.questionId));
+  state.practiceRuns=state.practiceRuns.map((run)=>affectedRuns.has(run.id)?{...run,updatedAt:deletedAt}:run);
+
+  const affectedRounds=new Set(state.reviewRoundItems.filter((row)=>ids.has(row.questionId)).map((row)=>row.roundId));
+  state.reviewRoundItems=state.reviewRoundItems.filter((row)=>keep(row.questionId));
+  state.reviewRounds=state.reviewRounds.map((round)=>affectedRounds.has(round.id)?{...round,updatedAt:deletedAt,deviceId}:round);
+
+  state.questionGroupItems=state.questionGroupItems.filter((row)=>keep(row.questionId));
+  const liveGroups=new Set(state.questionGroupItems.map((row)=>row.groupId));
+  const removedGroups=state.questionGroups.filter((group)=>!liveGroups.has(group.id));
+  state.questionGroups=state.questionGroups.filter((group)=>liveGroups.has(group.id));
+  for(const group of removedGroups) putTombstone(state,"questionGroup",group.id,deletedAt,deviceId,eventId,sequence);
+
+  for(const questionId of ids) putTombstone(state,"question",questionId,deletedAt,deviceId,eventId,sequence);
 }
 
-/** Bulk cascade delete in ONE pass per table (Set membership instead of a
- *  full cascade per question — the naive path was O(questions × tables)). */
-export function updateQuestionsBulkDeleteCascade(projection: ChangeSetProjection, questionIds: readonly string[], deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
-  const ids = new Set(questionIds);
-  for (const questionId of ids) ensureQuestion(projection, questionId);
-  const keepQuestion = (questionId: string) => !ids.has(questionId);
-  projection.questions = projection.questions.filter((question) => keepQuestion(question.id));
-  projection.memberships = projection.memberships.filter((membership) => keepQuestion(membership.questionId));
-  projection.attempts = projection.attempts.filter((attempt) => keepQuestion(attempt.questionId));
-  projection.notes = projection.notes.filter((note) => keepQuestion(note.questionId));
-  projection.reviewRoundProgress = projection.reviewRoundProgress.filter((item) => keepQuestion(item.questionId));
-  projection.reviewRounds = projection.reviewRounds.map((round) => {
-    if (!round.finalQuestionIds?.some((questionId) => ids.has(questionId))) return round;
-    return {
-      ...round,
-      finalQuestionIds: round.finalQuestionIds.filter(keepQuestion),
-      updatedAt: deletedAt,
-      deviceId,
-    };
-  });
-  projection.questionGroups = projection.questionGroups.flatMap((group) => {
-    const items = group.items.filter((item) => keepQuestion(item.questionId));
-    if (!items.length) {
-      // 与单题删除一致：组被裁空时写墓碑，拦截后续陈旧的 questionGroup.saved。
-      putTombstone(projection, "questionGroup", group.id, deletedAt, deviceId, eventId, sequence);
-      return [];
-    }
-    return [{ ...group, items }];
-  });
-  projection.practiceRuns = projection.practiceRuns.map((run) => {
-    if (!run.questionIds.some((id) => ids.has(id))) return run;
-    const answers = { ...run.answers };
-    const questionTypes = { ...run.questionTypes };
-    for (const questionId of run.questionIds) {
-      if (!ids.has(questionId)) continue;
-      delete answers[questionId];
-      delete questionTypes[questionId];
-    }
-    return { ...run, questionIds: run.questionIds.filter(keepQuestion), answers, questionTypes, updatedAt: deletedAt };
-  });
-  for (const questionId of ids) putTombstone(projection, "question", questionId, deletedAt, deviceId, eventId, sequence);
+export function updateQuestionDeleteCascade(state: CanonicalState, questionId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  ensureQuestion(state,questionId);
+  deleteQuestionRelations(state,new Set([questionId]),deletedAt,deviceId,eventId,sequence);
+}
+export function updateQuestionsBulkDeleteCascade(state: CanonicalState, questionIds: readonly string[], deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  const ids=new Set(questionIds);
+  for(const id of ids) ensureQuestion(state,id);
+  deleteQuestionRelations(state,ids,deletedAt,deviceId,eventId,sequence);
 }

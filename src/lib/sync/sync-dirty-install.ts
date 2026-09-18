@@ -1,24 +1,23 @@
-import { bulkGetPracticeRuns, studyDb } from "../db/db";
-import type { BankQuestionMembership, PracticeRun } from "../db/types";
-import type { ChangeSetProjection } from "./change-set-projection";
+import type { CanonicalState } from "../db/types";
 import type { ChangeSet, ChangeSetMutation } from "./change-set-types";
 
 export interface DirtyInstallKeys {
-  banks: string[];
-  bankFolders: string[];
-  questions: string[];
-  memberships: string[];
-  imageAssets: string[];
-  attempts: string[];
-  attemptStats: string[];
-  attemptDailyStats: string[];
-  notes: string[];
-  practiceRuns: string[];
-  practiceRunStats: string[];
-  questionGroups: string[];
-  reviewRounds: string[];
-  reviewRoundProgress: string[];
-  tombstones: string[];
+  banks: readonly string[];
+  bankFolders: readonly string[];
+  questions: readonly string[];
+  memberships: readonly string[];
+  imageAssets: readonly string[];
+  attempts: readonly string[];
+  notes: readonly string[];
+  practiceRuns: readonly string[];
+  practiceRunSources: readonly string[];
+  practiceRunItems: readonly string[];
+  questionGroups: readonly string[];
+  questionGroupItems: readonly string[];
+  reviewRounds: readonly string[];
+  reviewRoundBanks: readonly string[];
+  reviewRoundItems: readonly string[];
+  tombstones: readonly string[];
 }
 
 type DirtySets = { [K in keyof DirtyInstallKeys]: Set<string> };
@@ -31,56 +30,33 @@ function emptyDirtySets(): DirtySets {
     memberships: new Set(),
     imageAssets: new Set(),
     attempts: new Set(),
-    attemptStats: new Set(),
-    attemptDailyStats: new Set(),
     notes: new Set(),
     practiceRuns: new Set(),
-    practiceRunStats: new Set(),
+    practiceRunSources: new Set(),
+    practiceRunItems: new Set(),
     questionGroups: new Set(),
+    questionGroupItems: new Set(),
     reviewRounds: new Set(),
-    reviewRoundProgress: new Set(),
+    reviewRoundBanks: new Set(),
+    reviewRoundItems: new Set(),
     tombstones: new Set(),
   };
 }
 
-function tombstoneKey(entityType: string, entityId: string): string {
-  return `${entityType}:${entityId}`;
+function tombstoneKey(type: string, id: string): string {
+  return `${type}:${id}`;
 }
 
-function runBankIds(run: PracticeRun | undefined): string[] {
-  if (!run) return [];
-  const ids = run.bankIds?.length ? run.bankIds : (run.bankId ? [run.bankId] : []);
-  return [...new Set(ids.filter(Boolean))];
+function relationKey(parentId: string, childId: string): string {
+  return `${parentId}:${childId}`;
 }
 
-function membershipKey(bankId: string, questionId: string): string {
-  return `${bankId}:${questionId}`;
-}
-
-function compoundPrimaryKey(key: string): [string, string] {
-  const separator = key.indexOf(":");
-  if (separator <= 0 || separator >= key.length - 1) throw new Error(`无效复合关系键：${key}`);
-  return [key.slice(0, separator), key.slice(separator + 1)];
-}
-
-function addQuestionUpsert(sets: DirtySets, questionId: string): void {
-  sets.questions.add(questionId);
-  // Successful upserts cannot coexist with a live tombstone, but include the
-  // key so a dirty install also mirrors any legitimate reducer tombstone clear.
-  sets.tombstones.add(tombstoneKey("question", questionId));
-}
-
-/**
- * Add primary keys directly named by one reducer mutation. Complex cascades
- * return false: the caller must use full reconcile because proving every
- * dependent deletion would otherwise duplicate the reducer's cascade graph.
- */
 function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean {
   switch (mutation.kind) {
     case "bank.create":
     case "bank.update":
       sets.banks.add(mutation.bank.id);
-      if (mutation.kind === "bank.create") sets.tombstones.add(tombstoneKey("bank", mutation.bank.id));
+      sets.tombstones.add(tombstoneKey("bank", mutation.bank.id));
       return true;
     case "bank.reorder":
       mutation.bankIds.forEach((id) => sets.banks.add(id));
@@ -97,29 +73,43 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       sets.tombstones.add(tombstoneKey("bankFolder", mutation.folderId));
       return true;
     case "question.upsert":
-      addQuestionUpsert(sets, mutation.question.id);
+      sets.questions.add(mutation.question.id);
+      sets.tombstones.add(tombstoneKey("question", mutation.question.id));
       return true;
     case "question.delete":
     case "question.delete.cascade":
     case "question.bulk.delete":
       return false;
     case "question.bulk.upsert":
-      mutation.questions.forEach((question) => addQuestionUpsert(sets, question.id));
+      mutation.questions.forEach((question) => {
+        sets.questions.add(question.id);
+        sets.tombstones.add(tombstoneKey("question", question.id));
+      });
       return true;
     case "question.split":
-      addQuestionUpsert(sets, mutation.clone.id);
-      mutation.memberships.forEach((membership) => sets.memberships.add(membership.key));
+      sets.questions.add(mutation.clone.id);
+      sets.tombstones.add(tombstoneKey("question", mutation.clone.id));
+      mutation.memberships.forEach((membership) => {
+        sets.memberships.add(membership.key);
+        sets.banks.add(membership.bankId);
+      });
       for (const key of mutation.deletedMembershipKeys ?? []) {
         sets.memberships.add(key);
         sets.tombstones.add(tombstoneKey("membership", key));
+        const separator = key.indexOf(":");
+        if (separator > 0) sets.banks.add(key.slice(0, separator));
       }
       if (mutation.note) sets.notes.add(mutation.note.questionId);
       return true;
     case "question.import":
       sets.banks.add(mutation.bank.id);
-      mutation.questions.forEach((question) => addQuestionUpsert(sets, question.id));
+      mutation.questions.forEach((question) => {
+        sets.questions.add(question.id);
+        sets.tombstones.add(tombstoneKey("question", question.id));
+      });
       mutation.memberships.forEach((membership) => {
         sets.memberships.add(membership.key);
+        sets.banks.add(membership.bankId);
         sets.tombstones.add(tombstoneKey("membership", membership.key));
       });
       for (const asset of mutation.images ?? []) {
@@ -129,10 +119,11 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       return true;
     case "membership.save":
       sets.memberships.add(mutation.membership.key);
+      sets.banks.add(mutation.membership.bankId);
       sets.tombstones.add(tombstoneKey("membership", mutation.membership.key));
       return true;
     case "membership.remove": {
-      const key = mutation.key ?? membershipKey(mutation.bankId, mutation.questionId);
+      const key = mutation.key ?? relationKey(mutation.bankId, mutation.questionId);
       sets.memberships.add(key);
       sets.banks.add(mutation.bankId);
       sets.tombstones.add(tombstoneKey("membership", key));
@@ -141,6 +132,7 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
     case "membership.bulk.save":
       mutation.memberships.forEach((membership) => {
         sets.memberships.add(membership.key);
+        sets.banks.add(membership.bankId);
         sets.tombstones.add(tombstoneKey("membership", membership.key));
       });
       return true;
@@ -148,6 +140,8 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       mutation.keys.forEach((key) => {
         sets.memberships.add(key);
         sets.tombstones.add(tombstoneKey("membership", key));
+        const separator = key.indexOf(":");
+        if (separator > 0) sets.banks.add(key.slice(0, separator));
       });
       if (mutation.bankId) sets.banks.add(mutation.bankId);
       return true;
@@ -165,27 +159,28 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       return true;
     case "attempt.delete":
       sets.attempts.add(mutation.attemptId);
-      if (mutation.questionId) sets.attemptStats.add(mutation.questionId);
       sets.tombstones.add(tombstoneKey("attempt", mutation.attemptId));
       return true;
     case "practice.answer.submitted":
       sets.attempts.add(mutation.attempt.id);
-      sets.practiceRuns.add(mutation.runId);
-      sets.attemptStats.add(mutation.questionId);
+      sets.practiceRuns.add(mutation.runRecord.id);
+      sets.practiceRunItems.add(relationKey(mutation.item.runId, mutation.item.questionId));
       sets.tombstones.add(tombstoneKey("attempt", mutation.attempt.id));
       return true;
     case "practice.answer.deleted":
       sets.attempts.add(mutation.attemptId);
-      sets.practiceRuns.add(mutation.runId);
-      sets.attemptStats.add(mutation.questionId);
+      sets.practiceRuns.add(mutation.runRecord.id);
+      sets.practiceRunItems.add(relationKey(mutation.item.runId, mutation.item.questionId));
       sets.tombstones.add(tombstoneKey("attempt", mutation.attemptId));
       return true;
     case "practice.run.saved":
-      sets.practiceRuns.add(mutation.run.id);
-      sets.tombstones.add(tombstoneKey("practiceRun", mutation.run.id));
+      sets.practiceRuns.add(mutation.record.id);
+      mutation.sources.forEach((row) => sets.practiceRunSources.add(relationKey(row.runId, row.bankId)));
+      mutation.items.forEach((row) => sets.practiceRunItems.add(relationKey(row.runId, row.questionId)));
+      sets.tombstones.add(tombstoneKey("practiceRun", mutation.record.id));
       return true;
     case "practice.run.status.changed":
-      sets.practiceRuns.add(mutation.run.id);
+      sets.practiceRuns.add(mutation.record.id);
       return true;
     case "practice.run.deleted":
       sets.practiceRuns.add(mutation.runId);
@@ -200,8 +195,9 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       sets.tombstones.add(tombstoneKey("note", mutation.questionId));
       return true;
     case "questionGroup.saved":
-      sets.questionGroups.add(mutation.group.id);
-      sets.tombstones.add(tombstoneKey("questionGroup", mutation.group.id));
+      sets.questionGroups.add(mutation.record.id);
+      mutation.items.forEach((row) => sets.questionGroupItems.add(relationKey(row.groupId, row.questionId)));
+      sets.tombstones.add(tombstoneKey("questionGroup", mutation.record.id));
       return true;
     case "questionGroup.deleted":
       sets.questionGroups.add(mutation.groupId);
@@ -210,131 +206,24 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
     case "review.round.saved":
     case "review.round.completed":
     case "review.round.archived":
-      sets.reviewRounds.add(mutation.round.id);
+      sets.reviewRounds.add(mutation.record.id);
+      mutation.banks.forEach((row) => sets.reviewRoundBanks.add(relationKey(row.roundId, row.bankId)));
+      mutation.items.forEach((row) => sets.reviewRoundItems.add(relationKey(row.roundId, row.questionId)));
       return true;
   }
 }
 
-function targetMembershipMap(target: ChangeSetProjection, keys: Set<string>): Map<string, BankQuestionMembership> {
-  const result = new Map<string, BankQuestionMembership>();
-  if (!keys.size) return result;
-  for (const membership of target.memberships) if (keys.has(membership.key)) result.set(membership.key, membership);
-  return result;
-}
-
-function targetRunMap(target: ChangeSetProjection, keys: Set<string>): Map<string, PracticeRun> {
-  const result = new Map<string, PracticeRun>();
-  if (!keys.size) return result;
-  for (const run of target.practiceRuns) if (keys.has(run.id)) result.set(run.id, run);
-  return result;
-}
-
-function targetAttemptMap(target: ChangeSetProjection, keys: Set<string>): Map<string, ChangeSetProjection["attempts"][number]> {
-  const result = new Map<string, ChangeSetProjection["attempts"][number]>();
-  if (!keys.size) return result;
-  for (const attempt of target.attempts) if (keys.has(attempt.id)) result.set(attempt.id, attempt);
-  return result;
-}
-
-/**
- * Derive the smallest safe IndexedDB key closure for an ordinary sync install.
- * Returns null for reducer cascades whose dependency surface cannot be proven
- * from the mutation envelope alone; callers must fall back to full reconcile.
- *
- * The closure is based on CURRENT local rows plus the FINAL target projection.
- * This is important when local pending edits are already installed: only the
- * current→target difference matters, not transient states while remote/local
- * change-sets were replayed in memory.
- */
 export async function deriveDirtyInstallKeys(
-  target: ChangeSetProjection,
+  _target: CanonicalState,
   changes: readonly ChangeSet[],
 ): Promise<DirtyInstallKeys | null> {
   if (!changes.length) return null;
   const sets = emptyDirtySets();
-  const roundLinkRunIds = new Set<string>();
-
   for (const change of changes) {
     for (const mutation of change.mutations) {
       if (!addMutationKeys(sets, mutation)) return null;
-      if (mutation.kind === "practice.run.saved" || mutation.kind === "practice.run.deleted") {
-        roundLinkRunIds.add(mutation.kind === "practice.run.saved" ? mutation.run.id : mutation.runId);
-      }
     }
   }
-
-  // Membership changes alter the derived bank.questionCount. Union current and
-  // target memberships so remove/split/import remain correct even when a local
-  // pending edit has already changed the installed membership row.
-  if (sets.memberships.size) {
-    const keys = [...sets.memberships];
-    const [current, targetByKey] = await Promise.all([
-      studyDb.bankQuestionMemberships.bulkGet(keys.map(compoundPrimaryKey)),
-      Promise.resolve(targetMembershipMap(target, sets.memberships)),
-    ]);
-    keys.forEach((key, index) => {
-      const old = current[index];
-      if (old) sets.banks.add(old.bankId);
-      const next = targetByKey.get(key);
-      if (next) sets.banks.add(next.bankId);
-    });
-  }
-
-  // Run changes alter practiceRunStats for every bank referenced by either the
-  // currently installed run or the final target run.
-  if (sets.practiceRuns.size) {
-    const runIds = [...sets.practiceRuns];
-    const [currentRuns, targetById] = await Promise.all([
-      bulkGetPracticeRuns(runIds),
-      Promise.resolve(targetRunMap(target, sets.practiceRuns)),
-    ]);
-    runIds.forEach((runId, index) => {
-      runBankIds(currentRuns[index]).forEach((bankId) => sets.practiceRunStats.add(bankId));
-      runBankIds(targetById.get(runId)).forEach((bankId) => sets.practiceRunStats.add(bankId));
-    });
-  }
-
-  // Attempt changes alter per-question stats/daily stats/round progress. Again
-  // Union current and target question ids for immutable attempt create/delete changes.
-  if (sets.attempts.size) {
-    const attemptIds = [...sets.attempts];
-    const [currentAttempts, targetById] = await Promise.all([
-      studyDb.attempts.bulkGet(attemptIds),
-      Promise.resolve(targetAttemptMap(target, sets.attempts)),
-    ]);
-    attemptIds.forEach((attemptId, index) => {
-      const old = currentAttempts[index];
-      if (old) sets.attemptStats.add(old.questionId);
-      const next = targetById.get(attemptId);
-      if (next) sets.attemptStats.add(next.questionId);
-    });
-  }
-
-  // Changing/deleting a run can change which review round its existing attempts
-  // feed even when those attempt rows themselves are unchanged. Only run.saved
-  // and run.deleted can alter that structural link; answer/status changes cannot.
-  if (roundLinkRunIds.size) {
-    const runIds = [...roundLinkRunIds];
-    const currentAttempts = await studyDb.attempts.where("runId").anyOf(runIds).toArray();
-    currentAttempts.forEach((attempt) => sets.attemptStats.add(attempt.questionId));
-    target.attempts.forEach((attempt) => {
-      if (roundLinkRunIds.has(attempt.runId)) sets.attemptStats.add(attempt.questionId);
-    });
-  }
-
-  if (sets.attemptStats.size) {
-    const questionIds = [...sets.attemptStats];
-    const questionSet = sets.attemptStats;
-    const [localDailyKeys, localRoundKeys] = await Promise.all([
-      studyDb.questionDailyProgress.where("questionId").anyOf(questionIds).primaryKeys(),
-      studyDb.reviewRoundProgress.where("questionId").anyOf(questionIds).primaryKeys(),
-    ]);
-    localDailyKeys.forEach((key) => sets.attemptDailyStats.add(`${String(key[0])}:${String(key[1])}`));
-    localRoundKeys.forEach((key) => sets.reviewRoundProgress.add(`${String(key[0])}:${String(key[1])}`));
-    for (const row of target.attemptDailyStats) if (questionSet.has(row.questionId)) sets.attemptDailyStats.add(row.key);
-    for (const row of target.reviewRoundProgress) if (questionSet.has(row.questionId)) sets.reviewRoundProgress.add(row.key);
-  }
-
   const result = {} as DirtyInstallKeys;
   for (const key of Object.keys(sets) as Array<keyof DirtyInstallKeys>) result[key] = [...sets[key]].sort();
   return result;
