@@ -61,26 +61,19 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
     : progressScopeLabel(normalizedProgressScope);
   const activeBankKey = activeBankIds.join("|");
 
-  const scopeProgress = useLiveQuery(async () => {
-    if (view !== "home") return { completed: 0, total: 0 };
-    if (!activeBankIds.length) return { completed: 0, total: 0 };
-    const memberships = await studyDb.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray();
-    const ids = [...new Set(memberships.map((membership) => membership.questionId))];
-    const [attemptStatsRows, roundProgress] = await Promise.all([
-      studyDb.questionProgress.bulkGet(ids),
-      ids.length ? studyDb.reviewRoundProgress.where("questionId").anyOf(ids).toArray() : [],
-    ]);
-    const attemptStats = attemptStatsRows.filter((row) => row !== undefined);
-    const completion = calculateProgressCompletion(ids, normalizeProgressScope(preferences.progressScope), attemptStats, roundProgress, Date.now());
-    return { completed: completion.completed, total: completion.total };
-  }, [view, activeBankKey, preferences.progressScope]) ?? { completed: 0, total: 0 };
-
-  const scopeStats = useLiveQuery(async () => {
-    if (view !== "home") return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: 0 };
+  const scopeData = useLiveQuery(async () => {
+    const emptyStats = { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined as string | undefined, bankCount: 0 };
+    if (view !== "home") return { progress: { completed: 0, total: 0 }, stats: emptyStats };
     const questionIds = activeBankIds.length
       ? [...new Set((await studyDb.bankQuestionMemberships.where("bankId").anyOf(activeBankIds).toArray()).map((membership) => membership.questionId))]
       : await studyDb.questions.toCollection().primaryKeys();
-    if (!questionIds.length) return { questions: 0, attempts: 0, correct: 0, notes: 0, last: undefined, bankCount: activeBankIds.length || banks.length };
+    if (!questionIds.length) {
+      return {
+        progress: { completed: 0, total: 0 },
+        stats: { ...emptyStats, bankCount: activeBankIds.length || banks.length },
+      };
+    }
+
     const referenceTime = Date.now();
     const { attempts, attemptStats, roundProgress, notes } = await readDashboardScopedRows(
       questionIds,
@@ -88,26 +81,40 @@ export function useDashboardData(view: View, preferences: PracticePreferences) {
       referenceTime,
       { allQuestions: activeBankIds.length === 0 },
     );
+    const completionStats = normalizedProgressScope.type === "rolling" && activeBankIds.length
+      ? (await studyDb.questionProgress.bulkGet(questionIds)).filter((row) => row !== undefined)
+      : attemptStats;
+    const completion = activeBankIds.length
+      ? calculateProgressCompletion(questionIds, normalizedProgressScope, completionStats, roundProgress, referenceTime)
+      : { completed: 0, total: 0, percent: 0 };
     const questionIdSet = new Set(questionIds);
     const summary = normalizedProgressScope.type === "lifetime"
       ? summarizeDashboardLifetimeStats(attemptStats)
       : summarizeScopedQuestionStats(buildScopedQuestionStats(questionIds, normalizedProgressScope, attempts, roundProgress, referenceTime));
     return {
-      questions: questionIds.length,
-      attempts: summary.attempts,
-      correct: summary.correct,
-      notes: notes.filter((note) => questionIdSet.has(note.questionId) && note.content.trim()).length,
-      last: summary.lastAttemptAt,
-      bankCount: activeBankIds.length || banks.length,
+      progress: { completed: completion.completed, total: completion.total },
+      stats: {
+        questions: questionIds.length,
+        attempts: summary.attempts,
+        correct: summary.correct,
+        notes: notes.filter((note) => questionIdSet.has(note.questionId) && note.content.trim()).length,
+        last: summary.lastAttemptAt,
+        bankCount: activeBankIds.length || banks.length,
+      },
     };
   }, [view, activeBankKey, preferences.progressScope, banks.length]) ?? {
-    questions: 0,
-    attempts: 0,
-    correct: 0,
-    notes: 0,
-    last: undefined,
-    bankCount: activeBankIds.length || banks.length,
+    progress: { completed: 0, total: 0 },
+    stats: {
+      questions: 0,
+      attempts: 0,
+      correct: 0,
+      notes: 0,
+      last: undefined,
+      bankCount: activeBankIds.length || banks.length,
+    },
   };
+  const scopeProgress = scopeData.progress;
+  const scopeStats = scopeData.stats;
 
   function selectBanks(bankIds: string[]) {
     const unique = [...new Set(bankIds)];
