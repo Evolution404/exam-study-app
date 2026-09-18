@@ -24,6 +24,10 @@ import type {
 } from "./types";
 
 const PROJECTION_REBUILD_PENDING_KEY = "projection:rebuild-pending";
+const PROJECTION_MODEL_REVISION_KEY = "projection:model-revision";
+
+/** Bump only when projection semantics/schema change. */
+export const PROJECTION_MODEL_REVISION = 2 as const;
 
 /**
  * Apply the device-local projections derived from one canonical Attempt.
@@ -155,12 +159,24 @@ export async function markProjectionRebuildPendingInTx(): Promise<void> {
   });
 }
 
+async function markProjectionModelCurrentInTx(): Promise<void> {
+  await studyDb.syncMeta.put({
+    key: PROJECTION_MODEL_REVISION_KEY,
+    value: PROJECTION_MODEL_REVISION,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 async function clearProjectionRebuildPendingInTx(): Promise<void> {
   await studyDb.syncMeta.delete(PROJECTION_REBUILD_PENDING_KEY);
 }
 
 export async function ensureLocalProjectionsReady(): Promise<void> {
-  if (!await studyDb.syncMeta.get(PROJECTION_REBUILD_PENDING_KEY)) return;
+  const [pending, revision] = await Promise.all([
+    studyDb.syncMeta.get(PROJECTION_REBUILD_PENDING_KEY),
+    studyDb.syncMeta.get(PROJECTION_MODEL_REVISION_KEY),
+  ]);
+  if (!pending && revision?.value === PROJECTION_MODEL_REVISION) return;
   await rebuildAllProjections();
 }
 
@@ -201,6 +217,7 @@ async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
     async () => {
       await replaceProjectionRowsInTx(rows);
       await clearProjectionRebuildPendingInTx();
+      await markProjectionModelCurrentInTx();
     },
   );
 }
@@ -292,6 +309,7 @@ export async function rebuildAllProjections(): Promise<void> {
       const runs = assemblePracticeRunRecords(records, sources, items, attempts);
       await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs, memberships));
       await clearProjectionRebuildPendingInTx();
+      await markProjectionModelCurrentInTx();
     },
   );
 }

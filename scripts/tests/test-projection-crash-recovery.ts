@@ -11,6 +11,7 @@ import {
 import {
   ensureLocalProjectionsReady,
   markProjectionRebuildPendingInTx,
+  PROJECTION_MODEL_REVISION,
 } from "../../src/lib/db/projection-engine";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -74,8 +75,26 @@ assert.equal(
   "projection 成功重建后必须清掉 pending 标记",
 );
 
+assert.equal(
+  (await studyDb.syncMeta.get("projection:model-revision"))?.value,
+  PROJECTION_MODEL_REVISION,
+  "projection rebuild 必须在同一模型收口时写入当前 revision",
+);
+
 await ensureLocalProjectionsReady();
-assert.equal((await studyDb.questionProgress.get(question.id))?.total, 2, "无 pending 标记时恢复检查必须幂等");
+assert.equal((await studyDb.questionProgress.get(question.id))?.total, 2, "当前 revision 且无 pending 标记时恢复检查必须幂等");
+
+// Algorithm/model revision mismatch must force a deterministic rebuild even
+// when projection rows are non-empty and no crash marker exists.
+await studyDb.transaction("rw", [studyDb.questionProgress, studyDb.syncMeta], async () => {
+  const stale = await studyDb.questionProgress.get(question.id);
+  if (!stale) throw new Error("expected stale projection fixture");
+  await studyDb.questionProgress.put({ ...stale, total: 999 });
+  await studyDb.syncMeta.put({ key: "projection:model-revision", value: PROJECTION_MODEL_REVISION - 1, updatedAt: new Date().toISOString() });
+});
+await ensureLocalProjectionsReady();
+assert.equal((await studyDb.questionProgress.get(question.id))?.total, 2, "旧 projection model revision 必须触发 full rebuild");
+assert.equal((await studyDb.syncMeta.get("projection:model-revision"))?.value, PROJECTION_MODEL_REVISION);
 
 studyDb.close();
 console.log("projection crash recovery passed: stale non-empty projections are rebuilt after pending canonical commit");
