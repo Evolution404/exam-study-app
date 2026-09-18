@@ -293,7 +293,7 @@ function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
     getOwnPropertyDescriptor(_target, property) {
       return Reflect.getOwnPropertyDescriptor(current, property);
     },
-  }) as T[];
+  });
   return { proxy, current: () => current };
 }
 
