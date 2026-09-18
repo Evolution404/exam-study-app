@@ -32,8 +32,9 @@ const run = await createPracticeRun({ bankId: bank.id, questionIds: questions.ma
 const target = questions[237]!;
 
 let itemReads = 0;
-const readHook = () => {
+const readHook = <T>(row: T): T => {
   itemReads += 1;
+  return row;
 };
 studyDb.practiceRunItems.hook("reading", readHook);
 const beforeChanges = await studyDb.changeSets.count();
