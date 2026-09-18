@@ -99,7 +99,7 @@ export async function savePracticeDraft(
 ): Promise<boolean> {
   return withSyncLock(() => studyDb.transaction(
     "rw",
-    [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeStats],
+    [studyDb.practiceRuns, studyDb.practiceRunItems],
     async () => {
       const [record, item] = await Promise.all([
         studyDb.practiceRuns.get(runId),
@@ -115,20 +115,14 @@ export async function savePracticeDraft(
         });
       }
 
+      // Draft edits are local navigation state, not submitted activity.
+      // Preserve activityAt exactly: runActivityAt only advances on submitted
+      // answers (or completion/abandon transitions).
       await studyDb.practiceRuns.put({
         ...record,
         updatedAt,
-        activityAt: updatedAt,
         revision: record.revision + 1,
       });
-
-      const sources = await studyDb.practiceRunSources.where("runId").equals(runId).toArray();
-      for (const bankId of new Set(sources.map((source) => source.bankId))) {
-        const stats = await studyDb.bankPracticeStats.get(bankId);
-        if (stats && updatedAt > stats.latestActivityAt) {
-          await studyDb.bankPracticeStats.put({ ...stats, latestActivityAt: updatedAt });
-        }
-      }
       return true;
     },
   ));
