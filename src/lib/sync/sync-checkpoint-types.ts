@@ -1,6 +1,6 @@
 import type { CanonicalState } from "../db/types";
 
-export const SYNC_CHECKPOINT_FORMAT = 7 as const;
+export const SYNC_CHECKPOINT_FORMAT = 8 as const;
 
 /**
  * Current checkpoint wire state. Only canonical facts belong here.

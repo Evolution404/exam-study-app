@@ -2,17 +2,17 @@
  * Current sync transport contract.
  *
  * Domain/database names stay version-neutral. The remote wire protocol uses
- * format 10: head, checkpoints, objects, segments, assets and history all live
- * below sync/v10, and head/segment envelopes carry formatVersion 10.
+ * format 11: head, checkpoints, objects, segments, assets and history all live
+ * below sync/v11, and head/segment envelopes carry formatVersion 11.
  */
 
-export const SYNC_FORMAT_VERSION = 10 as const;
-export const SYNC_HEAD_PATH = "sync/v10/head.json";
-export const SYNC_CHECKPOINT_PREFIX = "sync/v10/checkpoints/";
-export const SYNC_OBJECT_PREFIX = "sync/v10/objects/";
-export const SYNC_HISTORY_PREFIX = "sync/v10/history/";
-export const SYNC_SEGMENT_PREFIX = "sync/v10/segments/";
-export const SYNC_ASSET_PREFIX = "sync/v10/assets/";
+export const SYNC_FORMAT_VERSION = 11 as const;
+export const SYNC_HEAD_PATH = "sync/v11/head.json";
+export const SYNC_CHECKPOINT_PREFIX = "sync/v11/checkpoints/";
+export const SYNC_OBJECT_PREFIX = "sync/v11/objects/";
+export const SYNC_HISTORY_PREFIX = "sync/v11/history/";
+export const SYNC_SEGMENT_PREFIX = "sync/v11/segments/";
+export const SYNC_ASSET_PREFIX = "sync/v11/assets/";
 
 /** The maximum encoded inline event. Larger payloads must be immutable refs. */
 export const SYNC_MAX_EVENT_BYTES = 256 * 1024;

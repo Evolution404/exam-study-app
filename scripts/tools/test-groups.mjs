@@ -25,6 +25,7 @@ export const testGroups = {
     "test:sync-payload",
     "test:sync-multidevice",
     "test:sync-protocol",
+    "test:sync-v11-cutover-dry-run",
     "test:domain",
     "test:image-assets",
     "test:build-target",

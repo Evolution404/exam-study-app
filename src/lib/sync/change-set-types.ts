@@ -24,7 +24,7 @@ import type {
   ReviewRoundRecord,
 } from "../db/types";
 
-export const CHANGE_SET_FORMAT = 7 as const;
+export const CHANGE_SET_FORMAT = 8 as const;
 export const CHANGE_SET_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
 export type ChangeSetReplayPhase =
