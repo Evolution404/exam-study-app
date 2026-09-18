@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
-import { reduceChangeSet, type ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import { reduceChangeSet } from "../../src/lib/sync/change-set-projection";
 import { replayRemoteResilient } from "../../src/lib/sync/github-sync-engine";
 import { planSyncCompaction, replaySyncSegments } from "../../src/lib/sync/sync-head-operations";
-import type { BankQuestionMembership, Bank, Question } from "../../src/lib/db/types";
+import type { BankQuestionMembership, Bank, CanonicalState, Question } from "../../src/lib/db/types";
 
 const at = "2026-08-13T00:00:00.000Z";
 const bank: Bank = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
-const empty: ChangeSetProjection = { banks: [bank], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], attemptStats: [], attemptDailyStats: [], notes: [], practiceRuns: [], practiceRunStats: [], questionGroups: [], reviewRounds: [], reviewRoundProgress: [], tombstones: [] };
+const empty: CanonicalState = { banks: [bank], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], notes: [], practiceRuns: [], practiceRunSources: [], practiceRunItems: [], questionGroups: [], questionGroupItems: [], reviewRounds: [], reviewRoundBanks: [], reviewRoundItems: [], tombstones: [] };
 
 function question(id: string, deviceId: string): Question {
   return { id, type: "单选", content: [{ id: "stem-0", type: "text", text: `题目 ${id}` }], options: [[{ id: "a", type: "text", text: "A" }], [{ id: "b", type: "text", text: "B" }]], answer: "A", tags: [], contentFingerprint: `fingerprint-${id}`, updatedAt: at, deviceId };
@@ -57,13 +57,13 @@ assert.throws(() => reduceChangeSet(afterDelete, staleEdit), /不存在|conflict
 // staleEdit 即「后续 segment 里的陈旧 upsert」——单条 reduceChangeSet 会抛（上一行已证），但批量回放不得崩。
 const resilient = replayRemoteResilient(afterDelete, [staleEdit]);
 assert.deepEqual(resilient.skipped, ["stale"], "与墓碑冲突的远端变更应被跳过并记录其 id");
-assert.equal(resilient.projection.questions.find((item) => item.id === "question-b"), undefined, "墓碑优先：被跳过的毒 upsert 不得让已删题复活");
-assert.ok(resilient.projection.tombstones.some((item) => item.key === "question:question-b"), "墓碑应保留");
+assert.equal(resilient.state.questions.find((item) => item.id === "question-b"), undefined, "墓碑优先：被跳过的毒 upsert 不得让已删题复活");
+assert.ok(resilient.state.tombstones.some((item) => item.key === "question:question-b"), "墓碑应保留");
 // 正常记录仍应照常应用（不被毒记录波及）
 const otherQuestion = await createChangeSet({ id: "other", deviceId: "device-c", localSequence: 1, createdAt: at, mutation: { kind: "question.upsert", question: question("question-c", "device-c") } });
 const mixed = replayRemoteResilient(afterDelete, [staleEdit, otherQuestion]);
 assert.deepEqual(mixed.skipped, ["stale"], "毒记录被跳过");
-assert.equal(mixed.projection.questions.find((item) => item.id === "question-c")?.id, "question-c", "毒记录前后的正常变更仍应正常应用");
+assert.equal(mixed.state.questions.find((item) => item.id === "question-c")?.id, "question-c", "毒记录前后的正常变更仍应正常应用");
 
 // Repeated normal sync and CAS retries remain below the real aggregate byte
 // threshold and therefore categorically cannot request a checkpoint.

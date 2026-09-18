@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
-import { reduceChangeSet, type ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import { reduceChangeSet } from "../../src/lib/sync/change-set-projection";
+import type { CanonicalState } from "../../src/lib/db/types";
 import type { Bank, Question } from "../../src/lib/db/types";
 
 const at = "2026-08-13T00:00:00.000Z";
@@ -8,21 +9,22 @@ const bank: Bank = { id: "bank-1", name: "基础题库", sortOrder: 0, questionC
 const question: Question = { id: "question-1", type: "单选", content: [{ id: "stem-0", type: "text", text: "题目 1" }], options: [[{ id: "a", type: "text", text: "A" }], [{ id: "b", type: "text", text: "B" }]], answer: "A", tags: [], contentFingerprint: "fingerprint-1", updatedAt: at, deviceId: "device-a" };
 const attempt = { id: "attempt-1", runId: "run-1", questionId: question.id, selected: "A", correct: true, elapsedMs: 1000, createdAt: at, deviceId: "device-a" };
 
-const base: ChangeSetProjection = {
+const base: CanonicalState = {
   banks: [bank],
   bankFolders: [],
   questions: [question],
   memberships: [{ key: "bank-1:question-1", bankId: "bank-1", questionId: "question-1", sortOrder: 0, addedAt: at, updatedAt: at, deviceId: "device-a" }],
   imageAssets: [],
   attempts: [attempt],
-  attemptStats: [],
-  attemptDailyStats: [],
   notes: [],
   practiceRuns: [],
-  practiceRunStats: [],
+  practiceRunSources: [],
+  practiceRunItems: [],
   questionGroups: [],
+  questionGroupItems: [],
   reviewRounds: [],
-  reviewRoundProgress: [],
+  reviewRoundBanks: [],
+  reviewRoundItems: [],
   tombstones: [],
 };
 
