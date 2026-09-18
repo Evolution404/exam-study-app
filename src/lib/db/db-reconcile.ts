@@ -1,7 +1,7 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
 import { rebuildProjectionsFromFacts } from "./projection-engine";
-import { decomposePracticeRun } from "./practice-run-store";
+import { decomposePracticeRuns } from "./practice-run-store";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { RestoreState } from "./db-core";
 import type { ChangeSetQueueGuard } from "./db-restore";
@@ -444,7 +444,7 @@ export async function reconcileProjection(
   );
   const attemptPlan = await makePlan(studyDb.attempts, state.attempts, (row) => row.id, dirty?.attempts);
   const notePlan = await makePlan(studyDb.notes, state.notes, (row) => row.questionId, dirty?.notes);
-  const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRun(run, state.attempts));
+  const practiceRunBundles = decomposePracticeRuns(state.practiceRuns, state.attempts);
   const practiceRunRecords = practiceRunBundles.map((bundle) => bundle.record);
   const practiceRunSources = practiceRunBundles.flatMap((bundle) => bundle.sources);
   const practiceRunItems = practiceRunBundles.flatMap((bundle) => bundle.items);
