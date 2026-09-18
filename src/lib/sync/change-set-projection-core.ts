@@ -59,7 +59,8 @@ function stringIndexOf<T>(
   }
   let index = cached.positions.get(key);
   if (index === undefined) return -1;
-  if (!source[index] || keyOf(source[index]) !== key) {
+  const current = source[index];
+  if (!current || keyOf(current) !== key) {
     cached = { length: source.length, positions: new Map(source.map((value, position) => [keyOf(value), position])) };
     cache.set(source, cached);
     index = cached.positions.get(key);

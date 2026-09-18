@@ -82,10 +82,18 @@ const historyRuns: PracticeRun[] = Array.from({ length: 1_000 }, (_, index) => {
   };
 });
 const historyBundles = historyRuns.map((run) => decomposePracticeRun(run, []));
-await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems], async () => {
-  await studyDb.practiceRuns.bulkPut(historyBundles.map((bundle) => bundle.record));
+await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeRunIndex], async () => {
+  const records = historyBundles.map((bundle) => bundle.record);
+  await studyDb.practiceRuns.bulkPut(records);
   await studyDb.practiceRunSources.bulkPut(historyBundles.flatMap((bundle) => bundle.sources));
   await studyDb.practiceRunItems.bulkPut(historyBundles.flatMap((bundle) => bundle.items));
+  await studyDb.bankPracticeRunIndex.bulkPut(historyBundles.flatMap((bundle) =>
+    bundle.sources.map((source) => {
+      const record = records.find((item) => item.id === source.runId);
+      if (!record) throw new Error(`missing seeded run ${source.runId}`);
+      return { bankId: source.bankId, runId: source.runId, activityAt: record.activityAt, status: record.status };
+    }),
+  ));
 });
 await studyDb.bankPracticeStats.put({
   bankId: bank.id,
