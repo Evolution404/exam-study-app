@@ -274,7 +274,9 @@ export async function runDarkModeAudit(page) {
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
   await helpers.clickButton(page, "同步");
   await helpers.expectText(page, "GitHub 同步");
-  const clearButton = page.getByRole("button", { name: "清除数据" }).first();
+  const clearButton = page.locator(".clear-data-card .danger-button");
+  await clearButton.waitFor({ state: "visible", timeout: 10_000 });
+  harness.assert.match((await clearButton.innerText()).trim(), /清除数据/, "同步页必须保留清除数据入口");
   await clearButton.scrollIntoViewIfNeeded();
   await clearButton.click();
   await page.locator(".confirm-dialog").waitFor({ state: "visible" });
