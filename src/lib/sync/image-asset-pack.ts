@@ -1,7 +1,6 @@
 import { mapWithConcurrency } from "../async/bounded-concurrency";
 import { sha256DigestHex } from "../crypto/sha256";
 import type { ImageAsset } from "../db/types";
-import { sha256Blob } from "../io/image-assets";
 import type { GitHubRemote } from "./github-remote";
 import type { GitHubBranchSnapshot, GitHubTreeMutation } from "./github-transport";
 import type { SyncDescriptor } from "./sync-head-types";
@@ -240,8 +239,8 @@ export async function buildImageAssetPack(assets: readonly PackableImageAsset[])
   const entries: ImageAssetPackEntry[] = [];
   let offset = 0;
   for (const asset of sorted) {
-    if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地内容与 assetId 不一致。`);
     const bytes = new Uint8Array(await asset.blob.arrayBuffer());
+    if (await sha256DigestHex(bytes) !== asset.id) throw new Error(`图片 ${asset.id} 本地内容与 assetId 不一致。`);
     if (bytes.byteLength !== asset.size) throw new Error(`图片 ${asset.id} descriptor size 与 Blob 不一致。`);
     entries.push({ id: asset.id, mimeType: asset.mimeType, size: asset.size, width: asset.width, height: asset.height, offset, length: bytes.byteLength });
     chunks.push(bytes);
@@ -463,10 +462,15 @@ function emptyShard(key: AssetShardKey): ImageAssetPackIndexShard {
   return { formatVersion: IMAGE_ASSET_INDEX_FORMAT, shard: key, packs: {}, entries: {} };
 }
 
-async function requireLocalPackAsset(asset: ImageAsset): Promise<PackableImageAsset> {
-  if (!asset.blob) throw new Error(`图片 ${asset.id} 尚未进入远端 Asset Pack 且本机没有 Blob 缓存。`);
-  if (await sha256Blob(asset.blob) !== asset.id) throw new Error(`图片 ${asset.id} 本地缓存校验失败。`);
-  return asset as PackableImageAsset;
+type ImageAssetBlobLoader = (assetId: string) => Promise<Blob | undefined>;
+
+async function requireLocalPackAsset(
+  asset: ImageAsset,
+  loadBlob?: ImageAssetBlobLoader,
+): Promise<PackableImageAsset> {
+  const blob = asset.blob ?? await loadBlob?.(asset.id);
+  if (!blob) throw new Error(`图片 ${asset.id} 尚未进入远端 Asset Pack 且本机没有 Blob 缓存。`);
+  return { ...asset, blob };
 }
 
 async function loadExistingShardsForAssets(
@@ -491,6 +495,7 @@ async function publishAttempt(
   client: GitHubRemote,
   assets: readonly ImageAsset[],
   onProgress?: (progress: ImageAssetPackPublishProgress) => void,
+  loadBlob?: ImageAssetBlobLoader,
 ): Promise<Array<{ source: ImageAsset; descriptor: Omit<ImageAsset, "blob"> }> | null> {
   // Common no-change path: reuse the runtime index/shard cache before touching
   // Git refs/commits. After one successful sync in this process, an idempotent
@@ -523,7 +528,7 @@ async function publishAttempt(
 
   // Group from descriptor sizes first, then validate/build/upload one bounded group at a time.
   for (const group of groupImageAssetsForPacks(pendingBase)) {
-    const hydrated = await mapWithConcurrency(group, 6, requireLocalPackAsset);
+    const hydrated = await mapWithConcurrency(group, 6, (asset) => requireLocalPackAsset(asset, loadBlob));
     const pack = await buildImageAssetPack(hydrated);
     const path = assetPackPath(pack.sha256);
     const blobSha = await client.createGitBlob(pack.bytes);
@@ -597,9 +602,10 @@ export async function publishImageAssetsAsPacks(
   client: GitHubRemote,
   assets: readonly ImageAsset[],
   onProgress?: (progress: ImageAssetPackPublishProgress) => void,
+  loadBlob?: ImageAssetBlobLoader,
 ): Promise<Array<{ source: ImageAsset; descriptor: Omit<ImageAsset, "blob"> }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await publishAttempt(client, assets, onProgress);
+    const result = await publishAttempt(client, assets, onProgress, loadBlob);
     if (result) return result;
   }
   throw new Error("图片 Asset Pack 发布期间远端持续发生并发更新，请重新同步。");
