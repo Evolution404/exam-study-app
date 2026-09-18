@@ -152,7 +152,7 @@ export async function deleteBankWithExclusiveQuestions(bankId: string): Promise<
   return studyDb.transaction("rw", [
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.attempts, studyDb.questionProgress,
     studyDb.questionDailyProgress, studyDb.notes, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRoundItems,
-    studyDb.reviewRoundProgress, studyDb.practiceRuns, studyDb.practiceRunItems,
+    studyDb.reviewRoundProgress, studyDb.practiceRuns, studyDb.practiceRunItems, studyDb.practiceDrafts,
     studyDb.bankQuestionStats, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const memberships = await studyDb.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
