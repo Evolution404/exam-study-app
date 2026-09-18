@@ -33,18 +33,18 @@ export async function uploadPendingImageAssets(
   const descriptors = await studyDb.imageAssets.toArray();
   // A brand-new device can enter sync before the remote projection has been installed locally.
   if (!descriptors.length) return [];
-  const cachedRows = await studyDb.imageBlobs.bulkGet(descriptors.map((asset) => asset.id));
-  const cachedById = new Map(cachedRows.flatMap((row) => row ? [[row.assetId, row.blob] as const] : []));
-  const assets: ImageAsset[] = descriptors.map((asset) => {
-    const blob = cachedById.get(asset.id);
-    return blob ? { ...asset, blob } : asset;
-  });
+  const assets: ImageAsset[] = descriptors;
 
   const pendingBeforeUpload = await listChangeSets(["pending"]);
   const earliest = pendingBeforeUpload.reduce((min, record) => Math.min(min, Date.parse(record.createdAt)), Date.now());
   const createdAt = new Date(earliest - 1).toISOString();
 
-  const published = await publishImageAssetsAsPacks(client, assets, onProgress);
+  const published = await publishImageAssetsAsPacks(
+    client,
+    assets,
+    onProgress,
+    async (assetId) => (await studyDb.imageBlobs.get(assetId))?.blob,
+  );
   const descriptorById = new Map<string, Omit<ImageAsset, "blob">>();
   for (const asset of assets) descriptorById.set(asset.id, withoutBlob(asset));
   for (const { descriptor } of published) descriptorById.set(descriptor.id, descriptor);
