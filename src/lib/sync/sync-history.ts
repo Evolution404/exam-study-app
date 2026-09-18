@@ -79,88 +79,13 @@ export interface SyncHistoryReadOptions { historySyncStart?: string }
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const HISTORY_PATH = new RegExp(`^${SYNC_HISTORY_PREFIX.replace(/[.*+?^${}()|[\\]\\]/g, "\\const HISTORY_PATH = /^sync\/v10\/history\/[a-f0-9]{64}\.json$/;")}[a-f0-9]{64}\\.jsonimport type { Attempt, PracticeRunItem, PracticeRunRecord, PracticeRunSource } from "../db/types";
-import { historyTimestampIncluded, normalizeHistorySyncStart } from "./history-sync-range";
-import type { GitHubRemote, SyncHeadCache } from "./github-remote";
-import { descriptorPath, sha256 } from "./sync-context";
-import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
-import { validateSyncCheckpoint } from "./sync-checkpoint-validation";
-import {
-  boundedCanonicalHistoryState,
-  chronologicalHistoryAttempts,
-  countsForHistoryState,
-  filterCanonicalHistoryState,
-  mergeCanonicalHistoryState,
-  type PracticeRunHistoryFacts,
-} from "./sync-history-state";
-import { SYNC_FORMAT_VERSION, SYNC_HISTORY_PREFIX, type SyncDescriptor, type SyncHead } from "./sync-head-types";
+const HISTORY_DIGEST = /^[a-f0-9]{64}\.json$/;
 
-export const REMOTE_HISTORY_FORMAT = SYNC_FORMAT_VERSION;
-export const SYNC_HISTORY_RECENT_ATTEMPT_LIMIT = 5_000;
-export const SYNC_HISTORY_RECENT_PRACTICE_RUN_LIMIT = 500;
-export const SYNC_HISTORY_CHUNK_COUNT = 1_000;
-
-interface SyncHistoryDescriptor extends SyncDescriptor {
-  kind: "attempts" | "practiceRuns";
-  count: number;
-  firstAt?: string;
-  lastAt?: string;
+function isCurrentHistoryPath(value: string): boolean {
+  if (!value.startsWith(SYNC_HISTORY_PREFIX)) return false;
+  return HISTORY_DIGEST.test(value.slice(SYNC_HISTORY_PREFIX.length));
 }
 
-interface SyncHistoryIndex {
-  formatVersion: typeof REMOTE_HISTORY_FORMAT;
-  generatedAt: string;
-  attempts: SyncHistoryDescriptor[];
-  practiceRuns: SyncHistoryDescriptor[];
-  counts: { attempts: number; practiceRuns: number };
-}
-
-interface SyncHistoryChunk<T> {
-  formatVersion: typeof REMOTE_HISTORY_FORMAT;
-  kind: "attempts";
-  generatedAt: string;
-  items: T[];
-}
-
-interface SyncPracticeRunHistoryChunk {
-  formatVersion: typeof REMOTE_HISTORY_FORMAT;
-  kind: "practiceRuns";
-  generatedAt: string;
-  practiceRuns: PracticeRunRecord[];
-  practiceRunSources: PracticeRunSource[];
-  practiceRunItems: PracticeRunItem[];
-}
-
-export interface RemoteHistoryCheckpoint {
-  formatVersion: typeof REMOTE_HISTORY_FORMAT;
-  generatedAt: string;
-  state: SyncCheckpointState;
-  cursors: Record<string, number>;
-  counts: SyncCheckpointCounts;
-  retention: { recentAttemptLimit: number; recentPracticeRunLimit: number; oldestRecentAttemptAt: string | null };
-  history: { index: SyncDescriptor | null; archivedAttempts: number; archivedPracticeRuns: number };
-}
-
-export interface SyncHistoryBuildOptions {
-  recentAttemptLimit?: number;
-  recentPracticeRunLimit?: number;
-  chunkCount?: number;
-}
-
-export interface HydratedRemoteCheckpoint {
-  checkpoint: SyncCheckpoint;
-  archivedAttempts: number;
-  archivedPracticeRuns: number;
-  skippedArchivedAttempts: number;
-  skippedArchivedPracticeRuns: number;
-}
-
-export interface SyncHistoryReadOptions { historySyncStart?: string }
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const SHA1 = /^[a-f0-9]{40}$/;
-const SHA256 = /^[a-f0-9]{64}$/;
-);
 const COUNT_KEYS = [
   "banks", "bankFolders", "questions", "memberships", "imageAssets", "attempts", "notes",
   "practiceRuns", "practiceRunSources", "practiceRunItems", "questionGroups", "questionGroupItems",
@@ -181,7 +106,7 @@ function assertDate(value: unknown, field: string): asserts value is string {
 
 function assertDescriptor(value: unknown, field: string): asserts value is SyncDescriptor {
   if (!isRecord(value)) throw new Error(`checkpoint: ${field} must be a descriptor`);
-  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`checkpoint: ${field}.path must be a current history path`);
+  if (typeof value.path !== "string" || !isCurrentHistoryPath(value.path)) throw new Error(`checkpoint: ${field}.path must be a current history path`);
   if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`checkpoint: ${field}.blobSha is invalid`);
   if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);
