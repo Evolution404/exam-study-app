@@ -274,10 +274,15 @@ export async function runDarkModeAudit(page) {
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
   await helpers.clickButton(page, "同步");
   await helpers.expectText(page, "GitHub 同步");
-  const clearButton = page.locator(".clear-data-card .danger-button");
+  const clearCard = page.locator(".clear-data-card");
+  await clearCard.waitFor({ state: "attached", timeout: 10_000 });
+  // Chromium can defer layout for lower-page content until it is explicitly
+  // scrolled into view; scrolling the attached card avoids waiting on a
+  // descendant's pre-layout visibility while preserving the real UI path.
+  await clearCard.evaluate((element) => element.scrollIntoView({ block: "center" }));
+  const clearButton = clearCard.locator(".danger-button");
   await clearButton.waitFor({ state: "visible", timeout: 10_000 });
   harness.assert.match((await clearButton.innerText()).trim(), /清除数据/, "同步页必须保留清除数据入口");
-  await clearButton.scrollIntoViewIfNeeded();
   await clearButton.click();
   await page.locator(".confirm-dialog").waitFor({ state: "visible" });
   await auditVisibleButtons(page, "清除数据弹窗", offenders);
