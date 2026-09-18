@@ -50,7 +50,6 @@ const txSnapshot = (): TxSnapshot | undefined => {
 };
 
 // R5：题目更新的读取、校验、写入和 change set 必须在同一个写事务中。
-console.log("ATOMIC_STAGE R5");
 {
   const bank = await createBank("R5题目编辑删除竞争");
   const question = await createQuestion(bank.id, { type: "单选", stem: "R5原题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -74,7 +73,6 @@ console.log("ATOMIC_STAGE R5");
 }
 
 // R6：批量题目属性更新只能生成一个 bulk change set，缺一题时整批失败。
-console.log("ATOMIC_STAGE R6");
 {
   const bank = await createBank("R6批量题目更新");
   const q1 = await createQuestion(bank.id, { type: "单选", stem: "R6题一", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] }, tags: ["原标签"] });
@@ -97,7 +95,6 @@ console.log("ATOMIC_STAGE R6");
 }
 
 // R7：删题必须在取得写事务后确定待删题与级联集合。
-console.log("ATOMIC_STAGE R7");
 {
   const bank = await createBank("R7删题事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R7待删除", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -118,7 +115,6 @@ console.log("ATOMIC_STAGE R7");
 }
 
 // R8：删除练习记录必须在写事务中重读最新 run。
-console.log("ATOMIC_STAGE R8");
 {
   const bank = await createBank("R8练习删除事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R8练习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -141,7 +137,6 @@ console.log("ATOMIC_STAGE R8");
 }
 
 // R9：解析 revision 必须基于写事务内的最新行递增。
-console.log("ATOMIC_STAGE R9");
 {
   const bank = await createBank("R9解析事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R9解析题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -162,7 +157,6 @@ console.log("ATOMIC_STAGE R9");
 }
 
 // R10：题组的题目存在性校验必须和题组写入处于同一事务。
-console.log("ATOMIC_STAGE R10");
 {
   const bank = await createBank("R10题组事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R10题组题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -186,7 +180,6 @@ console.log("ATOMIC_STAGE R10");
 }
 
 // R11：activityAt 直接属于 practiceRuns，不再维护第二张活动表。
-console.log("ATOMIC_STAGE R11");
 {
   const bank = await createBank("R11练习历史索引");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R11历史题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -209,7 +202,6 @@ console.log("ATOMIC_STAGE R11");
 }
 
 // R12：删文件夹必须在写事务内读取文件夹及当前归属题库。
-console.log("ATOMIC_STAGE R12");
 {
   const folder = await saveBankFolder({ name: "R12文件夹", description: "" });
   await createBank({ name: "R12题库", folderId: folder.id });
@@ -230,7 +222,6 @@ console.log("ATOMIC_STAGE R12");
 }
 
 // R13：删题库只删除当前主数据；历史练习来源 attribution 必须保留。
-console.log("ATOMIC_STAGE R13");
 {
   const bank = await createBank("R13删题库事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R13题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -254,7 +245,6 @@ console.log("ATOMIC_STAGE R13");
 }
 
 // R14：保存完整 run 与状态切换都必须在取得写事务后重读最新 run，避免陈旧快照覆盖并发写入。
-console.log("ATOMIC_STAGE R14");
 {
   const bank = await createBank("R14练习写事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R14练习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -286,7 +276,6 @@ console.log("ATOMIC_STAGE R14");
 }
 
 // R15：复习轮次的更新、完成、归档必须基于写事务内的最新状态，不能用事务外陈旧快照覆盖并发状态。
-console.log("ATOMIC_STAGE R15");
 {
   const bank = await createBank("R15复习轮次事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R15复习题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -323,7 +312,6 @@ console.log("ATOMIC_STAGE R15");
 }
 
 // R16：收藏切换必须以写事务内的最新题目值为基准，不能先在事务外读取旧 favorite。
-console.log("ATOMIC_STAGE R16");
 {
   const bank = await createBank("R16收藏切换事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R16收藏题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] }, favorite: false });
@@ -344,7 +332,6 @@ console.log("ATOMIC_STAGE R16");
 }
 
 // R17：批量新增 membership 必须在同一写事务中确认题库、题目与当前排序，避免并发删题库后写入悬空关系。
-console.log("ATOMIC_STAGE R17");
 {
   const source = await createBank("R17来源题库");
   const target = await createBank("R17目标题库");
@@ -368,7 +355,6 @@ console.log("ATOMIC_STAGE R17");
 }
 
 // R18：替换题目 membership 必须在写事务内读取题目、目标题库和当前 membership。
-console.log("ATOMIC_STAGE R18");
 {
   const source = await createBank("R18来源题库");
   const target = await createBank("R18目标题库");
@@ -386,13 +372,12 @@ console.log("ATOMIC_STAGE R18");
   }
   assert.equal(questionRead?.active, true);
   assert.equal(questionRead?.mode, "readwrite");
-  for (const store of ["questions", "banks", "bankQuestionMemberships", "tombstones", "changeSets", "syncMeta"]) {
+  for (const store of ["questions", "banks", "bankQuestionMemberships", "bankQuestionStats", "tombstones", "changeSets", "syncMeta"]) {
     assert.ok(questionRead?.storeNames.includes(store), `setQuestionMemberships 事务必须包含 ${store}`);
   }
 }
 
 // R19：拆题必须在写事务内确定原题、membership 与解析，不能搬运事务外的陈旧关系快照。
-console.log("ATOMIC_STAGE R19");
 {
   const bankA = await createBank("R19题库A");
   const bankB = await createBank("R19题库B");
@@ -418,7 +403,6 @@ console.log("ATOMIC_STAGE R19");
 }
 
 // R20：创建题目必须在写事务中确认题库仍存在并执行 fingerprint 去重。
-console.log("ATOMIC_STAGE R20");
 {
   const bank = await createBank("R20创建题事务边界");
   const originalGet = studyDb.banks.get.bind(studyDb.banks);
@@ -440,7 +424,6 @@ console.log("ATOMIC_STAGE R20");
 }
 
 // R21：题库更新与移动必须在同一写事务内重读题库并校验目标题库文件夹。
-console.log("ATOMIC_STAGE R21");
 {
   const folder = await saveBankFolder({ name: "R21文件夹", description: "" });
   const bank = await createBank("R21题库");
@@ -461,7 +444,6 @@ console.log("ATOMIC_STAGE R21");
 }
 
 // R22：题库重排必须在写事务中读取当前题库并确认目标文件夹仍存在。
-console.log("ATOMIC_STAGE R22");
 {
   const folder = await saveBankFolder({ name: "R22文件夹", description: "" });
   const bankA = await createBank("R22题库A");
@@ -483,7 +465,6 @@ console.log("ATOMIC_STAGE R22");
 }
 
 // R23：编辑已有文件夹必须在写事务中读取最新行，避免并发删除后被陈旧编辑复活。
-console.log("ATOMIC_STAGE R23");
 {
   const folder = await saveBankFolder({ name: "R23文件夹", description: "初始" });
   const originalGet = studyDb.bankFolders.get.bind(studyDb.bankFolders);
@@ -552,7 +533,6 @@ console.log("ATOMIC_STAGE R23");
 }
 
 // R25：删除题组必须在写事务内重读最新题组并分配删除序号，避免并发编辑后误删陈旧快照。
-console.log("ATOMIC_STAGE R25");
 {
   const bank = await createBank("R25题组删除事务边界");
   const question = await createQuestion(bank.id, { type: "判断", stem: "R25题", options: ["对", "错"], optionIds: ["opt-0", "opt-1"], solution: { kind: "choice", correctOptionIds: ["opt-0"] } });
@@ -574,7 +554,6 @@ console.log("ATOMIC_STAGE R25");
 }
 
 // R26：题库导入必须在同一写事务内确认目标题库、membership 与 note，避免并发删除后复活题库或覆盖新写入解析。
-console.log("ATOMIC_STAGE R26");
 {
   const target = await createBank("R26导入目标题库");
   const originalBankGet = studyDb.banks.get.bind(studyDb.banks);

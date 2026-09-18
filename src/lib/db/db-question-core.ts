@@ -224,7 +224,7 @@ export async function addMembership(bankId: string, questionId: string): Promise
 export async function setQuestionMemberships(questionId: string, bankIds: readonly string[]): Promise<{ added: number; removed: number }> {
   const targetBankIds = uniqueStrings(bankIds);
   return studyDb.transaction("rw", [
-    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks,
+    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const [question, currentMemberships, targetBanks] = await Promise.all([
