@@ -123,15 +123,15 @@ assert.equal(
 
 // History paging must use the canonical activityAt index on run metadata,
 // without a second activity table or full-history materialization.
-const allRuns = [...unrelated, ...targets, ...activeRuns];
+const allRuns = [...unrelated, ...targets, ...activeRuns, olderStatsRun, newerStatsRun];
 rowsRead = 0;
 studyDb.practiceRuns.hook("reading", readHook);
 const history = await readPracticeHistory("all", 50);
 studyDb.practiceRuns.hook("reading").unsubscribe(readHook);
 assert.equal(history.runs.length, 50);
 assert.equal(history.total, allRuns.length);
-assert.equal(history.counts.completed, unrelated.length + targets.length);
-assert.equal(history.counts.in_progress, activeRuns.length);
+assert.equal(history.counts.completed, allRuns.filter((item) => item.status === "completed").length);
+assert.equal(history.counts.in_progress, allRuns.filter((item) => item.status === "in_progress").length);
 assert.equal(rowsRead, 50, "history first page must materialize only its 50 run rows, not the complete history");
 
 // Engineering guard: domain code must not mutate practiceRuns metadata outside
