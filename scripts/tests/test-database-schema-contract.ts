@@ -127,11 +127,11 @@ for (const explicitRecord of ["PracticeRunRecord", "QuestionGroupRecord", "Revie
   );
 }
 
-const reducerStateMatch = reducerCoreSource.match(/export interface (?:CanonicalState|ChangeSetProjection)\s*\{([\s\S]*?)\n\}/);
-assert.ok(reducerStateMatch, "reducer state interface must remain discoverable");
+assert.match(reducerCoreSource, /\bCanonicalState\b/, "reducer core must consume the single CanonicalState owner from db types");
+assert.doesNotMatch(reducerCoreSource, /export interface ChangeSetProjection\s*\{/, "reducer must not define a second complete state envelope");
 for (const derivedField of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
   assert.doesNotMatch(
-    reducerStateMatch[1],
+    reducerCoreSource,
     new RegExp(`\\b${derivedField}\\b`),
     `reducer canonical state must not contain derived array ${derivedField}`,
   );
