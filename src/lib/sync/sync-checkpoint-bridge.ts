@@ -1,5 +1,5 @@
 import { studyDb, reconcileProjection, type ChangeSetQueueGuard } from "../db/db";
-import { assemblePracticeRunRecords, decomposePracticeRun } from "../db/practice-run-store";
+import { assemblePracticeRunRecords, decomposePracticeRuns } from "../db/practice-run-store";
 import type { QuestionGroupItem, QuestionGroupRecord, ReviewRoundBank, ReviewRoundItem, ReviewRoundRecord } from "../db/types";
 import type { ChangeSet } from "./change-set-types";
 import { recomputeChangeSetProjection, replayChangeSetBatch, type ChangeSetProjection } from "./change-set-projection";
@@ -138,7 +138,7 @@ export function checkpointFromProjection(
   let tombstones = projection.tombstones;
   if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
 
-  const runBundles = projection.practiceRuns.map((run) => decomposePracticeRun(run, projection.attempts));
+  const runBundles = decomposePracticeRuns(projection.practiceRuns, projection.attempts);
   const groups = canonicalQuestionGroups(projection);
   const rounds = canonicalReviewRounds(projection);
   const state: SyncCheckpointState = {
