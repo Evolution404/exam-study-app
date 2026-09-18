@@ -74,18 +74,6 @@ const targetAttempts: Attempt[] = Array.from({ length: 7 }, (_, index) => ({
 }));
 await studyDb.attempts.bulkPut([...unrelatedAttempts, ...targetAttempts]);
 
-const oldTargetAttempts: Attempt[] = Array.from({ length: 5_000 }, (_, index) => ({
-  id: `old-target-attempt-${index}`,
-  runId: "perf-run-old",
-  questionId: targetIds[index % targetIds.length],
-  selected: "B",
-  correct: false,
-  elapsedMs: 2,
-  createdAt: "2025-01-01T00:00:00.000Z",
-  deviceId: "practice-perf-test",
-}));
-await studyDb.attempts.bulkPut(oldTargetAttempts);
-
 let statsReads = 0;
 let progressReads = 0;
 let attemptReads = 0;
@@ -109,6 +97,18 @@ assert.equal(progressReads, targetProgress.length, "20,000 unrelated reviewRound
 assert.equal(attemptReads, targetAttempts.length, "100,000 unrelated attempts 不得被 Practice Setup materialize");
 assert.ok(history.attempts.every((row) => targetIds.includes(row.questionId)));
 assert.ok(history.roundsProgress.every((row) => targetIds.includes(row.questionId)));
+
+const oldTargetAttempts: Attempt[] = Array.from({ length: 5_000 }, (_, index) => ({
+  id: `old-target-attempt-${index}`,
+  runId: "perf-run-old",
+  questionId: targetIds[index % targetIds.length],
+  selected: "B",
+  correct: false,
+  elapsedMs: 2,
+  createdAt: "2025-01-01T00:00:00.000Z",
+  deviceId: "practice-perf-test",
+}));
+await studyDb.attempts.bulkPut(oldTargetAttempts);
 
 let scopedAttemptReads = 0;
 const scopedAttemptHook = (row: Attempt) => { scopedAttemptReads += 1; return row; };
