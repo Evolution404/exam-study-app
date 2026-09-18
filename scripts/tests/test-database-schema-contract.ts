@@ -107,6 +107,8 @@ const reducerCoreSource = await readFile(new URL("../../src/lib/sync/change-set-
 const changeSetTypesSource = await readFile(new URL("../../src/lib/sync/change-set-types.ts", import.meta.url), "utf8");
 const dirtyInstallSource = await readFile(new URL("../../src/lib/sync/sync-dirty-install.ts", import.meta.url), "utf8");
 const projectionEngineSource = await readFile(new URL("../../src/lib/db/projection-engine.ts", import.meta.url), "utf8");
+const canonicalValidationSource = await readFile(new URL("../../src/lib/sync/change-set-derived.ts", import.meta.url), "utf8");
+const imageDbSource = await readFile(new URL("../../src/lib/db/db-images.ts", import.meta.url), "utf8");
 
 assert.match(dbTypesSource, /export interface CanonicalState\s*\{/, "CanonicalState must be the single complete canonical fact envelope");
 assert.doesNotMatch(dbCoreSource, /export interface RestoreState\s*\{/, "RestoreState must be retired instead of remaining a second complete canonical state");
@@ -152,6 +154,16 @@ for (const derivedKey of ["attemptStats", "attemptDailyStats", "practiceRunStats
 }
 
 assert.match(projectionEngineSource, /PROJECTION_MODEL_REVISION/, "local projections need a model revision so algorithm changes force deterministic rebuilds");
+assert.doesNotMatch(projectionEngineSource, /assemblePracticeRunRecords/, "full projection rebuild must consume normalized run facts without aggregate PracticeRun bounce");
+assert.doesNotMatch(projectionEngineSource, /practiceRunItems\.toArray\(\)/, "projection rebuild must not read run items when no projection depends on them");
+assert.match(canonicalValidationSource, /row\.key\s*!==\s*membershipKey\(row\.bankId,row\.questionId\)/, "persisted membership key must remain a strictly validated derivative of its compound identity");
+
+const canonicalStateMatch = dbTypesSource.match(/export interface CanonicalState\s*\{([\s\S]*?)\n\}/);
+assert.ok(canonicalStateMatch, "CanonicalState body must remain discoverable");
+for (const localOnly of ["practiceDrafts", "imageBlobs", "bankQuestionStats", "bankPracticeStats", "bankPracticeRunIndex", "questionProgress", "questionDailyProgress", "reviewRoundProgress"]) {
+  assert.doesNotMatch(canonicalStateMatch[1], new RegExp(`\\b${localOnly}\\b`), `${localOnly} is device-local and must never become a canonical fact`);
+}
+assert.doesNotMatch(imageDbSource, /clearImageCache[\s\S]{0,1600}imageAssets\.(?:clear|delete|bulkDelete)/, "clearing the image cache must not mutate canonical imageAssets");
 
 const checkpointStoreSource = await readFile(new URL("../../src/lib/sync/sync-checkpoint-store.ts", import.meta.url), "utf8");
 assert.doesNotMatch(checkpointStoreSource, /assemblePracticeRunRecords/, "checkpoint restore must not assemble normalized runs into aggregate PracticeRun objects");
@@ -164,5 +176,8 @@ const wireSources = await Promise.all([
   "../../src/lib/sync/sync-history-state.ts",
 ].map((path) => readFile(new URL(path, import.meta.url), "utf8")));
 assert.doesNotMatch(wireSources.join("\n"), /\bdraftSelected\b|\bdraftResponse\b/, "draft state must never enter change-set/checkpoint/history wire types");
+for (const localOnly of ["practiceDrafts", "imageBlobs", "bankQuestionStats", "bankPracticeStats", "bankPracticeRunIndex", "questionProgress", "questionDailyProgress", "reviewRoundProgress"]) {
+  assert.doesNotMatch(wireSources.join("\n"), new RegExp(`\\b${localOnly}\\b`), `${localOnly} must never enter sync wire types`);
+}
 
 console.log("database hardening schema and ownership contracts passed");
