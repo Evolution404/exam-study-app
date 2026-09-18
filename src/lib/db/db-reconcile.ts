@@ -1,7 +1,6 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
-import { markProjectionRebuildPendingInTx, rebuildProjectionsFromFacts } from "./projection-engine";
-import { decomposePracticeRuns } from "./practice-run-store";
+import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { RestoreState } from "./db-core";
 import type { ChangeSetQueueGuard } from "./db-restore";
@@ -444,10 +443,9 @@ export async function reconcileProjection(
   );
   const attemptPlan = await makePlan(studyDb.attempts, state.attempts, (row) => row.id, dirty?.attempts);
   const notePlan = await makePlan(studyDb.notes, state.notes, (row) => row.questionId, dirty?.notes);
-  const practiceRunBundles = decomposePracticeRuns(state.practiceRuns, state.attempts);
-  const practiceRunRecords = practiceRunBundles.map((bundle) => bundle.record);
-  const practiceRunSources = practiceRunBundles.flatMap((bundle) => bundle.sources);
-  const practiceRunItems = practiceRunBundles.flatMap((bundle) => bundle.items);
+  const practiceRunRecords = state.practiceRuns;
+  const practiceRunSources = state.practiceRunSources;
+  const practiceRunItems = state.practiceRunItems;
   const practiceRunPlan = await makePlan(studyDb.practiceRuns, practiceRunRecords, (row) => row.id, dirty?.practiceRuns);
   const makePracticeRelationPlan = async <T extends { runId: string }>(
     table: Table<T, [string, string]>,
@@ -477,22 +475,8 @@ export async function reconcileProjection(
   };
   const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId);
   const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId);
-  const questionGroupRecords = state.questionGroups.map((group) => ({
-    id: group.id,
-    name: group.name,
-    type: group.type,
-    description: group.description,
-    createdAt: group.createdAt,
-    updatedAt: group.updatedAt,
-    deviceId: group.deviceId,
-    ...(group.syncEventId !== undefined ? { syncEventId: group.syncEventId } : {}),
-  }));
-  const questionGroupItems = state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
-    groupId: group.id,
-    questionId: item.questionId,
-    position,
-    ...(item.note ? { note: item.note } : {}),
-  })));
+  const questionGroupRecords = state.questionGroups;
+  const questionGroupItems = state.questionGroupItems;
   const groupPlan = await makePlan(studyDb.questionGroups, questionGroupRecords, (row) => row.id, dirty?.questionGroups);
   let groupItemPlan: ReconcilePlan<(typeof questionGroupItems)[number], [string, string]>;
   if (mode === "dirty") {
@@ -527,18 +511,9 @@ export async function reconcileProjection(
       compoundKeyFromSyncKey,
     );
   }
-  const reviewRoundRecords = state.reviewRounds.map((round) => ({
-    id: round.id,
-    name: round.name,
-    startedAt: round.startedAt,
-    status: round.status,
-    createdAt: round.createdAt,
-    updatedAt: round.updatedAt,
-    deviceId: round.deviceId,
-    ...(round.completedAt !== undefined ? { completedAt: round.completedAt } : {}),
-  }));
-  const reviewRoundBanks = state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({ roundId: round.id, bankId, position })));
-  const reviewRoundItems = state.reviewRounds.flatMap((round) => (round.finalQuestionIds ?? []).map((questionId, position) => ({ roundId: round.id, questionId, position })));
+  const reviewRoundRecords = state.reviewRounds;
+  const reviewRoundBanks = state.reviewRoundBanks;
+  const reviewRoundItems = state.reviewRoundItems;
   const roundPlan = await makePlan(studyDb.reviewRounds, reviewRoundRecords, (row) => row.id, dirty?.reviewRounds);
   const makeRoundRelationPlan = async <T extends { roundId: string }>(
     table: Table<T, [string, string]>,
@@ -712,7 +687,7 @@ export async function reconcileProjection(
   const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
   if (shouldRebuildProjections) {
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-    await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);
+    await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
   }
   return true;
