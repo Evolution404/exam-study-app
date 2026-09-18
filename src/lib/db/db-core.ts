@@ -19,6 +19,7 @@ import type {
   ImageAssetDescriptor,
   ImageBlob,
   Note,
+  PracticeDraft,
   PracticeRunItem,
   PracticeRunRecord,
   PracticeRunSource,
@@ -243,6 +244,7 @@ class StudyDatabase extends Dexie {
   practiceRuns!: EntityTable<PracticeRunRecord, "id">;
   practiceRunSources!: Table<PracticeRunSource, [string, string]>;
   practiceRunItems!: Table<PracticeRunItem, [string, string]>;
+  practiceDrafts!: Table<PracticeDraft, [string, string]>;
   bankPracticeStats!: EntityTable<BankPracticeStats, "bankId">;
   questionGroups!: EntityTable<QuestionGroupRecord, "id">;
   questionGroupItems!: Table<QuestionGroupItem, [string, string]>;
@@ -273,6 +275,7 @@ class StudyDatabase extends Dexie {
       practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
       practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",
       practiceRunItems: "[runId+questionId], runId, questionId, submittedAttemptId, [runId+position]",
+      practiceDrafts: "[runId+questionId], runId, questionId",
       bankPracticeStats: "bankId, latestActivityAt",
       questionGroups: "id, type, updatedAt",
       questionGroupItems: "[groupId+questionId], groupId, questionId, [groupId+position]",

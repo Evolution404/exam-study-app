@@ -18,6 +18,7 @@ import { stableQuestionOptionIds } from "../question/question-utils";
 import { getReviewRound, putReviewRoundInTx, reviewRoundBundle } from "./review-round-store";
 import {
   getPracticeRun,
+  practiceDraftFromAnswer,
   practiceRunRecord,
   putPracticeRunMetadataInTx,
   putPracticeRunRecordInTx,
@@ -50,6 +51,7 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
     studyDb.practiceRuns,
     studyDb.practiceRunSources,
     studyDb.practiceRunItems,
+    studyDb.practiceDrafts,
     studyDb.attempts,
     studyDb.bankPracticeStats,
     studyDb.changeSets,
@@ -73,7 +75,6 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
       position,
     }));
     const items = updated.questionIds.map((questionId, position) => {
-      const answer = updated.answers[questionId];
       const existing = existingItemByQuestion.get(questionId);
       return {
         runId: run.id,
@@ -82,15 +83,19 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
         questionTypeSnapshot: updated.questionTypes[questionId],
         optionOrder: [...(updated.optionOrders[questionId] ?? [])],
         ...(existing?.submittedAttemptId ? { submittedAttemptId: existing.submittedAttemptId } : {}),
-        ...(!answer?.submitted && answer?.selected ? { draftSelected: [...answer.selected] } : {}),
-        ...(!answer?.submitted && answer?.response ? { draftResponse: answer.response } : {}),
       };
     });
+    const drafts = updated.questionIds
+      .filter((questionId) => !existingItemByQuestion.get(questionId)?.submittedAttemptId)
+      .map((questionId) => practiceDraftFromAnswer(run.id, questionId, updated.answers[questionId], updated.updatedAt))
+      .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
     await studyDb.practiceRuns.put(record);
     await studyDb.practiceRunSources.where("runId").equals(run.id).delete();
     await studyDb.practiceRunSources.bulkPut(sources);
     await studyDb.practiceRunItems.where("runId").equals(run.id).delete();
     await studyDb.practiceRunItems.bulkPut(items);
+    await studyDb.practiceDrafts.where("runId").equals(run.id).delete();
+    if (drafts.length) await studyDb.practiceDrafts.bulkPut(drafts);
     await enqueueChangeSet([{ kind: "practice.run.saved", record, sources, items }], updated.updatedAt);
     return updated;
   });
@@ -104,7 +109,7 @@ export async function savePracticeDraft(
 ): Promise<boolean> {
   return withSyncLock(() => studyDb.transaction(
     "rw",
-    [studyDb.practiceRuns, studyDb.practiceRunItems],
+    [studyDb.practiceRuns, studyDb.practiceRunItems, studyDb.practiceDrafts],
     async () => {
       const [record, item] = await Promise.all([
         studyDb.practiceRuns.get(runId),
@@ -113,11 +118,9 @@ export async function savePracticeDraft(
       if (!record || record.status !== "in_progress" || !item) return false;
 
       if (!item.submittedAttemptId) {
-        await studyDb.practiceRunItems.put({
-          ...item,
-          ...(draft?.selected.length ? { draftSelected: [...draft.selected] } : { draftSelected: undefined }),
-          ...(draft?.response ? { draftResponse: draft.response } : { draftResponse: undefined }),
-        });
+        const row = practiceDraftFromAnswer(runId, questionId, draft ? { ...draft, submitted: false } : undefined, updatedAt);
+        if (row) await studyDb.practiceDrafts.put(row);
+        else await studyDb.practiceDrafts.delete([runId, questionId]);
       }
 
       // Draft edits are local navigation state, not submitted activity.
@@ -150,18 +153,18 @@ export async function savePracticeDraft(
  * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
 export async function savePracticeProgress(run: PracticeRun): Promise<PracticeRun | undefined> {
-  return withSyncLock(() => studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.attempts, studyDb.bankPracticeStats], async () => {
+  return withSyncLock(() => studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.attempts, studyDb.bankPracticeStats], async () => {
     const current = await getPracticeRun(run.id);
     if (!current) return undefined;
     const items = await studyDb.practiceRunItems.where("runId").equals(run.id).toArray();
     for (const item of items) {
-      if (item.submittedAttemptId) continue;
-      const draft = run.answers[item.questionId];
-      await studyDb.practiceRunItems.put({
-        ...item,
-        ...(draft?.selected?.length ? { draftSelected: [...draft.selected] } : { draftSelected: undefined }),
-        ...(draft?.response ? { draftResponse: draft.response } : { draftResponse: undefined }),
-      });
+      if (item.submittedAttemptId) {
+        await studyDb.practiceDrafts.delete([run.id, item.questionId]);
+        continue;
+      }
+      const row = practiceDraftFromAnswer(run.id, item.questionId, run.answers[item.questionId], run.updatedAt || nowIso());
+      if (row) await studyDb.practiceDrafts.put(row);
+      else await studyDb.practiceDrafts.delete([run.id, item.questionId]);
     }
     const answers = { ...current.answers };
     for (const item of items) {
@@ -287,6 +290,7 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     studyDb.practiceRuns,
     studyDb.practiceRunSources,
     studyDb.practiceRunItems,
+    studyDb.practiceDrafts,
     studyDb.attempts,
     studyDb.bankPracticeStats,
     studyDb.changeSets,
@@ -297,13 +301,14 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     const items = await studyDb.practiceRunItems.where("runId").equals(runId).toArray();
     if (answers) {
       for (const item of items) {
-        if (item.submittedAttemptId) continue;
+        if (item.submittedAttemptId) {
+          await studyDb.practiceDrafts.delete([runId, item.questionId]);
+          continue;
+        }
         const draft = answers[item.questionId];
-        await studyDb.practiceRunItems.put({
-          ...item,
-          ...(draft?.selected?.length ? { draftSelected: [...draft.selected] } : { draftSelected: undefined }),
-          ...(draft?.response ? { draftResponse: draft.response } : { draftResponse: undefined }),
-        });
+        const row = practiceDraftFromAnswer(runId, item.questionId, draft, nowIso());
+        if (row) await studyDb.practiceDrafts.put(row);
+        else await studyDb.practiceDrafts.delete([runId, item.questionId]);
       }
     }
     const updatedAt = nowIso();
@@ -356,7 +361,7 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
   const selectedAnswer = selected.join("");
   return studyDb.transaction("rw", [
     studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.practiceRuns,
-    studyDb.practiceRunSources, studyDb.practiceRunItems,
+    studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts,
     studyDb.bankPracticeStats, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
@@ -423,11 +428,10 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     const submittedItem = {
       ...runItem,
       submittedAttemptId: attempt.id,
-      draftSelected: undefined,
-      draftResponse: undefined,
     };
     await studyDb.attempts.put(attempt);
     await studyDb.practiceRunItems.put(submittedItem);
+    await studyDb.practiceDrafts.delete([input.runId, input.questionId]);
     await applyAttemptProjectionInTx(attempt);
 
     const lastAnsweredIndex = Math.max(runRecord.lastAnsweredIndex ?? -1, runItem.position);

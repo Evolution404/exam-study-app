@@ -251,9 +251,16 @@ export interface PracticeRunItem {
   position: number;
   questionTypeSnapshot: QuestionType;
   optionOrder: number[];
-  draftSelected?: string[];
-  draftResponse?: PracticeResponse;
   submittedAttemptId?: string;
+}
+
+/** Device-local, unsynchronized practice navigation state. */
+export interface PracticeDraft {
+  runId: string;
+  questionId: string;
+  selected: string[];
+  response?: PracticeResponse;
+  updatedAt: string;
 }
 
 export interface QuestionGroupItem {
