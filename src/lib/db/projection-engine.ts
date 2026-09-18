@@ -16,6 +16,8 @@ import type {
   ReviewRoundProgress,
 } from "./types";
 
+const PROJECTION_REBUILD_PENDING_KEY = "projection:rebuild-pending";
+
 /**
  * Apply the device-local projections derived from one canonical Attempt.
  * Must run inside a transaction that includes the projection tables it writes.
@@ -123,6 +125,23 @@ function projectCanonicalFacts(
   };
 }
 
+export async function markProjectionRebuildPendingInTx(): Promise<void> {
+  await studyDb.syncMeta.put({
+    key: PROJECTION_REBUILD_PENDING_KEY,
+    value: true,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function clearProjectionRebuildPendingInTx(): Promise<void> {
+  await studyDb.syncMeta.delete(PROJECTION_REBUILD_PENDING_KEY);
+}
+
+export async function ensureLocalProjectionsReady(): Promise<void> {
+  if (!await studyDb.syncMeta.get(PROJECTION_REBUILD_PENDING_KEY)) return;
+  await rebuildAllProjections();
+}
+
 async function replaceProjectionRowsInTx(rows: ProjectionRows): Promise<void> {
   await Promise.all([
     studyDb.questionProgress.clear(),
@@ -156,17 +175,21 @@ export async function rebuildProjectionsFromFacts(
       studyDb.questionDailyProgress,
       studyDb.bankPracticeStats,
       studyDb.reviewRoundProgress,
+      studyDb.syncMeta,
     ],
-    () => replaceProjectionRowsInTx(rows),
+    async () => {
+      await replaceProjectionRowsInTx(rows);
+      await clearProjectionRebuildPendingInTx();
+    },
   );
 }
 
 /**
  * Rebuild every device-local projection from canonical facts only.
  *
- * This intentionally does not touch changeSets/syncMeta and therefore cannot
- * generate a sync event. It is safe to run after projection loss or when no
- * in-memory canonical snapshot is already available.
+ * This never touches changeSets and therefore cannot generate a sync event.
+ * syncMeta only carries the local crash-recovery marker, which is cleared in
+ * the same transaction as the rebuilt projection rows.
  */
 export async function rebuildAllProjections(): Promise<void> {
   await studyDb.transaction(
@@ -180,6 +203,7 @@ export async function rebuildAllProjections(): Promise<void> {
       studyDb.questionDailyProgress,
       studyDb.bankPracticeStats,
       studyDb.reviewRoundProgress,
+      studyDb.syncMeta,
     ],
     async () => {
       const [attempts, records, sources, items] = await Promise.all([
@@ -190,6 +214,7 @@ export async function rebuildAllProjections(): Promise<void> {
       ]);
       const runs = assemblePracticeRunRecords(records, sources, items, attempts);
       await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs));
+      await clearProjectionRebuildPendingInTx();
     },
   );
 }
