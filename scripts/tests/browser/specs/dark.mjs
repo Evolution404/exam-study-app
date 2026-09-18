@@ -274,12 +274,12 @@ export async function runDarkModeAudit(page) {
     const root = document.querySelector(".app-shell");
     return root instanceof HTMLElement && !root.inert && root.getAttribute("aria-hidden") !== "true";
   });
-  await helpers.clickButton(page, "题库");
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
-  const syncNav = page.locator(".sidebar nav").getByRole("button", { name: "同步", exact: true });
-  await syncNav.click();
+  // 直接从搜索页进入同步页；不要先切题库再立刻切同步，避免两次 route
+  // transition 的异步数据刷新互相竞争。
+  await helpers.clickButton(page, "同步");
   await page.waitForFunction(() => document.querySelector(".sidebar nav button[aria-current='page']")?.textContent?.trim() === "同步");
-  await page.locator(".content h1", { hasText: "GitHub 同步" }).waitFor({ state: "visible" });
+  await helpers.expectText(page, "GitHub 同步");
   const clearCard = page.locator(".content .clear-data-card");
   await clearCard.waitFor({ state: "attached", timeout: 10_000 });
   // Chromium can defer layout for lower-page content until it is explicitly
