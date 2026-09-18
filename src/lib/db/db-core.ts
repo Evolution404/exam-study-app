@@ -275,7 +275,7 @@ class StudyDatabase extends Dexie {
       practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
       practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",
       practiceRunItems: "[runId+questionId], runId, questionId, submittedAttemptId, [runId+position]",
-      practiceDrafts: "[runId+questionId], runId, questionId",
+      practiceDrafts: "[runId+questionId], runId, updatedAt",
       bankPracticeStats: "bankId, latestActivityAt",
       questionGroups: "id, type, updatedAt",
       questionGroupItems: "[groupId+questionId], groupId, questionId, [groupId+position]",

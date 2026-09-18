@@ -88,7 +88,7 @@ export async function restoreLocalCheckpoint(state: CanonicalState, options: Res
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
 
-  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets, studyDb.syncMeta], async () => {
+  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.practiceDrafts, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets, studyDb.syncMeta], async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -170,6 +170,17 @@ export async function restoreLocalCheckpoint(state: CanonicalState, options: Res
       await writeChunks(state.practiceRuns, (chunk) => studyDb.practiceRuns.bulkPut(chunk), "写入练习记录");
       await writeChunks(state.practiceRunSources, (chunk) => studyDb.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
       await writeChunks(state.practiceRunItems, (chunk) => studyDb.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
+
+      // Restore replaces canonical facts only. Keep valid device-local drafts,
+      // and remove only drafts whose run/item no longer exists remotely.
+      const liveRunIds = new Set(state.practiceRuns.map((row) => row.id));
+      const liveItemKeys = new Set(state.practiceRunItems.map((row) => `${row.runId}:${row.questionId}`));
+      const drafts = await studyDb.practiceDrafts.toArray();
+      const orphanDraftKeys = drafts
+        .filter((draft) => !liveRunIds.has(draft.runId) || !liveItemKeys.has(`${draft.runId}:${draft.questionId}`))
+        .map((draft) => [draft.runId, draft.questionId] as [string, string]);
+      if (orphanDraftKeys.length) await studyDb.practiceDrafts.bulkDelete(orphanDraftKeys);
+
       await writeChunks(state.questionGroups, (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
       await writeChunks(state.questionGroupItems, (chunk) => studyDb.questionGroupItems.bulkPut(chunk), "写入题组关系");
       await writeChunks(state.reviewRounds, (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");

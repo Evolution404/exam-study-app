@@ -18,7 +18,7 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
   },
   imageAssets: { primaryKey: "id", indexes: ["mimeType", "size"] },
   imageBlobs: { primaryKey: "assetId", indexes: ["cachedAt", "lastUsedAt"] },
-  practiceDrafts: { primaryKey: "[runId+questionId]", indexes: ["runId", "questionId"] },
+  practiceDrafts: { primaryKey: "[runId+questionId]", indexes: ["runId", "updatedAt"] },
   attempts: {
     primaryKey: "id",
     indexes: [

@@ -582,7 +582,7 @@ export async function reconcileProjection(
   const transactionTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,
-    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,
+    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.questionGroups, studyDb.questionGroupItems,
     studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ];
 
@@ -628,6 +628,17 @@ export async function reconcileProjection(
       await applyPlan(studyDb.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunSources, practiceRunSourcePlan, { put: "更新练习来源关系", remove: "清理练习来源关系" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunItems, practiceRunItemPlan, { put: "更新练习题目关系", remove: "清理练习题目关系" }, progress, options, mode);
+
+      // Drafts are device-local state. Canonical install/reconcile must preserve
+      // drafts for still-live run/items, but remove rows whose owner disappeared.
+      const liveRunIds = new Set(state.practiceRuns.map((row) => row.id));
+      const liveItemKeys = new Set(state.practiceRunItems.map((row) => `${row.runId}:${row.questionId}`));
+      const drafts = await studyDb.practiceDrafts.toArray();
+      const orphanDraftKeys = drafts
+        .filter((draft) => !liveRunIds.has(draft.runId) || !liveItemKeys.has(`${draft.runId}:${draft.questionId}`))
+        .map((draft) => [draft.runId, draft.questionId] as [string, string]);
+      if (orphanDraftKeys.length) await studyDb.practiceDrafts.bulkDelete(orphanDraftKeys);
+
       await applyPlan(studyDb.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
       await applyPlan(studyDb.questionGroupItems, groupItemPlan, { put: "更新题组关系", remove: "清理题组关系" }, progress, options, mode);
       await applyPlan(studyDb.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);
