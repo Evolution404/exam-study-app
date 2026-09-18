@@ -159,9 +159,9 @@ export function parseSyncCheckpoint(bytes: Uint8Array | string): SyncCheckpoint 
 }
 
 /**
- * Restore the current canonical checkpoint. The temporary RestoreState assembly
- * is a local DB write adapter only; it never enters the checkpoint wire. Phase 7
- * removes this old aggregate restore surface after sync cutover is complete.
+ * Restore the current canonical checkpoint through the local canonical write
+ * adapter. Rebuildable projections are intentionally absent from RestoreState
+ * and are regenerated only after canonical facts commit.
  */
 export async function applySyncCheckpoint(checkpoint: SyncCheckpoint): Promise<void> {
   validateSyncCheckpoint(checkpoint);
@@ -179,11 +179,8 @@ export async function applySyncCheckpoint(checkpoint: SyncCheckpoint): Promise<v
     memberships: state.memberships,
     imageAssets: state.imageAssets,
     attempts: state.attempts,
-    attemptStats: [],
-    attemptDailyStats: [],
     notes: state.notes,
     practiceRuns,
-    practiceRunStats: [],
     questionGroups: state.questionGroups.map((group) => ({
       ...group,
       items: state.questionGroupItems
@@ -205,7 +202,6 @@ export async function applySyncCheckpoint(checkpoint: SyncCheckpoint): Promise<v
         ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
       };
     }),
-    reviewRoundProgress: [],
     tombstones: state.tombstones,
   };
   await restoreLocalCheckpoint(restoreState);
