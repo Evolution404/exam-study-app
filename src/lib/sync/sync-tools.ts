@@ -2,7 +2,7 @@ import { listChangeSets, restoreLocalCheckpoint } from "../db/db";
 import type { GitHubSettings } from "../../types/types";
 import { report, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-context";
 import { loadHeadCache, loadRemoteCache, saveHeadCache, saveInstalledCursors, saveInstalledHead } from "./sync-cache";
-import { projectionFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
+import { canonicalStateFromProjection, projectionFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
 import { installFingerprint } from "./sync-watermark";
 import { withSyncLock } from "./sync-lock";
 import { filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
@@ -80,7 +80,7 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
     const queueSnapshot = await listChangeSets();
     report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
     const filtered = filterProjectionHistory(await projectionFromCheckpoint(value.checkpoint), historySyncStartFor(settings));
-    const installed = await restoreLocalCheckpoint(filtered, { queueGuard: queueSnapshot, clearChangeSets: true });
+    const installed = await restoreLocalCheckpoint(canonicalStateFromProjection(filtered), { queueGuard: queueSnapshot, clearChangeSets: true });
     if (!installed) throw new Error("恢复期间检测到新的本地更改，请重试。");
     await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
     await saveHeadCache(settings, value.head);
