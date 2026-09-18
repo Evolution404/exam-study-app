@@ -31,8 +31,8 @@ const question = await createQuestion(first.id, {
 
 assert.equal(await addMemberships(second.id, [question.id]), 1, "应复用同一题目并加入第二题库");
 assert.equal(await addMemberships(second.id, [question.id]), 0, "重复加入不能制造重复 membership");
-assert.equal((await studyDb.banks.get(first.id))?.questionCount, 1);
-assert.equal((await studyDb.banks.get(second.id))?.questionCount, 1);
+assert.equal((await studyDb.bankQuestionStats.get(first.id))?.questionCount, 1);
+assert.equal((await studyDb.bankQuestionStats.get(second.id))?.questionCount, 1);
 
 const views = await listQuestionViewsForBanks([first.id, second.id]);
 assert.equal(views.length, 1, "共享题跨题库只能出现一次");
@@ -63,14 +63,14 @@ assert.equal(questionAnswerText(question), "2 A");
 assert.deepEqual(await listUnfiledQuestions(), []);
 
 assert.deepEqual(await setQuestionMemberships(question.id, [second.id, third.id]), { added: 1, removed: 1 });
-assert.equal((await studyDb.banks.get(first.id))?.questionCount, 0);
-assert.equal((await studyDb.banks.get(second.id))?.questionCount, 1);
-assert.equal((await studyDb.banks.get(third.id))?.questionCount, 1);
+assert.equal((await studyDb.bankQuestionStats.get(first.id))?.questionCount, 0);
+assert.equal((await studyDb.bankQuestionStats.get(second.id))?.questionCount, 1);
+assert.equal((await studyDb.bankQuestionStats.get(third.id))?.questionCount, 1);
 assert.deepEqual((await listQuestionMembershipViews([question.id]))[0].banks.map((bank) => bank.id).sort(), [second.id, third.id].sort());
 
 assert.deepEqual(await setQuestionMemberships(question.id, []), { added: 0, removed: 2 });
-assert.equal((await studyDb.banks.get(second.id))?.questionCount, 0);
-assert.equal((await studyDb.banks.get(third.id))?.questionCount, 0);
+assert.equal((await studyDb.bankQuestionStats.get(second.id))?.questionCount, 0);
+assert.equal((await studyDb.bankQuestionStats.get(third.id))?.questionCount, 0);
 assert.deepEqual((await listUnfiledQuestions()).map((item) => item.id), [question.id]);
 
 await studyDb.close();

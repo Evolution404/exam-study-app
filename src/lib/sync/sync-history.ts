@@ -79,7 +79,13 @@ export interface SyncHistoryReadOptions { historySyncStart?: string }
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const HISTORY_PATH = /^sync\/v10\/history\/[a-f0-9]{64}\.json$/;
+const HISTORY_DIGEST = /^[a-f0-9]{64}\.json$/;
+
+function isCurrentHistoryPath(value: string): boolean {
+  if (!value.startsWith(SYNC_HISTORY_PREFIX)) return false;
+  return HISTORY_DIGEST.test(value.slice(SYNC_HISTORY_PREFIX.length));
+}
+
 const COUNT_KEYS = [
   "banks", "bankFolders", "questions", "memberships", "imageAssets", "attempts", "notes",
   "practiceRuns", "practiceRunSources", "practiceRunItems", "questionGroups", "questionGroupItems",
@@ -100,7 +106,7 @@ function assertDate(value: unknown, field: string): asserts value is string {
 
 function assertDescriptor(value: unknown, field: string): asserts value is SyncDescriptor {
   if (!isRecord(value)) throw new Error(`checkpoint: ${field} must be a descriptor`);
-  if (typeof value.path !== "string" || !HISTORY_PATH.test(value.path)) throw new Error(`checkpoint: ${field}.path must be a current history path`);
+  if (typeof value.path !== "string" || !isCurrentHistoryPath(value.path)) throw new Error(`checkpoint: ${field}.path must be a current history path`);
   if (typeof value.blobSha !== "string" || !SHA1.test(value.blobSha)) throw new Error(`checkpoint: ${field}.blobSha is invalid`);
   if (typeof value.sha256 !== "string" || !SHA256.test(value.sha256)) throw new Error(`checkpoint: ${field}.sha256 is invalid`);
   assertSafeInt(value.size, `${field}.size`);

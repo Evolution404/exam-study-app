@@ -1,5 +1,6 @@
 import type { GitHubSettings } from "../../types/types";
-import { recomputeChangeSetProjection, type ChangeSetProjection } from "./change-set-projection";
+import type { CanonicalState } from "../db/types";
+import { normalizeCanonicalStateForReplay } from "./change-set-projection";
 import type { ChangeSet } from "./change-set-types";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,7 +27,7 @@ export function changeSetOutsideHistoryRange(change: ChangeSet, start?: string):
   const timestamps = change.mutations.map((mutation): string | undefined => {
     if (mutation.kind === "attempt.create") return mutation.attempt.createdAt;
     if (mutation.kind === "practice.answer.submitted") return mutation.attempt.createdAt;
-    if (mutation.kind === "practice.run.saved" || mutation.kind === "practice.run.status.changed") return mutation.run.startedAt;
+    if (mutation.kind === "practice.run.saved" || mutation.kind === "practice.run.status.changed") return mutation.record.startedAt;
     return undefined;
   });
   return timestamps.length > 0 && timestamps.every((timestamp) => timestamp !== undefined && !historyTimestampIncluded(timestamp, normalized));
@@ -35,13 +36,20 @@ export function changeSetOutsideHistoryRange(change: ChangeSet, start?: string):
 /**
  * Apply the device-local history window without touching content entities.
  * Active local runs are retained even when they started before the selected
- * date; their attempts stay with them so an in-flight session remains usable.
+ * date; their canonical relation rows stay with the retained run.
  */
-export function filterProjectionHistory(projection: ChangeSetProjection, start?: string): ChangeSetProjection {
+export function filterCanonicalHistory(state: CanonicalState, start?: string): CanonicalState {
   const normalized = normalizeHistorySyncStart(start);
-  if (!normalized) return recomputeChangeSetProjection(projection);
-  const practiceRuns = projection.practiceRuns.filter((run) => run.status === "in_progress" || historyTimestampIncluded(run.startedAt, normalized));
+  if (!normalized) return normalizeCanonicalStateForReplay(state);
+  const practiceRuns = state.practiceRuns.filter((run) => run.status === "in_progress" || historyTimestampIncluded(run.startedAt, normalized));
+  const runIds = new Set(practiceRuns.map((run) => run.id));
   const activeRunIds = new Set(practiceRuns.filter((run) => run.status === "in_progress").map((run) => run.id));
-  const attempts = projection.attempts.filter((attempt) => activeRunIds.has(attempt.runId) || historyTimestampIncluded(attempt.createdAt, normalized));
-  return recomputeChangeSetProjection({ ...projection, attempts, practiceRuns });
+  const attempts = state.attempts.filter((attempt) => activeRunIds.has(attempt.runId) || historyTimestampIncluded(attempt.createdAt, normalized));
+  return normalizeCanonicalStateForReplay({
+    ...state,
+    attempts,
+    practiceRuns,
+    practiceRunSources: state.practiceRunSources.filter((row) => runIds.has(row.runId)),
+    practiceRunItems: state.practiceRunItems.filter((row) => runIds.has(row.runId)),
+  });
 }

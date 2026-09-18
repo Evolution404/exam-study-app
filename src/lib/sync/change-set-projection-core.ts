@@ -1,53 +1,29 @@
 /**
- * Core projection types and base helpers for the projection reducer.
- * This module intentionally has no browser/Dexie dependencies and must not
- * depend on the cascade/derived/reducer modules (strict one-way layering).
+ * Canonical reducer primitives.
+ *
+ * This module owns only synchronized canonical facts. Device-local projections,
+ * drafts and caches are intentionally absent.
  */
 import type {
-  AttemptDailyStats,
-  AttemptStats,
-  Attempt,
+  Bank,
   BankFolder,
   BankQuestionMembership,
-  Bank,
-  ImageAsset,
+  CanonicalState,
+  ImageAssetDescriptor,
   Note,
-  PracticeRunStats,
-  PracticeRun,
-  QuestionGroup,
+  PracticeRunRecord,
   Question,
-  ReviewRound,
-  ReviewRoundProgress,
+  ReviewRoundRecord,
   Tombstone,
 } from "../db/types";
 
-export interface ChangeSetProjection {
-  banks: Bank[];
-  bankFolders: BankFolder[];
-  questions: Question[];
-  memberships: BankQuestionMembership[];
-  imageAssets: ImageAsset[];
-  attempts: Attempt[];
-  attemptStats: AttemptStats[];
-  attemptDailyStats: AttemptDailyStats[];
-  notes: Note[];
-  practiceRuns: PracticeRun[];
-  practiceRunStats: PracticeRunStats[];
-  questionGroups: QuestionGroup[];
-  reviewRounds: ReviewRound[];
-  reviewRoundProgress: ReviewRoundProgress[];
-  tombstones: Tombstone[];
-}
-
-export type ChangeSetProjectionInput = ChangeSetProjection;
-
-export interface ProjectionValidationIssue {
+export interface CanonicalStateValidationIssue {
   path: string;
   message: string;
 }
 
 export function fail(message: string): never {
-  throw new Error(`projection conflict: ${message}`);
+  throw new Error(`canonical conflict: ${message}`);
 }
 
 export function clone<T>(value: T): T {
@@ -58,11 +34,7 @@ export function list<T>(value: readonly T[] | undefined): T[] {
   return value ? clone([...value]) : [];
 }
 
-type LookupCacheEntry = {
-  length: number;
-  positions: Map<string, number>;
-};
-
+type LookupCacheEntry = { length: number; positions: Map<string, number> };
 const idLookupCache = new WeakMap<object, LookupCacheEntry>();
 const keyLookupCache = new WeakMap<object, LookupCacheEntry>();
 const questionIdLookupCache = new WeakMap<object, LookupCacheEntry>();
@@ -82,19 +54,14 @@ function stringIndexOf<T>(
   const source = lookupSource(values);
   let cached = cache.get(source);
   if (!cached || cached.length !== source.length) {
-    cached = {
-      length: source.length,
-      positions: new Map(source.map((value, index) => [keyOf(value), index])),
-    };
+    cached = { length: source.length, positions: new Map(source.map((value, index) => [keyOf(value), index])) };
     cache.set(source, cached);
   }
   let index = cached.positions.get(key);
   if (index === undefined) return -1;
-  if (!source[index] || keyOf(source[index]) !== key) {
-    cached = {
-      length: source.length,
-      positions: new Map(source.map((value, position) => [keyOf(value), position])),
-    };
+  const current = source[index];
+  if (!current || keyOf(current) !== key) {
+    cached = { length: source.length, positions: new Map(source.map((value, position) => [keyOf(value), position])) };
     cache.set(source, cached);
     index = cached.positions.get(key);
   }
@@ -104,11 +71,9 @@ function stringIndexOf<T>(
 function idIndexOf<T extends { id: string }>(values: T[], id: string): number {
   return stringIndexOf(values, id, idLookupCache, (value) => value.id);
 }
-
 function keyIndexOf<T extends { key: string }>(values: T[], key: string): number {
   return stringIndexOf(values, key, keyLookupCache, (value) => value.key);
 }
-
 function questionIdIndexOf<T extends { questionId: string }>(values: T[], questionId: string): number {
   return stringIndexOf(values, questionId, questionIdLookupCache, (value) => value.questionId);
 }
@@ -118,11 +83,78 @@ export function byId<T extends { id: string }>(values: T[], id: string): T | und
   const index = idIndexOf(values, id);
   return index < 0 ? undefined : source[index];
 }
-
 export function requireById<T extends { id: string }>(values: T[], id: string, entity: string): T {
   const value = byId(values, id);
   if (!value) fail(`${entity} ${id} 不存在`);
   return value;
+}
+export function setById<T extends { id: string }>(values: T[], value: T, allowInsert = true): void {
+  const index = idIndexOf(values, value.id);
+  if (index < 0) {
+    if (!allowInsert) fail(`实体 ${value.id} 不存在`);
+    values.push(clone(value));
+  } else values[index] = clone(value);
+}
+export function removeById<T extends { id: string }>(values: T[], id: string, entity: string): T {
+  const index = idIndexOf(values, id);
+  if (index < 0) fail(`${entity} ${id} 不存在`);
+  const [removed] = values.splice(index, 1);
+  return removed;
+}
+export function byKey<T extends { key: string }>(values: T[], key: string): T | undefined {
+  const source = lookupSource(values);
+  const index = keyIndexOf(values, key);
+  return index < 0 ? undefined : source[index];
+}
+export function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert = true): void {
+  const index = keyIndexOf(values, value.key);
+  if (index < 0) {
+    if (!allowInsert) fail(`实体 ${value.key} 不存在`);
+    values.push(clone(value));
+  } else values[index] = clone(value);
+}
+export function byQuestionId<T extends { questionId: string }>(values: T[], questionId: string): T | undefined {
+  const source = lookupSource(values);
+  const index = questionIdIndexOf(values, questionId);
+  return index < 0 ? undefined : source[index];
+}
+export function setByQuestionId(values: Note[], value: Note): void {
+  const index = questionIdIndexOf(values, value.questionId);
+  if (index < 0) values.push(clone(value));
+  else values[index] = clone(value);
+}
+
+export function membershipKey(bankId: string, questionId: string): string {
+  return `${bankId}:${questionId}`;
+}
+export function removeMembership(state: CanonicalState, key: string): BankQuestionMembership {
+  const index = keyIndexOf(state.memberships, key);
+  if (index < 0) fail(`题库关系 ${key} 不存在`);
+  const [removed] = state.memberships.splice(index, 1);
+  return removed;
+}
+export function ensureQuestion(state: CanonicalState, questionId: string): Question {
+  return requireById(state.questions, questionId, "题目");
+}
+export function ensureBank(state: CanonicalState, bankId: string): Bank {
+  return requireById(state.banks, bankId, "题库");
+}
+export function ensureRun(state: CanonicalState, runId: string): PracticeRunRecord {
+  return requireById(state.practiceRuns, runId, "练习");
+}
+export function ensureFolder(state: CanonicalState, folderId: string): BankFolder {
+  return requireById(state.bankFolders, folderId, "题库文件夹");
+}
+export function ensureAsset(state: CanonicalState, assetId: string): ImageAssetDescriptor {
+  const asset = byId(state.imageAssets, assetId);
+  if (!asset) fail(`图片资产 ${assetId} 不存在`);
+  return asset;
+}
+export function ensureRound(state: CanonicalState, roundId: string): ReviewRoundRecord {
+  return requireById(state.reviewRounds, roundId, "复习轮次");
+}
+export function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 export function compareClock(
@@ -134,203 +166,44 @@ export function compareClock(
     || (a.id ?? a.eventId ?? "").localeCompare(b.id ?? b.eventId ?? "");
 }
 
-export function datePart(value: string): string {
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : value.slice(0, 10);
+export function putTombstone(state: CanonicalState, entityType: Tombstone["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
+  const key = `${entityType}:${entityId}`;
+  const index = keyIndexOf(state.tombstones, key);
+  const old = index >= 0 ? lookupSource(state.tombstones)[index] : undefined;
+  const next: Tombstone = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
+  if (!old) state.tombstones.push(next);
+  else if (compareClock(next, old) > 0) state.tombstones[index] = next;
+}
+export function removeTombstone(state: CanonicalState, type: string, id: string): void {
+  const index = keyIndexOf(state.tombstones, `${type}:${id}`);
+  if (index >= 0) state.tombstones.splice(index, 1);
+}
+export function rejectTombstoned(state: CanonicalState, type: string, id: string): void {
+  if (keyIndexOf(state.tombstones, `${type}:${id}`) >= 0) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
 }
 
-export function dailyKey(createdAt: string, questionId: string): string {
-  return `${datePart(createdAt)}:${questionId}`;
-}
-
-export function uniqueStrings(values: readonly string[]): string[] {
-  return [...new Set(values)];
-}
-
-function usableTimestamp(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function latestAttemptTimestamps(attempts: readonly Attempt[]): Map<string, Map<string, string>> {
-  const byRun = new Map<string, Map<string, string>>();
-  for (const attempt of attempts) {
-    let byQuestion = byRun.get(attempt.runId);
-    if (!byQuestion) {
-      byQuestion = new Map<string, string>();
-      byRun.set(attempt.runId, byQuestion);
-    }
-    const current = byQuestion.get(attempt.questionId);
-    if (!current || attempt.createdAt.localeCompare(current) > 0) byQuestion.set(attempt.questionId, attempt.createdAt);
-  }
-  return byRun;
-}
-
-function repairSubmittedAnswerTimestamps(practiceRuns: PracticeRun[], attempts: readonly Attempt[]): void {
-  const attemptTimestamps = latestAttemptTimestamps(attempts);
-  for (const run of practiceRuns) {
-    const runAttempts = attemptTimestamps.get(run.id);
-    for (const [questionId, answer] of Object.entries(run.answers)) {
-      if (!answer.submitted || usableTimestamp(answer.updatedAt)) continue;
-      const fallback = runAttempts?.get(questionId) ?? run.updatedAt;
-      if (!usableTimestamp(fallback)) continue;
-      run.answers[questionId] = { ...answer, updatedAt: fallback };
-    }
-  }
-}
-
-export function normalizeProjection(input: ChangeSetProjectionInput): ChangeSetProjection {
-  const attempts = list(input.attempts);
-  const practiceRuns = list(input.practiceRuns);
-  // Current writers persist answer.updatedAt together with the matching attempt.
-  // Some already-published checkpoints were produced from a run snapshot whose
-  // submitted answers predate that invariant. Repair only that missing field from
-  // canonical data already present in the same projection, so a synchronized
-  // checkpoint cannot poison IndexedDB during install/reconcile.
-  repairSubmittedAnswerTimestamps(practiceRuns, attempts);
+export function normalizeCanonicalState(input: CanonicalState): CanonicalState {
   return {
     banks: list(input.banks),
     bankFolders: list(input.bankFolders),
     questions: list(input.questions),
     memberships: list(input.memberships),
     imageAssets: list(input.imageAssets),
-    attempts,
-    attemptStats: list(input.attemptStats),
-    attemptDailyStats: list(input.attemptDailyStats),
+    attempts: list(input.attempts),
     notes: list(input.notes),
-    practiceRuns,
-    practiceRunStats: list(input.practiceRunStats),
+    practiceRuns: list(input.practiceRuns),
+    practiceRunSources: list(input.practiceRunSources),
+    practiceRunItems: list(input.practiceRunItems),
     questionGroups: list(input.questionGroups),
+    questionGroupItems: list(input.questionGroupItems),
     reviewRounds: list(input.reviewRounds),
-    reviewRoundProgress: list(input.reviewRoundProgress),
+    reviewRoundBanks: list(input.reviewRoundBanks),
+    reviewRoundItems: list(input.reviewRoundItems),
     tombstones: list(input.tombstones),
   };
 }
 
-export function setById<T extends { id: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = idIndexOf(values, value.id);
-  if (index < 0) {
-    if (!allowInsert) fail(`实体 ${value.id} 不存在`);
-    values.push(clone(value));
-  } else values[index] = clone(value);
-}
-
-export function removeById<T extends { id: string }>(values: T[], id: string, entity: string): T {
-  const index = idIndexOf(values, id);
-  if (index < 0) fail(`${entity} ${id} 不存在`);
-  const [removed] = values.splice(index, 1);
-  return removed;
-}
-
-export function byKey<T extends { key: string }>(values: T[], key: string): T | undefined {
-  const source = lookupSource(values);
-  const index = keyIndexOf(values, key);
-  return index < 0 ? undefined : source[index];
-}
-
-export function byQuestionId<T extends { questionId: string }>(values: T[], questionId: string): T | undefined {
-  const source = lookupSource(values);
-  const index = questionIdIndexOf(values, questionId);
-  return index < 0 ? undefined : source[index];
-}
-
-export function removeMembership(projection: ChangeSetProjection, key: string): BankQuestionMembership {
-  const index = keyIndexOf(projection.memberships, key);
-  if (index < 0) fail(`题库关系 ${key} 不存在`);
-  const [removed] = projection.memberships.splice(index, 1);
-  return removed;
-}
-
-export function membershipKey(bankId: string, questionId: string): string {
-  return `${bankId}:${questionId}`;
-}
-
-export function ensureQuestion(projection: ChangeSetProjection, questionId: string): Question {
-  return requireById(projection.questions, questionId, "题目");
-}
-
-export function ensureBank(projection: ChangeSetProjection, bankId: string): Bank {
-  return requireById(projection.banks, bankId, "题库");
-}
-
-export function ensureRun(projection: ChangeSetProjection, runId: string): PracticeRun {
-  return requireById(projection.practiceRuns, runId, "练习");
-}
-
-export function ensureFolder(projection: ChangeSetProjection, folderId: string): BankFolder {
-  return requireById(projection.bankFolders, folderId, "题库文件夹");
-}
-
-export function ensureAsset(projection: ChangeSetProjection, assetId: string): ImageAsset {
-  const asset = byId(projection.imageAssets, assetId);
-  if (!asset) fail(`图片资产 ${assetId} 不存在`);
-  return asset;
-}
-
-export function ensureRound(projection: ChangeSetProjection, roundId: string): ReviewRound {
-  return requireById(projection.reviewRounds, roundId, "复习轮次");
-}
-
-export function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = keyIndexOf(values, value.key);
-  if (index < 0) {
-    if (!allowInsert) fail(`实体 ${value.key} 不存在`);
-    values.push(clone(value));
-  } else values[index] = clone(value);
-}
-
-export function setByQuestionId(values: Note[], value: Note): void {
-  const index = questionIdIndexOf(values, value.questionId);
-  if (index < 0) values.push(clone(value));
-  else values[index] = clone(value);
-}
-
-export function putTombstone(projection: ChangeSetProjection, entityType: Tombstone["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
-  const key = `${entityType}:${entityId}`;
-  const index = keyIndexOf(projection.tombstones, key);
-  const old = index >= 0 ? lookupSource(projection.tombstones)[index] : undefined;
-  const next: Tombstone = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
-  if (!old) projection.tombstones.push(next);
-  else if (compareClock(next, old) > 0) projection.tombstones[index] = next;
-}
-
-export function removeTombstone(projection: ChangeSetProjection, type: string, id: string): void {
-  const index = keyIndexOf(projection.tombstones, `${type}:${id}`);
-  if (index >= 0) projection.tombstones.splice(index, 1);
-}
-
-export function rejectTombstoned(projection: ChangeSetProjection, type: string, id: string): void {
-  if (keyIndexOf(projection.tombstones, `${type}:${id}`) >= 0) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
-}
-
-export function runBankIds(run: Pick<PracticeRun, "bankId" | "bankIds">): string[] {
-  return uniqueStrings(run.bankIds?.length ? run.bankIds : [run.bankId]);
-}
-
-/** Copy-on-write answer update: returns a NEW run object.  In-place mutation
- *  would leak into the base projection shared with a shallow replay envelope,
- *  breaking per-record rollback. */
-export function runWithAnswer(run: PracticeRun, questionId: string, answer: PracticeRun["answers"][string]): PracticeRun {
-  const normalizedAnswer = clone(answer);
-  // Decoder compatibility is deliberately narrow: a historical wire record may
-  // have a submitted answer without the timestamp that the current DB requires.
-  // A replayed record has no access to the attempt here, so the run clock is the
-  // deterministic fallback; normalizeProjection uses the matching attempt clock
-  // whenever the answer came from a checkpoint/base projection.
-  if (normalizedAnswer.submitted && !usableTimestamp(normalizedAnswer.updatedAt) && usableTimestamp(run.updatedAt)) {
-    normalizedAnswer.updatedAt = run.updatedAt;
-  }
-  const answers = { ...run.answers, [questionId]: normalizedAnswer };
-  const updatedAt = normalizedAnswer.updatedAt ?? run.updatedAt;
-  const revision = run.revision + 1;
-  const submitted = run.questionIds.reduce((last, id, index) => answers[id]?.submitted ? index : last, -1);
-  return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
-}
-
-type CopyOnWriteArrayHandle<T> = {
-  proxy: T[];
-  current(): T[];
-};
-
+type CopyOnWriteArrayHandle<T> = { proxy: T[]; current(): T[] };
 function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
   let current = base;
   let copied = false;
@@ -340,104 +213,75 @@ function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
     copied = true;
   };
   const proxy = new Proxy(base, {
-    get(_target, property) {
-      return Reflect.get(current, property, proxy);
-    },
-    set(_target, property, value) {
-      ensureCopy();
-      return Reflect.set(current, property, value);
-    },
-    deleteProperty(_target, property) {
-      ensureCopy();
-      return Reflect.deleteProperty(current, property);
-    },
-    defineProperty(_target, property, descriptor) {
-      ensureCopy();
-      return Reflect.defineProperty(current, property, descriptor);
-    },
-    has(_target, property) {
-      return Reflect.has(current, property);
-    },
-    ownKeys() {
-      return Reflect.ownKeys(current);
-    },
-    getOwnPropertyDescriptor(_target, property) {
-      return Reflect.getOwnPropertyDescriptor(current, property);
-    },
+    get(_target, property) { return Reflect.get(current, property, proxy); },
+    set(_target, property, value) { ensureCopy(); return Reflect.set(current, property, value); },
+    deleteProperty(_target, property) { ensureCopy(); return Reflect.deleteProperty(current, property); },
+    defineProperty(_target, property, descriptor) { ensureCopy(); return Reflect.defineProperty(current, property, descriptor); },
+    has(_target, property) { return Reflect.has(current, property); },
+    ownKeys() { return Reflect.ownKeys(current); },
+    getOwnPropertyDescriptor(_target, property) { return Reflect.getOwnPropertyDescriptor(current, property); },
   });
   copyOnWriteBacking.set(proxy, () => current);
   return { proxy, current: () => current };
 }
-
 function committedArray<T>(value: T[], handle: CopyOnWriteArrayHandle<T>): T[] {
   return value === handle.proxy ? handle.current() : value;
 }
 
-/**
- * Per-change replay envelope with table-level copy-on-write.
- *
- * Reads reuse the caller-owned projection arrays directly. The first write to
- * a table clones only that one top-level array; tables untouched by the
- * change-set keep reference identity. If a later mutation in the same
- * change-set throws, discarding this envelope rolls back every write because
- * the base arrays were never mutated.
- */
-export function shallowEnvelope(base: ChangeSetProjection): {
-  projection: ChangeSetProjection;
-  commit(): ChangeSetProjection;
-} {
+export function shallowCanonicalEnvelope(base: CanonicalState): { state: CanonicalState; commit(): CanonicalState } {
   const banks = copyOnWriteArray(base.banks);
   const bankFolders = copyOnWriteArray(base.bankFolders);
   const questions = copyOnWriteArray(base.questions);
   const memberships = copyOnWriteArray(base.memberships);
   const imageAssets = copyOnWriteArray(base.imageAssets);
   const attempts = copyOnWriteArray(base.attempts);
-  const attemptStats = copyOnWriteArray(base.attemptStats);
-  const attemptDailyStats = copyOnWriteArray(base.attemptDailyStats);
   const notes = copyOnWriteArray(base.notes);
   const practiceRuns = copyOnWriteArray(base.practiceRuns);
-  const practiceRunStats = copyOnWriteArray(base.practiceRunStats);
+  const practiceRunSources = copyOnWriteArray(base.practiceRunSources);
+  const practiceRunItems = copyOnWriteArray(base.practiceRunItems);
   const questionGroups = copyOnWriteArray(base.questionGroups);
+  const questionGroupItems = copyOnWriteArray(base.questionGroupItems);
   const reviewRounds = copyOnWriteArray(base.reviewRounds);
-  const reviewRoundProgress = copyOnWriteArray(base.reviewRoundProgress);
+  const reviewRoundBanks = copyOnWriteArray(base.reviewRoundBanks);
+  const reviewRoundItems = copyOnWriteArray(base.reviewRoundItems);
   const tombstones = copyOnWriteArray(base.tombstones);
-
-  const projection: ChangeSetProjection = {
+  const state: CanonicalState = {
     banks: banks.proxy,
     bankFolders: bankFolders.proxy,
     questions: questions.proxy,
     memberships: memberships.proxy,
     imageAssets: imageAssets.proxy,
     attempts: attempts.proxy,
-    attemptStats: attemptStats.proxy,
-    attemptDailyStats: attemptDailyStats.proxy,
     notes: notes.proxy,
     practiceRuns: practiceRuns.proxy,
-    practiceRunStats: practiceRunStats.proxy,
+    practiceRunSources: practiceRunSources.proxy,
+    practiceRunItems: practiceRunItems.proxy,
     questionGroups: questionGroups.proxy,
+    questionGroupItems: questionGroupItems.proxy,
     reviewRounds: reviewRounds.proxy,
-    reviewRoundProgress: reviewRoundProgress.proxy,
+    reviewRoundBanks: reviewRoundBanks.proxy,
+    reviewRoundItems: reviewRoundItems.proxy,
     tombstones: tombstones.proxy,
   };
-
   return {
-    projection,
+    state,
     commit: () => ({
-      banks: committedArray(projection.banks, banks),
-      bankFolders: committedArray(projection.bankFolders, bankFolders),
-      questions: committedArray(projection.questions, questions),
-      memberships: committedArray(projection.memberships, memberships),
-      imageAssets: committedArray(projection.imageAssets, imageAssets),
-      attempts: committedArray(projection.attempts, attempts),
-      attemptStats: committedArray(projection.attemptStats, attemptStats),
-      attemptDailyStats: committedArray(projection.attemptDailyStats, attemptDailyStats),
-      notes: committedArray(projection.notes, notes),
-      practiceRuns: committedArray(projection.practiceRuns, practiceRuns),
-      practiceRunStats: committedArray(projection.practiceRunStats, practiceRunStats),
-      questionGroups: committedArray(projection.questionGroups, questionGroups),
-      reviewRounds: committedArray(projection.reviewRounds, reviewRounds),
-      reviewRoundProgress: committedArray(projection.reviewRoundProgress, reviewRoundProgress),
-      tombstones: committedArray(projection.tombstones, tombstones),
+      banks: committedArray(state.banks, banks),
+      bankFolders: committedArray(state.bankFolders, bankFolders),
+      questions: committedArray(state.questions, questions),
+      memberships: committedArray(state.memberships, memberships),
+      imageAssets: committedArray(state.imageAssets, imageAssets),
+      attempts: committedArray(state.attempts, attempts),
+      notes: committedArray(state.notes, notes),
+      practiceRuns: committedArray(state.practiceRuns, practiceRuns),
+      practiceRunSources: committedArray(state.practiceRunSources, practiceRunSources),
+      practiceRunItems: committedArray(state.practiceRunItems, practiceRunItems),
+      questionGroups: committedArray(state.questionGroups, questionGroups),
+      questionGroupItems: committedArray(state.questionGroupItems, questionGroupItems),
+      reviewRounds: committedArray(state.reviewRounds, reviewRounds),
+      reviewRoundBanks: committedArray(state.reviewRoundBanks, reviewRoundBanks),
+      reviewRoundItems: committedArray(state.reviewRoundItems, reviewRoundItems),
+      tombstones: committedArray(state.tombstones, tombstones),
     }),
   };
 }

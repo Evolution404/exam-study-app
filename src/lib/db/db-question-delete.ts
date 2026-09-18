@@ -13,7 +13,7 @@ import {
   type ChangeSetMutation,
   type ChangeSetQueueRecord,
 } from "./db-change-sets";
-import { deleteBank, membershipPrimaryKey, refreshBankQuestionCountInTx } from "./db-bank";
+import { deleteBank, membershipPrimaryKey, refreshBankQuestionStatsInTx } from "./db-bank";
 import type { Question, Tombstone } from "./types";
 
 export async function deleteQuestions(questionIds: readonly string[]): Promise<number> {
@@ -22,7 +22,7 @@ export async function deleteQuestions(questionIds: readonly string[]): Promise<n
   return studyDb.transaction("rw", [
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.attempts, studyDb.questionProgress,
     studyDb.questionDailyProgress, studyDb.notes, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
-    studyDb.practiceRuns, studyDb.practiceRunItems, studyDb.banks, studyDb.tombstones,
+    studyDb.practiceRuns, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.banks, studyDb.bankQuestionStats, studyDb.tombstones,
     studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const questions = (await studyDb.questions.bulkGet(uniqueIds)).filter((question): question is Question => Boolean(question));
@@ -117,7 +117,11 @@ export async function deleteQuestions(questionIds: readonly string[]): Promise<n
       }
     }
     await studyDb.practiceRunItems.where("questionId").anyOf(existingIds).delete();
-    for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
+    const orphanDraftKeys = (await studyDb.practiceDrafts.toArray())
+      .filter((draft) => deletingIds.has(draft.questionId))
+      .map((draft) => [draft.runId, draft.questionId] as [string, string]);
+    if (orphanDraftKeys.length) await studyDb.practiceDrafts.bulkDelete(orphanDraftKeys);
+    for (const bankId of affectedBankIds) await refreshBankQuestionStatsInTx(bankId);
     const tombstones: Tombstone[] = publishedIds.map((questionId) => ({
       key: tombstoneKey("question", questionId),
       entityType: "question",
@@ -148,8 +152,8 @@ export async function deleteBankWithExclusiveQuestions(bankId: string): Promise<
   return studyDb.transaction("rw", [
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.attempts, studyDb.questionProgress,
     studyDb.questionDailyProgress, studyDb.notes, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRoundItems,
-    studyDb.reviewRoundProgress, studyDb.practiceRuns, studyDb.practiceRunItems,
-    studyDb.bankPracticeStats, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
+    studyDb.reviewRoundProgress, studyDb.practiceRuns, studyDb.practiceRunItems, studyDb.practiceDrafts,
+    studyDb.bankQuestionStats, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const memberships = await studyDb.bankQuestionMemberships.where("bankId").equals(bankId).toArray();
     const questionIds = memberships.map((membership) => membership.questionId);

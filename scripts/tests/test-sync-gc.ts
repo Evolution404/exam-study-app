@@ -2,40 +2,37 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createHash } from "node:crypto";
 import { createGitHubRemote } from "../../src/lib/sync/github-remote";
-import { checkpointFromProjection } from "../../src/lib/sync/sync-checkpoint-bridge";
+import { checkpointFromCanonicalState } from "../../src/lib/sync/sync-checkpoint-bridge";
 import { gcSyncRemote } from "../../src/lib/sync/sync-gc";
 import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncDescriptor, type SyncSegmentDescriptor } from "../../src/lib/sync/sync-head-types";
 import { encodeSyncSegment } from "../../src/lib/sync/sync-head-operations";
-import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import type { CanonicalState } from "../../src/lib/db/types";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const vaultId = "qa/gc@main";
 const deviceId = "device-a";
 
-// The reducer projection intentionally exposes an internal table-name alias.
-// Checkpoint JSON must keep only the canonical wire field (`memberships`) or a
-// compaction duplicates the whole join table and a hydrate cycle changes state.
-const emptyProjection: ChangeSetProjection = {
+const emptyState: CanonicalState = {
   banks: [],
   bankFolders: [],
   questions: [],
   memberships: [],
-  bankQuestionMemberships: [],
   imageAssets: [],
   attempts: [],
-  attemptStats: [],
-  attemptDailyStats: [],
   notes: [],
   practiceRuns: [],
-  practiceRunStats: [],
+  practiceRunSources: [],
+  practiceRunItems: [],
   questionGroups: [],
+  questionGroupItems: [],
   reviewRounds: [],
-  reviewRoundProgress: [],
+  reviewRoundBanks: [],
+  reviewRoundItems: [],
   tombstones: [],
 };
-const canonicalCheckpoint = await checkpointFromProjection(emptyProjection, {});
-assert.equal("bankQuestionMemberships" in canonicalCheckpoint.state, false, "checkpoint wire state must not serialize the projection membership alias");
+const canonicalCheckpoint = await checkpointFromCanonicalState(emptyState, {});
+assert.deepEqual(Object.keys(canonicalCheckpoint.state).sort(), Object.keys(emptyState).sort(), "checkpoint must serialize the CanonicalState contract exactly");
 
 const server = await startMockGitHubServer({ cas: true });
 try {

@@ -174,7 +174,7 @@ function validateBank(value: unknown, folders: Set<string>, index: number): asse
   assertEntityId(value.id, `state.banks[${index}].id`);
   assertString(value.name, `state.banks[${index}].name`);
   assertSafeInt(value.sortOrder, `state.banks[${index}].sortOrder`);
-  assertSafeInt(value.questionCount, `state.banks[${index}].questionCount`);
+  if ("questionCount" in value) fail(`state.banks[${index}].questionCount is derived local state and must not appear in checkpoints`);
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") fail(`state.banks[${index}].enabled must be boolean`);
   assertDate(value.importedAt, `state.banks[${index}].importedAt`);
   assertDate(value.updatedAt, `state.banks[${index}].updatedAt`);
@@ -236,11 +236,6 @@ function validateCanonicalState(state: SyncCheckpointState): void {
     if (memberships.has(membership.key)) fail(`duplicate membership ${membership.key}`);
     memberships.add(membership.key);
   });
-  for (const bank of state.banks) {
-    const expected = state.memberships.filter((membership) => membership.bankId === bank.id).length;
-    if (bank.questionCount !== expected) fail(`bank ${bank.id} questionCount does not match memberships`);
-  }
-
   const rounds = new Set<string>();
   state.reviewRounds.forEach((round, index) => {
     if (!isRecord(round)) fail(`state.reviewRounds[${index}] must be an object`);

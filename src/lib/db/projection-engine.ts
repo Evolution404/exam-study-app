@@ -1,17 +1,25 @@
+import Dexie from "dexie";
 import { dailyStatsKey, datePart, studyDb } from "./db-core";
 import {
   addAttemptToStats,
   addDailyStats,
   addReviewRoundProgress,
+  attemptExtendsLatest,
+  rebuildAttemptStats,
   updateReviewRoundProgressForAttemptInTx,
 } from "./db-attempt-projections";
 import { updatePracticeRunStatsInTx } from "./db-practice-stats";
-import { assemblePracticeRunRecords } from "./practice-run-store";
+import { runActivityAt } from "../practice/practice-metrics";
+import type { ProjectionImpact } from "../sync/projection-dependency-planner";
 import type {
   Attempt,
   AttemptDailyStats,
   AttemptStats,
+  BankPracticeRunIndex,
   BankPracticeStats,
+  BankQuestionMembership,
+  BankQuestionStats,
+  CanonicalState,
   PracticeRun,
   PracticeRunRecord,
   PracticeRunSource,
@@ -19,15 +27,23 @@ import type {
 } from "./types";
 
 const PROJECTION_REBUILD_PENDING_KEY = "projection:rebuild-pending";
+const PROJECTION_MODEL_REVISION_KEY = "projection:model-revision";
+
+/** Bump only when projection semantics/schema change. */
+export const PROJECTION_MODEL_REVISION = 2 as const;
 
 /**
  * Apply the device-local projections derived from one canonical Attempt.
  * Must run inside a transaction that includes the projection tables it writes.
  */
 export async function applyAttemptProjectionInTx(attempt: Attempt): Promise<void> {
-  await studyDb.questionProgress.put(
-    addAttemptToStats(await studyDb.questionProgress.get(attempt.questionId), attempt),
-  );
+  const current = await studyDb.questionProgress.get(attempt.questionId);
+  if (current && !attemptExtendsLatest(current, attempt)) {
+    const rebuilt = rebuildAttemptStats(await studyDb.attempts.where("questionId").equals(attempt.questionId).toArray());
+    if (rebuilt) await studyDb.questionProgress.put(rebuilt);
+  } else {
+    await studyDb.questionProgress.put(addAttemptToStats(current, attempt));
+  }
   await studyDb.questionDailyProgress.put(
     addDailyStats(
       await studyDb.questionDailyProgress.get([datePart(attempt.createdAt), attempt.questionId]),
@@ -56,6 +72,8 @@ function canonicalRunBankIds(run: PracticeRun): string[] {
 }
 
 interface ProjectionRows {
+  bankQuestionStats: BankQuestionStats[];
+  bankPracticeRunIndex: BankPracticeRunIndex[];
   questionProgress: AttemptStats[];
   questionDailyProgress: AttemptDailyStats[];
   bankPracticeStats: BankPracticeStats[];
@@ -70,7 +88,15 @@ interface ProjectionRows {
 function projectCanonicalFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
+  memberships: readonly BankQuestionMembership[] = [],
 ): ProjectionRows {
+  const bankQuestionStats = new Map<string, BankQuestionStats>();
+  for (const membership of memberships) {
+    const current = bankQuestionStats.get(membership.bankId) ?? { bankId: membership.bankId, questionCount: 0 };
+    current.questionCount += 1;
+    bankQuestionStats.set(membership.bankId, current);
+  }
+
   const questionProgress = new Map<string, AttemptStats>();
   const questionDailyProgress = new Map<string, AttemptDailyStats>();
   const reviewRoundProgress = new Map<string, ReviewRoundProgress>();
@@ -114,12 +140,15 @@ function projectCanonicalFacts(
       if (run.status === "completed") current.completed += 1;
       else if (run.status === "abandoned") current.abandoned += 1;
       else current.inProgress += 1;
-      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      const activityAt = runActivityAt(run);
+      if (activityAt > current.latestActivityAt) current.latestActivityAt = activityAt;
       bankPracticeStats.set(bankId, current);
     }
   }
 
   return {
+    bankQuestionStats: [...bankQuestionStats.values()],
+    bankPracticeRunIndex: [],
     questionProgress: [...questionProgress.values()],
     questionDailyProgress: [...questionDailyProgress.values()],
     bankPracticeStats: [...bankPracticeStats.values()],
@@ -135,26 +164,42 @@ export async function markProjectionRebuildPendingInTx(): Promise<void> {
   });
 }
 
+async function markProjectionModelCurrentInTx(): Promise<void> {
+  await studyDb.syncMeta.put({
+    key: PROJECTION_MODEL_REVISION_KEY,
+    value: PROJECTION_MODEL_REVISION,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 async function clearProjectionRebuildPendingInTx(): Promise<void> {
   await studyDb.syncMeta.delete(PROJECTION_REBUILD_PENDING_KEY);
 }
 
 export async function ensureLocalProjectionsReady(): Promise<void> {
-  if (!await studyDb.syncMeta.get(PROJECTION_REBUILD_PENDING_KEY)) return;
+  const [pending, revision] = await Promise.all([
+    studyDb.syncMeta.get(PROJECTION_REBUILD_PENDING_KEY),
+    studyDb.syncMeta.get(PROJECTION_MODEL_REVISION_KEY),
+  ]);
+  if (!pending && revision?.value === PROJECTION_MODEL_REVISION) return;
   await rebuildAllProjections();
 }
 
 async function replaceProjectionRowsInTx(rows: ProjectionRows): Promise<void> {
   await Promise.all([
+    studyDb.bankQuestionStats.clear(),
     studyDb.questionProgress.clear(),
     studyDb.questionDailyProgress.clear(),
     studyDb.bankPracticeStats.clear(),
+    studyDb.bankPracticeRunIndex.clear(),
     studyDb.reviewRoundProgress.clear(),
   ]);
   await Promise.all([
+    rows.bankQuestionStats.length ? studyDb.bankQuestionStats.bulkPut(rows.bankQuestionStats) : Promise.resolve(),
     rows.questionProgress.length ? studyDb.questionProgress.bulkPut(rows.questionProgress) : Promise.resolve(),
     rows.questionDailyProgress.length ? studyDb.questionDailyProgress.bulkPut(rows.questionDailyProgress) : Promise.resolve(),
     rows.bankPracticeStats.length ? studyDb.bankPracticeStats.bulkPut(rows.bankPracticeStats) : Promise.resolve(),
+    rows.bankPracticeRunIndex.length ? studyDb.bankPracticeRunIndex.bulkPut(rows.bankPracticeRunIndex) : Promise.resolve(),
     rows.reviewRoundProgress.length ? studyDb.reviewRoundProgress.bulkPut(rows.reviewRoundProgress) : Promise.resolve(),
   ]);
 }
@@ -169,15 +214,18 @@ async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
   await studyDb.transaction(
     "rw",
     [
+      studyDb.bankQuestionStats,
       studyDb.questionProgress,
       studyDb.questionDailyProgress,
       studyDb.bankPracticeStats,
+      studyDb.bankPracticeRunIndex,
       studyDb.reviewRoundProgress,
       studyDb.syncMeta,
     ],
     async () => {
       await replaceProjectionRowsInTx(rows);
       await clearProjectionRebuildPendingInTx();
+      await markProjectionModelCurrentInTx();
     },
   );
 }
@@ -185,23 +233,20 @@ async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
 export async function rebuildProjectionsFromFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
+  memberships: readonly BankQuestionMembership[] = [],
 ): Promise<void> {
-  await replaceProjectionRows(projectCanonicalFacts(attempts, runs));
+  await replaceProjectionRows(projectCanonicalFacts(attempts, runs, memberships));
 }
 
-/**
- * Restore path for already-normalized canonical run facts. This avoids
- * assembling PracticeRun aggregates only to derive bank-level run statistics.
- */
-export async function rebuildProjectionsFromNormalizedFacts(
-  attempts: readonly Attempt[],
+function bankPracticeStatsFromNormalizedFacts(
   runRecords: readonly PracticeRunRecord[],
   runSources: readonly PracticeRunSource[],
-): Promise<void> {
-  const attemptRows = projectCanonicalFacts(attempts, []);
+  bankFilter?: ReadonlySet<string>,
+): BankPracticeStats[] {
   const bankPracticeStats = new Map<string, BankPracticeStats>();
   const bankIdsByRun = new Map<string, Set<string>>();
   for (const source of runSources) {
+    if (bankFilter && !bankFilter.has(source.bankId)) continue;
     let ids = bankIdsByRun.get(source.runId);
     if (!ids) {
       ids = new Set<string>();
@@ -223,13 +268,134 @@ export async function rebuildProjectionsFromNormalizedFacts(
       if (run.status === "completed") current.completed += 1;
       else if (run.status === "abandoned") current.abandoned += 1;
       else current.inProgress += 1;
-      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      if (run.activityAt > current.latestActivityAt) current.latestActivityAt = run.activityAt;
       bankPracticeStats.set(bankId, current);
     }
   }
+  return [...bankPracticeStats.values()];
+}
+
+function bankPracticeRunIndexFromNormalizedFacts(
+  runRecords: readonly PracticeRunRecord[],
+  runSources: readonly PracticeRunSource[],
+  bankFilter?: ReadonlySet<string>,
+): BankPracticeRunIndex[] {
+  const records = new Map(runRecords.map((run) => [run.id, run]));
+  return runSources.flatMap((source) => {
+    if (bankFilter && !bankFilter.has(source.bankId)) return [];
+    const run = records.get(source.runId);
+    return run ? [{
+      bankId: source.bankId,
+      runId: source.runId,
+      activityAt: run.activityAt,
+      status: run.status,
+    }] : [];
+  });
+}
+
+export async function rebuildProjectionImpactFromNormalizedFacts(
+  state: CanonicalState,
+  impact: ProjectionImpact,
+): Promise<void> {
+  const questionIds = [...impact.questionIds];
+  const bankIds = [...impact.bankIds];
+  const questionSet = new Set(questionIds);
+  const bankSet = new Set(bankIds);
+
+  const questionProgress: AttemptStats[] = [];
+  const questionDailyProgress = new Map<string, AttemptDailyStats>();
+  const reviewRoundProgress = new Map<string, ReviewRoundProgress>();
+  if (questionIds.length) {
+    const attempts = state.attempts.filter((attempt) => questionSet.has(attempt.questionId)).sort(compareAttempts);
+    const attemptsByQuestion = new Map<string, Attempt[]>();
+    for (const attempt of attempts) {
+      const rows = attemptsByQuestion.get(attempt.questionId) ?? [];
+      rows.push(attempt);
+      attemptsByQuestion.set(attempt.questionId, rows);
+      const dailyKey = dailyStatsKey(attempt.createdAt, attempt.questionId);
+      questionDailyProgress.set(dailyKey, addDailyStats(questionDailyProgress.get(dailyKey), attempt));
+      if (attempt.reviewRoundId) {
+        const roundKey = `${attempt.reviewRoundId}:${attempt.questionId}`;
+        reviewRoundProgress.set(
+          roundKey,
+          addReviewRoundProgress(
+            reviewRoundProgress.get(roundKey),
+            attempt.reviewRoundId,
+            attempt.questionId,
+            attempt,
+          ),
+        );
+      }
+    }
+    for (const questionId of questionIds) {
+      const rebuilt = rebuildAttemptStats(attemptsByQuestion.get(questionId) ?? []);
+      if (rebuilt) questionProgress.push(rebuilt);
+    }
+  }
+
+  const bankQuestionStats = bankIds
+    .filter((bankId) => state.banks.some((bank) => bank.id === bankId))
+    .map((bankId) => ({
+      bankId,
+      questionCount: state.memberships.filter((membership) => membership.bankId === bankId).length,
+    }));
+  const bankPracticeStats = bankPracticeStatsFromNormalizedFacts(state.practiceRuns, state.practiceRunSources, bankSet);
+  const bankPracticeRunIndex = bankPracticeRunIndexFromNormalizedFacts(state.practiceRuns, state.practiceRunSources, bankSet);
+
+  await studyDb.transaction(
+    "rw",
+    [
+      studyDb.bankQuestionStats,
+      studyDb.questionProgress,
+      studyDb.questionDailyProgress,
+      studyDb.bankPracticeStats,
+      studyDb.bankPracticeRunIndex,
+      studyDb.reviewRoundProgress,
+      studyDb.syncMeta,
+    ],
+    async () => {
+      if (questionIds.length) {
+        await studyDb.questionProgress.bulkDelete(questionIds);
+        await studyDb.questionDailyProgress.where("questionId").anyOf(questionIds).delete();
+        await studyDb.reviewRoundProgress.where("questionId").anyOf(questionIds).delete();
+        if (questionProgress.length) await studyDb.questionProgress.bulkPut(questionProgress);
+        if (questionDailyProgress.size) await studyDb.questionDailyProgress.bulkPut([...questionDailyProgress.values()]);
+        if (reviewRoundProgress.size) await studyDb.reviewRoundProgress.bulkPut([...reviewRoundProgress.values()]);
+      }
+      if (bankIds.length) {
+        await studyDb.bankQuestionStats.bulkDelete(bankIds);
+        await studyDb.bankPracticeStats.bulkDelete(bankIds);
+        for (const bankId of bankIds) {
+          await studyDb.bankPracticeRunIndex
+            .where("[bankId+activityAt]")
+            .between([bankId, Dexie.minKey], [bankId, Dexie.maxKey], true, true)
+            .delete();
+        }
+        if (bankQuestionStats.length) await studyDb.bankQuestionStats.bulkPut(bankQuestionStats);
+        if (bankPracticeStats.length) await studyDb.bankPracticeStats.bulkPut(bankPracticeStats);
+        if (bankPracticeRunIndex.length) await studyDb.bankPracticeRunIndex.bulkPut(bankPracticeRunIndex);
+      }
+      await clearProjectionRebuildPendingInTx();
+      await markProjectionModelCurrentInTx();
+    },
+  );
+}
+
+/**
+ * Restore path for already-normalized canonical run facts. This avoids
+ * assembling PracticeRun aggregates only to derive bank-level run statistics.
+ */
+export async function rebuildProjectionsFromNormalizedFacts(
+  attempts: readonly Attempt[],
+  runRecords: readonly PracticeRunRecord[],
+  runSources: readonly PracticeRunSource[],
+  memberships: readonly BankQuestionMembership[],
+): Promise<void> {
+  const attemptRows = projectCanonicalFacts(attempts, [], memberships);
   await replaceProjectionRows({
     ...attemptRows,
-    bankPracticeStats: [...bankPracticeStats.values()],
+    bankPracticeStats: bankPracticeStatsFromNormalizedFacts(runRecords, runSources),
+    bankPracticeRunIndex: bankPracticeRunIndexFromNormalizedFacts(runRecords, runSources),
   });
 }
 
@@ -241,29 +407,15 @@ export async function rebuildProjectionsFromNormalizedFacts(
  * the same transaction as the rebuilt projection rows.
  */
 export async function rebuildAllProjections(): Promise<void> {
-  await studyDb.transaction(
-    "rw",
-    [
-      studyDb.attempts,
-      studyDb.practiceRuns,
-      studyDb.practiceRunSources,
-      studyDb.practiceRunItems,
-      studyDb.questionProgress,
-      studyDb.questionDailyProgress,
-      studyDb.bankPracticeStats,
-      studyDb.reviewRoundProgress,
-      studyDb.syncMeta,
-    ],
-    async () => {
-      const [attempts, records, sources, items] = await Promise.all([
-        studyDb.attempts.toArray(),
-        studyDb.practiceRuns.toArray(),
-        studyDb.practiceRunSources.toArray(),
-        studyDb.practiceRunItems.toArray(),
-      ]);
-      const runs = assemblePracticeRunRecords(records, sources, items, attempts);
-      await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs));
-      await clearProjectionRebuildPendingInTx();
-    },
+  const [attempts, memberships, records, sources] = await studyDb.transaction(
+    "r",
+    [studyDb.attempts, studyDb.bankQuestionMemberships, studyDb.practiceRuns, studyDb.practiceRunSources],
+    async () => Promise.all([
+      studyDb.attempts.toArray(),
+      studyDb.bankQuestionMemberships.toArray(),
+      studyDb.practiceRuns.toArray(),
+      studyDb.practiceRunSources.toArray(),
+    ]),
   );
+  await rebuildProjectionsFromNormalizedFacts(attempts, records, sources, memberships);
 }

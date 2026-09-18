@@ -1,5 +1,5 @@
 import { deleteBankFolder as deleteBankFolderRecord, reorderBanks as reorderBankRecords, saveBankFolder as saveBankFolderRecord, updateBank } from "@/lib/db/db";
-import { isBankEnabled, type AttemptStats as DbAttemptStats, type BankFolder as DbBankFolder, type Bank as DbBank, type Note as DbNote, type PracticeRun as DbPracticeRun, type QuestionType as DbQuestionType } from "@/lib/db/types";
+import { isBankEnabled, type AttemptStats as DbAttemptStats, type BankFolder as DbBankFolder, type BankReadModel as DbBank, type Note as DbNote, type PracticeRun as DbPracticeRun, type QuestionType as DbQuestionType } from "@/lib/db/types";
 import type { QuestionViewModel } from "@/app/bank/question-editor";
 
 export type Bank = DbBank;
@@ -13,7 +13,7 @@ export { isBankEnabled };
 
 export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
-export function bankTitle(bank: Bank) { return bank.displayName?.trim() || bank.name; }
+export function bankTitle(bank: Pick<DbBank, "name" | "displayName">) { return bank.displayName?.trim() || bank.name; }
 export function fullDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)); }
 export function sortedBanks(banks: Bank[]) { return [...banks].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)); }
 

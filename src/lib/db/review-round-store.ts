@@ -60,22 +60,31 @@ export async function listReviewRounds(): Promise<ReviewRound[]> {
   return hydrateReviewRounds(await studyDb.reviewRounds.orderBy("updatedAt").reverse().toArray());
 }
 
+export function reviewRoundBundle(round: ReviewRound): {
+  record: ReviewRoundRecord;
+  banks: ReviewRoundBank[];
+  items: ReviewRoundItem[];
+} {
+  const { bankIds, finalQuestionIds, ...record } = round;
+  return {
+    record,
+    banks: bankIds.map((bankId, position) => ({ roundId: round.id, bankId, position })),
+    items: (finalQuestionIds ?? []).map((questionId, position) => ({ roundId: round.id, questionId, position })),
+  };
+}
+
 export async function putReviewRoundInTx(
   round: ReviewRound,
   options: { replaceBanks?: boolean; replaceItems?: boolean } = {},
 ): Promise<void> {
-  const { bankIds, finalQuestionIds, ...record } = round;
-  await studyDb.reviewRounds.put(record);
+  const bundle = reviewRoundBundle(round);
+  await studyDb.reviewRounds.put(bundle.record);
   if (options.replaceBanks !== false) {
     await studyDb.reviewRoundBanks.where("roundId").equals(round.id).delete();
-    if (bankIds.length) {
-      await studyDb.reviewRoundBanks.bulkPut(bankIds.map((bankId, position) => ({ roundId: round.id, bankId, position })));
-    }
+    if (bundle.banks.length) await studyDb.reviewRoundBanks.bulkPut(bundle.banks);
   }
-  if (options.replaceItems ?? finalQuestionIds !== undefined) {
+  if (options.replaceItems ?? round.finalQuestionIds !== undefined) {
     await studyDb.reviewRoundItems.where("roundId").equals(round.id).delete();
-    if (finalQuestionIds?.length) {
-      await studyDb.reviewRoundItems.bulkPut(finalQuestionIds.map((questionId, position) => ({ roundId: round.id, questionId, position })));
-    }
+    if (bundle.items.length) await studyDb.reviewRoundItems.bulkPut(bundle.items);
   }
 }

@@ -6,7 +6,7 @@ import { ModalPortal } from "@/app/ui/modal-portal";
 import { createBank as createBankRecord } from "@/lib/db/db";
 import { bankTitle, saveBank, saveBankFolder, type Bank, type BankFolder } from "./bank-library-shared";
 
-export function BankCreateDialog({ folders, onClose, onCreated }: { folders: BankFolder[]; onClose: () => void; onCreated: (bank: Bank) => void }) {
+export function BankCreateDialog({ folders, onClose, onCreated }: { folders: BankFolder[]; onClose: () => void; onCreated: (bank: Awaited<ReturnType<typeof createBankRecord>>) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [folderId, setFolderId] = useState("unfiled");

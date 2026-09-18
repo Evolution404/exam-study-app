@@ -52,13 +52,17 @@ try {
 assert.ok(itemReads <= 2, `单题草稿保存不得扫描整个 run，实际 materialize ${itemReads} 条 item`);
 assert.equal(await studyDb.changeSets.count(), beforeChanges, "未提交草稿不得生成同步 change set");
 
-const stored = await studyDb.practiceRunItems.get([run.id, target.id]);
-assert.deepEqual(stored?.draftSelected, ["正在输入的简答草稿"]);
+const stored = await studyDb.practiceDrafts.get([run.id, target.id]);
+assert.deepEqual(stored?.selected, ["正在输入的简答草稿"]);
+assert.equal(stored?.questionId, target.id);
 assert.equal(
-  (await studyDb.practiceRunItems.where("runId").equals(run.id).toArray()).filter((item) => item.draftSelected?.length).length,
+  (await studyDb.practiceDrafts.where("runId").equals(run.id).toArray()).length,
   1,
   "保存一题草稿不得改写其他题",
 );
+const canonicalItem = await studyDb.practiceRunItems.get([run.id, target.id]);
+assert.equal("draftSelected" in (canonicalItem ?? {}), false, "canonical PracticeRunItem 不得携带草稿选择");
+assert.equal("draftResponse" in (canonicalItem ?? {}), false, "canonical PracticeRunItem 不得携带草稿响应");
 
 studyDb.close();
 console.log(`practice draft perf passed: 500-item run, ${itemReads} item reads`);

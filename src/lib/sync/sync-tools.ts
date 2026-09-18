@@ -2,10 +2,10 @@ import { listChangeSets, restoreLocalCheckpoint } from "../db/db";
 import type { GitHubSettings } from "../../types/types";
 import { report, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-context";
 import { loadHeadCache, loadRemoteCache, saveHeadCache, saveInstalledCursors, saveInstalledHead } from "./sync-cache";
-import { canonicalStateFromProjection, projectionFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
+import { canonicalStateFromCheckpoint, saveQueueBase } from "./sync-checkpoint-bridge";
 import { installFingerprint } from "./sync-watermark";
 import { withSyncLock } from "./sync-lock";
-import { filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
+import { filterCanonicalHistory, historySyncStartFor } from "./history-sync-range";
 import { getGitHubTransport, resolveGitHubApiBaseUrl } from "../../platform/github-transport";
 import { SYNC_FORMAT_VERSION, SYNC_MAX_HOT_BYTES } from "./sync-head-types";
 
@@ -79,10 +79,10 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
     if (value.historySyncStart !== historySyncStartFor(settings)) throw new Error("同步时间起点已经改变，请先从远端同步以建立新的本地恢复记录。");
     const queueSnapshot = await listChangeSets();
     report(callback, "merge", `正在恢复 ${value.checkpoint.counts.questions.toLocaleString("zh-CN")} 道题`, 40, 92);
-    const filtered = filterProjectionHistory(await projectionFromCheckpoint(value.checkpoint), historySyncStartFor(settings));
-    const installed = await restoreLocalCheckpoint(canonicalStateFromProjection(filtered), { queueGuard: queueSnapshot, clearChangeSets: true });
+    const filtered = filterCanonicalHistory(canonicalStateFromCheckpoint(value.checkpoint), historySyncStartFor(settings));
+    const installed = await restoreLocalCheckpoint(filtered, { queueGuard: queueSnapshot, clearChangeSets: true });
     if (!installed) throw new Error("恢复期间检测到新的本地更改，请重试。");
-    await saveQueueBase(await projectionFromCheckpoint(value.checkpoint));
+    await saveQueueBase(canonicalStateFromCheckpoint(value.checkpoint));
     await saveHeadCache(settings, value.head);
     await saveInstalledHead(settings, installFingerprint(value.head));
     await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});

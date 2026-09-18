@@ -1,6 +1,6 @@
 import type { ChangeSetQueueRecord } from "../../src/lib/db/db";
-import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
-import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryProjection, reconcileInterruptedClaims } from "../../src/lib/sync/sync-orchestrator-model";
+import type { CanonicalState } from "../../src/lib/db/types";
+import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryState, reconcileInterruptedClaims } from "../../src/lib/sync/sync-orchestrator-model";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { SYNC_ASSET_PREFIX, SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_HEAD_PATH, SYNC_MAX_HOT_BYTES, SYNC_OBJECT_PREFIX, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
@@ -131,22 +131,37 @@ assert.equal(reconciled[2].state, "committed", "cursor coverage must recover an 
 assert.equal(reconciled[3].state, "pending", "uncovered interrupted claims must return to the pending queue");
 assert.deepEqual(claimedInput, claimedSnapshot, "claim reconciliation must not mutate the queue snapshot");
 
-const projection = {
-  banks: [], bankFolders: [], questions: [], memberships: [], imageAssets: [],
-  attempts: [{ id: "attempt-remote" } as never], attemptStats: [], attemptDailyStats: [], notes: [],
-  practiceRuns: [{ id: "run-remote" } as never], practiceRunStats: [], questionGroups: [],
-  reviewRounds: [], reviewRoundProgress: [], tombstones: [],
-} satisfies ChangeSetProjection;
-const mergedHistory = mergeActiveHistoryProjection(
-  projection,
-  [{ id: "run-remote", marker: "local" } as never, { id: "run-local" } as never],
-  [{ id: "attempt-remote", marker: "local" } as never, { id: "attempt-local" } as never],
-);
+const state = {
+  banks: [],
+  bankFolders: [],
+  questions: [],
+  memberships: [],
+  imageAssets: [],
+  attempts: [{ id: "attempt-remote" } as never],
+  notes: [],
+  practiceRuns: [{ id: "run-remote" } as never],
+  practiceRunSources: [{ runId: "run-remote", bankId: "bank-remote", position: 0 } as never],
+  practiceRunItems: [{ runId: "run-remote", questionId: "q-remote", position: 0 } as never],
+  questionGroups: [],
+  questionGroupItems: [],
+  reviewRounds: [],
+  reviewRoundBanks: [],
+  reviewRoundItems: [],
+  tombstones: [],
+} satisfies CanonicalState;
+const mergedHistory = mergeActiveHistoryState(state, {
+  runs: [{ id: "run-remote", marker: "local" } as never, { id: "run-local" } as never],
+  sources: [{ runId: "run-remote", bankId: "bank-local", marker: "local" } as never, { runId: "run-local", bankId: "bank-local" } as never],
+  items: [{ runId: "run-remote", questionId: "q-local", marker: "local" } as never, { runId: "run-local", questionId: "q-local" } as never],
+  attempts: [{ id: "attempt-remote", marker: "local" } as never, { id: "attempt-local" } as never],
+});
 assert.deepEqual(mergedHistory.practiceRuns.map((run) => run.id), ["run-remote", "run-local"]);
 assert.deepEqual(mergedHistory.attempts.map((attempt) => attempt.id), ["attempt-remote", "attempt-local"]);
 assert.equal((mergedHistory.practiceRuns[0] as unknown as { marker?: string }).marker, "local", "active local run must override the remote row with the same id");
 assert.equal((mergedHistory.attempts[0] as unknown as { marker?: string }).marker, "local", "active local attempt must override the remote row with the same id");
-assert.equal(mergedHistory.questions, projection.questions, "history merge must leave unrelated projection tables untouched");
-assert.notEqual(mergedHistory.practiceRuns, projection.practiceRuns, "history merge must return a fresh run collection");
+assert.deepEqual(mergedHistory.practiceRunSources.map((row) => row.runId), ["run-remote", "run-local"]);
+assert.deepEqual(mergedHistory.practiceRunItems.map((row) => row.runId), ["run-remote", "run-local"]);
+assert.equal(mergedHistory.questions, state.questions, "history merge must leave unrelated canonical tables untouched");
+assert.notEqual(mergedHistory.practiceRuns, state.practiceRuns, "history merge must return a fresh run collection");
 
 console.log("sync head tests passed: vault identity, explicit byte compaction, append-only publication, replay ordering, refs and limits");

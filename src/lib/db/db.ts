@@ -19,7 +19,6 @@ export {
 export type {
   PracticeAnswer,
   QuestionDraft,
-  RestoreState,
 } from "./db-core";
 
 export {
@@ -45,6 +44,7 @@ export {
   getBankQuestionJoins,
   getBankQuestions,
   getQuestionsForBanks,
+  listBankReadModels,
   deleteBank,
 } from "./db-bank";
 

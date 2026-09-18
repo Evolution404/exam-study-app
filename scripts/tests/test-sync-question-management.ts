@@ -408,7 +408,7 @@ try {
     await sync();
     assert.ok(await studyDb.questionGroups.get(group.id), "device-b 应先拉到题组");
     await saveQuestionGroup({ id: group.id, name: "E6易错组-离线改", type: "专题", description: "", items: [{ questionId: q.id, note: "离线备注" }] });
-    const offlineGroupEdit = await snapshotPending((record) => record.mutations.some((m) => (m as { kind: string; group?: { id?: string } }).kind === "questionGroup.saved" && (m as { group?: { id?: string } }).group?.id === group.id));
+    const offlineGroupEdit = await snapshotPending((record) => record.mutations.some((m) => (m as { kind: string; record?: { id?: string } }).kind === "questionGroup.saved" && (m as { record?: { id?: string } }).record?.id === group.id));
     assert.ok(offlineGroupEdit.length, "离线编辑应产生 pending questionGroup.saved");
 
     // device-a 删题 → 组被裁空（修复前不发墓碑；修复后 question.bulk.delete 回放写 questionGroup 墓碑）
@@ -428,7 +428,7 @@ try {
     assert.ok(result.remaining >= 1, "陈旧的 questionGroup.saved 应被 blocked，而非静默复活组");
 
     const blockedRecords = await studyDb.changeSets.where("state").equals("blocked").toArray();
-    assert.ok(blockedRecords.some((record) => record.mutations.some((m) => (m as { kind: string; group?: { id?: string } }).kind === "questionGroup.saved" && (m as { group?: { id?: string } }).group?.id === group.id)), "blocked 记录应正是该组离线编辑");
+    assert.ok(blockedRecords.some((record) => record.mutations.some((m) => (m as { kind: string; record?: { id?: string } }).kind === "questionGroup.saved" && (m as { record?: { id?: string } }).record?.id === group.id)), "blocked 记录应正是该组离线编辑");
 
     await freshClient("device-c");
     await sync();

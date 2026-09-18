@@ -9,7 +9,7 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ScopeSummaryChips } from "@/app/ui/scope-summary-chips";
 import { TagMultiSelect } from "@/app/ui/tag-multi-select";
-import type { Bank, QuestionType, ReviewRound } from "@/lib/db/types";
+import type { BankReadModel as Bank, QuestionType, ReviewRound } from "@/lib/db/types";
 import {
   assemblePracticeFilter,
   countAdvancedPracticeFilters,

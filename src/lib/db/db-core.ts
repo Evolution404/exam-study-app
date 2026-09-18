@@ -13,12 +13,15 @@ import type {
   Attempt,
   BankFolder,
   BankQuestionMembership,
+  BankPracticeRunIndex,
   BankPracticeStats,
+  BankQuestionStats,
   Bank,
   ContentBlock,
   ImageAssetDescriptor,
   ImageBlob,
   Note,
+  PracticeDraft,
   PracticeRunItem,
   PracticeRunRecord,
   PracticeRunSource,
@@ -31,10 +34,10 @@ import type {
   ReviewRoundBank,
   ReviewRoundItem,
   ReviewRoundProgress,
-  SyncFile,
   SyncMeta,
   Tombstone,
 } from "./types";
+export type { CanonicalState } from "./types";
 
 /** Current local IndexedDB namespace. */
 export const DATABASE_NAME = "shijuan-study" as const;
@@ -97,26 +100,6 @@ export interface CreatePracticeRunInput {
   revision?: number;
   lastAnsweredIndex?: number;
   reviewRoundId?: string;
-}
-
-/** Canonical normalized facts accepted by the atomic restore helper. */
-export interface RestoreState {
-  banks: Bank[];
-  bankFolders: BankFolder[];
-  questions: Question[];
-  memberships: BankQuestionMembership[];
-  imageAssets: ImageAssetDescriptor[];
-  attempts: Attempt[];
-  notes: Note[];
-  practiceRuns: PracticeRunRecord[];
-  practiceRunSources: PracticeRunSource[];
-  practiceRunItems: PracticeRunItem[];
-  questionGroups: QuestionGroupRecord[];
-  questionGroupItems: QuestionGroupItem[];
-  reviewRounds: ReviewRoundRecord[];
-  reviewRoundBanks: ReviewRoundBank[];
-  reviewRoundItems: ReviewRoundItem[];
-  tombstones: Tombstone[];
 }
 
 let idCounter = 0;
@@ -253,6 +236,7 @@ class StudyDatabase extends Dexie {
   bankFolders!: EntityTable<BankFolder, "id">;
   questions!: EntityTable<Question, "id">;
   bankQuestionMemberships!: Table<BankQuestionMembership, [string, string]>;
+  bankQuestionStats!: EntityTable<BankQuestionStats, "bankId">;
   imageAssets!: EntityTable<ImageAssetDescriptor, "id">;
   imageBlobs!: EntityTable<ImageBlob, "assetId">;
   attempts!: EntityTable<Attempt, "id">;
@@ -262,7 +246,9 @@ class StudyDatabase extends Dexie {
   practiceRuns!: EntityTable<PracticeRunRecord, "id">;
   practiceRunSources!: Table<PracticeRunSource, [string, string]>;
   practiceRunItems!: Table<PracticeRunItem, [string, string]>;
+  practiceDrafts!: Table<PracticeDraft, [string, string]>;
   bankPracticeStats!: EntityTable<BankPracticeStats, "bankId">;
+  bankPracticeRunIndex!: Table<BankPracticeRunIndex, [string, string]>;
   questionGroups!: EntityTable<QuestionGroupRecord, "id">;
   questionGroupItems!: Table<QuestionGroupItem, [string, string]>;
   reviewRounds!: EntityTable<ReviewRoundRecord, "id">;
@@ -270,7 +256,6 @@ class StudyDatabase extends Dexie {
   reviewRoundItems!: Table<ReviewRoundItem, [string, string]>;
   reviewRoundProgress!: Table<ReviewRoundProgress, [string, string]>;
   changeSets!: EntityTable<ChangeSetQueueRecord, "id">;
-  syncFiles!: EntityTable<SyncFile, "path">;
   tombstones!: EntityTable<Tombstone, "key">;
   syncMeta!: EntityTable<SyncMeta, "key">;
 
@@ -283,6 +268,7 @@ class StudyDatabase extends Dexie {
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, contentFingerprint, type, updatedAt, *tags",
       bankQuestionMemberships: "[bankId+questionId], bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder]",
+      bankQuestionStats: "bankId",
       imageAssets: "id, mimeType, size",
       imageBlobs: "assetId, cachedAt, lastUsedAt",
       attempts: "id, runId, questionId, reviewRoundId, sourceBankId, createdAt, deviceId, [questionId+createdAt], [runId+createdAt], [reviewRoundId+createdAt], [reviewRoundId+questionId+createdAt]",
@@ -292,7 +278,9 @@ class StudyDatabase extends Dexie {
       practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
       practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",
       practiceRunItems: "[runId+questionId], runId, questionId, submittedAttemptId, [runId+position]",
+      practiceDrafts: "[runId+questionId], runId, updatedAt",
       bankPracticeStats: "bankId, latestActivityAt",
+      bankPracticeRunIndex: "[bankId+runId], runId, [bankId+activityAt]",
       questionGroups: "id, type, updatedAt",
       questionGroupItems: "[groupId+questionId], groupId, questionId, [groupId+position]",
       reviewRounds: "id, status, updatedAt, startedAt",
@@ -300,7 +288,6 @@ class StudyDatabase extends Dexie {
       reviewRoundItems: "[roundId+questionId], roundId, questionId, [roundId+position]",
       reviewRoundProgress: "[roundId+questionId], roundId, questionId, latestAttemptAt",
       changeSets: "id, state, createdAt, deviceId, localSequence, claimId, committedAt, [state+createdAt]",
-      syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
       syncMeta: "key, updatedAt",
     });

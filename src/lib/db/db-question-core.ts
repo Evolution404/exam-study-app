@@ -13,7 +13,7 @@ import {
   getBankQuestionMemberships,
   membershipKey,
   membershipPrimaryKey,
-  refreshBankQuestionCountInTx,
+  refreshBankQuestionStatsInTx,
   saveMembershipInTx,
 } from "./db-bank";
 import {
@@ -28,7 +28,7 @@ export async function createQuestion(bankId: string, draft: StructuredQuestionDr
   const timestamp = nowIso();
   const deviceId = getDeviceId();
   const provisional = questionFromDraft(makeId("question"), draft, timestamp, deviceId);
-  return studyDb.transaction("rw", [studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
+  return studyDb.transaction("rw", [studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
     const bank = await studyDb.banks.get(bankId);
     if (!bank) throw new Error("题库不存在或已被删除。");
     const existing = await findQuestionByFingerprint(provisional.contentFingerprint);
@@ -46,7 +46,7 @@ export async function createQuestion(bankId: string, draft: StructuredQuestionDr
     if (!existing) await studyDb.questions.put(question);
     const currentMembership = await studyDb.bankQuestionMemberships.get(membershipPrimaryKey(bankId, question.id));
     await saveMembershipInTx(currentMembership ? { ...currentMembership, updatedAt: timestamp, deviceId } : membership);
-    await refreshBankQuestionCountInTx(bankId);
+    await refreshBankQuestionStatsInTx(bankId);
     await enqueueChangeSet([
       ...(!existing ? [{ kind: "question.upsert" as const, question }] : []),
       { kind: "membership.save", membership },
@@ -124,7 +124,7 @@ export async function splitQuestion(
   const questionId = typeof questionIdOrInput === "string" ? questionIdOrInput : questionIdOrInput.questionId;
   const selectedBankIds = typeof questionIdOrInput === "string" ? selectedBankIdsArgument ?? [] : questionIdOrInput.selectedBankIds;
   return studyDb.transaction("rw", [
-    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.notes, studyDb.banks,
+    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.notes, studyDb.banks, studyDb.bankQuestionStats,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const original = await studyDb.questions.get(questionId);
@@ -172,7 +172,7 @@ export async function splitQuestion(
     await studyDb.bankQuestionMemberships.bulkPut(movedMemberships);
     if (clonedNote) await studyDb.notes.put(clonedNote);
     await enqueueChangeSet([{ kind: "question.split", originalQuestionId: original.id, clone, memberships: movedMemberships, deletedMembershipKeys: selected.map((membership) => membership.key), note: clonedNote }], timestamp, { localSequence: splitSequence });
-    for (const membership of selected) await refreshBankQuestionCountInTx(membership.bankId);
+    for (const membership of selected) await refreshBankQuestionStatsInTx(membership.bankId);
     return { original, clones: [clone] };
   });
 }
@@ -182,7 +182,7 @@ export async function addMemberships(bankId: string, questionIds: readonly strin
   const uniqueIds = uniqueStrings(questionIds);
   if (!bankId || !uniqueIds.length) return 0;
   return studyDb.transaction("rw", [
-    studyDb.bankQuestionMemberships, studyDb.banks, studyDb.questions,
+    studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats, studyDb.questions,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const [bank, questions, existingMemberships, currentMemberships] = await Promise.all([
@@ -210,7 +210,7 @@ export async function addMemberships(bankId: string, questionIds: readonly strin
       deviceId,
     }));
     for (const membership of memberships) await saveMembershipInTx(membership);
-    await refreshBankQuestionCountInTx(bankId);
+    await refreshBankQuestionStatsInTx(bankId);
     await enqueueChangeSet([{ kind: "membership.bulk.save", memberships }], timestamp, { localSequence: sequence });
     return memberships.length;
   });
@@ -224,7 +224,7 @@ export async function addMembership(bankId: string, questionId: string): Promise
 export async function setQuestionMemberships(questionId: string, bankIds: readonly string[]): Promise<{ added: number; removed: number }> {
   const targetBankIds = uniqueStrings(bankIds);
   return studyDb.transaction("rw", [
-    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks,
+    studyDb.questions, studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const [question, currentMemberships, targetBanks] = await Promise.all([
@@ -270,7 +270,7 @@ export async function setQuestionMemberships(questionId: string, bankIds: readon
       ...(removedMemberships.length ? [{ kind: "membership.bulk.remove" as const, keys: removedMemberships.map((membership) => membership.key), removedAt: timestamp }] : []),
     ];
     await enqueueChangeSet(mutations, timestamp, { localSequence: sequence });
-    for (const bankId of affectedBankIds) await refreshBankQuestionCountInTx(bankId);
+    for (const bankId of affectedBankIds) await refreshBankQuestionStatsInTx(bankId);
     return { added: addedMemberships.length, removed: removedMemberships.length };
   });
 }
@@ -285,7 +285,7 @@ export async function removeMembership(
   const questionId = typeof bankIdOrInput === "string" ? questionIdArgument ?? "" : bankIdOrInput.questionId;
   if (!bankId || !questionId) return false;
   const key = membershipKey(bankId, questionId);
-  return studyDb.transaction("rw", [studyDb.bankQuestionMemberships, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
+  return studyDb.transaction("rw", [studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
     const current = await studyDb.bankQuestionMemberships.get(membershipPrimaryKey(bankId, questionId));
     if (!current) return false;
     const timestamp = nowIso();
@@ -297,7 +297,7 @@ export async function removeMembership(
       deletedAt: timestamp, deviceId, eventId: makeId("membership-delete"), sequence: membershipDeleteSequence,
     });
     await enqueueChangeSet([{ kind: "membership.remove", bankId, questionId, key, removedAt: timestamp }], timestamp, { localSequence: membershipDeleteSequence });
-    await refreshBankQuestionCountInTx(bankId);
+    await refreshBankQuestionStatsInTx(bankId);
     return true;
   });
 }
@@ -306,7 +306,7 @@ export async function removeMemberships(bankId: string, questionIds: readonly st
   const uniqueIds = [...new Set(questionIds.filter(Boolean))];
   if (!bankId || !uniqueIds.length) return 0;
   const primaryKeys = uniqueIds.map((questionId) => membershipPrimaryKey(bankId, questionId));
-  return studyDb.transaction("rw", [studyDb.bankQuestionMemberships, studyDb.banks, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
+  return studyDb.transaction("rw", [studyDb.bankQuestionMemberships, studyDb.banks, studyDb.bankQuestionStats, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta], async () => {
     const memberships = (await studyDb.bankQuestionMemberships.bulkGet(primaryKeys)).filter((membership): membership is BankQuestionMembership => Boolean(membership));
     if (!memberships.length) return 0;
     const timestamp = nowIso();
@@ -318,7 +318,7 @@ export async function removeMemberships(bankId: string, questionIds: readonly st
       deletedAt: timestamp, deviceId, eventId: makeId("membership-delete"), sequence: membershipBulkDeleteSequence,
     })));
     await enqueueChangeSet([{ kind: "membership.bulk.remove", keys: memberships.map((membership) => membership.key), bankId, removedAt: timestamp }], timestamp, { localSequence: membershipBulkDeleteSequence });
-    await refreshBankQuestionCountInTx(bankId);
+    await refreshBankQuestionStatsInTx(bankId);
     return memberships.length;
   });
 }

@@ -3,7 +3,7 @@
  */
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
-import type { RestoreState } from "./db-core";
+import type { CanonicalState } from "./types";
 import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 
 export interface ChangeSetQueueGuard {
@@ -48,7 +48,7 @@ function queueMatches(current: readonly ChangeSetQueueGuard[], expected: readonl
   return left.every((value, index) => value === right[index]);
 }
 
-function restoreRowCount(state: RestoreState): number {
+function restoreRowCount(state: CanonicalState): number {
   return [
     state.banks,
     state.bankFolders,
@@ -76,19 +76,19 @@ function restoreRowCount(state: RestoreState): number {
  * Pending change-sets are left in place unless the guarded caller explicitly
  * requests clearing them, and projection rebuild never emits a sync change set.
  */
-export async function restoreLocalCheckpoint(state: RestoreState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
+export async function restoreLocalCheckpoint(state: CanonicalState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
   // Projection tables are cleared in the canonical install transaction so no
   // stale derived rows survive a successful restore. They are populated only
   // from the already materialized canonical snapshot after that transaction commits.
   const replaceTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
-    studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
-    studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
+    studyDb.attempts, studyDb.bankQuestionStats, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
+    studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.tombstones,
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
 
-  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets, studyDb.syncMeta], async () => {
+  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.practiceDrafts, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets, studyDb.syncMeta], async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -170,6 +170,17 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
       await writeChunks(state.practiceRuns, (chunk) => studyDb.practiceRuns.bulkPut(chunk), "写入练习记录");
       await writeChunks(state.practiceRunSources, (chunk) => studyDb.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
       await writeChunks(state.practiceRunItems, (chunk) => studyDb.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
+
+      // Restore replaces canonical facts only. Keep valid device-local drafts,
+      // and remove only drafts whose run/item no longer exists remotely.
+      const liveRunIds = new Set(state.practiceRuns.map((row) => row.id));
+      const liveItemKeys = new Set(state.practiceRunItems.map((row) => `${row.runId}:${row.questionId}`));
+      const drafts = await studyDb.practiceDrafts.toArray();
+      const orphanDraftKeys = drafts
+        .filter((draft) => !liveRunIds.has(draft.runId) || !liveItemKeys.has(`${draft.runId}:${draft.questionId}`))
+        .map((draft) => [draft.runId, draft.questionId] as [string, string]);
+      if (orphanDraftKeys.length) await studyDb.practiceDrafts.bulkDelete(orphanDraftKeys);
+
       await writeChunks(state.questionGroups, (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
       await writeChunks(state.questionGroupItems, (chunk) => studyDb.questionGroupItems.bulkPut(chunk), "写入题组关系");
       await writeChunks(state.reviewRounds, (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");
@@ -191,7 +202,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
 
   if (!restored) return false;
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "重建本地学习统计" });
-  await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
+  await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
   return true;
 }

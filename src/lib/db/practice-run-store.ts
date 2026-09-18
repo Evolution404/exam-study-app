@@ -2,6 +2,7 @@ import { runActivityAt } from "../practice/practice-metrics";
 import { studyDb } from "./db-core";
 import type {
   Attempt,
+  PracticeDraft,
   PracticeRunItem,
   PracticeRunRecord,
   PracticeRunSource,
@@ -18,6 +19,24 @@ export function attemptHasSelection(attempt: Pick<Attempt, "selected" | "respons
   if (attempt.response?.kind === "fill" || attempt.response?.kind === "calculation") return attempt.response.values.some((value) => value.length > 0);
   if (attempt.response?.kind === "short") return attempt.response.text.length > 0;
   return attempt.selected.length > 0;
+}
+
+export function practiceDraftFromAnswer(
+  runId: string,
+  questionId: string,
+  answer: PracticeRun["answers"][string] | undefined,
+  updatedAt: string,
+): PracticeDraft | undefined {
+  if (!answer || answer.submitted) return undefined;
+  const selected = [...(answer.selected ?? [])];
+  if (!selected.length && !answer.response) return undefined;
+  return {
+    runId,
+    questionId,
+    selected,
+    ...(answer.response ? { response: structuredClone(answer.response) } : {}),
+    updatedAt,
+  };
 }
 
 export function practiceRunRecord(run: PracticeRun): PracticeRunRecord {
@@ -73,8 +92,6 @@ export function decomposePracticeRun(
       questionTypeSnapshot: run.questionTypes[questionId],
       optionOrder: [...(run.optionOrders[questionId] ?? [])],
       ...(attempt ? { submittedAttemptId: attempt.id } : {}),
-      ...(!answer?.submitted && answer?.selected?.length ? { draftSelected: [...answer.selected] } : {}),
-      ...(!answer?.submitted && answer?.response ? { draftResponse: answer.response } : {}),
     };
   });
   return { record: practiceRunRecord(run), sources, items };
@@ -99,7 +116,11 @@ export function decomposePracticeRuns(
   return runs.map((run) => decomposePracticeRun(run, attemptsByRun.get(run.id) ?? []));
 }
 
-function answerFromItem(item: PracticeRunItem, attempt: Attempt | undefined): PracticeRun["answers"][string] | undefined {
+function answerFromItem(
+  item: PracticeRunItem,
+  attempt: Attempt | undefined,
+  draft: PracticeDraft | undefined,
+): PracticeRun["answers"][string] | undefined {
   if (item.submittedAttemptId && attempt) {
     return {
       selected: selectedValuesFromAttempt(attempt),
@@ -112,11 +133,11 @@ function answerFromItem(item: PracticeRunItem, attempt: Attempt | undefined): Pr
       ...(attempt.outcome ? { outcome: attempt.outcome } : {}),
     };
   }
-  if (item.draftSelected || item.draftResponse) {
+  if (draft) {
     return {
-      selected: [...(item.draftSelected ?? [])],
+      selected: [...draft.selected],
       submitted: false,
-      ...(item.draftResponse ? { response: item.draftResponse } : {}),
+      ...(draft.response ? { response: draft.response } : {}),
     };
   }
   return undefined;
@@ -127,8 +148,10 @@ export function assemblePracticeRunRecords(
   sources: readonly PracticeRunSource[],
   items: readonly PracticeRunItem[],
   attempts: readonly Attempt[],
+  drafts: readonly PracticeDraft[] = [],
 ): PracticeRun[] {
   const attemptsById = new Map(attempts.map((attempt) => [attempt.id, attempt]));
+  const draftsByKey = new Map(drafts.map((draft) => [`${draft.runId}:${draft.questionId}`, draft]));
   const sourcesByRun = new Map<string, PracticeRunSource[]>();
   const itemsByRun = new Map<string, PracticeRunItem[]>();
   for (const source of sources) {
@@ -150,7 +173,11 @@ export function assemblePracticeRunRecords(
     for (const item of runItems) {
       questionTypes[item.questionId] = item.questionTypeSnapshot;
       if (item.optionOrder.length) optionOrders[item.questionId] = [...item.optionOrder];
-      const answer = answerFromItem(item, item.submittedAttemptId ? attemptsById.get(item.submittedAttemptId) : undefined);
+      const answer = answerFromItem(
+        item,
+        item.submittedAttemptId ? attemptsById.get(item.submittedAttemptId) : undefined,
+        draftsByKey.get(`${item.runId}:${item.questionId}`),
+      );
       if (answer) answers[item.questionId] = answer;
     }
     return {
@@ -183,13 +210,14 @@ export function assemblePracticeRunRecords(
 export async function hydratePracticeRunRecords(records: readonly PracticeRunRecord[]): Promise<PracticeRun[]> {
   if (!records.length) return [];
   const runIds = records.map((record) => record.id);
-  const [sources, items] = await Promise.all([
+  const [sources, items, drafts] = await Promise.all([
     studyDb.practiceRunSources.where("runId").anyOf(runIds).toArray(),
     studyDb.practiceRunItems.where("runId").anyOf(runIds).toArray(),
+    studyDb.practiceDrafts.where("runId").anyOf(runIds).toArray(),
   ]);
   const attemptIds = [...new Set(items.map((item) => item.submittedAttemptId).filter((id): id is string => Boolean(id)))];
   const attempts = attemptIds.length ? (await studyDb.attempts.bulkGet(attemptIds)).filter((attempt): attempt is Attempt => Boolean(attempt)) : [];
-  return assemblePracticeRunRecords(records, sources, items, attempts);
+  return assemblePracticeRunRecords(records, sources, items, attempts, drafts);
 }
 
 export async function getPracticeRun(runId: string): Promise<PracticeRun | undefined> {
@@ -220,6 +248,7 @@ export async function deletePracticeRunBundleInTx(runId: string): Promise<void> 
   await Promise.all([
     studyDb.practiceRunSources.where("runId").equals(runId).delete(),
     studyDb.practiceRunItems.where("runId").equals(runId).delete(),
+    studyDb.practiceDrafts.where("runId").equals(runId).delete(),
   ]);
   await studyDb.practiceRuns.delete(runId);
 }

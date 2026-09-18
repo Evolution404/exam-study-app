@@ -162,7 +162,7 @@ export function AppShell() {
         setNotice(`已从 ${type === "xlsx" ? "Excel" : type === "zip" ? "压缩包" : "JSON"} 导入 ${importedCount} 道题到「${bank.displayName || bank.name}」`);
         // 留在题库详情（试题管理 tab 保持打开，liveQuery 自动刷新题目列表）。
       } else {
-        setNotice(`已从 ${type === "xlsx" ? "Excel" : type === "zip" ? "压缩包" : "JSON"} 导入「${bank.displayName || bank.name}」的 ${bank.questionCount} 道题`);
+        setNotice(`已从 ${type === "xlsx" ? "Excel" : type === "zip" ? "压缩包" : "JSON"} 导入「${bank.displayName || bank.name}」的 ${importedCount} 道题`);
         setView("banks");
       }
     } catch (error) {

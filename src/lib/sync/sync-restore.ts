@@ -3,7 +3,7 @@ import type { GitHubSettings } from "../../types/types";
 import { bandPercent, monotonicProgress, remote, report, type SyncProgressCallback, type SyncWithGitHubOptions } from "./sync-context";
 import { saveHeadCache, saveInstalledCursors, saveInstalledHead, saveRemoteCache } from "./sync-cache";
 import { downloadRemote } from "./sync-download";
-import { checkpointFromProjection, installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-checkpoint-bridge";
+import { checkpointFromCanonicalState, installCanonicalState, canonicalStateFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-checkpoint-bridge";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-watermark";
 import { SYNC_FORMAT_VERSION } from "./sync-head-types";
@@ -43,13 +43,13 @@ export async function restoreFullHistoryFromGitHub(
       {},
     );
     const projection = replayInWireOrder(
-      await projectionFromCheckpoint(downloaded.checkpoint),
+      canonicalStateFromCheckpoint(downloaded.checkpoint),
       downloaded.changes,
       (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]),
     );
     report(progress, "merge", `正在比较本机数据（远端 ${projection.questions.length.toLocaleString("zh-CN")} 道题、${projection.attempts.length.toLocaleString("zh-CN")} 条作答）`, bandPercent(bands.install, 0.02), bands.install[1]);
 
-    const installed = await installProjection(projection, {
+    const installed = await installCanonicalState(projection, {
       queueGuard: queueSnapshot,
       clearChangeSets: true,
       onProgress: ({ completed, total, label }) => {
@@ -66,7 +66,7 @@ export async function restoreFullHistoryFromGitHub(
     // folded local cache from it avoids immediately reading every projection
     // store back through IndexedDB (`createSyncCheckpoint` used to do a full
     // toArray + clone pass here after the write had already completed).
-    const checkpoint = await checkpointFromProjection(projection, read.head.cursors);
+    const checkpoint = await checkpointFromCanonicalState(projection, read.head.cursors);
     await saveRemoteCache({ ...settings, historySyncStart: undefined }, checkpoint, read.cache);
     await saveQueueBase(projection);
     await saveInstalledHead(settings, installFingerprint(read.cache));

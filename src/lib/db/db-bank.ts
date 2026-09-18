@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 /**
  * Bank/folder/membership records and bank-scoped queries.
  */
@@ -13,18 +14,31 @@ import {
 } from "./db-core";
 import type { BankQuestionJoin } from "./db-core";
 import { enqueueChangeSet } from "./db-change-sets";
-import type { BankFolder, BankQuestionMembership, Bank, Question } from "./types";
+import type { BankFolder, BankQuestionMembership, Bank, BankQuestionStats, BankReadModel, Question } from "./types";
 import { sha256DigestHex } from "../crypto/sha256";
 
 /** internal，供兄弟模块使用 */
-export async function refreshBankQuestionCountInTx(bankId: string): Promise<Bank | undefined> {
-  const bank = await studyDb.banks.get(bankId);
-  if (!bank) return undefined;
-  const count = await studyDb.bankQuestionMemberships.where("bankId").equals(bankId).count();
-  if (bank.questionCount === count) return bank;
-  const updated = { ...bank, questionCount: count };
-  await studyDb.banks.put(updated);
-  return updated;
+export async function refreshBankQuestionStatsInTx(bankId: string): Promise<BankQuestionStats | undefined> {
+  if (!await studyDb.banks.get(bankId)) {
+    await studyDb.bankQuestionStats.delete(bankId);
+    return undefined;
+  }
+  const row: BankQuestionStats = {
+    bankId,
+    questionCount: await studyDb.bankQuestionMemberships.where("bankId").equals(bankId).count(),
+  };
+  await studyDb.bankQuestionStats.put(row);
+  return row;
+}
+
+export async function listBankReadModels(): Promise<BankReadModel[]> {
+  const banks = await studyDb.banks.toArray();
+  if (!banks.length) return [];
+  const stats = await studyDb.bankQuestionStats.bulkGet(banks.map((bank) => bank.id));
+  return banks.map((bank, index) => ({
+    ...bank,
+    questionCount: stats[index]?.questionCount ?? 0,
+  }));
 }
 
 /** internal，供兄弟模块使用 */
@@ -60,7 +74,7 @@ export async function createBank(input: string | (Partial<Bank> & Pick<Bank, "na
   const name = values.name.trim();
   if (!name) throw new Error("题库名称不能为空。");
   const timestamp = values.importedAt ?? nowIso();
-  return studyDb.transaction("rw", [studyDb.banks, studyDb.bankFolders, studyDb.changeSets, studyDb.syncMeta], async () => {
+  return studyDb.transaction("rw", [studyDb.banks, studyDb.bankFolders, studyDb.bankQuestionStats, studyDb.changeSets, studyDb.syncMeta], async () => {
     if (values.folderId) {
       const folder = await studyDb.bankFolders.get(values.folderId);
       if (!folder) throw new Error("题库文件夹不存在或已被删除。");
@@ -73,13 +87,13 @@ export async function createBank(input: string | (Partial<Bank> & Pick<Bank, "na
       color: values.color,
       folderId: values.folderId,
       sortOrder: Number.isFinite(values.sortOrder) ? Number(values.sortOrder) : await studyDb.banks.count(),
-      questionCount: 0,
       enabled: values.enabled ?? true,
       importedAt: values.importedAt ?? timestamp,
       updatedAt: values.updatedAt ?? timestamp,
       deviceId: values.deviceId ?? getDeviceId(),
     };
     await studyDb.banks.put(bank);
+    await studyDb.bankQuestionStats.put({ bankId: bank.id, questionCount: 0 });
     await enqueueChangeSet([{ kind: "bank.create", bank }], timestamp);
     return bank;
   });
@@ -240,7 +254,7 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 /** Delete only the bank and its joins; content and all learning history stay. */
 export async function deleteBank(bankId: string): Promise<boolean> {
   return studyDb.transaction("rw", [
-    studyDb.banks, studyDb.bankQuestionMemberships, studyDb.bankPracticeStats,
+    studyDb.banks, studyDb.bankQuestionMemberships, studyDb.bankQuestionStats, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const bank = await studyDb.banks.get(bankId);
@@ -253,7 +267,12 @@ export async function deleteBank(bankId: string): Promise<boolean> {
     await studyDb.banks.delete(bankId);
     // Historical practiceRunSources/reviewRoundBanks are attribution snapshots,
     // not live foreign keys. Deleting current master data must not erase them.
+    await studyDb.bankQuestionStats.delete(bankId);
     await studyDb.bankPracticeStats.delete(bankId);
+    await studyDb.bankPracticeRunIndex
+      .where("[bankId+activityAt]")
+      .between([bankId, Dexie.minKey], [bankId, Dexie.maxKey], true, true)
+      .delete();
     await studyDb.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeId("bank-delete"), sequence: bankDeleteSequence });
     await enqueueChangeSet([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
     return true;

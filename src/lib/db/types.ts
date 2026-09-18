@@ -1,5 +1,4 @@
 import type {
-  Bank as BaseBank,
   BankFolder as BaseBankFolder,
   Note as BaseNote,
   PracticeRun as BasePracticeRun,
@@ -8,17 +7,36 @@ import type {
   QuestionSolution,
   PracticeResponse,
   QuestionType as BaseQuestionType,
-  SyncFile as BaseSyncFile,
   SyncMeta as BaseSyncMeta,
   SyncTombstone as BaseSyncTombstone,
 } from "../../types/types";
 
-/** Current local-domain records used by the v9 sync wire. */
-export interface Bank extends Omit<BaseBank, "questionCount"> {
+/** Canonical persisted bank fact. Rebuildable statistics do not belong here. */
+export interface Bank {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  color?: string;
+  folderId?: string;
   sortOrder: number;
-  questionCount: number;
+  updatedAt?: string;
+  deviceId?: string;
+  syncEventId?: string;
+  importedAt: string;
   /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
   enabled?: boolean;
+}
+
+/** Device-local projection derived from bankQuestionMemberships. */
+export interface BankQuestionStats {
+  bankId: string;
+  questionCount: number;
+}
+
+/** Presentation read model; never serialized to canonical sync state. */
+export interface BankReadModel extends Bank {
+  questionCount: number;
 }
 
 export function isBankEnabled(bank: Pick<Bank, "enabled">): boolean {
@@ -28,11 +46,24 @@ export function isBankEnabled(bank: Pick<Bank, "enabled">): boolean {
 export type BankFolder = BaseBankFolder;
 export type Note = BaseNote;
 export type QuestionGroup = BaseQuestionGroup;
-export type QuestionGroupRecord = Omit<BaseQuestionGroup, "items">;
-export type SyncFile = BaseSyncFile;
+export interface QuestionGroupRecord {
+  id: string;
+  name: string;
+  type: BaseQuestionGroup["type"];
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  deviceId: string;
+  syncEventId?: string;
+}
 export type SyncMeta = BaseSyncMeta;
-export interface Tombstone extends Omit<BaseSyncTombstone, "entityType"> {
+export interface Tombstone {
+  key: string;
   entityType: BaseSyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
+  entityId: string;
+  deletedAt: string;
+  deviceId: string;
+  eventId: string;
   /**
    * Causal-stability anchor: the deleting device's localSequence for the
    * deletion event. A tombstone is reclaimable once every known device's
@@ -149,6 +180,13 @@ export interface BankPracticeStats {
   latestActivityAt: string;
 }
 
+export interface BankPracticeRunIndex {
+  bankId: string;
+  runId: string;
+  activityAt: string;
+  status: BasePracticeRun["status"];
+}
+
 export type ReviewRoundStatus = "active" | "completed" | "archived";
 
 export interface ReviewRound {
@@ -164,7 +202,16 @@ export interface ReviewRound {
   deviceId: string;
 }
 
-export type ReviewRoundRecord = Omit<ReviewRound, "bankIds" | "finalQuestionIds">;
+export interface ReviewRoundRecord {
+  id: string;
+  name: string;
+  startedAt: string;
+  status: ReviewRoundStatus;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  deviceId: string;
+}
 
 export interface ReviewRoundProgress {
   key: string;
@@ -186,12 +233,25 @@ export interface ReviewRoundProgress {
 
 export type PracticeRun = BasePracticeRun & { reviewRoundId?: string };
 
-export type PracticeRunRecord = Omit<PracticeRun,
-  "bankId" | "bankIds" | "bankName" | "questionIds" | "questionTypes" | "answers" | "optionOrders"
-> & {
+export interface PracticeRunRecord {
+  id: string;
+  mode: BasePracticeRun["mode"];
+  modeLabel: string;
+  shuffleOptions: boolean;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  abandonedAt?: string;
+  status: BasePracticeRun["status"];
+  revision: number;
+  lastAnsweredIndex?: number;
+  syncDeviceId?: string;
+  syncEventId?: string;
+  definitionSynced?: boolean;
+  reviewRoundId?: string;
   bankNameSnapshot: string;
   activityAt: string;
-};
+}
 
 export interface PracticeRunSource {
   runId: string;
@@ -206,9 +266,16 @@ export interface PracticeRunItem {
   position: number;
   questionTypeSnapshot: QuestionType;
   optionOrder: number[];
-  draftSelected?: string[];
-  draftResponse?: PracticeResponse;
   submittedAttemptId?: string;
+}
+
+/** Device-local, unsynchronized practice navigation state. */
+export interface PracticeDraft {
+  runId: string;
+  questionId: string;
+  selected: string[];
+  response?: PracticeResponse;
+  updatedAt: string;
 }
 
 export interface QuestionGroupItem {
@@ -240,11 +307,40 @@ export interface ImageAsset {
 }
 
 /** Canonical/sync-visible image metadata. Blob bytes live only in imageBlobs. */
-export type ImageAssetDescriptor = Omit<ImageAsset, "blob">;
+export interface ImageAssetDescriptor {
+  id: string;
+  mimeType: ImageAsset["mimeType"];
+  size: number;
+  width: number;
+  height: number;
+}
 
 export interface ImageBlob {
   assetId: string;
   blob: Blob;
   cachedAt?: string;
   lastUsedAt?: string;
+}
+
+/**
+ * The single complete envelope of synchronized/persisted canonical facts.
+ * Local projections, drafts, caches and sync infrastructure are deliberately absent.
+ */
+export interface CanonicalState {
+  banks: Bank[];
+  bankFolders: BankFolder[];
+  questions: Question[];
+  memberships: BankQuestionMembership[];
+  imageAssets: ImageAssetDescriptor[];
+  attempts: Attempt[];
+  notes: Note[];
+  practiceRuns: PracticeRunRecord[];
+  practiceRunSources: PracticeRunSource[];
+  practiceRunItems: PracticeRunItem[];
+  questionGroups: QuestionGroupRecord[];
+  questionGroupItems: QuestionGroupItem[];
+  reviewRounds: ReviewRoundRecord[];
+  reviewRoundBanks: ReviewRoundBank[];
+  reviewRoundItems: ReviewRoundItem[];
+  tombstones: Tombstone[];
 }

@@ -4,7 +4,7 @@ import { archiveReviewRound, completeReviewRound, createReviewRound, updateRevie
 import { ProgressScopeSetting } from "@/app/practice/progress-scope-setting";
 import { ReviewRoundManager } from "@/app/practice/review-round-manager";
 import { ShortcutSetting } from "@/app/ui/shortcut-setting";
-import type { Bank, ReviewRound } from "@/lib/db/types";
+import type { BankReadModel as Bank, ReviewRound } from "@/lib/db/types";
 import { SyncView, type PracticePreferences } from "../helpers";
 import { ThemeSetting } from "./theme-setting";
 import { GroupSizeSetting } from "./group-size-setting";

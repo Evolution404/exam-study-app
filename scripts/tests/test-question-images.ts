@@ -208,9 +208,9 @@ await resetDatabase();
 {
   const bytes = buildQuestionBankXlsx(imageQuestions, notes, images);
   const file = new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const { bank, type } = await importQuestionBankFile(file);
+  const { bank, importedCount, type } = await importQuestionBankFile(file);
   assert.equal(type, "xlsx");
-  assert.equal(bank.questionCount, 3, "三道题全部导入");
+  assert.equal(importedCount, 3, "三道题全部导入");
 
   const questions = await bankQuestions(bank.id);
   const byOrder = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
@@ -253,7 +253,7 @@ await resetDatabase();
 
   // 重复导入同一文件：内容寻址去重，题数不变、资产不重复。
   const again = await importQuestionBankFile(new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: file.type }));
-  assert.equal(again.bank.questionCount, 3, "重复导入不应增加题目");
+  assert.equal((await studyDb.bankQuestionStats.get(again.bank.id))?.questionCount, 3, "重复导入不应增加题目");
   assert.equal((await studyDb.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
   assert.equal(await studyDb.questions.count(), 3, "全局题目按指纹去重");
 
@@ -290,7 +290,7 @@ await resetDatabase();
   const { bank, type } = await importQuestionBankFile(file);
   assert.equal(type, "zip");
   assert.equal(bank.name, "压缩包题库", "题库名取自 bank.json 而非文件名");
-  assert.equal(bank.questionCount, 3);
+  assert.equal((await studyDb.bankQuestionStats.get(bank.id))?.questionCount, 3);
   const memberships = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
   const ordered = await studyDb.questions.bulkGet(memberships.map((membership) => membership.questionId));
   assert.deepEqual(

@@ -13,6 +13,7 @@ import {
   saveNote,
 } from "../../src/lib/db/db";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { SYNC_OBJECT_PREFIX } from "../../src/lib/sync/sync-head-types";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // End-to-end sync integration against the in-memory mock GitHub backend.
@@ -76,7 +77,7 @@ try {
     const sample = (await studyDb.questions.limit(5).toArray()).map((question) => ({ id: question.id, fingerprint: question.contentFingerprint }));
     const pushResult = await sync();
     assert.equal(pushResult.pushed, 1, "大规模导入应为单个原子 change-set（不再分块）");
-    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v10/objects/")), "超大变更集应卸载为不可变对象而非内联塞入 segment");
+    assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_OBJECT_PREFIX)), "超大变更集应卸载为不可变对象而非内联塞入 segment");
 
     // Brand-new device pulls the whole vault.
     await freshClient("device-b");
@@ -200,7 +201,7 @@ try {
     await createPracticeRun({ id: "run-big", bankId: bank.id, questionIds, startedAt: runAt, updatedAt: runAt });
     const pushResult = await sync();
     assert.ok(pushResult.pushed > 0, "大练习应作为变更推送");
-    assert.ok(server.contentPaths().filter((path) => path.startsWith("sync/v10/objects/")).length >= 1, "大题库导入仍应通过不可变对象卸载；练习不再靠巨大 answers map 制造大对象");
+    assert.ok(server.contentPaths().filter((path) => path.startsWith(SYNC_OBJECT_PREFIX)).length >= 1, "大题库导入仍应通过不可变对象卸载；练习不再靠巨大 answers map 制造大对象");
 
     await freshClient("device-b");
     await sync();

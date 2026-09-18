@@ -191,7 +191,7 @@ assert.match(dashboardController, /questionDailyProgress\.where\("date"\)\.equal
 assert.match(syncApplicationSource, /changeSets\.where\("state"\)\.anyOf\(\["pending", "blocked"\]\)\.count\(\)/, "application 内部保留索引化轻量待同步计数");
 const syncOrchestrator = readFileSync(new URL("../../src/lib/sync/sync-orchestrator-core.ts", import.meta.url), "utf8");
 assert.match(syncOrchestrator, /yieldToMainIfVisible/, "本地归并应逐条让出主线程");
-assert.match(syncOrchestrator, /applyChangeSetToOwnedProjection/, "本地归并应走浅信封单次派生路径（不再每条全量克隆）");
+assert.match(syncOrchestrator, /applyChangeSetToOwnedState/, "本地归并应走 canonical state 浅信封单次应用路径（不再每条全量克隆）");
 assert.doesNotMatch(study, /Math\.min\(stats\.pending,\s*99\)/, "待同步数量不应截断为 99");
 assert.match(quickSyncController, /syncApplication\.restoreCache[\s\S]*setTimeout\(resolve, 300\)/, "快捷恢复经 application boundary 完成后仍应由 Quick Sync controller 留出可见时间");
 

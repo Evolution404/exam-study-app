@@ -1,7 +1,6 @@
 import type { ChangeSetQueueRecord } from "../db/db";
-import type { Attempt, PracticeRun } from "../db/types";
+import type { Attempt, CanonicalState, PracticeRunItem, PracticeRunRecord, PracticeRunSource } from "../db/types";
 import type { ChangeSet } from "./change-set-types";
-import type { ChangeSetProjection } from "./change-set-projection";
 
 export function formatTransferBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -21,16 +20,25 @@ export function assetUploadProgressLabel(input: {
   return `正在上传图片（${input.completed}/${input.total}，${transferred}）`;
 }
 
-export function mergeActiveHistoryProjection(
-  projection: ChangeSetProjection,
-  activeRuns: readonly PracticeRun[],
-  activeAttempts: readonly Attempt[],
-): ChangeSetProjection {
-  const runs = new Map(projection.practiceRuns.map((run) => [run.id, run]));
-  for (const run of activeRuns) runs.set(run.id, run);
-  const attempts = new Map(projection.attempts.map((attempt) => [attempt.id, attempt]));
-  for (const attempt of activeAttempts) attempts.set(attempt.id, attempt);
-  return { ...projection, practiceRuns: [...runs.values()], attempts: [...attempts.values()] };
+export function mergeActiveHistoryState(
+  state: CanonicalState,
+  active: {
+    runs: readonly PracticeRunRecord[];
+    sources: readonly PracticeRunSource[];
+    items: readonly PracticeRunItem[];
+    attempts: readonly Attempt[];
+  },
+): CanonicalState {
+  const runIds = new Set(active.runs.map((run) => run.id));
+  const attempts = new Map(state.attempts.map((attempt) => [attempt.id, attempt]));
+  for (const attempt of active.attempts) attempts.set(attempt.id, attempt);
+  return {
+    ...state,
+    practiceRuns: [...state.practiceRuns.filter((run) => !runIds.has(run.id)), ...active.runs],
+    practiceRunSources: [...state.practiceRunSources.filter((row) => !runIds.has(row.runId)), ...active.sources],
+    practiceRunItems: [...state.practiceRunItems.filter((row) => !runIds.has(row.runId)), ...active.items],
+    attempts: [...attempts.values()],
+  };
 }
 
 export function pendingQueueSnapshotChanged(
@@ -50,8 +58,6 @@ export function reconcileInterruptedClaims(
   const remoteById = new Map(remoteChanges.map((change) => [change.id, change]));
   return records.map((record) => {
     const remoteChange = remoteById.get(record.id);
-    // A claimed record whose id exists remotely with another digest is a stale
-    // locked version. Keep the conflict local and let unrelated remote data pull.
     if (remoteChange && remoteChange.digest !== record.digest) {
       return {
         ...record,

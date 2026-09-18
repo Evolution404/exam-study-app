@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
-import type { Bank, Question } from "../../src/lib/db/types";
+import type { Bank, CanonicalState, Question } from "../../src/lib/db/types";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
-import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
-import { installProjection } from "../../src/lib/sync/sync-checkpoint-bridge";
+import { installCanonicalState } from "../../src/lib/sync/sync-checkpoint-bridge";
 import { deriveDirtyInstallKeys } from "../../src/lib/sync/sync-dirty-install";
 
 Object.defineProperty(globalThis, "localStorage", {
@@ -21,7 +20,6 @@ const bank: Bank = {
   id: "bank-import",
   name: "恢复关系题库",
   sortOrder: 0,
-  questionCount: 0,
   importedAt: at,
   updatedAt: at,
   deviceId: "device-a",
@@ -51,22 +49,23 @@ const membership = {
 };
 const tombstoneKey = `membership:${membership.key}`;
 
-function targetProjection(): ChangeSetProjection {
+function targetState(): CanonicalState {
   return {
-    banks: [{ ...bank, questionCount: 1, deviceId: "device-remote" }],
+    banks: [{ ...bank, deviceId: "device-remote" }],
     bankFolders: [],
     questions: [question],
     memberships: [membership],
     imageAssets: [],
     attempts: [],
-    attemptStats: [],
-    attemptDailyStats: [],
     notes: [],
     practiceRuns: [],
-    practiceRunStats: [],
+    practiceRunSources: [],
+    practiceRunItems: [],
     questionGroups: [],
+    questionGroupItems: [],
     reviewRounds: [],
-    reviewRoundProgress: [],
+    reviewRoundBanks: [],
+    reviewRoundItems: [],
     tombstones: [],
   };
 }
@@ -92,12 +91,12 @@ try {
     createdAt: "2026-08-30T00:00:01.000Z",
     mutation: {
       kind: "question.import",
-      bank: { ...bank, questionCount: 1, deviceId: "device-remote" },
+      bank: { ...bank, deviceId: "device-remote" },
       questions: [question],
       memberships: [membership],
     },
   });
-  const target = targetProjection();
+  const target = targetState();
   const dirtyKeys = await deriveDirtyInstallKeys(target, [imported]);
 
   assert.ok(dirtyKeys, "question.import should remain eligible for dirty install");
@@ -107,10 +106,10 @@ try {
     "question.import must dirty the matching membership tombstone because the reducer clears it when restoring the relation",
   );
 
-  assert.equal(await installProjection(target, { dirtyKeys }), true);
+  assert.equal(await installCanonicalState(target, { dirtyKeys }), true);
   assert.equal((await studyDb.bankQuestionMemberships.get([membership.bankId, membership.questionId]))?.questionId, question.id);
   assert.equal(await studyDb.tombstones.get(tombstoneKey), undefined, "restored membership must not retain its old removal tombstone");
-  assert.equal((await studyDb.banks.get(bank.id))?.questionCount, 1, "restored membership must update the derived bank question count");
+  assert.equal((await studyDb.bankQuestionStats.get(bank.id))?.questionCount, 1, "restored membership must update the derived bank question count");
 } finally {
   await resetDatabase();
   studyDb.close();

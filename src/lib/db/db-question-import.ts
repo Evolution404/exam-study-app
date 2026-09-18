@@ -4,7 +4,7 @@ import { enqueueChangeSet } from "./db-change-sets";
 import {
   membershipKey,
   membershipPrimaryKey,
-  refreshBankQuestionCountInTx,
+  refreshBankQuestionStatsInTx,
   saveMembershipInTx,
   sha256Text,
 } from "./db-bank";
@@ -170,7 +170,7 @@ export async function importQuestionBank(fileName: string, raw: unknown, options
     provisional: questionFromDraft(makeId("question"), draft, timestamp, deviceId),
   }));
 
-  return studyDb.transaction("rw", [studyDb.banks, studyDb.questions, studyDb.bankQuestionMemberships, studyDb.tombstones, studyDb.changeSets, studyDb.notes, studyDb.syncMeta], async () => {
+  return studyDb.transaction("rw", [studyDb.banks, studyDb.questions, studyDb.bankQuestionMemberships, studyDb.bankQuestionStats, studyDb.tombstones, studyDb.changeSets, studyDb.notes, studyDb.syncMeta], async () => {
     let bank: Bank;
     if (options?.targetBankId) {
       const existingBank = await studyDb.banks.get(options.targetBankId);
@@ -188,7 +188,6 @@ export async function importQuestionBank(fileName: string, raw: unknown, options
         id: bankId,
         name: sourceName!,
         sortOrder: await studyDb.banks.count(),
-        questionCount: 0,
         enabled: true,
         importedAt: timestamp,
         updatedAt: timestamp,
@@ -237,8 +236,7 @@ export async function importQuestionBank(fileName: string, raw: unknown, options
       await saveMembershipInTx(item.membership);
     }
     for (const note of materialisedNotes) await studyDb.notes.put(note);
-    const refreshed = await refreshBankQuestionCountInTx(bank.id);
-    if (refreshed) await studyDb.banks.put({ ...refreshed, updatedAt: timestamp, deviceId });
+    await refreshBankQuestionStatsInTx(bank.id);
     const bankSnapshot = (await studyDb.banks.get(bank.id))!;
     await enqueueChangeSet([{
       kind: "question.import",

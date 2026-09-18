@@ -90,7 +90,7 @@ const bank = await importQuestionBank("safari.json", {
     { stem: "Safari Q2", options: ["甲", "乙"], answer: "B", type: "单选" },
   ],
 });
-assert.equal(bank.questionCount, 2, "Safari 模型下题库导入应完成");
+assert.equal((await studyDb.bankQuestionStats.get(bank.id))?.questionCount, 2, "Safari 模型下题库导入应完成并建立本地题数投影");
 const run = await createPracticeRun({ bankId: bank.id, bankIds: [bank.id] });
 const result = await recordPracticeAnswer({ runId: run.id, questionId: run.questionIds[0]!, selected: ["A"], correct: true, elapsedMs: 1200 });
 assert.equal(result.answer.submitted, true, "Safari 模型下作答应保存并允许继续下一题");

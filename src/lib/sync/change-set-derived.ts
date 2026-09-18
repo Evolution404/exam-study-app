@@ -1,228 +1,129 @@
 /**
- * Derived statistics and validation for the projection reducer.  Rebuilds
- * every derived table from durable entity/attempt projections and verifies
- * referential integrity.
+ * Deterministic canonical-state normalization and validation.
+ * No device-local projection rows are represented or recomputed here.
  */
-import type {
-  AttemptDailyStats,
-  AttemptStats,
-  Attempt,
-  PracticeRunStats,
-  PracticeRun,
-  ReviewRoundProgress,
-} from "../db/types";
-import { practiceRunMappingIssue } from "../practice/practice-run-invariants";
+import type { CanonicalState } from "../db/types";
 import {
-  dailyKey,
-  datePart,
   fail,
   membershipKey,
-  normalizeProjection,
-  runBankIds,
-  type ChangeSetProjectionInput,
-  type ChangeSetProjection,
-  type ProjectionValidationIssue,
+  normalizeCanonicalState,
+  type CanonicalStateValidationIssue,
 } from "./change-set-projection-core";
 
-function sortAttempts(attempts: readonly Attempt[]): Attempt[] {
-  return [...attempts].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-}
-
-function deriveAttemptStats(attempts: readonly Attempt[]): AttemptStats[] {
-  const grouped = new Map<string, Attempt[]>();
-  for (const attempt of sortAttempts(attempts)) {
-    const bucket = grouped.get(attempt.questionId);
-    if (bucket) bucket.push(attempt);
-    else grouped.set(attempt.questionId, [attempt]);
-  }
-  return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([questionId, values]) => {
-    const ordered = sortAttempts(values);
-    const first = ordered[0];
-    const last = ordered[ordered.length - 1];
-    let currentCorrectStreak = 0;
-    for (let index = ordered.length - 1; index >= 0 && ordered[index].correct; index -= 1) currentCorrectStreak += 1;
-    let lastWrongIndex = -1;
-    ordered.forEach((attempt, index) => { if (!attempt.correct) lastWrongIndex = index; });
-    const correctStreakAfterWrong = lastWrongIndex < 0 ? 0 : ordered.slice(lastWrongIndex + 1).reduce((count, attempt) => count + (attempt.correct ? 1 : 0), 0);
-    return {
-      questionId,
-      total: ordered.length,
-      correct: ordered.filter((attempt) => attempt.correct).length,
-      wrong: ordered.filter((attempt) => !attempt.correct).length,
-      giveUps: ordered.filter((attempt) => !attempt.selected).length,
-      totalElapsedMs: ordered.reduce((sum, attempt) => sum + Math.max(0, attempt.elapsedMs), 0),
-      firstAttemptAt: first.createdAt,
-      firstAttemptCorrect: first.correct,
-      latestAttemptAt: last.createdAt,
-      hasBeenWrong: ordered.some((attempt) => !attempt.correct),
-      correctStreakAfterWrong,
-      currentCorrectStreak,
-      recentOutcomes: ordered.slice(-32).map((attempt) => ({ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) })),
-    } satisfies AttemptStats;
-  });
-}
-
-function deriveDailyStats(attempts: readonly Attempt[]): AttemptDailyStats[] {
-  const grouped = new Map<string, AttemptDailyStats>();
-  for (const attempt of sortAttempts(attempts)) {
-    const key = dailyKey(attempt.createdAt, attempt.questionId);
-    const current = grouped.get(key) ?? { key, date: datePart(attempt.createdAt), questionId: attempt.questionId, total: 0, correct: 0, wrong: 0, giveUps: 0, totalElapsedMs: 0 };
-    current.total += 1;
-    if (attempt.correct) current.correct += 1; else current.wrong += 1;
-    if (!attempt.selected) current.giveUps += 1;
-    current.totalElapsedMs += Math.max(0, attempt.elapsedMs);
-    grouped.set(key, current);
-  }
-  return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
-function deriveRunStats(runs: readonly PracticeRun[]): PracticeRunStats[] {
-  const grouped = new Map<string, PracticeRunStats>();
-  for (const run of [...runs].sort((a, b) => a.id.localeCompare(b.id))) {
-    for (const bankId of runBankIds(run)) {
-      const current = grouped.get(bankId) ?? { key: bankId, bankId, total: 0, completed: 0, inProgress: 0, abandoned: 0, latestUpdatedAt: "" };
-      current.total += 1;
-      if (run.status === "completed") current.completed += 1;
-      else if (run.status === "abandoned") current.abandoned += 1;
-      else current.inProgress += 1;
-      if (run.updatedAt > current.latestUpdatedAt) current.latestUpdatedAt = run.updatedAt;
-      grouped.set(bankId, current);
-    }
-  }
-  return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
-function deriveRoundProgress(projection: ChangeSetProjection): ReviewRoundProgress[] {
-  const roundsById = new Map(projection.reviewRounds.map((round) => [round.id, round]));
-  const grouped = new Map<string, ReviewRoundProgress>();
-  for (const attempt of sortAttempts(projection.attempts)) {
-    const roundId = attempt.reviewRoundId;
-    if (!roundId) continue;
-    if (!roundsById.has(roundId)) fail(`作答 ${attempt.id} 引用了不存在的轮次 ${roundId}`);
-    const key = `${roundId}:${attempt.questionId}`;
-    const current = grouped.get(key);
-    if (!current) {
-      grouped.set(key, {
-        key,
-        roundId,
-        questionId: attempt.questionId,
-        attempts: 1,
-        correct: attempt.correct ? 1 : 0,
-        wrong: attempt.correct ? 0 : 1,
-        firstAttemptAt: attempt.createdAt,
-        latestAttemptAt: attempt.createdAt,
-        giveUps: attempt.selected ? 0 : 1,
-        totalElapsedMs: Math.max(0, attempt.elapsedMs),
-        firstAttemptCorrect: attempt.correct,
-        hasBeenWrong: !attempt.correct,
-        currentCorrectStreak: attempt.correct ? 1 : 0,
-        correctStreakAfterWrong: 0,
-        recentOutcomes: [{ id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }],
-      });
-      continue;
-    }
-    current.attempts += 1;
-    if (attempt.correct) current.correct += 1; else current.wrong += 1;
-    current.giveUps += attempt.selected ? 0 : 1;
-    current.totalElapsedMs += Math.max(0, attempt.elapsedMs);
-    current.hasBeenWrong ||= !attempt.correct;
-    current.currentCorrectStreak = attempt.correct ? current.currentCorrectStreak + 1 : 0;
-    current.correctStreakAfterWrong = current.hasBeenWrong ? current.currentCorrectStreak : 0;
-    current.recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }].slice(-32);
-    if (attempt.createdAt < current.firstAttemptAt) current.firstAttemptAt = attempt.createdAt;
-    if (attempt.createdAt > current.latestAttemptAt) current.latestAttemptAt = attempt.createdAt;
-  }
-  return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
-/** In-place recompute for envelopes the caller privately owns (replay paths):
- *  skips the defensive deep clone of `recomputeChangeSetProjection`. */
-export function recomputeProjectionInPlace(projection: ChangeSetProjection): ChangeSetProjection {
-  const countByBank = new Map<string, number>();
-  for (const membership of projection.memberships) countByBank.set(membership.bankId, (countByBank.get(membership.bankId) ?? 0) + 1);
-  projection.banks = projection.banks.map((bank) => ({ ...bank, questionCount: countByBank.get(bank.id) ?? 0 }));
-  projection.attempts = sortAttempts(projection.attempts);
-  projection.attemptStats = deriveAttemptStats(projection.attempts);
-  projection.attemptDailyStats = deriveDailyStats(projection.attempts);
-  projection.practiceRunStats = deriveRunStats(projection.practiceRuns);
-  projection.reviewRoundProgress = deriveRoundProgress(projection);
-  projection.banks.sort((a, b) => a.id.localeCompare(b.id));
-  projection.bankFolders.sort((a, b) => a.id.localeCompare(b.id));
-  projection.questions.sort((a, b) => a.id.localeCompare(b.id));
-  projection.imageAssets.sort((a, b) => a.id.localeCompare(b.id));
-  projection.notes.sort((a, b) => a.questionId.localeCompare(b.questionId));
-  projection.practiceRuns.sort((a, b) => a.id.localeCompare(b.id));
-  projection.questionGroups.sort((a, b) => a.id.localeCompare(b.id));
-  projection.reviewRounds.sort((a, b) => a.id.localeCompare(b.id));
-  projection.tombstones.sort((a, b) => a.key.localeCompare(b.key));
-  projection.memberships.sort((a, b) => a.key.localeCompare(b.key));
-  return projection;
-}
-
-/** Rebuild every derived table from the durable entity/attempt projections. */
-export function recomputeChangeSetProjection(input: ChangeSetProjectionInput): ChangeSetProjection {
-  return recomputeProjectionInPlace(normalizeProjection(input));
-}
-
-function pushIssue(issues: ProjectionValidationIssue[], path: string, message: string): void {
+function pushIssue(issues: CanonicalStateValidationIssue[], path: string, message: string): void {
   issues.push({ path, message });
 }
+function relationId(...parts: string[]): string { return parts.join(":"); }
 
-/** Return all referential/count errors without mutating the supplied projection.
- *  `verifyDerived: false` skips the staleness re-derivation — call it ONLY on a
- *  projection that was just passed through `recomputeChangeSetProjection`
- *  (fresh derived tables are correct by construction; the re-derivation plus
- *  four full-table JSON comparisons exist for externally supplied inputs). */
-export function projectionValidationIssues(input: ChangeSetProjectionInput, options?: { verifyDerived?: boolean }): ProjectionValidationIssue[] {
-  const verifyDerived = options?.verifyDerived !== false;
-  const issues: ProjectionValidationIssue[] = [];
-  let projection: ChangeSetProjection;
-  try { projection = normalizeProjection(input); } catch (error) { return [{ path: "projection", message: String(error) }]; }
+export function normalizeCanonicalStateForReplay(input: CanonicalState): CanonicalState {
+  const state = normalizeCanonicalState(input);
+  state.banks.sort((a,b)=>a.id.localeCompare(b.id));
+  state.bankFolders.sort((a,b)=>a.id.localeCompare(b.id));
+  state.questions.sort((a,b)=>a.id.localeCompare(b.id));
+  state.memberships.sort((a,b)=>a.key.localeCompare(b.key));
+  state.imageAssets.sort((a,b)=>a.id.localeCompare(b.id));
+  state.attempts.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+  state.notes.sort((a,b)=>a.questionId.localeCompare(b.questionId));
+  state.practiceRuns.sort((a,b)=>a.id.localeCompare(b.id));
+  state.practiceRunSources.sort((a,b)=>a.runId.localeCompare(b.runId)||a.position-b.position||a.bankId.localeCompare(b.bankId));
+  state.practiceRunItems.sort((a,b)=>a.runId.localeCompare(b.runId)||a.position-b.position||a.questionId.localeCompare(b.questionId));
+  state.questionGroups.sort((a,b)=>a.id.localeCompare(b.id));
+  state.questionGroupItems.sort((a,b)=>a.groupId.localeCompare(b.groupId)||a.position-b.position||a.questionId.localeCompare(b.questionId));
+  state.reviewRounds.sort((a,b)=>a.id.localeCompare(b.id));
+  state.reviewRoundBanks.sort((a,b)=>a.roundId.localeCompare(b.roundId)||a.position-b.position||a.bankId.localeCompare(b.bankId));
+  state.reviewRoundItems.sort((a,b)=>a.roundId.localeCompare(b.roundId)||a.position-b.position||a.questionId.localeCompare(b.questionId));
+  state.tombstones.sort((a,b)=>a.key.localeCompare(b.key));
+  return state;
+}
+
+export function canonicalStateValidationIssues(input: CanonicalState): CanonicalStateValidationIssue[] {
+  const issues: CanonicalStateValidationIssue[] = [];
+  let state: CanonicalState;
+  try { state = normalizeCanonicalState(input); } catch (error) { return [{ path:"canonical", message:String(error) }]; }
+
+  const folders = new Set(state.bankFolders.map((row)=>row.id));
   const banks = new Set<string>();
-  for (const bank of projection.banks) {
-    if (banks.has(bank.id)) pushIssue(issues, `banks.${bank.id}`, "duplicate bank id");
+  for (const bank of state.banks) {
+    if (banks.has(bank.id)) pushIssue(issues,`banks.${bank.id}`,"duplicate bank id");
     banks.add(bank.id);
-    if (bank.folderId && !projection.bankFolders.some((folder) => folder.id === bank.folderId)) pushIssue(issues, `banks.${bank.id}.folderId`, "missing folder");
+    if (bank.folderId && !folders.has(bank.folderId)) pushIssue(issues,`banks.${bank.id}.folderId`,"missing folder");
   }
   const questions = new Set<string>();
-  for (const question of projection.questions) {
-    if (questions.has(question.id)) pushIssue(issues, `questions.${question.id}`, "duplicate question id");
+  for (const question of state.questions) {
+    if (questions.has(question.id)) pushIssue(issues,`questions.${question.id}`,"duplicate question id");
     questions.add(question.id);
+    for (const block of [...question.content,...question.options.flat()]) {
+      if (block.type === "image" && !state.imageAssets.some((asset)=>asset.id===block.assetId)) pushIssue(issues,`questions.${question.id}.image`,`missing image asset ${block.assetId}`);
+    }
   }
+
   const membershipKeys = new Set<string>();
-  for (const membership of projection.memberships) {
-    if (membership.key !== membershipKey(membership.bankId, membership.questionId)) pushIssue(issues, `memberships.${membership.key}`, "non-canonical key");
-    if (membershipKeys.has(membership.key)) pushIssue(issues, `memberships.${membership.key}`, "duplicate membership");
-    membershipKeys.add(membership.key);
-    if (!banks.has(membership.bankId)) pushIssue(issues, `memberships.${membership.key}.bankId`, "missing bank");
-    if (!questions.has(membership.questionId)) pushIssue(issues, `memberships.${membership.key}.questionId`, "missing question");
+  for (const row of state.memberships) {
+    if (row.key !== membershipKey(row.bankId,row.questionId)) pushIssue(issues,`memberships.${row.key}`,"non-canonical key");
+    if (membershipKeys.has(row.key)) pushIssue(issues,`memberships.${row.key}`,"duplicate membership");
+    membershipKeys.add(row.key);
+    if (!banks.has(row.bankId)) pushIssue(issues,`memberships.${row.key}.bankId`,"missing bank");
+    if (!questions.has(row.questionId)) pushIssue(issues,`memberships.${row.key}.questionId`,"missing question");
   }
-  for (const attempt of projection.attempts) {
-    if (!questions.has(attempt.questionId)) pushIssue(issues, `attempts.${attempt.id}.questionId`, "missing question");
+
+  const runIds = new Set(state.practiceRuns.map((row)=>row.id));
+  const roundIds = new Set(state.reviewRounds.map((row)=>row.id));
+  for (const run of state.practiceRuns) {
+    if (run.reviewRoundId && !roundIds.has(run.reviewRoundId)) pushIssue(issues,`practiceRuns.${run.id}.reviewRoundId`,"missing review round");
   }
-  for (const run of projection.practiceRuns) {
-    for (const bankId of runBankIds(run)) if (!banks.has(bankId)) pushIssue(issues, `practiceRuns.${run.id}.bankIds`, `missing bank ${bankId}`);
-    for (const questionId of run.questionIds) if (!questions.has(questionId)) pushIssue(issues, `practiceRuns.${run.id}.questionIds`, `missing question ${questionId}`);
-    const mappingIssue = practiceRunMappingIssue(run);
-    if (mappingIssue) pushIssue(issues, `practiceRuns.${run.id}.${mappingIssue.field}`, `question ${mappingIssue.questionId} is outside questionIds`);
+  const runSources = new Set<string>();
+  const runSourceCount = new Map<string,number>();
+  for (const row of state.practiceRunSources) {
+    const key=relationId(row.runId,row.bankId);
+    if (runSources.has(key)) pushIssue(issues,`practiceRunSources.${key}`,"duplicate source");
+    runSources.add(key);
+    runSourceCount.set(row.runId,(runSourceCount.get(row.runId)??0)+1);
+    if (!runIds.has(row.runId)) pushIssue(issues,`practiceRunSources.${key}.runId`,"missing run");
+    if (!banks.has(row.bankId)) pushIssue(issues,`practiceRunSources.${key}.bankId`,"missing bank");
   }
-  try {
-    if (!verifyDerived) return issues;
-    const rebuilt = recomputeChangeSetProjection(projection);
-    for (const bank of projection.banks) if (bank.questionCount !== rebuilt.banks.find((candidate) => candidate.id === bank.id)?.questionCount) pushIssue(issues, `banks.${bank.id}.questionCount`, "count is stale");
-    if (JSON.stringify(projection.attemptStats) !== JSON.stringify(rebuilt.attemptStats)) pushIssue(issues, "attemptStats", "derived stats are stale");
-    if (JSON.stringify(projection.attemptDailyStats) !== JSON.stringify(rebuilt.attemptDailyStats)) pushIssue(issues, "attemptDailyStats", "derived daily stats are stale");
-    if (JSON.stringify(projection.practiceRunStats) !== JSON.stringify(rebuilt.practiceRunStats)) pushIssue(issues, "practiceRunStats", "derived run stats are stale");
-    if (JSON.stringify(projection.reviewRoundProgress) !== JSON.stringify(rebuilt.reviewRoundProgress)) pushIssue(issues, "reviewRoundProgress", "derived round progress is stale");
-  } catch (error) { pushIssue(issues, "derived", String(error)); }
+  for (const run of state.practiceRuns) if (!(runSourceCount.get(run.id)??0)) pushIssue(issues,`practiceRuns.${run.id}`,"run has no bank source");
+
+  const attemptsById = new Map(state.attempts.map((row)=>[row.id,row]));
+  for (const attempt of state.attempts) {
+    if (!questions.has(attempt.questionId)) pushIssue(issues,`attempts.${attempt.id}.questionId`,"missing question");
+    if (attempt.reviewRoundId && !roundIds.has(attempt.reviewRoundId)) pushIssue(issues,`attempts.${attempt.id}.reviewRoundId`,"missing review round");
+  }
+  const runItems = new Set<string>();
+  for (const row of state.practiceRunItems) {
+    const key=relationId(row.runId,row.questionId);
+    if (runItems.has(key)) pushIssue(issues,`practiceRunItems.${key}`,"duplicate item");
+    runItems.add(key);
+    if (!runIds.has(row.runId)) pushIssue(issues,`practiceRunItems.${key}.runId`,"missing run");
+    if (!questions.has(row.questionId)) pushIssue(issues,`practiceRunItems.${key}.questionId`,"missing question");
+    if (row.submittedAttemptId) {
+      const attempt=attemptsById.get(row.submittedAttemptId);
+      if (!attempt) pushIssue(issues,`practiceRunItems.${key}.submittedAttemptId`,"missing attempt");
+      else if (attempt.runId!==row.runId || attempt.questionId!==row.questionId) pushIssue(issues,`practiceRunItems.${key}.submittedAttemptId`,"attempt attribution mismatch");
+    }
+  }
+
+  const groupIds = new Set(state.questionGroups.map((row)=>row.id));
+  const groupItems = new Set<string>();
+  for (const row of state.questionGroupItems) {
+    const key=relationId(row.groupId,row.questionId);
+    if (groupItems.has(key)) pushIssue(issues,`questionGroupItems.${key}`,"duplicate item");
+    groupItems.add(key);
+    if (!groupIds.has(row.groupId)) pushIssue(issues,`questionGroupItems.${key}.groupId`,"missing group");
+    if (!questions.has(row.questionId)) pushIssue(issues,`questionGroupItems.${key}.questionId`,"missing question");
+  }
+
+  for (const row of state.reviewRoundBanks) {
+    if (!roundIds.has(row.roundId)) pushIssue(issues,`reviewRoundBanks.${row.roundId}:${row.bankId}.roundId`,"missing round");
+    if (!banks.has(row.bankId)) pushIssue(issues,`reviewRoundBanks.${row.roundId}:${row.bankId}.bankId`,"missing bank");
+  }
+  for (const row of state.reviewRoundItems) {
+    if (!roundIds.has(row.roundId)) pushIssue(issues,`reviewRoundItems.${row.roundId}:${row.questionId}.roundId`,"missing round");
+    if (!questions.has(row.questionId)) pushIssue(issues,`reviewRoundItems.${row.roundId}:${row.questionId}.questionId`,"missing question");
+  }
   return issues;
 }
 
-export function validateChangeSetProjection(input: ChangeSetProjectionInput): boolean {
-  return projectionValidationIssues(input).length === 0;
-}
-
-export function assertChangeSetProjection(input: ChangeSetProjectionInput): asserts input is ChangeSetProjection {
-  const issues = projectionValidationIssues(input);
-  if (issues.length) fail(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
+export function assertCanonicalState(input: CanonicalState): asserts input is CanonicalState {
+  const issues=canonicalStateValidationIssues(input);
+  if (issues.length) fail(issues.map((issue)=>`${issue.path}: ${issue.message}`).join("; "));
 }

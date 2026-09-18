@@ -8,7 +8,7 @@ import {
 import type { CreatePracticeRunInput } from "./db-core";
 import { enqueueChangeSet } from "./db-change-sets";
 import { bankLabel, getQuestionsForBanks } from "./db-bank";
-import { putPracticeRunRecordInTx } from "./practice-run-store";
+import { practiceDraftFromAnswer, practiceRunRecord, putPracticeRunMetadataInTx } from "./practice-run-store";
 import { updatePracticeRunStatsInTx } from "./db-practice-stats";
 import { restrictPracticeRunMappings } from "../practice/practice-run-invariants";
 import type { Bank, PracticeRun } from "./types";
@@ -55,7 +55,9 @@ export async function createPracticeRun(input: CreatePracticeRunInput = {}): Pro
     studyDb.practiceRuns,
     studyDb.practiceRunSources,
     studyDb.practiceRunItems,
+    studyDb.practiceDrafts,
     studyDb.bankPracticeStats,
+    studyDb.bankPracticeRunIndex,
     studyDb.changeSets,
     studyDb.syncMeta,
   ], async () => {
@@ -87,27 +89,29 @@ export async function createPracticeRun(input: CreatePracticeRunInput = {}): Pro
     if (Object.values(run.answers).some((answer) => answer.submitted)) {
       throw new Error("创建练习不能携带已提交答案；已提交答案必须通过 attempt 写入。");
     }
-    await putPracticeRunRecordInTx(run);
-    await studyDb.practiceRunSources.bulkPut(bankIds.map((sourceBankId, position) => ({
+    const record = practiceRunRecord(run);
+    const sources = bankIds.map((sourceBankId, position) => ({
       runId: run.id,
       bankId: sourceBankId,
       bankNameSnapshot: bankLabel(banks[position]),
       position,
-    })));
-    await studyDb.practiceRunItems.bulkPut(questionIds.map((questionId, position) => {
-      const draft = run.answers[questionId];
-      return {
-        runId: run.id,
-        questionId,
-        position,
-        questionTypeSnapshot: run.questionTypes[questionId],
-        optionOrder: [...(run.optionOrders[questionId] ?? [])],
-        ...(!draft?.submitted && draft?.selected ? { draftSelected: [...draft.selected] } : {}),
-        ...(!draft?.submitted && draft?.response ? { draftResponse: draft.response } : {}),
-      };
     }));
+    const items = questionIds.map((questionId, position) => ({
+      runId: run.id,
+      questionId,
+      position,
+      questionTypeSnapshot: run.questionTypes[questionId],
+      optionOrder: [...(run.optionOrders[questionId] ?? [])],
+    }));
+    const drafts = questionIds
+      .map((questionId) => practiceDraftFromAnswer(run.id, questionId, run.answers[questionId], run.updatedAt))
+      .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
+    await putPracticeRunMetadataInTx(record);
+    await studyDb.practiceRunSources.bulkPut(sources);
+    await studyDb.practiceRunItems.bulkPut(items);
+    if (drafts.length) await studyDb.practiceDrafts.bulkPut(drafts);
     await updatePracticeRunStatsInTx(undefined, run);
-    await enqueueChangeSet([{ kind: "practice.run.saved", run }], timestamp);
+    await enqueueChangeSet([{ kind: "practice.run.saved", record, sources, items }], timestamp);
     return run;
   });
 }

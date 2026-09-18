@@ -1,27 +1,29 @@
 import assert from "node:assert/strict";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
-import { reduceChangeSet, type ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
+import { reduceChangeSet } from "../../src/lib/sync/change-set-projection";
+import type { CanonicalState } from "../../src/lib/db/types";
 import type { Bank } from "../../src/lib/db/types";
 
 const at = "2026-08-13T00:00:00.000Z";
 const bankA: Bank = { id: "bank-a", name: "题库 A", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 const bankB: Bank = { id: "bank-b", name: "题库 B", sortOrder: 1, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 
-const base: ChangeSetProjection = {
+const base: CanonicalState = {
   banks: [bankA, bankB],
   bankFolders: [],
   questions: [],
   memberships: [],
   imageAssets: [],
   attempts: [],
-  attemptStats: [],
-  attemptDailyStats: [],
   notes: [],
   practiceRuns: [],
-  practiceRunStats: [],
+  practiceRunSources: [],
+  practiceRunItems: [],
   questionGroups: [],
+  questionGroupItems: [],
   reviewRounds: [],
-  reviewRoundProgress: [],
+  reviewRoundBanks: [],
+  reviewRoundItems: [],
   tombstones: [],
 };
 

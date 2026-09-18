@@ -9,9 +9,9 @@ import {
   releaseChangeSetClaim,
   type ChangeSetQueueRecord,
 } from "../db/db";
-import { hydratePracticeRunRecords } from "../db/practice-run-store";
 import type { GitHubSettings } from "../../types/types";
-import { applyChangeSetToOwnedProjection, finalizeRebasedProjection, type ChangeSetProjection } from "./change-set-projection";
+import { applyChangeSetToOwnedState, finalizeRebasedState } from "./change-set-projection";
+import type { CanonicalState } from "../db/types";
 import {
   bandPercent,
   cursorsFor,
@@ -39,10 +39,11 @@ import { maybeCoalesceHotWindow } from "./sync-coalesce";
 import { gcSyncRemote } from "./sync-gc";
 import { downloadRemote } from "./sync-download";
 import { deriveDirtyInstallKeys } from "./sync-dirty-install";
+import { planProjectionImpact } from "./projection-dependency-planner";
 import {
-  checkpointFromProjection,
-  installProjection,
-  projectionFromCheckpoint,
+  checkpointFromCanonicalState,
+  installCanonicalState,
+  canonicalStateFromCheckpoint,
   replayInWireOrder,
   replayRemoteResilient,
   saveQueueBase,
@@ -55,8 +56,8 @@ import { createSyncPublicationPlan, encodeSyncSegment, mergeSyncSegments, pagina
 import { offloadSyncEvents } from "./sync-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-watermark";
 import { SYNC_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssets } from "./sync-upload";
-import { changeSetOutsideHistoryRange, filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
-import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryProjection, pendingQueueSnapshotChanged, reconcileInterruptedClaims } from "./sync-orchestrator-model";
+import { changeSetOutsideHistoryRange, filterCanonicalHistory, historySyncStartFor } from "./history-sync-range";
+import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryState, pendingQueueSnapshotChanged, reconcileInterruptedClaims } from "./sync-orchestrator-model";
 import { initializeSyncRemote } from "./sync-bootstrap";
 import { restoreFullHistoryFromGitHub } from "./sync-restore";
 
@@ -97,15 +98,23 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]);
     }, { historySyncStart });
     if (!downloadSteps) report(progress, "download", "热窗口没有新数据", bands.download[1], bands.download[1]);
-    const remoteReplay = replayRemoteResilient(await projectionFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
-    let remoteProjection = filterProjectionHistory(remoteReplay.projection, historySyncStart);
+    const remoteReplay = replayRemoteResilient(canonicalStateFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
+    let remoteProjection = filterCanonicalHistory(remoteReplay.state, historySyncStart);
     if (historySyncStart) {
       const activeRunRecords = await studyDb.practiceRuns.where("status").equals("in_progress").toArray();
       if (activeRunRecords.length) {
-        const activeRuns = await hydratePracticeRunRecords(activeRunRecords);
-        const activeIds = activeRuns.map((run) => run.id);
-        const activeAttempts = await studyDb.attempts.where("runId").anyOf(activeIds).toArray();
-        remoteProjection = filterProjectionHistory(mergeActiveHistoryProjection(remoteProjection, activeRuns, activeAttempts), historySyncStart);
+        const activeIds = activeRunRecords.map((run) => run.id);
+        const [sources, items, attempts] = await Promise.all([
+          studyDb.practiceRunSources.where("runId").anyOf(activeIds).toArray(),
+          studyDb.practiceRunItems.where("runId").anyOf(activeIds).toArray(),
+          studyDb.attempts.where("runId").anyOf(activeIds).toArray(),
+        ]);
+        remoteProjection = filterCanonicalHistory(mergeActiveHistoryState(remoteProjection, {
+          runs: activeRunRecords,
+          sources,
+          items,
+          attempts,
+        }), historySyncStart);
       }
     }
     if (remoteReplay.skipped.length) report(progress, "merge", `已跳过 ${remoteReplay.skipped.length} 组与已删数据冲突的远端变更`, bandPercent(bands.merge, 0.5), bands.merge[1]);
@@ -156,7 +165,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       for (let localIndex = 0; localIndex < localPending.length; localIndex += 1) {
         const record = localPending[localIndex];
         try {
-          rebasedProjection = applyChangeSetToOwnedProjection(rebasedProjection, record);
+          rebasedProjection = applyChangeSetToOwnedState(rebasedProjection, record);
         } catch (error) {
           blocked.push({
             ...record,
@@ -177,18 +186,21 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         const currentPending = await listChangeSets(["pending"]);
         if (pendingQueueSnapshotChanged(localPending, currentPending)) continue;
       }
-      rebasedProjection = filterProjectionHistory(finalizeRebasedProjection(rebasedProjection), historySyncStart);
+      rebasedProjection = filterCanonicalHistory(finalizeRebasedState(rebasedProjection), historySyncStart);
     }
     const firstProjectionInstall = !installedHead;
     const needsInstall = !downloaded.reusedCache || projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
+    const incrementalChanges = [...unseen, ...localPending];
     const dirtyKeys = needsInstall && installedHead && cached && downloaded.reusedCache && !excludedHistory.length && installedHead === installFingerprint(cached.head)
-      ? await deriveDirtyInstallKeys(rebasedProjection, [...unseen, ...localPending]) : null;
+      ? await deriveDirtyInstallKeys(rebasedProjection, incrementalChanges) : null;
+    const projectionImpact = dirtyKeys ? planProjectionImpact(incrementalChanges) : undefined;
     if (needsInstall) {
       const installLabel = dirtyKeys ? `正在应用本机增量（${unseen.length + localPending.length} 组变更）` : `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`;
       report(progress, "merge", installLabel, bandPercent(bands.install, 0.02), bands.install[1]);
-      const installed = await installProjection(rebasedProjection, {
+      const installed = await installCanonicalState(rebasedProjection, {
         queueGuard: queueSnapshot,
         ...(dirtyKeys ? { dirtyKeys } : {}),
+        ...(projectionImpact ? { projectionImpact } : {}),
         onProgress: ({ completed, total, label }) => {
           const fraction = total ? completed / total : 1;
           report(progress, "merge", `${label}（${completed.toLocaleString("zh-CN")}/${total.toLocaleString("zh-CN")}）`, bandPercent(bands.install, fraction), bands.install[1]);
@@ -217,7 +229,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     if (!claim.records.length) {
       report(progress, "cache", "正在更新本机缓存", bandPercent(bands.cache, 0.4), bands.cache[1]);
       await saveHeadCache(settings, read.cache);
-      await saveRemoteCache(settings, await checkpointFromProjection(remoteProjection, read.head.cursors), read.cache);
+      await saveRemoteCache(settings, await checkpointFromCanonicalState(remoteProjection, read.head.cursors), read.cache);
       await saveQueueBase(remoteProjection);
       const remaining = (await listChangeSets(["blocked"])).length;
       report(progress, "complete", remaining ? `同步完成，${remaining} 组操作需要处理` : "云端和本机已经一致", 100);
@@ -304,13 +316,13 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         // surfaces under wire-order rather than createdAt-order replay) would
         // previously abort the whole sync. Fall back to ordinary segment push
         // instead of crashing — the events still publish, just uncompressed.
-        let compactionProjection: ChangeSetProjection | undefined;
+        let compactionProjection: CanonicalState | undefined;
         try {
           let compactionBase = remoteProjection;
           if (historySyncStart) {
             report(progress, "compact", "正在读取完整远端历史以安全压实", bandPercent(bands.upload!, 0.42), bandPercent(bands.upload!, 0.62));
             const complete = await downloadRemote(client, read.head, undefined, undefined, {});
-            compactionBase = replayRemoteResilient(await projectionFromCheckpoint(complete.checkpoint), complete.changes).projection;
+            compactionBase = replayRemoteResilient(canonicalStateFromCheckpoint(complete.checkpoint), complete.changes).state;
           }
           compactionProjection = replayInWireOrder(compactionBase, claim.records);
         } catch (error) {
@@ -321,7 +333,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           nextSegments = mergeSyncSegments(read.head.segments, newSegments, read.head.vaultId);
         } else {
           report(progress, "compact", read.head.checkpoint ? "热窗口超过 4 MiB，正在生成检查点" : "正在生成初始检查点", bandPercent(bands.upload!, 0.5), bandPercent(bands.upload!, 0.7));
-          const fullCheckpoint = await checkpointFromProjection(compactionProjection, { ...read.head.cursors, ...aggregateCursors }, { tombstoneGc: { devices: read.head.devices ?? {}, headCursors: { ...read.head.cursors, ...aggregateCursors }, selfDeviceId: getDeviceId() } });
+          const fullCheckpoint = await checkpointFromCanonicalState(compactionProjection, { ...read.head.cursors, ...aggregateCursors }, { tombstoneGc: { devices: read.head.devices ?? {}, headCursors: { ...read.head.cursors, ...aggregateCursors }, selfDeviceId: getDeviceId() } });
           const checkpoint = await createRemoteHistoryCheckpoint(client, fullCheckpoint);
           const bytes = encodeRemoteHistoryCheckpoint(checkpoint);
           const digest = await sha256(bytes);
@@ -350,7 +362,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "cache", "正在更新本机缓存", bandPercent(bands.upload!, 0.86), bands.cache[1]);
       await saveQueueBase(committedProjection);
       await saveHeadCache(settings, committed.cache);
-      await saveRemoteCache(settings, await checkpointFromProjection(committedProjection, nextHead.cursors), committed.cache);
+      await saveRemoteCache(settings, await checkpointFromCanonicalState(committedProjection, nextHead.cursors), committed.cache);
       await saveInstalledHead(settings, installFingerprint(committed.cache));
       await saveInstalledCursors(settings, nextHead.cursors);
       // The head CAS is durable before any deletion. Sweep only files unreachable

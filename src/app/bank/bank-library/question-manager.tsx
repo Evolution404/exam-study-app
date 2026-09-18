@@ -7,8 +7,8 @@ import { ConfirmDialog } from "@/app/ui/confirm-dialog";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { QuestionDetail } from "@/app/bank/question-detail";
 import { loadImageAsset, QuestionEditor, SharedQuestionEditor, type QuestionChanges } from "@/app/bank/question-editor";
-import { createQuestion, studyDb, deleteQuestions, removeMemberships, saveNote } from "@/lib/db/db";
-import { listQuestionMembershipViews } from "@/lib/db/app-data";
+import { createQuestion, deleteQuestions, removeMemberships, saveNote } from "@/lib/db/db";
+import { listBankReadModels, listQuestionMembershipViews } from "@/lib/db/app-data";
 import type { Question as DbQuestion, ReviewRoundProgress } from "@/lib/db/types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
 import { statsNeedWrongReview, summarizeAttemptStats } from "@/lib/practice/practice-metrics";
@@ -41,7 +41,7 @@ export function QuestionManager({ bank, questions, attemptStats, notes, roundPro
 
   const questionIdsKey = useMemo(() => questions.map((question) => question.id).join("|"), [questions]);
   const membershipViews = useLiveQuery(() => listQuestionMembershipViews(questions.map((question) => question.id)), [questionIdsKey]);
-  const banks = useLiveQuery(() => studyDb.banks.orderBy("sortOrder").toArray(), [bank.id]) ?? [];
+  const banks = useLiveQuery(() => listBankReadModels(), [bank.id]) ?? [];
   const membershipByQuestion = useMemo(() => new Map((membershipViews ?? []).map((view) => [view.questionId, view])), [membershipViews]);
   const sharedCount = useMemo(() => questions.filter((question) => (membershipByQuestion.get(question.id)?.memberships.length ?? 1) > 1).length, [membershipByQuestion, questions]);
   const exclusiveCount = questions.length - sharedCount;

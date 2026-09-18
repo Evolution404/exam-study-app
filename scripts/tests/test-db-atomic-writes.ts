@@ -372,7 +372,7 @@ const txSnapshot = (): TxSnapshot | undefined => {
   }
   assert.equal(questionRead?.active, true);
   assert.equal(questionRead?.mode, "readwrite");
-  for (const store of ["questions", "banks", "bankQuestionMemberships", "tombstones", "changeSets", "syncMeta"]) {
+  for (const store of ["questions", "banks", "bankQuestionMemberships", "bankQuestionStats", "tombstones", "changeSets", "syncMeta"]) {
     assert.ok(questionRead?.storeNames.includes(store), `setQuestionMemberships 事务必须包含 ${store}`);
   }
 }

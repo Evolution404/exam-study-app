@@ -1,9 +1,11 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
-import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
+import { markProjectionRebuildPendingInTx, rebuildProjectionImpactFromNormalizedFacts, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
+import { enrichProjectionImpactForDirtyInstall, localProjectionsNeedRebuild } from "./db-reconcile-projections";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
-import type { RestoreState } from "./db-core";
+import type { CanonicalState } from "./types";
 import type { ChangeSetQueueGuard } from "./db-restore";
+import type { ProjectionImpact } from "../sync/projection-dependency-planner";
 
 interface ReconcileProjectionProgress {
   completed: number;
@@ -31,14 +33,15 @@ interface ReconcileDirtyKeys {
   memberships: readonly string[];
   imageAssets: readonly string[];
   attempts: readonly string[];
-  attemptStats: readonly string[];
-  attemptDailyStats: readonly string[];
   notes: readonly string[];
   practiceRuns: readonly string[];
-  practiceRunStats: readonly string[];
+  practiceRunSources: readonly string[];
+  practiceRunItems: readonly string[];
   questionGroups: readonly string[];
+  questionGroupItems: readonly string[];
   reviewRounds: readonly string[];
-  reviewRoundProgress: readonly string[];
+  reviewRoundBanks: readonly string[];
+  reviewRoundItems: readonly string[];
   tombstones: readonly string[];
 }
 
@@ -46,6 +49,7 @@ interface ReconcileProjectionOptions {
   queueGuard?: readonly ChangeSetQueueGuard[];
   clearChangeSets?: boolean;
   dirtyKeys?: ReconcileDirtyKeys;
+  projectionImpact?: ProjectionImpact;
   onProgress?: (progress: ReconcileProjectionProgress) => void;
   onTiming?: (timing: ReconcileTiming) => void;
 }
@@ -118,29 +122,6 @@ async function projectionIsEmpty(): Promise<boolean> {
     studyDb.questionGroups.count(), studyDb.reviewRounds.count(), studyDb.tombstones.count(),
   ]);
   return counts.every((count) => count === 0);
-}
-
-async function localProjectionsNeedRebuild(): Promise<boolean> {
-  const [
-    attemptCount,
-    practiceRunCount,
-    questionProgressCount,
-    questionDailyProgressCount,
-    bankPracticeStatsCount,
-    reviewRoundAttemptCount,
-    reviewRoundProgressCount,
-  ] = await Promise.all([
-    studyDb.attempts.count(),
-    studyDb.practiceRuns.count(),
-    studyDb.questionProgress.count(),
-    studyDb.questionDailyProgress.count(),
-    studyDb.bankPracticeStats.count(),
-    studyDb.attempts.where("reviewRoundId").above("").count(),
-    studyDb.reviewRoundProgress.count(),
-  ]);
-  return (attemptCount > 0 && (questionProgressCount === 0 || questionDailyProgressCount === 0))
-    || (practiceRunCount > 0 && bankPracticeStatsCount === 0)
-    || (reviewRoundAttemptCount > 0 && reviewRoundProgressCount === 0);
 }
 
 function hasDirtyKeys(keys: ReconcileDirtyKeys | undefined): keys is ReconcileDirtyKeys {
@@ -328,7 +309,7 @@ async function planTableTimed<T>(
 
 function directImagePlanTimed(
   mode: "fresh" | "dirty",
-  incoming: RestoreState["imageAssets"],
+  incoming: CanonicalState["imageAssets"],
   dirtyKeys: readonly string[] | undefined,
   options: ReconcileProjectionOptions,
 ): ImageReconcilePlan {
@@ -347,7 +328,7 @@ function directImagePlanTimed(
 }
 
 async function planImageAssetsTimed(
-  incoming: RestoreState["imageAssets"],
+  incoming: CanonicalState["imageAssets"],
   options: ReconcileProjectionOptions,
 ): Promise<ImageReconcilePlan> {
   const started = clockMs();
@@ -395,7 +376,7 @@ async function applyPlan<T, K extends IndexableType>(
 }
 
 export async function reconcileProjection(
-  state: RestoreState,
+  state: CanonicalState,
   options: ReconcileProjectionOptions = {},
 ): Promise<boolean> {
   const fresh = await projectionIsEmpty();
@@ -431,6 +412,10 @@ export async function reconcileProjection(
     : directCompoundPlan(mode, table, incoming, primaryKeyOf, syncKeyOf, dirtyKeys, compoundKeyFromSyncKey);
 
   const dirty = options.dirtyKeys;
+  const projectionImpact = mode === "dirty"
+    ? await enrichProjectionImpactForDirtyInstall(options.projectionImpact, state, dirty)
+    : options.projectionImpact;
+
   const bankPlan = await makePlan(studyDb.banks, state.banks, (row) => row.id, dirty?.banks);
   const folderPlan = await makePlan(studyDb.bankFolders, state.bankFolders, (row) => row.id, dirty?.bankFolders);
   const questionPlan = await makePlan(studyDb.questions, state.questions, (row) => row.id, dirty?.questions);
@@ -451,13 +436,17 @@ export async function reconcileProjection(
     table: Table<T, [string, string]>,
     incoming: readonly T[],
     childId: (row: T) => string,
+    relationKeys: readonly string[],
   ): Promise<ReconcilePlan<T, [string, string]>> => {
     const primaryKeyOf = (row: T): [string, string] => [row.runId, childId(row)];
     if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.runId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const dirtyRunIds = dirty?.practiceRuns ?? [];
+    const dirtyRunIds = [...new Set([
+      ...(dirty?.practiceRuns ?? []),
+      ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const dirtyRunSet = new Set(dirtyRunIds);
     const incomingRows = incoming.filter((row) => dirtyRunSet.has(row.runId));
     const currentRows = dirtyRunIds.length ? await table.where("runId").anyOf(dirtyRunIds).toArray() : [];
@@ -473,14 +462,17 @@ export async function reconcileProjection(
       comparedRows: incomingRows.length,
     };
   };
-  const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId);
-  const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId);
+  const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId, dirty?.practiceRunSources ?? []);
+  const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId, dirty?.practiceRunItems ?? []);
   const questionGroupRecords = state.questionGroups;
   const questionGroupItems = state.questionGroupItems;
   const groupPlan = await makePlan(studyDb.questionGroups, questionGroupRecords, (row) => row.id, dirty?.questionGroups);
   let groupItemPlan: ReconcilePlan<(typeof questionGroupItems)[number], [string, string]>;
   if (mode === "dirty") {
-    const dirtyGroupIds = dirty?.questionGroups ?? [];
+    const dirtyGroupIds = [...new Set([
+      ...(dirty?.questionGroups ?? []),
+      ...(dirty?.questionGroupItems ?? []).map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const incomingItems = questionGroupItems.filter((item) => dirtyGroupIds.includes(item.groupId));
     const currentItems = dirtyGroupIds.length
       ? await studyDb.questionGroupItems.where("groupId").anyOf(dirtyGroupIds).toArray()
@@ -519,13 +511,17 @@ export async function reconcileProjection(
     table: Table<T, [string, string]>,
     incoming: readonly T[],
     childId: (row: T) => string,
+    relationKeys: readonly string[],
   ): Promise<ReconcilePlan<T, [string, string]>> => {
     const primaryKeyOf = (row: T): [string, string] => [row.roundId, childId(row)];
     if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.roundId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const dirtyRoundIds = dirty?.reviewRounds ?? [];
+    const dirtyRoundIds = [...new Set([
+      ...(dirty?.reviewRounds ?? []),
+      ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
+    ])];
     const dirtyRoundSet = new Set(dirtyRoundIds);
     const incomingRows = incoming.filter((row) => dirtyRoundSet.has(row.roundId));
     const currentRows = dirtyRoundIds.length ? await table.where("roundId").anyOf(dirtyRoundIds).toArray() : [];
@@ -541,8 +537,8 @@ export async function reconcileProjection(
       comparedRows: incomingRows.length,
     };
   };
-  const roundBankPlan = await makeRoundRelationPlan(studyDb.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId);
-  const roundItemPlan = await makeRoundRelationPlan(studyDb.reviewRoundItems, reviewRoundItems, (row) => row.questionId);
+  const roundBankPlan = await makeRoundRelationPlan(studyDb.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId, dirty?.reviewRoundBanks ?? []);
+  const roundItemPlan = await makeRoundRelationPlan(studyDb.reviewRoundItems, reviewRoundItems, (row) => row.questionId, dirty?.reviewRoundItems ?? []);
   const tombstonePlan = await makePlan(studyDb.tombstones, state.tombstones, (row) => row.key, dirty?.tombstones);
   const imagePlan = mode === "full"
     ? await planImageAssetsTimed(state.imageAssets, options)
@@ -570,7 +566,7 @@ export async function reconcileProjection(
   const transactionTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,
-    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,
+    studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.questionGroups, studyDb.questionGroupItems,
     studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ];
 
@@ -616,6 +612,17 @@ export async function reconcileProjection(
       await applyPlan(studyDb.practiceRuns, practiceRunPlan, { put: "更新练习记录", remove: "清理练习记录" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunSources, practiceRunSourcePlan, { put: "更新练习来源关系", remove: "清理练习来源关系" }, progress, options, mode);
       await applyPlan(studyDb.practiceRunItems, practiceRunItemPlan, { put: "更新练习题目关系", remove: "清理练习题目关系" }, progress, options, mode);
+
+      // Drafts are device-local state. Canonical install/reconcile must preserve
+      // drafts for still-live run/items, but remove rows whose owner disappeared.
+      const liveRunIds = new Set(state.practiceRuns.map((row) => row.id));
+      const liveItemKeys = new Set(state.practiceRunItems.map((row) => `${row.runId}:${row.questionId}`));
+      const drafts = await studyDb.practiceDrafts.toArray();
+      const orphanDraftKeys = drafts
+        .filter((draft) => !liveRunIds.has(draft.runId) || !liveItemKeys.has(`${draft.runId}:${draft.questionId}`))
+        .map((draft) => [draft.runId, draft.questionId] as [string, string]);
+      if (orphanDraftKeys.length) await studyDb.practiceDrafts.bulkDelete(orphanDraftKeys);
+
       await applyPlan(studyDb.questionGroups, groupPlan, { put: "更新题组", remove: "清理题组" }, progress, options, mode);
       await applyPlan(studyDb.questionGroupItems, groupItemPlan, { put: "更新题组关系", remove: "清理题组关系" }, progress, options, mode);
       await applyPlan(studyDb.reviewRounds, roundPlan, { put: "更新复习轮次", remove: "清理复习轮次" }, progress, options, mode);
@@ -687,7 +694,11 @@ export async function reconcileProjection(
   const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
   if (shouldRebuildProjections) {
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-    await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
+    if (mode === "dirty" && projectionImpact) {
+      await rebuildProjectionImpactFromNormalizedFacts(state, projectionImpact);
+    } else {
+      await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
+    }
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
   }
   return true;
