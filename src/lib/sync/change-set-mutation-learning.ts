@@ -13,6 +13,21 @@ import {
   rejectTombstoned, removeById, removeTombstone, requireById, setById,
 } from "./change-set-projection-core";
 
+function applyAnswerRunRecord(state: CanonicalState, incoming: CanonicalState["practiceRuns"][number]): void {
+  const current = ensureRun(state, incoming.id);
+  // Answer events own answer-related run metadata only. Queue phase ordering may
+  // replay a lifecycle transition (completed/abandoned) before an older answer;
+  // never let that older answer snapshot regress the lifecycle state.
+  if (incoming.revision <= current.revision) return;
+  setById(state.practiceRuns, {
+    ...current,
+    updatedAt: incoming.updatedAt,
+    revision: incoming.revision,
+    activityAt: incoming.activityAt,
+    ...(incoming.lastAnsweredIndex !== undefined ? { lastAnsweredIndex: incoming.lastAnsweredIndex } : {}),
+  }, false);
+}
+
 function replaceRunRelations(state: CanonicalState, runId: string, sources: readonly PracticeRunSource[], items: readonly PracticeRunItem[]): void {
   if (sources.some((row) => row.runId !== runId)) fail(`练习 ${runId} 的来源关系 runId 不一致`);
   if (items.some((row) => row.runId !== runId)) fail(`练习 ${runId} 的题目关系 runId 不一致`);
@@ -104,7 +119,7 @@ export function applyLearningMutation(state: CanonicalState, mutation: ChangeSet
       if (mutation.item.submittedAttemptId !== mutation.attempt.id) fail("练习题目 submittedAttemptId 必须指向本次 Attempt");
       if (byId(state.attempts, mutation.attempt.id)) fail(`作答 ${mutation.attempt.id} 已存在，提交必须使用新 id`);
       state.attempts.push(clone(mutation.attempt));
-      setById(state.practiceRuns, mutation.runRecord, false);
+      applyAnswerRunRecord(state, mutation.runRecord);
       state.practiceRunItems = state.practiceRunItems.map((item) => (
         item.runId === mutation.item.runId && item.questionId === mutation.item.questionId ? clone(mutation.item) : item
       ));
@@ -115,7 +130,7 @@ export function applyLearningMutation(state: CanonicalState, mutation: ChangeSet
       const attempt = requireById(state.attempts, mutation.attemptId, "作答");
       if (attempt.runId !== currentRun.id || mutation.item.runId !== currentRun.id || mutation.item.questionId !== attempt.questionId) fail("答案删除目标不一致");
       removeById(state.attempts, mutation.attemptId, "作答");
-      setById(state.practiceRuns, mutation.runRecord, false);
+      applyAnswerRunRecord(state, mutation.runRecord);
       state.practiceRunItems = state.practiceRunItems.map((item) => (
         item.runId === mutation.item.runId && item.questionId === mutation.item.questionId ? clone(mutation.item) : item
       ));

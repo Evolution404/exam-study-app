@@ -159,6 +159,7 @@ state = reduceChangeSet(state, await cs([
 ]));
 assert.equal(state.practiceRunSources[0]?.bankId, "bank-1");
 assert.equal(state.practiceRunItems[0]?.questionId, "question-1");
+const runStateBeforeAnswers = structuredClone(state);
 
 const attempt = (id: string, correct: boolean): Attempt => ({
   id,
@@ -171,6 +172,21 @@ const attempt = (id: string, correct: boolean): Attempt => ({
   createdAt: at,
   deviceId,
 });
+
+const reorderedAttempt = attempt("attempt-reordered", true);
+const reorderedRunRecord = { ...run.record, revision: 1 };
+const reorderedItem = { ...run.items[0], submittedAttemptId: reorderedAttempt.id };
+const completedRecord = { ...run.record, status: "completed" as const, completedAt: at, revision: 2 };
+let reordered = reduceChangeSet(runStateBeforeAnswers, await cs([{ kind: "practice.run.status.changed", record: completedRecord }]));
+reordered = reduceChangeSet(reordered, await cs([{
+  kind: "practice.answer.submitted",
+  attempt: reorderedAttempt,
+  runRecord: reorderedRunRecord,
+  item: reorderedItem,
+}]));
+assert.equal(reordered.practiceRuns[0]?.status, "completed", "older answer replay must not regress a completed run");
+assert.equal(reordered.practiceRuns[0]?.revision, 2, "older answer replay must not lower run revision");
+assert.equal(reordered.attempts.some((item) => item.id === reorderedAttempt.id), true, "answer fact still applies when run metadata is stale");
 
 const firstAttempt = attempt("attempt-1", false);
 const firstRunRecord = { ...run.record, revision: 1 };

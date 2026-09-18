@@ -107,7 +107,7 @@ await resetDatabase();
 {
   await importQuestionBank("dup.json", { name: "去重导入", questions: [{ stem: "重复题", type: "单选", options: ["甲", "乙"], answer: "A", tags: ["原标签"] }] });
   const again = await importQuestionBank("dup2.json", { name: "去重导入2", questions: [{ stem: "重复题", type: "单选", options: ["甲", "乙"], answer: "A", tags: ["新标签"] }] });
-  assert.equal(again.questionCount, 1);
+  assert.equal((await studyDb.bankQuestionStats.get(again.id))?.questionCount, 1);
   const all = await studyDb.questions.where("contentFingerprint").equals((await studyDb.questions.toArray()).find((q) => q.content.some((b) => b.type === "text" && (b as { text: string }).text.includes("重复题")))!.contentFingerprint).toArray();
   assert.equal(all.length, 1);
   assert.deepEqual(all[0].tags, ["原标签"], "重复导入不覆盖用户标签");
