@@ -1,6 +1,6 @@
 # 数据库架构重构执行计划（2026-09-17）
 
-> 状态：Phase 0–8 已实施；生产 Sync v10 head-last cutover 已完成。当前仅剩最终 docs/retired-tool CI、PR #59 merge 与正式发布 smoke。
+> 状态：Phase 0–8 已实施；生产 Sync v10 head-last cutover 已完成；最终代码/技术债清理 HEAD `75d901b977802ca468671d340d8165b47f57719b` 已全 CI PASS。当前仅剩交接文档提交后的 docs-only CI、PR #59 ready/merge 与正式发布 smoke。
 >
 > 当前 Draft PR：#59 `refactor: rebuildable projections and canonical sync v10`
 >
@@ -18,7 +18,7 @@
 - Bank Detail rolling 查询使用 questionId + createdAt 定向读取；同一时间窗加入 2,000 条无关 attempts 后，materialize 从约 2,003 行降为 3 行。
 - `scripts/tests/test-ui-data-flow.ts` 已明确锁定新契约：指定题集必须走 `readAttemptsForQuestionIdsInWindow(ids, from, to)`，禁止恢复“按 createdAt 全读时间窗后再 filter(questionId)”的旧实现。
 - Phase 4 收口 HEAD `ab85baf`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部 PASS。
-- 下一步：只做最终 docs/retired-tool CI，随后 PR #59 ready/merge、正式发布与生产 smoke。
+- 下一步：等待本次交接文档提交后的 docs-only CI；若全绿，直接将 PR #59 标记 ready、merge main、触发正式发布并完成生产 smoke。不要再扩展数据库重构范围。
 
 ## 1. 为什么现在要重构
 
@@ -468,7 +468,7 @@ current schema/types 已切换到正常化 canonical facts 与关系表；attemp
 
 ### Phase 8 — 完整验收与 cutover
 
-状态：**生产 cutover 已完成；最终 merge/release 收口中**。
+状态：**生产 cutover 与最终代码验收均已完成；只剩 docs-only CI → ready/merge/release smoke**。
 
 代码验收：
 
@@ -495,7 +495,7 @@ make test-browser-headless
 4. 发布新客户端。
 5. 每个平台执行 cold restore + sync + practice submit + relaunch smoke。
 
-用户已授权完成后合并/发布；生产 v10 remote head 已完成安全 cutover。最终 docs/retired-tool CI 全绿后即可合并 main 并发布。
+用户已授权完成后合并/发布；生产 v10 remote head 已完成安全 cutover。`75d901b9` 已通过最终代码 CI；本次交接文档提交后的 docs-only CI 全绿后即可直接 ready/merge main 并发布。
 
 ## 8. 建议 commit 边界
 
