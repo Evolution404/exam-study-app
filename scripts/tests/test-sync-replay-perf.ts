@@ -74,7 +74,6 @@ function bigState(seedQuestions: number): CanonicalState {
     id: "bank-1",
     name: "性能题库",
     sortOrder: 0,
-    questionCount: seedQuestions,
     importedAt: at,
     updatedAt: at,
     deviceId,
@@ -212,7 +211,7 @@ function submittedMutation(
   assert.deepEqual(batch.state, sequential);
   assert.equal(batch.state.practiceRuns[0]?.revision, 80);
   assert.equal(batch.state.questions.length, 450);
-  assert.equal(batch.state.banks[0]?.questionCount, 450);
+  assert.equal(batch.state.memberships.filter((row) => row.bankId === "bank-1").length, 450, "canonical replay should preserve exact membership cardinality without storing questionCount");
   assert.ok(
     batchElapsed < sequentialElapsed,
     `批量 replay 应少于逐条 finalize 开销（batch ${batchElapsed.toFixed(0)}ms vs sequential ${sequentialElapsed.toFixed(0)}ms）`,

@@ -34,7 +34,7 @@ const practiceRuns = [
   run("done-new", "2026-02-01T00:00:00.000Z", "completed"),
 ];
 const state: CanonicalState = {
-  banks: [{ id: "b", name: "题库", sortOrder: 0, questionCount: 0, importedAt: "2025-01-01T00:00:00.000Z" }],
+  banks: [{ id: "b", name: "题库", sortOrder: 0, importedAt: "2025-01-01T00:00:00.000Z" }],
   bankFolders: [],
   questions: [{
     id: "q",
