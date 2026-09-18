@@ -75,5 +75,17 @@ export async function updatePracticeRunStatsInTx(previous: PracticeRun | undefin
     const exact = summarizeBankRuns(bankId, [...byId.values()]);
     if (exact) await studyDb.bankPracticeStats.put(exact);
     else await studyDb.bankPracticeStats.delete(bankId);
+
+    if (previous && previousBankIds.includes(bankId)) {
+      await studyDb.bankPracticeRunIndex.delete([bankId, previous.id]);
+    }
+    if (next && nextBankIds.includes(bankId)) {
+      await studyDb.bankPracticeRunIndex.put({
+        bankId,
+        runId: next.id,
+        activityAt: runActivityAt(next),
+        status: next.status,
+      });
+    }
   }
 }

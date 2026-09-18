@@ -83,7 +83,7 @@ export async function restoreLocalCheckpoint(state: CanonicalState, options: Res
   const replaceTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.attempts, studyDb.bankQuestionStats, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
-    studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
+    studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.tombstones,
   ];
   const totalRows = Math.max(1, restoreRowCount(state));

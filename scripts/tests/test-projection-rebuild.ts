@@ -25,6 +25,7 @@ async function readProjectionSnapshot() {
     questionProgress: stableRows(await studyDb.questionProgress.toArray()),
     questionDailyProgress: stableRows(await studyDb.questionDailyProgress.toArray()),
     bankPracticeStats: stableRows(await studyDb.bankPracticeStats.toArray()),
+    bankPracticeRunIndex: stableRows(await studyDb.bankPracticeRunIndex.toArray()),
     reviewRoundProgress: stableRows(await studyDb.reviewRoundProgress.toArray()),
   };
 }
@@ -36,6 +37,7 @@ async function clearProjections() {
     studyDb.questionProgress,
     studyDb.questionDailyProgress,
     studyDb.bankPracticeStats,
+    studyDb.bankPracticeRunIndex,
     studyDb.reviewRoundProgress,
     async () => {
       await Promise.all([
@@ -43,6 +45,7 @@ async function clearProjections() {
         studyDb.questionProgress.clear(),
         studyDb.questionDailyProgress.clear(),
         studyDb.bankPracticeStats.clear(),
+        studyDb.bankPracticeRunIndex.clear(),
         studyDb.reviewRoundProgress.clear(),
       ]);
     },
@@ -59,6 +62,7 @@ async function assertRebuildEqualsIncremental(label: string) {
     questionProgress: [],
     questionDailyProgress: [],
     bankPracticeStats: [],
+    bankPracticeRunIndex: [],
     reviewRoundProgress: [],
   });
 
@@ -116,6 +120,7 @@ assert.equal(smallSnapshot.questionProgress.length, 2);
 assert.equal(smallSnapshot.questionDailyProgress.length, 2);
 assert.equal(smallSnapshot.reviewRoundProgress.length, 2);
 assert.equal(smallSnapshot.bankPracticeStats.length, 1);
+assert.equal(smallSnapshot.bankPracticeRunIndex.length, 1);
 await assertRebuildEqualsIncremental("small fixture");
 
 // Deleting the newest run must lower latestActivityAt to the exact previous
@@ -263,6 +268,7 @@ assert.ok(seededSnapshot.bankQuestionStats.every((row) => row.questionCount === 
 assert.ok(expectedAttempts > 20, "seeded fixture must contain enough attempts to exercise differential rebuilds");
 assert.ok(seededSnapshot.questionProgress.length > 10);
 assert.equal(seededSnapshot.bankPracticeStats.length, 4);
+assert.equal(seededSnapshot.bankPracticeRunIndex.length, 8);
 assert.ok(seededSnapshot.reviewRoundProgress.length > 0);
 await assertRebuildEqualsIncremental("seeded differential fixture");
 

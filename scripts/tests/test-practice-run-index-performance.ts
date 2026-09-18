@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import "fake-indexeddb/auto";
+import Dexie from "dexie";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
 import { latestInProgressPracticeRun, listPracticeRunsForBank, listPracticeRunsForQuestionIds, listRecentPracticeRunsForBank, readPracticeHistory } from "../../src/lib/db/practice-run-read";
 import { updatePracticeRunStatsInTx } from "../../src/lib/db/db-practice-stats";
@@ -36,10 +37,19 @@ const run = (id: string, bankIds: string[], questionIds: string[]): PracticeRun 
 
 async function seedRuns(runs: readonly PracticeRun[]): Promise<void> {
   const bundles = runs.map((item) => decomposePracticeRun(item, []));
-  await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems], async () => {
-    await studyDb.practiceRuns.bulkPut(bundles.map((bundle) => bundle.record));
-    await studyDb.practiceRunSources.bulkPut(bundles.flatMap((bundle) => bundle.sources));
+  const records = bundles.map((bundle) => bundle.record);
+  const recordById = new Map(records.map((record) => [record.id, record]));
+  const sources = bundles.flatMap((bundle) => bundle.sources);
+  const indexRows = sources.map((source) => {
+    const record = recordById.get(source.runId);
+    if (!record) throw new Error(`missing seeded run ${source.runId}`);
+    return { bankId: source.bankId, runId: source.runId, activityAt: record.activityAt, status: record.status };
+  });
+  await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.bankPracticeRunIndex], async () => {
+    await studyDb.practiceRuns.bulkPut(records);
+    await studyDb.practiceRunSources.bulkPut(sources);
     await studyDb.practiceRunItems.bulkPut(bundles.flatMap((bundle) => bundle.items));
+    await studyDb.bankPracticeRunIndex.bulkPut(indexRows);
   });
 }
 
@@ -82,17 +92,27 @@ const recentBankRuns = await listRecentPracticeRunsForBank("bank-target", 5);
 studyDb.practiceRuns.hook("reading").unsubscribe(readHook);
 assert.deepEqual(recentBankRuns.map((item) => item.id).sort(), ["target-bank", "target-shared"]);
 assert.equal(rowsRead, 2, "cold-bank recent lookup must materialize only target rows even when thousands of unrelated runs are newer");
+assert.deepEqual(
+  (await studyDb.bankPracticeRunIndex
+    .where("[bankId+activityAt]")
+    .between(["bank-target", Dexie.minKey], ["bank-target", Dexie.maxKey], true, true)
+    .reverse()
+    .toArray()).map((row) => row.runId),
+  ["target-shared", "target-bank"],
+  "bankPracticeRunIndex must preserve bank-local activity order",
+);
 
 // Removing the newest run must make latestActivityAt exactly match the next
 // surviving run instead of leaving a stale high-water timestamp.
 const olderStatsRun = { ...run("stats-older", ["bank-stats"], ["stats-q-1"]), updatedAt: "2026-09-16T01:00:00.000Z" };
 const newerStatsRun = { ...run("stats-newer", ["bank-stats"], ["stats-q-2"]), updatedAt: "2026-09-16T02:00:00.000Z" };
-await studyDb.transaction("rw", studyDb.bankPracticeStats, async () => {
+await seedRuns([olderStatsRun, newerStatsRun]);
+await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex], async () => {
   await updatePracticeRunStatsInTx(undefined, olderStatsRun);
   await updatePracticeRunStatsInTx(undefined, newerStatsRun);
 });
 assert.equal((await studyDb.bankPracticeStats.get("bank-stats"))?.latestActivityAt, newerStatsRun.updatedAt);
-await studyDb.transaction("rw", studyDb.bankPracticeStats, async () => {
+await studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex], async () => {
   await updatePracticeRunStatsInTx(newerStatsRun, undefined);
 });
 assert.equal(

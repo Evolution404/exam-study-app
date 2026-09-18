@@ -57,6 +57,7 @@ export async function createPracticeRun(input: CreatePracticeRunInput = {}): Pro
     studyDb.practiceRunItems,
     studyDb.practiceDrafts,
     studyDb.bankPracticeStats,
+    studyDb.bankPracticeRunIndex,
     studyDb.changeSets,
     studyDb.syncMeta,
   ], async () => {

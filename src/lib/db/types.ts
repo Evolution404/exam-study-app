@@ -182,6 +182,13 @@ export interface BankPracticeStats {
   latestActivityAt: string;
 }
 
+export interface BankPracticeRunIndex {
+  bankId: string;
+  runId: string;
+  activityAt: string;
+  status: BasePracticeRun["status"];
+}
+
 export type ReviewRoundStatus = "active" | "completed" | "archived";
 
 export interface ReviewRound {

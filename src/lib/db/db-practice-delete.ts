@@ -20,6 +20,7 @@ export async function deletePracticeRun(runId: string): Promise<boolean> {
     studyDb.practiceDrafts,
     studyDb.attempts,
     studyDb.bankPracticeStats,
+    studyDb.bankPracticeRunIndex,
     studyDb.tombstones,
     studyDb.changeSets,
     studyDb.syncMeta,

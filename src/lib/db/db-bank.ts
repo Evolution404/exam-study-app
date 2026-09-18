@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 /**
  * Bank/folder/membership records and bank-scoped queries.
  */
@@ -253,7 +254,7 @@ export async function saveMembershipInTx(membership: BankQuestionMembership): Pr
 /** Delete only the bank and its joins; content and all learning history stay. */
 export async function deleteBank(bankId: string): Promise<boolean> {
   return studyDb.transaction("rw", [
-    studyDb.banks, studyDb.bankQuestionMemberships, studyDb.bankQuestionStats, studyDb.bankPracticeStats,
+    studyDb.banks, studyDb.bankQuestionMemberships, studyDb.bankQuestionStats, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex,
     studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     const bank = await studyDb.banks.get(bankId);
@@ -268,6 +269,10 @@ export async function deleteBank(bankId: string): Promise<boolean> {
     // not live foreign keys. Deleting current master data must not erase them.
     await studyDb.bankQuestionStats.delete(bankId);
     await studyDb.bankPracticeStats.delete(bankId);
+    await studyDb.bankPracticeRunIndex
+      .where("[bankId+activityAt]")
+      .between([bankId, Dexie.minKey], [bankId, Dexie.maxKey], true, true)
+      .delete();
     await studyDb.tombstones.put({ key: tombstoneKey("bank", bankId), entityType: "bank", entityId: bankId, deletedAt: timestamp, deviceId, eventId: makeId("bank-delete"), sequence: bankDeleteSequence });
     await enqueueChangeSet([{ kind: "bank.delete", bankId, deletedAt: timestamp, cascade: true }], timestamp, { localSequence: bankDeleteSequence });
     return true;

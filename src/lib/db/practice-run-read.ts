@@ -20,15 +20,15 @@ export async function listRecentPracticeRunsForBank(bankId: string, limit: numbe
   if (!bankId) return [];
   const safeLimit = Math.max(0, Math.floor(limit));
   if (!safeLimit) return [];
-  const runIds = new Set((await studyDb.practiceRunSources.where("bankId").equals(bankId).toArray()).map((source) => source.runId));
-  if (!runIds.size) return [];
-  const records = await studyDb.practiceRuns
-    .orderBy("updatedAt")
+  const indexRows = await studyDb.bankPracticeRunIndex
+    .where("[bankId+activityAt]")
+    .between([bankId, Dexie.minKey], [bankId, Dexie.maxKey], true, true)
     .reverse()
-    .filter((run) => runIds.has(run.id))
     .limit(safeLimit)
     .toArray();
-  return hydratePracticeRunRecords(records);
+  if (!indexRows.length) return [];
+  const records = await studyDb.practiceRuns.bulkGet(indexRows.map((row) => row.runId));
+  return hydratePracticeRunRecords(records.filter((record): record is NonNullable<typeof record> => Boolean(record)));
 }
 
 /** Read only runs affected by one or more question ids through normalized item rows. */

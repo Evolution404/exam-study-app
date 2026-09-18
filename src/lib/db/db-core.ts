@@ -13,6 +13,7 @@ import type {
   Attempt,
   BankFolder,
   BankQuestionMembership,
+  BankPracticeRunIndex,
   BankPracticeStats,
   BankQuestionStats,
   Bank,
@@ -248,6 +249,7 @@ class StudyDatabase extends Dexie {
   practiceRunItems!: Table<PracticeRunItem, [string, string]>;
   practiceDrafts!: Table<PracticeDraft, [string, string]>;
   bankPracticeStats!: EntityTable<BankPracticeStats, "bankId">;
+  bankPracticeRunIndex!: Table<BankPracticeRunIndex, [string, string]>;
   questionGroups!: EntityTable<QuestionGroupRecord, "id">;
   questionGroupItems!: Table<QuestionGroupItem, [string, string]>;
   reviewRounds!: EntityTable<ReviewRoundRecord, "id">;
@@ -280,6 +282,7 @@ class StudyDatabase extends Dexie {
       practiceRunItems: "[runId+questionId], runId, questionId, submittedAttemptId, [runId+position]",
       practiceDrafts: "[runId+questionId], runId, updatedAt",
       bankPracticeStats: "bankId, latestActivityAt",
+      bankPracticeRunIndex: "[bankId+runId], runId, [bankId+activityAt]",
       questionGroups: "id, type, updatedAt",
       questionGroupItems: "[groupId+questionId], groupId, questionId, [groupId+position]",
       reviewRounds: "id, status, updatedAt, startedAt",

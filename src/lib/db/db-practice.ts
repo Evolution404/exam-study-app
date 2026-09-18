@@ -53,7 +53,7 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
     studyDb.practiceRunItems,
     studyDb.practiceDrafts,
     studyDb.attempts,
-    studyDb.bankPracticeStats,
+    studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex,
     studyDb.changeSets,
     studyDb.syncMeta,
   ], async () => {
@@ -153,7 +153,7 @@ export async function savePracticeDraft(
  * surfaces that as an ended session — see the run-disappears guard in study-app).
  */
 export async function savePracticeProgress(run: PracticeRun): Promise<PracticeRun | undefined> {
-  return withSyncLock(() => studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.attempts, studyDb.bankPracticeStats], async () => {
+  return withSyncLock(() => studyDb.transaction("rw", [studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts, studyDb.attempts, studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex], async () => {
     const current = await getPracticeRun(run.id);
     if (!current) return undefined;
     const items = await studyDb.practiceRunItems.where("runId").equals(run.id).toArray();
@@ -292,7 +292,7 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
     studyDb.practiceRunItems,
     studyDb.practiceDrafts,
     studyDb.attempts,
-    studyDb.bankPracticeStats,
+    studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex,
     studyDb.changeSets,
     studyDb.syncMeta,
   ], async () => {
@@ -362,7 +362,7 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
   return studyDb.transaction("rw", [
     studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.practiceRuns,
     studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.practiceDrafts,
-    studyDb.bankPracticeStats, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
+    studyDb.bankPracticeStats, studyDb.bankPracticeRunIndex, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.questions, studyDb.bankQuestionMemberships, studyDb.changeSets, studyDb.syncMeta,
   ], async () => {
     // Acquire the authoritative run record and current item inside the write
@@ -452,6 +452,12 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
         if (stats && activityAt > stats.latestActivityAt) {
           await studyDb.bankPracticeStats.put({ ...stats, latestActivityAt: activityAt });
         }
+        await studyDb.bankPracticeRunIndex.put({
+          bankId,
+          runId: runRecord.id,
+          activityAt,
+          status: runRecord.status,
+        });
       }
     }
     if (reviewRoundId) {

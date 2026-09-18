@@ -125,24 +125,34 @@ async function projectionIsEmpty(): Promise<boolean> {
 
 async function localProjectionsNeedRebuild(): Promise<boolean> {
   const [
+    membershipCount,
     attemptCount,
     practiceRunCount,
+    practiceRunSourceCount,
+    bankQuestionStatsCount,
     questionProgressCount,
     questionDailyProgressCount,
     bankPracticeStatsCount,
+    bankPracticeRunIndexCount,
     reviewRoundAttemptCount,
     reviewRoundProgressCount,
   ] = await Promise.all([
+    studyDb.bankQuestionMemberships.count(),
     studyDb.attempts.count(),
     studyDb.practiceRuns.count(),
+    studyDb.practiceRunSources.count(),
+    studyDb.bankQuestionStats.count(),
     studyDb.questionProgress.count(),
     studyDb.questionDailyProgress.count(),
     studyDb.bankPracticeStats.count(),
+    studyDb.bankPracticeRunIndex.count(),
     studyDb.attempts.where("reviewRoundId").above("").count(),
     studyDb.reviewRoundProgress.count(),
   ]);
-  return (attemptCount > 0 && (questionProgressCount === 0 || questionDailyProgressCount === 0))
+  return (membershipCount > 0 && bankQuestionStatsCount === 0)
+    || (attemptCount > 0 && (questionProgressCount === 0 || questionDailyProgressCount === 0))
     || (practiceRunCount > 0 && bankPracticeStatsCount === 0)
+    || (practiceRunSourceCount > 0 && bankPracticeRunIndexCount === 0)
     || (reviewRoundAttemptCount > 0 && reviewRoundProgressCount === 0);
 }
 
