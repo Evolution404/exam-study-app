@@ -289,7 +289,7 @@ class StudyDatabase extends Dexie {
       imageBlobs: "assetId, cachedAt, lastUsedAt",
       attempts: "id, runId, questionId, reviewRoundId, sourceBankId, createdAt, deviceId, [questionId+createdAt], [runId+createdAt], [reviewRoundId+createdAt], [reviewRoundId+questionId+createdAt]",
       questionProgress: "questionId, latestAttemptAt",
-      questionDailyProgress: "[date+questionId], date, questionId",
+      questionDailyProgress: "[date+questionId], date, questionId, [questionId+date]",
       notes: "questionId, updatedAt",
       practiceRuns: "id, status, startedAt, updatedAt, activityAt, reviewRoundId, [status+activityAt]",
       practiceRunSources: "[runId+bankId], runId, bankId, [runId+position]",
