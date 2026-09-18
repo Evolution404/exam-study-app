@@ -75,7 +75,7 @@
     "test:domain": "tsx scripts/tests/test-domain.ts",
     "test:change-set": "tsx scripts/tests/test-change-set.ts",
     "test:database-schema-contract": "tsx scripts/tests/test-database-schema-contract.ts",
-    "test:db": "tsx scripts/tests/test-db.ts && tsx scripts/tests/test-db-atomic-writes.ts && tsx scripts/tests/test-db-creation-integrity.ts && tsx scripts/tests/test-db-deletion-integrity.ts && tsx scripts/tests/test-app-data.ts && tsx scripts/tests/test-db-extra.ts && tsx scripts/tests/test-practice-run-index-performance.ts && tsx scripts/tests/test-practice-run-decompose-performance.ts && tsx scripts/tests/test-practice-draft-performance.ts && tsx scripts/tests/test-projection-crash-recovery.ts && tsx scripts/tests/test-dashboard-read-performance.ts && tsx scripts/tests/test-bank-detail-read-performance.ts",
+    "test:db": "tsx scripts/tests/test-db.ts && tsx scripts/tests/test-db-atomic-writes.ts && tsx scripts/tests/test-db-creation-integrity.ts && tsx scripts/tests/test-db-deletion-integrity.ts && tsx scripts/tests/test-app-data.ts && tsx scripts/tests/test-db-extra.ts && tsx scripts/tests/test-practice-run-index-performance.ts && tsx scripts/tests/test-practice-run-decompose-performance.ts && tsx scripts/tests/test-practice-draft-performance.ts && tsx scripts/tests/test-practice-answer-write-performance.ts && tsx scripts/tests/test-projection-crash-recovery.ts && tsx scripts/tests/test-dashboard-read-performance.ts && tsx scripts/tests/test-bank-detail-read-performance.ts",
     "test:safari-idb": "tsx scripts/tests/test-safari-idb-compat.ts",
     "test:checkpoint-extra": "tsx scripts/tests/test-sync-checkpoint-extra.ts",
     "test:image-assets": "tsx scripts/tests/test-image-assets.ts",
