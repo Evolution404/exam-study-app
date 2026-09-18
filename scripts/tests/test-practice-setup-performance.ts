@@ -134,7 +134,10 @@ assert.equal(lifetimeHistory.attempts.length, 0, "lifetime 练习中心应复用
 assert.equal(scopedAttemptReads, 0, "lifetime 练习中心不得 materialize attempts");
 
 let scopedRoundReads = 0;
-const scopedRoundHook = (row: ReviewRoundProgress) => { scopedRoundReads += 1; return row; };
+const scopedRoundHook = (row: ReviewRoundProgress | undefined) => {
+  if (row) scopedRoundReads += 1;
+  return row;
+};
 studyDb.reviewRoundProgress.hook("reading", scopedRoundHook);
 const roundHistory = await readPracticeSetupScopedHistoryForQuestionIds(
   targetIds,
