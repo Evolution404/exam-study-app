@@ -74,24 +74,31 @@ export function PracticeSetupView({ banks, currentBankIds, onBankChange, onStart
   const [tagSectionOpen, setTagSectionOpen] = useState(false);
   const customCountInputRef = useRef<HTMLInputElement>(null);
   const tagSectionRef = useRef<HTMLDivElement>(null);
-  const bankKey = bankIds.join("|");
-  const datasetQuery = useLiveQuery(() => readPracticeSetupDataset(bankIds), [bankKey]);
-  const dataset = datasetQuery ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
-  const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const normalizedScope = normalizeProgressScope(progressScope);
   const effectiveScope = normalizeProgressScope(advancedScope ?? normalizedScope);
+  const [referenceTime] = useState(Date.now);
+  const bankKey = bankIds.join("|");
+  const effectiveScopeKey = progressScopeKey(effectiveScope);
+  const datasetQuery = useLiveQuery(
+    () => readPracticeSetupDataset(bankIds, effectiveScope, referenceTime),
+    [bankKey, effectiveScopeKey, referenceTime],
+  );
+  const dataset = datasetQuery ?? { questions: [], stats: [], roundsProgress: [], attempts: [] };
+  const tags = useMemo(() => [...new Set(dataset.questions.flatMap((question) => question.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dataset.questions]);
   const effectiveScopeLabel = effectiveScope.type === "rolling" ? `近 ${effectiveScope.days} 天`
     : effectiveScope.type === "lifetime" ? "全部时间"
       : rounds.find((round) => round.id === effectiveScope.roundId)?.name ?? "当前复习轮次";
-  const [referenceTime] = useState(Date.now);
   const doneCount = useMemo(() => calc(dataset.questions.map((question) => question.id), effectiveScope, dataset.stats, dataset.roundsProgress, referenceTime).completed, [dataset.questions, dataset.stats, dataset.roundsProgress, effectiveScope, referenceTime]);
   // 错题/收藏卡的实时计数：错题与开始练习同一口径（进度口径 scoped + 连对移出阈值）。
   const wrongCardCount = useMemo(() => {
+    if (effectiveScope.type === "lifetime") {
+      return dataset.stats.reduce((count, stats) => count + (statsNeedWrongReview(stats, wrongRemovalStreak) ? 1 : 0), 0);
+    }
     const scoped = buildScopedQuestionStats(dataset.questions.map((question) => question.id), effectiveScope, dataset.attempts, dataset.roundsProgress, referenceTime);
     let count = 0;
     scoped.forEach((stats) => { if (statsNeedWrongReview(scopedStatsToAttemptStats(stats), wrongRemovalStreak)) count += 1; });
     return count;
-  }, [dataset.questions, dataset.attempts, dataset.roundsProgress, effectiveScope, referenceTime, wrongRemovalStreak]);
+  }, [dataset.questions, dataset.stats, dataset.attempts, dataset.roundsProgress, effectiveScope, referenceTime, wrongRemovalStreak]);
   const favoriteCardCount = useMemo(() => dataset.questions.filter((question) => question.favorite).length, [dataset.questions]);
 
   // 题量切到「自定义题数」时（无论是点卡片还是点题量分段）聚焦同一个题数输入框。
