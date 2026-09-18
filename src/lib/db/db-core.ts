@@ -22,7 +22,6 @@ import type {
   PracticeRunItem,
   PracticeRunRecord,
   PracticeRunSource,
-  PracticeRunStats,
   PracticeRun,
   QuestionGroupItem,
   QuestionGroupRecord,
@@ -110,14 +109,10 @@ export interface RestoreState {
   memberships: BankQuestionMembership[];
   imageAssets: ImageAssetDescriptor[];
   attempts: Attempt[];
-  attemptStats: AttemptStats[];
-  attemptDailyStats: AttemptDailyStats[];
   notes: Note[];
   practiceRuns: PracticeRun[];
-  practiceRunStats: PracticeRunStats[];
   questionGroups: QuestionGroup[];
   reviewRounds: ReviewRound[];
-  reviewRoundProgress: ReviewRoundProgress[];
   tombstones: Tombstone[];
 }
 
