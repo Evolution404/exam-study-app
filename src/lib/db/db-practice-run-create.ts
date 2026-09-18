@@ -8,7 +8,7 @@ import {
 import type { CreatePracticeRunInput } from "./db-core";
 import { enqueueChangeSet } from "./db-change-sets";
 import { bankLabel, getQuestionsForBanks } from "./db-bank";
-import { practiceDraftFromAnswer, practiceRunRecord } from "./practice-run-store";
+import { practiceDraftFromAnswer, practiceRunRecord, putPracticeRunMetadataInTx } from "./practice-run-store";
 import { updatePracticeRunStatsInTx } from "./db-practice-stats";
 import { restrictPracticeRunMappings } from "../practice/practice-run-invariants";
 import type { Bank, PracticeRun } from "./types";
@@ -106,7 +106,7 @@ export async function createPracticeRun(input: CreatePracticeRunInput = {}): Pro
     const drafts = questionIds
       .map((questionId) => practiceDraftFromAnswer(run.id, questionId, run.answers[questionId], run.updatedAt))
       .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
-    await studyDb.practiceRuns.put(record);
+    await putPracticeRunMetadataInTx(record);
     await studyDb.practiceRunSources.bulkPut(sources);
     await studyDb.practiceRunItems.bulkPut(items);
     if (drafts.length) await studyDb.practiceDrafts.bulkPut(drafts);

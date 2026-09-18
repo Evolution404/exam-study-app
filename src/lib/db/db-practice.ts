@@ -90,7 +90,7 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
       .filter((questionId) => !existingItemByQuestion.get(questionId)?.submittedAttemptId)
       .map((questionId) => practiceDraftFromAnswer(run.id, questionId, updated.answers[questionId], updated.updatedAt))
       .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
-    await studyDb.practiceRuns.put(record);
+    await putPracticeRunMetadataInTx(record);
     await studyDb.practiceRunSources.where("runId").equals(run.id).delete();
     await studyDb.practiceRunSources.bulkPut(sources);
     await studyDb.practiceRunItems.where("runId").equals(run.id).delete();
