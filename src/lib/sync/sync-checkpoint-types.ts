@@ -1,21 +1,4 @@
-import type {
-  Attempt,
-  Bank,
-  BankFolder,
-  BankQuestionMembership,
-  ImageAssetDescriptor,
-  Note,
-  PracticeRunItem,
-  PracticeRunRecord,
-  PracticeRunSource,
-  Question,
-  QuestionGroupItem,
-  QuestionGroupRecord,
-  ReviewRoundBank,
-  ReviewRoundItem,
-  ReviewRoundRecord,
-  Tombstone,
-} from "../db/types";
+import type { CanonicalState } from "../db/types";
 
 export const SYNC_CHECKPOINT_FORMAT = 7 as const;
 
@@ -24,24 +7,7 @@ export const SYNC_CHECKPOINT_FORMAT = 7 as const;
  * Device-local projections/caches are rebuilt after restore and are deliberately
  * absent from both the type and serialized payload.
  */
-export interface SyncCheckpointState {
-  banks: Bank[];
-  bankFolders: BankFolder[];
-  questions: Question[];
-  memberships: BankQuestionMembership[];
-  imageAssets: ImageAssetDescriptor[];
-  attempts: Attempt[];
-  notes: Note[];
-  practiceRuns: PracticeRunRecord[];
-  practiceRunSources: PracticeRunSource[];
-  practiceRunItems: PracticeRunItem[];
-  questionGroups: QuestionGroupRecord[];
-  questionGroupItems: QuestionGroupItem[];
-  reviewRounds: ReviewRoundRecord[];
-  reviewRoundBanks: ReviewRoundBank[];
-  reviewRoundItems: ReviewRoundItem[];
-  tombstones: Tombstone[];
-}
+export type SyncCheckpointState = CanonicalState;
 
 export interface SyncCheckpointCounts {
   banks: number;

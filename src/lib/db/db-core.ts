@@ -35,6 +35,7 @@ import type {
   SyncMeta,
   Tombstone,
 } from "./types";
+export type { CanonicalState } from "./types";
 
 /** Current local IndexedDB namespace. */
 export const DATABASE_NAME = "shijuan-study" as const;
@@ -97,26 +98,6 @@ export interface CreatePracticeRunInput {
   revision?: number;
   lastAnsweredIndex?: number;
   reviewRoundId?: string;
-}
-
-/** Canonical normalized facts accepted by the atomic restore helper. */
-export interface RestoreState {
-  banks: Bank[];
-  bankFolders: BankFolder[];
-  questions: Question[];
-  memberships: BankQuestionMembership[];
-  imageAssets: ImageAssetDescriptor[];
-  attempts: Attempt[];
-  notes: Note[];
-  practiceRuns: PracticeRunRecord[];
-  practiceRunSources: PracticeRunSource[];
-  practiceRunItems: PracticeRunItem[];
-  questionGroups: QuestionGroupRecord[];
-  questionGroupItems: QuestionGroupItem[];
-  reviewRounds: ReviewRoundRecord[];
-  reviewRoundBanks: ReviewRoundBank[];
-  reviewRoundItems: ReviewRoundItem[];
-  tombstones: Tombstone[];
 }
 
 let idCounter = 0;

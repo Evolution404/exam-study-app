@@ -2,7 +2,7 @@ import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
 import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
-import type { RestoreState } from "./db-core";
+import type { CanonicalState } from "./types";
 import type { ChangeSetQueueGuard } from "./db-restore";
 
 interface ReconcileProjectionProgress {
@@ -328,7 +328,7 @@ async function planTableTimed<T>(
 
 function directImagePlanTimed(
   mode: "fresh" | "dirty",
-  incoming: RestoreState["imageAssets"],
+  incoming: CanonicalState["imageAssets"],
   dirtyKeys: readonly string[] | undefined,
   options: ReconcileProjectionOptions,
 ): ImageReconcilePlan {
@@ -347,7 +347,7 @@ function directImagePlanTimed(
 }
 
 async function planImageAssetsTimed(
-  incoming: RestoreState["imageAssets"],
+  incoming: CanonicalState["imageAssets"],
   options: ReconcileProjectionOptions,
 ): Promise<ImageReconcilePlan> {
   const started = clockMs();
@@ -395,7 +395,7 @@ async function applyPlan<T, K extends IndexableType>(
 }
 
 export async function reconcileProjection(
-  state: RestoreState,
+  state: CanonicalState,
   options: ReconcileProjectionOptions = {},
 ): Promise<boolean> {
   const fresh = await projectionIsEmpty();

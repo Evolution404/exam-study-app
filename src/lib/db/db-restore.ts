@@ -3,7 +3,7 @@
  */
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
-import type { RestoreState } from "./db-core";
+import type { CanonicalState } from "./types";
 import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 
 export interface ChangeSetQueueGuard {
@@ -48,7 +48,7 @@ function queueMatches(current: readonly ChangeSetQueueGuard[], expected: readonl
   return left.every((value, index) => value === right[index]);
 }
 
-function restoreRowCount(state: RestoreState): number {
+function restoreRowCount(state: CanonicalState): number {
   return [
     state.banks,
     state.bankFolders,
@@ -76,7 +76,7 @@ function restoreRowCount(state: RestoreState): number {
  * Pending change-sets are left in place unless the guarded caller explicitly
  * requests clearing them, and projection rebuild never emits a sync change set.
  */
-export async function restoreLocalCheckpoint(state: RestoreState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
+export async function restoreLocalCheckpoint(state: CanonicalState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
   // Projection tables are cleared in the canonical install transaction so no
   // stale derived rows survive a successful restore. They are populated only
   // from the already materialized canonical snapshot after that transaction commits.

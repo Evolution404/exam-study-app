@@ -1,5 +1,4 @@
 import type {
-  Bank as BaseBank,
   BankFolder as BaseBankFolder,
   Note as BaseNote,
   PracticeRun as BasePracticeRun,
@@ -13,10 +12,20 @@ import type {
   SyncTombstone as BaseSyncTombstone,
 } from "../../types/types";
 
-/** Current local-domain records used by the v9 sync wire. */
-export interface Bank extends Omit<BaseBank, "questionCount"> {
+/** Canonical persisted bank fact. Rebuildable statistics do not belong here. */
+export interface Bank {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  color?: string;
+  folderId?: string;
   sortOrder: number;
+  updatedAt?: string;
+  deviceId?: string;
+  syncEventId?: string;
   questionCount: number;
+  importedAt: string;
   /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
   enabled?: boolean;
 }
@@ -28,11 +37,25 @@ export function isBankEnabled(bank: Pick<Bank, "enabled">): boolean {
 export type BankFolder = BaseBankFolder;
 export type Note = BaseNote;
 export type QuestionGroup = BaseQuestionGroup;
-export type QuestionGroupRecord = Omit<BaseQuestionGroup, "items">;
+export interface QuestionGroupRecord {
+  id: string;
+  name: string;
+  type: BaseQuestionGroup["type"];
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  deviceId: string;
+  syncEventId?: string;
+}
 export type SyncFile = BaseSyncFile;
 export type SyncMeta = BaseSyncMeta;
-export interface Tombstone extends Omit<BaseSyncTombstone, "entityType"> {
+export interface Tombstone {
+  key: string;
   entityType: BaseSyncTombstone["entityType"] | "membership" | "imageAsset" | "note" | "attempt";
+  entityId: string;
+  deletedAt: string;
+  deviceId: string;
+  eventId: string;
   /**
    * Causal-stability anchor: the deleting device's localSequence for the
    * deletion event. A tombstone is reclaimable once every known device's
@@ -164,7 +187,16 @@ export interface ReviewRound {
   deviceId: string;
 }
 
-export type ReviewRoundRecord = Omit<ReviewRound, "bankIds" | "finalQuestionIds">;
+export interface ReviewRoundRecord {
+  id: string;
+  name: string;
+  startedAt: string;
+  status: ReviewRoundStatus;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  deviceId: string;
+}
 
 export interface ReviewRoundProgress {
   key: string;
@@ -186,12 +218,25 @@ export interface ReviewRoundProgress {
 
 export type PracticeRun = BasePracticeRun & { reviewRoundId?: string };
 
-export type PracticeRunRecord = Omit<PracticeRun,
-  "bankId" | "bankIds" | "bankName" | "questionIds" | "questionTypes" | "answers" | "optionOrders"
-> & {
+export interface PracticeRunRecord {
+  id: string;
+  mode: BasePracticeRun["mode"];
+  modeLabel: string;
+  shuffleOptions: boolean;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  abandonedAt?: string;
+  status: BasePracticeRun["status"];
+  revision: number;
+  lastAnsweredIndex?: number;
+  syncDeviceId?: string;
+  syncEventId?: string;
+  definitionSynced?: boolean;
+  reviewRoundId?: string;
   bankNameSnapshot: string;
   activityAt: string;
-};
+}
 
 export interface PracticeRunSource {
   runId: string;
@@ -240,11 +285,40 @@ export interface ImageAsset {
 }
 
 /** Canonical/sync-visible image metadata. Blob bytes live only in imageBlobs. */
-export type ImageAssetDescriptor = Omit<ImageAsset, "blob">;
+export interface ImageAssetDescriptor {
+  id: string;
+  mimeType: ImageAsset["mimeType"];
+  size: number;
+  width: number;
+  height: number;
+}
 
 export interface ImageBlob {
   assetId: string;
   blob: Blob;
   cachedAt?: string;
   lastUsedAt?: string;
+}
+
+/**
+ * The single complete envelope of synchronized/persisted canonical facts.
+ * Local projections, drafts, caches and sync infrastructure are deliberately absent.
+ */
+export interface CanonicalState {
+  banks: Bank[];
+  bankFolders: BankFolder[];
+  questions: Question[];
+  memberships: BankQuestionMembership[];
+  imageAssets: ImageAssetDescriptor[];
+  attempts: Attempt[];
+  notes: Note[];
+  practiceRuns: PracticeRunRecord[];
+  practiceRunSources: PracticeRunSource[];
+  practiceRunItems: PracticeRunItem[];
+  questionGroups: QuestionGroupRecord[];
+  questionGroupItems: QuestionGroupItem[];
+  reviewRounds: ReviewRoundRecord[];
+  reviewRoundBanks: ReviewRoundBank[];
+  reviewRoundItems: ReviewRoundItem[];
+  tombstones: Tombstone[];
 }
