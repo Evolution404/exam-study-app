@@ -33,8 +33,9 @@ const run = await createPracticeRun({ bankId: bank.id, questionIds: questions.ma
 const target = questions[318]!;
 
 let itemReads = 0;
-const itemHook = () => {
+const itemHook = <T>(row: T): T => {
   itemReads += 1;
+  return row;
 };
 studyDb.practiceRunItems.hook("reading", itemHook);
 try {
