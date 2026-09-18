@@ -1,6 +1,7 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
 import { markProjectionRebuildPendingInTx, rebuildProjectionImpactFromNormalizedFacts, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
+import { enrichProjectionImpactForDirtyInstall, localProjectionsNeedRebuild } from "./db-reconcile-projections";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { CanonicalState } from "./types";
 import type { ChangeSetQueueGuard } from "./db-restore";
@@ -121,39 +122,6 @@ async function projectionIsEmpty(): Promise<boolean> {
     studyDb.questionGroups.count(), studyDb.reviewRounds.count(), studyDb.tombstones.count(),
   ]);
   return counts.every((count) => count === 0);
-}
-
-async function localProjectionsNeedRebuild(): Promise<boolean> {
-  const [
-    membershipCount,
-    attemptCount,
-    practiceRunCount,
-    practiceRunSourceCount,
-    bankQuestionStatsCount,
-    questionProgressCount,
-    questionDailyProgressCount,
-    bankPracticeStatsCount,
-    bankPracticeRunIndexCount,
-    reviewRoundAttemptCount,
-    reviewRoundProgressCount,
-  ] = await Promise.all([
-    studyDb.bankQuestionMemberships.count(),
-    studyDb.attempts.count(),
-    studyDb.practiceRuns.count(),
-    studyDb.practiceRunSources.count(),
-    studyDb.bankQuestionStats.count(),
-    studyDb.questionProgress.count(),
-    studyDb.questionDailyProgress.count(),
-    studyDb.bankPracticeStats.count(),
-    studyDb.bankPracticeRunIndex.count(),
-    studyDb.attempts.where("reviewRoundId").above("").count(),
-    studyDb.reviewRoundProgress.count(),
-  ]);
-  return (membershipCount > 0 && bankQuestionStatsCount === 0)
-    || (attemptCount > 0 && (questionProgressCount === 0 || questionDailyProgressCount === 0))
-    || (practiceRunCount > 0 && bankPracticeStatsCount === 0)
-    || (practiceRunSourceCount > 0 && bankPracticeRunIndexCount === 0)
-    || (reviewRoundAttemptCount > 0 && reviewRoundProgressCount === 0);
 }
 
 function hasDirtyKeys(keys: ReconcileDirtyKeys | undefined): keys is ReconcileDirtyKeys {
@@ -444,40 +412,9 @@ export async function reconcileProjection(
     : directCompoundPlan(mode, table, incoming, primaryKeyOf, syncKeyOf, dirtyKeys, compoundKeyFromSyncKey);
 
   const dirty = options.dirtyKeys;
-  const projectionImpact = options.projectionImpact ? {
-    questionIds: new Set(options.projectionImpact.questionIds),
-    questionDailyKeys: new Set(options.projectionImpact.questionDailyKeys),
-    reviewRoundQuestionKeys: new Set(options.projectionImpact.reviewRoundQuestionKeys),
-    bankIds: new Set(options.projectionImpact.bankIds),
-    bankRunKeys: new Set(options.projectionImpact.bankRunKeys),
-    runIds: new Set(options.projectionImpact.runIds),
-  } : undefined;
-
-  // Some delete/status mutations intentionally carry only canonical identities.
-  // Before applying dirty plans, enrich the derived impact from the current
-  // local facts plus the target state so deleted/moved rows are still known.
-  if (mode === "dirty" && projectionImpact) {
-    for (const key of dirty?.memberships ?? []) {
-      const separator = key.indexOf(":");
-      if (separator > 0) projectionImpact.bankIds.add(key.slice(0, separator));
-    }
-    const dirtyRunIds = [...new Set([...(dirty?.practiceRuns ?? []), ...projectionImpact.runIds])];
-    if (dirtyRunIds.length) {
-      const currentSources = await studyDb.practiceRunSources.where("runId").anyOf(dirtyRunIds).toArray();
-      currentSources.forEach((row) => projectionImpact.bankIds.add(row.bankId));
-      state.practiceRunSources
-        .filter((row) => dirtyRunIds.includes(row.runId))
-        .forEach((row) => projectionImpact.bankIds.add(row.bankId));
-    }
-    if (dirty?.attempts?.length) {
-      const currentAttempts = await studyDb.attempts.bulkGet(dirty.attempts);
-      currentAttempts.filter((row): row is NonNullable<typeof row> => Boolean(row))
-        .forEach((row) => projectionImpact.questionIds.add(row.questionId));
-      state.attempts
-        .filter((row) => dirty.attempts.includes(row.id))
-        .forEach((row) => projectionImpact.questionIds.add(row.questionId));
-    }
-  }
+  const projectionImpact = mode === "dirty"
+    ? await enrichProjectionImpactForDirtyInstall(options.projectionImpact, state, dirty)
+    : options.projectionImpact;
 
   const bankPlan = await makePlan(studyDb.banks, state.banks, (row) => row.id, dirty?.banks);
   const folderPlan = await makePlan(studyDb.bankFolders, state.bankFolders, (row) => row.id, dirty?.bankFolders);
