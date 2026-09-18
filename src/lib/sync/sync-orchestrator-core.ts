@@ -39,6 +39,7 @@ import { maybeCoalesceHotWindow } from "./sync-coalesce";
 import { gcSyncRemote } from "./sync-gc";
 import { downloadRemote } from "./sync-download";
 import { deriveDirtyInstallKeys } from "./sync-dirty-install";
+import { planProjectionImpact } from "./projection-dependency-planner";
 import {
   checkpointFromCanonicalState,
   installCanonicalState,
@@ -189,14 +190,17 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     }
     const firstProjectionInstall = !installedHead;
     const needsInstall = !downloaded.reusedCache || projectionNeedsInstall(installedHead, read.cache, unseen.length, blocked.length);
+    const incrementalChanges = [...unseen, ...localPending];
     const dirtyKeys = needsInstall && installedHead && cached && downloaded.reusedCache && !excludedHistory.length && installedHead === installFingerprint(cached.head)
-      ? await deriveDirtyInstallKeys(rebasedProjection, [...unseen, ...localPending]) : null;
+      ? await deriveDirtyInstallKeys(rebasedProjection, incrementalChanges) : null;
+    const projectionImpact = dirtyKeys ? planProjectionImpact(incrementalChanges) : undefined;
     if (needsInstall) {
       const installLabel = dirtyKeys ? `正在应用本机增量（${unseen.length + localPending.length} 组变更）` : `正在比较本机数据（远端 ${rebasedProjection.questions.length.toLocaleString("zh-CN")} 道题、${rebasedProjection.attempts.length.toLocaleString("zh-CN")} 条作答）`;
       report(progress, "merge", installLabel, bandPercent(bands.install, 0.02), bands.install[1]);
       const installed = await installCanonicalState(rebasedProjection, {
         queueGuard: queueSnapshot,
         ...(dirtyKeys ? { dirtyKeys } : {}),
+        ...(projectionImpact ? { projectionImpact } : {}),
         onProgress: ({ completed, total, label }) => {
           const fraction = total ? completed / total : 1;
           report(progress, "merge", `${label}（${completed.toLocaleString("zh-CN")}/${total.toLocaleString("zh-CN")}）`, bandPercent(bands.install, fraction), bands.install[1]);

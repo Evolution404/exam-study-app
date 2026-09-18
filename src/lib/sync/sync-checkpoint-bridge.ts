@@ -3,6 +3,7 @@ import type { CanonicalState } from "../db/types";
 import type { ChangeSet } from "./change-set-types";
 import { normalizeCanonicalStateForReplay, replayChangeSetBatch } from "./change-set-projection";
 import type { DirtyInstallKeys } from "./sync-dirty-install";
+import type { ProjectionImpact } from "./projection-dependency-planner";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts } from "./sync-checkpoint-types";
 import type { SyncDeviceWatermark } from "./sync-head-types";
 import { reclaimableTombstones } from "./sync-watermark";
@@ -74,6 +75,7 @@ export async function installCanonicalState(
     queueGuard?: readonly ChangeSetQueueGuard[];
     clearChangeSets?: boolean;
     dirtyKeys?: DirtyInstallKeys;
+    projectionImpact?: ProjectionImpact;
     onProgress?: (progress: { completed: number; total: number; label: string }) => void;
     onTiming?: (timing: {
       phase: "plan" | "write";

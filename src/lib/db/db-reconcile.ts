@@ -1,9 +1,10 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
-import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
+import { markProjectionRebuildPendingInTx, rebuildProjectionImpactFromNormalizedFacts, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { CanonicalState } from "./types";
 import type { ChangeSetQueueGuard } from "./db-restore";
+import type { ProjectionImpact } from "../sync/projection-dependency-planner";
 
 interface ReconcileProjectionProgress {
   completed: number;
@@ -47,6 +48,7 @@ interface ReconcileProjectionOptions {
   queueGuard?: readonly ChangeSetQueueGuard[];
   clearChangeSets?: boolean;
   dirtyKeys?: ReconcileDirtyKeys;
+  projectionImpact?: ProjectionImpact;
   onProgress?: (progress: ReconcileProjectionProgress) => void;
   onTiming?: (timing: ReconcileTiming) => void;
 }
@@ -432,6 +434,41 @@ export async function reconcileProjection(
     : directCompoundPlan(mode, table, incoming, primaryKeyOf, syncKeyOf, dirtyKeys, compoundKeyFromSyncKey);
 
   const dirty = options.dirtyKeys;
+  const projectionImpact = options.projectionImpact ? {
+    questionIds: new Set(options.projectionImpact.questionIds),
+    questionDailyKeys: new Set(options.projectionImpact.questionDailyKeys),
+    reviewRoundQuestionKeys: new Set(options.projectionImpact.reviewRoundQuestionKeys),
+    bankIds: new Set(options.projectionImpact.bankIds),
+    bankRunKeys: new Set(options.projectionImpact.bankRunKeys),
+    runIds: new Set(options.projectionImpact.runIds),
+  } : undefined;
+
+  // Some delete/status mutations intentionally carry only canonical identities.
+  // Before applying dirty plans, enrich the derived impact from the current
+  // local facts plus the target state so deleted/moved rows are still known.
+  if (mode === "dirty" && projectionImpact) {
+    for (const key of dirty?.memberships ?? []) {
+      const separator = key.indexOf(":");
+      if (separator > 0) projectionImpact.bankIds.add(key.slice(0, separator));
+    }
+    const dirtyRunIds = [...new Set([...(dirty?.practiceRuns ?? []), ...projectionImpact.runIds])];
+    if (dirtyRunIds.length) {
+      const currentSources = await studyDb.practiceRunSources.where("runId").anyOf(dirtyRunIds).toArray();
+      currentSources.forEach((row) => projectionImpact.bankIds.add(row.bankId));
+      state.practiceRunSources
+        .filter((row) => dirtyRunIds.includes(row.runId))
+        .forEach((row) => projectionImpact.bankIds.add(row.bankId));
+    }
+    if (dirty?.attempts?.length) {
+      const currentAttempts = await studyDb.attempts.bulkGet(dirty.attempts);
+      currentAttempts.filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .forEach((row) => projectionImpact.questionIds.add(row.questionId));
+      state.attempts
+        .filter((row) => dirty.attempts.includes(row.id))
+        .forEach((row) => projectionImpact.questionIds.add(row.questionId));
+    }
+  }
+
   const bankPlan = await makePlan(studyDb.banks, state.banks, (row) => row.id, dirty?.banks);
   const folderPlan = await makePlan(studyDb.bankFolders, state.bankFolders, (row) => row.id, dirty?.bankFolders);
   const questionPlan = await makePlan(studyDb.questions, state.questions, (row) => row.id, dirty?.questions);
@@ -710,7 +747,11 @@ export async function reconcileProjection(
   const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
   if (shouldRebuildProjections) {
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-    await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
+    if (mode === "dirty" && projectionImpact) {
+      await rebuildProjectionImpactFromNormalizedFacts(state, projectionImpact);
+    } else {
+      await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
+    }
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
   }
   return true;
