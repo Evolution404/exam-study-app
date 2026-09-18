@@ -130,18 +130,14 @@ export function projectionFromCheckpoint(checkpoint: SyncCheckpoint): Promise<Ch
  * Convert the reducer's internal aggregate model back to canonical facts only.
  * Device-local projections are deliberately omitted from the checkpoint state.
  */
-export function checkpointFromProjection(
+export function canonicalStateFromProjection(
   projection: ChangeSetProjection,
-  cursors: Record<string, number>,
-  options?: { tombstoneGc?: { devices: Record<string, SyncDeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
-): Promise<SyncCheckpoint> {
-  let tombstones = projection.tombstones;
-  if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
-
+  tombstones: readonly ChangeSetProjection["tombstones"][number][] = projection.tombstones,
+): SyncCheckpointState {
   const runBundles = decomposePracticeRuns(projection.practiceRuns, projection.attempts);
   const groups = canonicalQuestionGroups(projection);
   const rounds = canonicalReviewRounds(projection);
-  const state: SyncCheckpointState = {
+  return {
     banks: structuredClone(projection.banks),
     bankFolders: structuredClone(projection.bankFolders),
     questions: structuredClone(projection.questions),
@@ -165,6 +161,16 @@ export function checkpointFromProjection(
     reviewRoundItems: rounds.items,
     tombstones: structuredClone(tombstones),
   };
+}
+
+export function checkpointFromProjection(
+  projection: ChangeSetProjection,
+  cursors: Record<string, number>,
+  options?: { tombstoneGc?: { devices: Record<string, SyncDeviceWatermark>; headCursors: Record<string, number>; selfDeviceId: string; now?: string } },
+): Promise<SyncCheckpoint> {
+  let tombstones = projection.tombstones;
+  if (options?.tombstoneGc) tombstones = reclaimableTombstones(tombstones, options.tombstoneGc).keep;
+  const state = canonicalStateFromProjection(projection, tombstones);
   return Promise.resolve({
     formatVersion: SYNC_CHECKPOINT_FORMAT,
     generatedAt: new Date().toISOString(),
