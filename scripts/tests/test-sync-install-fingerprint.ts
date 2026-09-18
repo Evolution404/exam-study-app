@@ -4,6 +4,7 @@ import { createBank, createQuestion, studyDb, resetDatabase } from "../../src/li
 import { downloadRemote, installFingerprint, projectionNeedsInstall, syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
 import { createGitHubRemote } from "../../src/lib/sync/github-remote";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION } from "../../src/lib/sync/sync-head-types";
 
 // 免重装 + 检查点缓存解耦套件（Part D 防回退）：
 //   1. 纯函数：指纹只含检查点 digest + cursors（不含 generatedAt/分段 sha）；
@@ -26,8 +27,8 @@ Object.defineProperty(globalThis, "localStorage", {
 
 // --- 1. 纯函数 --------------------------------------------------------------
 {
-  const checkpoint = { path: "sync/v9/checkpoints/ab.json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10, storedSize: 10 };
-  const base = { formatVersion: 9 as const, vaultId: "qa/vault@main", generatedAt: "2026-08-14T00:00:00.000Z", generation: 3, metadata: { vaultId: "qa/vault@main", producer: "t" }, checkpoint, segments: [], cursors: { "device-a": 5 } };
+  const checkpoint = { path: `${SYNC_CHECKPOINT_PREFIX}ab.json`, blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 10, storedSize: 10 };
+  const base = { formatVersion: SYNC_FORMAT_VERSION, vaultId: "qa/vault@main", generatedAt: "2026-08-14T00:00:00.000Z", generation: 3, metadata: { vaultId: "qa/vault@main", producer: "t" }, checkpoint, segments: [], cursors: { "device-a": 5 } };
   const fingerprint = installFingerprint({ head: base });
   // generatedAt 变化 / 分段重排（coalesce）不改指纹。
   assert.equal(installFingerprint({ head: { ...base, generatedAt: "2026-08-15T09:00:00.000Z", segments: [{ ...checkpoint, generation: 4, ordinal: 0, count: 1, cursors: { "device-a": 5 }, metadata: { vaultId: "qa/vault@main", createdAt: "2026-08-15T09:00:00.000Z", producer: "t" } }] } }), fingerprint, "coalesce/时间戳变化不改安装指纹");
@@ -73,7 +74,7 @@ async function currentHead() {
 // --- 2. tier 判定（downloadRemote 直接驱动）--------------------------------
 async function remoteCacheEntry() {
   const entries = await studyDb.syncMeta.toArray();
-  const entry = entries.find((item) => item.key.startsWith("v9:sync:checkpoint:"));
+  const entry = entries.find((item) => item.key.startsWith(`v${SYNC_FORMAT_VERSION}:sync:checkpoint:`));
   assert.ok(entry, "应存在远端缓存条目");
   return entry.value as { cachedAt: string; checkpoint: { cursors: Record<string, number>; counts: Record<string, number> }; head: { head: { checkpoint: { sha256: string }; segments: Array<{ path: string }> } } };
 }

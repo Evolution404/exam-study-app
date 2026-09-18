@@ -7,7 +7,7 @@ import { installFingerprint } from "./sync-watermark";
 import { withSyncLock } from "./sync-lock";
 import { filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
 import { getGitHubTransport, resolveGitHubApiBaseUrl } from "../../platform/github-transport";
-import { SYNC_MAX_HOT_BYTES } from "./sync-head-types";
+import { SYNC_FORMAT_VERSION, SYNC_MAX_HOT_BYTES } from "./sync-head-types";
 
 export async function getGitHubLogin(token: string, apiBaseUrl?: string, options?: SyncWithGitHubOptions): Promise<string> {
   const transport = options?.transport ?? getGitHubTransport();
@@ -22,7 +22,7 @@ export async function getGitHubLogin(token: string, apiBaseUrl?: string, options
 export async function getLastRemoteCache(settings: GitHubSettings) {
   const value = await loadRemoteCache(settings);
   if (value?.historySyncStart !== historySyncStartFor(settings)) return null;
-  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 9 as const } : null;
+  return value ? { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: SYNC_FORMAT_VERSION } : null;
 }
 
 export interface SyncHotWindowState {
@@ -87,6 +87,6 @@ export async function restoreLastRemoteCache(settings: GitHubSettings, callback?
     await saveInstalledHead(settings, installFingerprint(value.head));
     await saveInstalledCursors(settings, value.checkpoint.cursors ?? {});
     report(callback, "complete", "本地数据恢复完成", 100);
-    return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: 9 as const, pulled: 0, deferred: 0 };
+    return { cachedAt: value.cachedAt, counts: value.checkpoint.counts, formatVersion: SYNC_FORMAT_VERSION, pulled: 0, deferred: 0 };
   });
 }

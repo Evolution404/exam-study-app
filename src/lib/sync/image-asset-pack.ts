@@ -578,7 +578,7 @@ async function publishAttempt(
   treeMutations.push({ path: IMAGE_ASSET_INDEX_PATH, blobSha: rootBlobSha });
 
 
-  if (!await client.commitGitTreeFastForward(snapshot, treeMutations, "sync(v9): publish image asset packs")) return null;
+  if (!await client.commitGitTreeFastForward(snapshot, treeMutations, "sync: publish image asset packs")) return null;
   const cache = resetRuntimeCache(client);
   cache.root = root;
   for (const key of affectedKeys) {

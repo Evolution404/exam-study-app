@@ -199,7 +199,7 @@ export async function runMobile(page, mockServer) {
   await realFields.nth(1).fill("browser-vault");
   await realFields.nth(4).fill(mockServer.url);
   await helpers.clickTextButton(page, "立即同步");
-  await helpers.expectNotice(page, /v9 同步完成/, "second-device real sync success");
+  await helpers.expectNotice(page, /同步完成/, "second-device real sync success");
   await helpers.capture(page, contextName, "sync-mobile-pulled");
   // Cross-device: the desktop-created bank must have propagated to this device.
   await helpers.clickButton(page, "打开导航");

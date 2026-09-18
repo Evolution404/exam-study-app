@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBank, createQuestion, studyDb, resetDatabase } from "../../src/lib/db/db";
 import { SYNC_DOWNLOAD_CONCURRENCY, syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { SYNC_HEAD_PATH } from "../../src/lib/sync/sync-head-types";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // 并发分段下载防回退套件：热窗口分段曾一度退化为 for...await 串行下载。
@@ -73,7 +74,7 @@ for (let round = 0; round < 8; round += 1) {
 }
 
 // 确认热窗口确实有多个分段，否则本套件没有观测对象。
-const headResponse = await fetch(`${settings.apiBaseUrl}/repos/qa/concurrency-vault/contents/sync/v9/head.json`);
+const headResponse = await fetch(`${settings.apiBaseUrl}/repos/qa/concurrency-vault/contents/${SYNC_HEAD_PATH}`);
 const headEnvelope = await headResponse.json() as { content: string };
 const head = JSON.parse(Buffer.from(headEnvelope.content, "base64").toString("utf8")) as { segments: Array<{ path: string }> };
 assert.ok(head.segments.length >= 6, `热窗口应至少有 6 个分段（实际 ${head.segments.length}）供并发观测`);

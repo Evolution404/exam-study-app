@@ -24,7 +24,7 @@ function withoutBlob(asset: ImageAsset): Omit<ImageAsset, "blob"> {
 /**
  * Publish every local image missing from the remote Asset Pack index.
  *
- * Sync v9 publishes images only as bounded immutable Asset Packs with a sharded index.
+ * Sync publishes images only as bounded immutable Asset Packs with a sharded index.
  */
 export async function uploadPendingImageAssets(
   client: GitHubRemote,

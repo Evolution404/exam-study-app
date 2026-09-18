@@ -50,7 +50,7 @@ import {
 import type { SyncCheckpoint } from "./sync-checkpoint-types";
 import { withSyncLock } from "./sync-lock";
 import { createRemoteHistoryCheckpoint, encodeRemoteHistoryCheckpoint, gcRemoteHistory } from "./sync-history";
-import { SYNC_CHECKPOINT_PREFIX, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_SEGMENT_PREFIX, type SyncHead, type SyncPublicationFile, type SyncSegmentDescriptor } from "./sync-head-types";
 import { createSyncPublicationPlan, encodeSyncSegment, mergeSyncSegments, paginateSyncEvents, planSyncCompaction } from "./sync-head-operations";
 import { offloadSyncEvents } from "./sync-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-watermark";
@@ -79,7 +79,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   report(progress, "prepare", "正在连接远端", 2, 6);
   let read = await client.readHead(await loadHeadCache(settings));
   if (!read.initialized) { await initializeSyncRemote(settings, token, progress, options); read = await client.readHead(); }
-  if (!read.initialized) throw new Error("无法初始化 v9 远端。当前客户端只支持 v9 远端数据。");
+  if (!read.initialized) throw new Error("无法初始化当前同步远端。");
   let installedHead = await loadInstalledHead(settings);
   let pulled = 0;
   let receivedSnapshot: SyncCheckpoint["counts"] | undefined;
@@ -90,7 +90,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
   let bands = syncBands((await listChangeSets(["pending"])).length > 0);
   for (let retry = 0; retry < 4; retry += 1) {
     const cached = await loadRemoteCache(settings);
-    report(progress, "download", cached ? "正在检查 v9 热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
+    report(progress, "download", cached ? "正在检查同步热窗口增量" : "正在下载远端完整数据", bandPercent(bands.download, cached ? 0.05 : 0.01), bands.download[1]);
     let downloadSteps = 0;
     const downloaded = await downloadRemote(client, read.head, cached, (fraction, label) => {
       downloadSteps += 1;
@@ -231,7 +231,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       // 此时本地 head 缓存必须已带上最新水位/代数，否则面板读到旧缓存而不过期。
       try { await publishDeviceWatermark(client, settings, getDeviceId(), read.head.cursors); } catch { /* best-effort */ }
       await pruneCommittedChangeSets(read.head.cursors);
-      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: 9 as const, compacted: false, coalesced: false, receivedSnapshot };
+      return { pulled, pushed: 0, remaining, deferred: 0, formatVersion: SYNC_FORMAT_VERSION, compacted: false, coalesced: false, receivedSnapshot };
     }
     try {
       report(progress, "upload", `正在上传 ${claim.records.length} 组变更`, bandPercent(bands.upload!, 0.2), bandPercent(bands.upload!, 0.24));
@@ -287,7 +287,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           // Page-local coverage cursors (see maybeCoalesceHotWindow): lets a peer
           // skip this page when its events are below the peer's cached watermark.
           const pageCursors = cursorsFor(page.events as Array<{ deviceId: string; localSequence: number }>);
-          const segmentBytes = encodeSyncSegment({ formatVersion: 9 as const, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
+          const segmentBytes = encodeSyncSegment({ formatVersion: SYNC_FORMAT_VERSION, vaultId: vault, generation, ordinal, metadata, cursors: pageCursors, events: page.events });
           const segmentDigest = await sha256(segmentBytes);
           const segmentPath = descriptorPath(SYNC_SEGMENT_PREFIX, segmentDigest);
           const segmentBase = await uploadedDescriptor(client, segmentPath, segmentBytes, "segment");
@@ -343,7 +343,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "upload", "正在发布新版索引", bandPercent(bands.upload!, 0.72), bandPercent(bands.upload!, 0.8));
       const committed = await client.publish(plan);
       if (committed.ok) report(progress, "upload", "远端已接受本次变更", bandPercent(bands.upload!, 0.8), bandPercent(bands.upload!, 0.88));
-      if (!committed.ok) { await releaseChangeSetClaim(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("v9 远端索引丢失。"); continue; }
+      if (!committed.ok) { await releaseChangeSetClaim(claim.claimId); read = await client.readHead(); if (!read.initialized) throw new Error("远端同步索引丢失。"); continue; }
       await commitChangeSetClaim(claim.claimId, new Map(claim.records.map((record) => [record.id, record.digest])));
       // B3: reuse the already-validated rebasedProjection (createdAt order) rather
       // than re-replaying claim.records in wire/claim order — a tombstone-sensitive
@@ -380,7 +380,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       await pruneCommittedChangeSets(nextHead.cursors);
       const remaining = (await listChangeSets(["pending", "blocked"])).length;
       report(progress, "complete", "同步完成", 100);
-      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: 9 as const, compacted: compaction.required, coalesced, receivedSnapshot };
+      return { pulled, pushed: claim.records.length, remaining, deferred: 0, formatVersion: SYNC_FORMAT_VERSION, compacted: compaction.required, coalesced, receivedSnapshot };
     } catch (error) { await releaseChangeSetClaim(claim.claimId); throw error; }
   }
   throw new Error("远端持续发生并发更新，本地变更已保留，请稍后重试。");

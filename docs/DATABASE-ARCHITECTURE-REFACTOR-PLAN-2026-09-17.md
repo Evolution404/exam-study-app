@@ -1,22 +1,24 @@
 # 数据库架构重构执行计划（2026-09-17）
 
-> 状态：Phase 0–2 已实施并完成收口；Phase 3+ 未开始，等待用户明确授权。本文继续作为数据库重构执行基线。
+> 状态：Phase 0–8 已实施；生产 Sync v10 head-last cutover 已完成；最终代码/技术债清理 HEAD `75d901b977802ca468671d340d8165b47f57719b` 已全 CI PASS。当前仅剩交接文档提交后的 docs-only CI、PR #59 ready/merge 与正式发布 smoke。
 >
-> 目标分支：`refactor/database-facts-projections-20260917`
+> 当前 Draft PR：#59 `refactor: rebuildable projections and canonical sync v10`
 >
-> 前置条件已满足：PR #57 已合并，实施分支已从当时最新 `origin/main`（`863b1a8`）创建。当前停在 PR #58 Phase 2 收口边界。
+> 当前分支：`refactor/database-projection-sync-v10-20260917`
+>
+> PR #58 已完成 Phase 0–2 并合并到 `main`；PR #59 完成 Phase 3–8。用户已明确授权完成后合并并发布；生产 v10 cutover 已执行成功。
 
-## 0. Phase 0 执行记录
+## 0. 当前执行状态（2026-09-17）
 
-2026-09-17 已完成 Phase 0 基线冻结与语义审计：
-
-- PR #57 已先合并，实施分支 `refactor/database-facts-projections-20260917` 从最新 `origin/main` merge commit `863b1a8` 创建，没有从旧 main 开工。
-- 改动前 `make test` 通过（84/84），`make test-browser-headless` 通过全部浏览器组。
-- `attempt.update` / `practice.answer.updated` 在产品运行时代码中没有真实写入入口。当前 `recordPracticeAnswer` 每次提交都会生成新的 attempt ID，并只发出 `practice.answer.submitted`；两种 update mutation 只残留于 sync 类型、codec、reducer、dirty-install、事件文案和测试夹具。因此本轮 cutover **直接删除这两种兼容 mutation，不引入 supersede 模型，也不保留 runtime 兼容分支**。如果未来产品需要“修正历史作答”，必须作为新的独立领域需求重新设计。
-- 新 schema contract 已由 `scripts/tests/test-database-schema-contract.ts` 锁定，并已确认旧 schema 会失败。该测试明确要求：关系表使用复合主键；`PracticeRun` 拆为 run/source/item；图片 descriptor/blob cache 分表；attempt 增加 round provenance 与关键复合时间索引；旧 `attemptStats` / `attemptDailyStats` / `practiceRunActivity` / `practiceRunStats` store 退出当前 schema。
-- Draft PR #58 已创建；Phase 0 的 contract commit 为 `e6c8bdd`。在 Phase 1 完成前，该新 contract 测试预期为红，不得通过削弱 contract 或恢复旧 store 来让它变绿。
-
-Phase 0 已完成；Phase 1 与 Phase 2 也已在 PR #58 完成。当前必须停在 Phase 2 边界，未经用户明确授权不得进入 Phase 3。
+- Phase 0–2：已在 PR #58 完成并合并。
+- Phase 3：统一 projection engine 已完成。canonical facts 可 full rebuild / dirty incremental rebuild 为本地 projections；full/incremental differential、idempotence、sync-silence、projection-loss recovery 均有测试覆盖。
+- Phase 3 性能基线：10k attempts rebuild 已改为内存聚合后按 projection table 批量写入，禁止退化为逐 attempt IndexedDB get/put 的 N+1 路径。
+- Phase 4：主要热点 read-model 已切换到 projections 或 targeted canonical indexes；Dashboard、Bank Detail、PracticeRun/history 等性能门禁已建立。
+- Dashboard 指定题集 rolling 查询使用 `[questionId+createdAt]` compound index；同一时间窗加入 2,000 条无关 attempts 后，materialize 从约 2,001 行降为 1 行。
+- Bank Detail rolling 查询使用 questionId + createdAt 定向读取；同一时间窗加入 2,000 条无关 attempts 后，materialize 从约 2,003 行降为 3 行。
+- `scripts/tests/test-ui-data-flow.ts` 已明确锁定新契约：指定题集必须走 `readAttemptsForQuestionIdsInWindow(ids, from, to)`，禁止恢复“按 createdAt 全读时间窗后再 filter(questionId)”的旧实现。
+- Phase 4 收口 HEAD `ab85baf`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部 PASS。
+- 下一步：等待本次交接文档提交后的 docs-only CI；若全绿，直接将 PR #59 标记 ready、merge main、触发正式发布并完成生产 smoke。不要再扩展数据库重构范围。
 
 ## 1. 为什么现在要重构
 
@@ -60,11 +62,12 @@ Sync Change Sets / Checkpoint / History
 ### 2.2 Git / 实施纪律
 
 - 禁止 `git reset` / `git clean`。
-- 新建 `refactor/database-facts-projections-20260917`。
+- 当前施工分支固定为 `refactor/database-projection-sync-v10-20260917`。
 - 测试先行；每个阶段先写能让旧实现失败的 contract/performance/integrity test。
 - 小 commit，单一主题，测试通过即 push。
-- 整个数据库/wire cutover 使用一个 Draft PR；不得把半套 schema 合并进 `main`。
-- 不通过提高 code-size / export-surface / architecture baseline 来掩盖失败。
+- 数据库/wire cutover 继续在 Draft PR #59 内完成，不得把半套 wire/schema 合并进 `main`。
+- 不通过提高 code-size / export-surface / architecture/performance baseline 来掩盖失败。
+- 发现性能回退先定位根因；架构正确不能成为接受 N+1 / 全表扫描的理由。
 
 ## 3. 目标分层
 
@@ -268,7 +271,7 @@ createdAt
 - `syncMeta`
 - `syncFiles`
 
-新同步 wire 使用新的当前 namespace/format（建议 `sync/v10`），不与 v9 双栈运行。
+新同步 wire 使用新的当前 namespace/format（`sync/v10`），不与 v9 双栈运行。
 
 **新 checkpoint 不得包含：**
 
@@ -360,99 +363,63 @@ install canonical checkpoint
 
 ### Phase 0 — 基线冻结与语义审计
 
-前置：当前审计 PR 合并到 `main`。
+状态：**完成（PR #58）**。
 
-执行：
-
-1. 从最新 `origin/main` 创建 `refactor/database-facts-projections-20260917`。
-2. `make test` + `make test-browser-headless` 建立绿基线。
-3. 读取当前 v9 checkpoint/history 数据模型。
-4. 审计 `attempt.update` / `practice.answer.updated` 的真实调用路径，决定删除还是显式建模 supersede。
-5. 把目标 store/index contract 写成测试，旧 schema 应失败。
-6. 尽早创建 Draft PR，后续每个小 commit push 到同一 PR。
-
-退出条件：领域语义无未决项，schema contract 已锁定。
+退出结果：领域语义、schema contract、单一 `version(1)` 与兼容层禁令已锁定。
 
 ### Phase 1 — Canonical schema/types
 
-执行：
+状态：**完成（PR #58）**。
 
-- 改 `v7-types.ts`/后续重命名后的 current types。
-- 改唯一 Dexie `version(1)`。
-- 新增 group/round/run relationship tables。
-- attempts 增加 round provenance 与复合时间索引。
-- image descriptor/blob cache 分表。
-- 删除 derived table 的 sync/canonical 身份。
-
-此阶段只让 schema/types 可编译，不允许用 temporary compatibility adapter 把旧业务全部糊过去。
-
-退出条件：schema contract、architecture guard、typecheck 通过。
+current schema/types 已切换到正常化 canonical facts 与关系表；attempt round provenance、关键复合索引、image descriptor/blob cache 分离均已落地。
 
 ### Phase 2 — Domain write path 原子化切换
 
-按风险顺序：
+状态：**完成（PR #58）**。
 
-1. question/group/membership writes。
-2. review round create/update/complete/archive。
-3. practice run create/progress/status。
-4. answer submit：`attempt + runItem.submittedAttemptId + projection update + changeSet` 同一写事务。
-5. delete cascades 按新关系表实现。
-6. image descriptor/blob cache writes 分离。
-
-每个入口必须测试：事务边界、并发删除、Safari IndexedDB、change-set sequence。
-
-退出条件：所有领域写路径不再写旧数组/Map schema。
-
-#### Phase 2 收口记录（2026-09-17）
-
-- current schema/types 与领域写路径已切换到正常化模型；group/review/run 关系不再以内嵌数组或大 Map 作为持久化事实。
-- PracticeRun/source/item 已拆分，已提交答案事实归 `Attempt`；Attempt 已持有 round provenance；图片 descriptor/blob cache 已分离。
-- 旧 `attempt.update` / `practice.answer.updated` 兼容 mutation 与 V7/V8 业务 API/type/source filename 已删除，不保留 alias 或 runtime compatibility 分支。
-- architecture guard 已加入 version-neutral 命名门禁，并继续强制单一 Dexie `version(1)`、禁止 `.upgrade()` 与历史 schema compatibility。
-- Sync v9 仍是当前真实 remote wire；`sync/v9/...` / `formatVersion: 9` 不改写成业务名称，也不作为兼容层。
-- Phase 2 最终验收要求：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 在同一最新 HEAD 全绿。
-- 已验证代码基线 `1402459`：上述全部门禁通过，依赖审计 0 vulnerabilities；后续仅允许文档性收尾，仍不得进入 Phase 3。
-
-> **STOP：Phase 3 尚未开始。等待用户明确授权后才能继续。**
+- question/group/membership、review round、practice run、answer submit、delete cascade、image descriptor/blob cache 写路径已切到新模型。
+- 已提交答案只以 `Attempt` 为事实。
+- 旧 `attempt.update` / `practice.answer.updated` 兼容 mutation 与 V7/V8 业务 API/type/source filename 已删除。
+- Dexie 继续只有一个 `version(1)`，无 `.upgrade()`、无旧 store compatibility。
 
 ### Phase 3 — Projection engine
+
+状态：**完成（PR #59）**。
 
 建立统一 projection service：
 
 - full rebuild：restore/repair/test 使用。
 - incremental apply：正常 submit/delete/run status 使用。
-
-要求：
-
 - full rebuild 与 incremental 最终结果逐字段等价。
-- projection 表完全可删除后重建。
+- projection 表可删除后从 canonical facts 重建。
 - rebuild 不产生 sync change set。
-- checkpoint 不携带 projection 数据。
+- 大数据 rebuild 先内存聚合，再按 projection table 批量写入；10k attempts 性能门禁禁止逐条 IndexedDB get/put N+1 回退。
 
-退出条件：随机数据集 differential test 全绿。
+已覆盖 differential / idempotence / sync-silence / dirty rebuild / edge cases。
 
 ### Phase 4 — UI read-model 全量切换
 
-优先切换当前已证明的热点：
+状态：**完成并于 `ab85baf` 收口（PR #59）**。
+
+已切换/加固：
 
 - Dashboard scope stats。
 - Bank Detail lifetime/rolling/round/activity/recent runs。
-- Practice Setup / Practice Start。
-- Practice History / ResultQuestionDetail。
-- Search filters / question manager。
+- PracticeRun / Practice History 关键索引读取。
+- rolling 指定题集使用 `[questionId+createdAt]` targeted compound-index reader。
 
-禁止保留“旧 reader + 新 reader fallback”。切完一个领域就删除旧 reader。
+性能门禁：
 
-性能门禁至少覆盖：
+- Dashboard：同窗口 2,000 条无关 attempts 存在时，指定题集 rolling materialize 约 `2001 → 1`。
+- Bank Detail：同窗口 2,000 条无关 attempts 存在时，rolling materialize 约 `2003 → 3`。
+- PracticeRun/history 继续保留索引性能门禁。
+- `test:ui-data-flow` 禁止“时间窗全量读取后 JS filter(questionId)”旧实现复活。
 
-- 100k attempts。
-- 10k practice runs。
-- 大量 unrelated questions/rounds。
-- rolling 查询只 materialize index window。
-- lifetime 查询不得扫描 immutable attempts。
-- round 查询不得扫描其他 round。
+收口验证：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全 PASS。
 
 ### Phase 5 — Sync canonical-only 重写
+
+状态：**完成（PR #59）**。
 
 执行：
 
@@ -463,32 +430,33 @@ install canonical checkpoint
 - restore hydration 后统一 rebuild projections。
 - 删除 reducer-only `attemptRoundIds`。
 - 删除 derived dirty-install/checkpoint counts/bridge 字段。
+- checkpoint builder 不得读取或序列化 `questionProgress`、`questionDailyProgress`、`bankPracticeStats`、`reviewRoundProgress`；`imageBlobs` 永远不得进入 wire。
 
-退出条件：双设备 replay、conflict、tombstone、history hydration、partial-history 语义全绿。
+退出条件：双设备 replay、conflict、tombstone、history hydration、partial-history 语义全绿，且 canonical-only payload contract 有明确测试。
 
 ### Phase 6 — 一次性 v9 → v10 数据转换
 
-若远端数据要保留：
+状态：**完成**。
 
-- 先对真实数据只读导出/快照。
-- converter 生成 v10 shadow data。
-- 比较以下不变量：
-  - question ID/fingerprint 数。
-  - bank/membership 数。
-  - attempt ID 总数与每题统计。
-  - practice run 总数/状态分布。
-  - review round 数与最终题目集合。
-  - note/group 内容。
-  - image asset ID/size。
-- 对 lifetime/90d/round 指标做 old-vs-new differential check。
+真实生产执行结果：
 
-任何 mismatch 都停止 cutover，不加 fallback。
+- 首次 dry-run 正确 fail-closed：发现生产历史中 Attempt 引用已删除 PracticeRun。
+- 领域核对确认 `Attempt.runId` 是历史归属 ID；删除 PracticeRun 正式语义保留 Attempt，并写 practiceRun tombstone。
+- 补回归测试并修正 checkpoint validator 后，全 CI PASS。
+- 第二次真实 dry-run PASS：4,117 questions / 9,706 attempts / 96 practiceRuns / 320 imageAssets；indexedAssets=320。
+- 4,367 archived attempts、345 hot change sets 均被 hydrate/转换。
+- 正式 cutover PASS：v9 source head SHA `35666d08c74a272e307915c82a0a1402a5f4c104` 未变化后才发布 v10 head。
+- v10 checkpoint：`sync/v10/checkpoints/8638bea95c74872834527b4a5ba44282fcde9b7ddaba542091d5ed57bd00df3b.json`。
+- v9 namespace 完整保留作为历史备份；runtime 不提供 fallback。
+- 一次性 converter 在成功 cutover 后删除。
 
 ### Phase 7 — 技术债删除
 
+状态：**完成**。
+
 必须在同一个重构 PR 内删除：
 
-- `practiceRun.answers/questionIds/questionTypes/optionOrders` 旧结构。
+- `practiceRun.answers/questionIds/questionTypes/optionOrders` 旧持久化结构残余。
 - `practiceRunActivity`。
 - canonical/sync 身份的 `attemptStats/attemptDailyStats/practiceRunStats/reviewRoundProgress`。
 - reducer `attemptRoundIds`。
@@ -499,6 +467,8 @@ install canonical checkpoint
 更新 architecture guard，禁止这些旧结构重新出现。
 
 ### Phase 8 — 完整验收与 cutover
+
+状态：**生产 cutover 与最终代码验收均已完成；只剩 docs-only CI → ready/merge/release smoke**。
 
 代码验收：
 
@@ -525,7 +495,7 @@ make test-browser-headless
 4. 发布新客户端。
 5. 每个平台执行 cold restore + sync + practice submit + relaunch smoke。
 
-不得在用户授权前升级生产 remote head 或发布应用。
+用户已授权完成后合并/发布；生产 v10 remote head 已完成安全 cutover。`75d901b9` 已通过最终代码 CI；本次交接文档提交后的 docs-only CI 全绿后即可直接 ready/merge main 并发布。
 
 ## 8. 建议 commit 边界
 
@@ -539,7 +509,7 @@ make test-browser-headless
 6. `refactor: switch read models to indexed projections`
 7. `refactor: make sync checkpoint canonical-only`
 8. `refactor: cut sync wire to v10`
-9. `test: verify v9 to v10 conversion parity`（如需要保留远端数据）
+9. `test: verify v9 to v10 conversion parity`
 10. `chore: remove retired database model`
 11. `docs: finalize database cutover`
 
@@ -561,19 +531,20 @@ make test-browser-headless
 - v9 runtime fallback 为 0。
 - Dexie 仍只有 `version(1)`。
 - 所有性能门禁、完整 CI、browser headless 全绿。
-- 工作区 clean，HEAD 已 push。
+- HEAD 已 push。
 
 ## 10. 当前审计成果与本计划的关系
 
-本轮已提交的正确性/性能修复不要回滚。它们既是当前生产模型的修复，也是下一版模型的行为基线：
+已提交的正确性/性能修复不要回滚。它们既是当前模型的修复，也是新模型的行为基线：
 
 - 写事务原子性与 stale-write 防护。
 - 删除 cascade checkpoint safety。
-- practice run map invariant。
+- practice run invariant。
 - lifetime/rolling/round scope 统计语义。
 - practice history paging。
 - Bank Detail scoped history 与 recent-run 限流。
 - Practice result scoped history。
+- Projection full/incremental differential、idempotence、sync-silence。
+- Dashboard / Bank Detail targeted compound-index read 性能门禁。
 
-重构后的模型必须让这些测试“因为结构天然正确而通过”，而不是删除测试规避问题。
-
+重构后的模型必须让这些测试“因为结构天然正确而通过”，而不是删除测试、抬高 baseline 或恢复全表扫描来规避问题。

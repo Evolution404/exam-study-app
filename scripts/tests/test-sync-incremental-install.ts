@@ -283,25 +283,25 @@ try {
   assert.equal(await studyDb.bankQuestionMemberships.get([oldMembership.bankId, oldMembership.questionId]), undefined);
   assert.equal((await studyDb.bankQuestionMemberships.get([newMembership.bankId, newMembership.questionId]))?.bankId, "bank-b");
 
-  // Attempt closure: moving an attempt between questions must clean the old and
-  // install the new per-question stats, daily stats and round progress keys.
+  // Attempt closure: a new immutable attempt only dirties its own canonical key;
+  // local projections are rebuilt from the complete target facts, never trusted from wire arrays.
   await resetDatabase();
   const attemptQ1 = question("attempt-q1", "作答闭包旧题");
   const attemptQ2 = question("attempt-q2", "作答闭包新题");
   const attemptBank = { ...bankA, id: "attempt-bank", name: "Attempt", questionCount: 2 };
   const round = { id: "round-1", name: "R", bankIds: [attemptBank.id], startedAt: "2026-08-30T00:00:00.000Z", status: "active" as const, createdAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", deviceId: "device-a" };
   const run = { id: "run-1", bankId: attemptBank.id, bankIds: [attemptBank.id], bankName: "Attempt", mode: "sequential" as const, modeLabel: "练习", questionIds: [attemptQ1.id, attemptQ2.id], questionTypes: { [attemptQ1.id]: attemptQ1.type, [attemptQ2.id]: attemptQ2.type }, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", status: "in_progress" as const, revision: 0, reviewRoundId: round.id };
-  const oldAttempt = { id: "attempt-1", runId: run.id, questionId: attemptQ1.id, selected: "A", correct: false, elapsedMs: 1000, createdAt: "2026-08-30T00:00:01.000Z", deviceId: "device-a" };
-  const newAttempt = { ...oldAttempt, questionId: attemptQ2.id, correct: true, deviceId: "device-remote" };
+  const oldAttempt = { id: "attempt-1", runId: run.id, questionId: attemptQ1.id, reviewRoundId: round.id, selected: "A", correct: false, elapsedMs: 1000, createdAt: "2026-08-30T00:00:01.000Z", deviceId: "device-a" };
+  const newAttempt = { ...oldAttempt, id: "attempt-2", questionId: attemptQ2.id, correct: true, createdAt: "2026-08-30T00:00:02.000Z", deviceId: "device-remote" };
   const oldStats = { questionId: attemptQ1.id, total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 1000, firstAttemptAt: oldAttempt.createdAt, firstAttemptCorrect: false, latestAttemptAt: oldAttempt.createdAt, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: oldAttempt.id, createdAt: oldAttempt.createdAt, correct: false, elapsedMs: 1000 }] };
-  const newStats = { ...oldStats, questionId: attemptQ2.id, correct: 1, wrong: 0, firstAttemptCorrect: true, hasBeenWrong: false, currentCorrectStreak: 1, recentOutcomes: [{ id: newAttempt.id, createdAt: newAttempt.createdAt, correct: true, elapsedMs: 1000 }] };
+  const newStats = { questionId: attemptQ2.id, total: 1, correct: 1, wrong: 0, giveUps: 0, totalElapsedMs: 1000, firstAttemptAt: newAttempt.createdAt, firstAttemptCorrect: true, latestAttemptAt: newAttempt.createdAt, hasBeenWrong: false, correctStreakAfterWrong: 0, currentCorrectStreak: 1, recentOutcomes: [{ id: newAttempt.id, createdAt: newAttempt.createdAt, correct: true, elapsedMs: 1000 }] };
   const oldDaily = { key: `2026-08-30:${attemptQ1.id}`, date: "2026-08-30", questionId: attemptQ1.id, total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 1000 };
-  const newDaily = { ...oldDaily, key: `2026-08-30:${attemptQ2.id}`, questionId: attemptQ2.id, correct: 1, wrong: 0 };
+  const newDaily = { key: `2026-08-30:${attemptQ2.id}`, date: "2026-08-30", questionId: attemptQ2.id, total: 1, correct: 1, wrong: 0, giveUps: 0, totalElapsedMs: 1000 };
   const oldRoundProgress = { key: `${round.id}:${attemptQ1.id}`, roundId: round.id, questionId: attemptQ1.id, attempts: 1, correct: 0, wrong: 1, firstAttemptAt: oldAttempt.createdAt, latestAttemptAt: oldAttempt.createdAt, giveUps: 0, totalElapsedMs: 1000, firstAttemptCorrect: false, hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0, recentOutcomes: oldStats.recentOutcomes };
-  const newRoundProgress = { ...oldRoundProgress, key: `${round.id}:${attemptQ2.id}`, questionId: attemptQ2.id, correct: 1, wrong: 0, firstAttemptCorrect: true, hasBeenWrong: false, currentCorrectStreak: 1, recentOutcomes: newStats.recentOutcomes };
+  const newRoundProgress = { key: `${round.id}:${attemptQ2.id}`, roundId: round.id, questionId: attemptQ2.id, attempts: 1, correct: 1, wrong: 0, firstAttemptAt: newAttempt.createdAt, latestAttemptAt: newAttempt.createdAt, giveUps: 0, totalElapsedMs: 1000, firstAttemptCorrect: true, hasBeenWrong: false, currentCorrectStreak: 1, correctStreakAfterWrong: 0, recentOutcomes: newStats.recentOutcomes };
   await studyDb.banks.put(attemptBank);
   await studyDb.questions.bulkPut([attemptQ1, attemptQ2]);
-  const runBundle = decomposePracticeRun(run, []);
+  const runBundle = decomposePracticeRun(run, [oldAttempt]);
   await studyDb.practiceRuns.put(runBundle.record);
   await studyDb.practiceRunSources.bulkPut(runBundle.sources);
   await studyDb.practiceRunItems.bulkPut(runBundle.items);
@@ -317,25 +317,27 @@ try {
   const attemptTarget: ChangeSetProjection = {
     ...projection([attemptQ1, attemptQ2]),
     banks: [attemptBank],
-    attempts: [newAttempt],
-    attemptStats: [newStats],
-    attemptDailyStats: [newDaily],
+    attempts: [oldAttempt, newAttempt],
+    attemptStats: [oldStats, newStats],
+    attemptDailyStats: [oldDaily, newDaily],
     practiceRuns: [run],
     reviewRounds: [round],
-    reviewRoundProgress: [newRoundProgress],
+    reviewRoundProgress: [oldRoundProgress, newRoundProgress],
   } as ChangeSetProjection;
-  const attemptKeys = await deriveDirtyInstallKeys(attemptTarget, [changeSet([{ kind: "attempt.update", attempt: newAttempt, reviewRoundId: round.id }], 3)]);
+  const attemptKeys = await deriveDirtyInstallKeys(attemptTarget, [changeSet([{ kind: "attempt.create", attempt: newAttempt }], 3)]);
   assert.ok(attemptKeys);
-  assert.deepEqual(attemptKeys.attemptStats, [attemptQ1.id, attemptQ2.id].sort());
-  assert.deepEqual(attemptKeys.attemptDailyStats, [oldDaily.key, newDaily.key].sort());
-  assert.deepEqual(attemptKeys.reviewRoundProgress, [oldRoundProgress.key, newRoundProgress.key].sort());
+  assert.deepEqual(attemptKeys.attempts, [newAttempt.id]);
+  assert.deepEqual(attemptKeys.attemptStats, [attemptQ2.id]);
+  assert.deepEqual(attemptKeys.attemptDailyStats, [newDaily.key]);
+  assert.deepEqual(attemptKeys.reviewRoundProgress, [newRoundProgress.key]);
   assert.equal(await installProjection(attemptTarget, { dirtyKeys: attemptKeys }), true);
-  assert.equal((await studyDb.attempts.get(oldAttempt.id))?.questionId, attemptQ2.id);
-  assert.equal(await studyDb.questionProgress.get(attemptQ1.id), undefined);
+  assert.equal((await studyDb.attempts.get(oldAttempt.id))?.questionId, attemptQ1.id);
+  assert.equal((await studyDb.attempts.get(newAttempt.id))?.questionId, attemptQ2.id);
+  assert.equal((await studyDb.questionProgress.get(attemptQ1.id))?.wrong, 1);
   assert.equal((await studyDb.questionProgress.get(attemptQ2.id))?.correct, 1);
-  assert.equal(await studyDb.questionDailyProgress.get([oldDaily.date, oldDaily.questionId]), undefined);
+  assert.equal((await studyDb.questionDailyProgress.get([oldDaily.date, oldDaily.questionId]))?.questionId, attemptQ1.id);
   assert.equal((await studyDb.questionDailyProgress.get([newDaily.date, newDaily.questionId]))?.questionId, attemptQ2.id);
-  assert.equal(await studyDb.reviewRoundProgress.get([oldRoundProgress.roundId, oldRoundProgress.questionId]), undefined);
+  assert.equal((await studyDb.reviewRoundProgress.get([oldRoundProgress.roundId, oldRoundProgress.questionId]))?.questionId, attemptQ1.id);
   assert.equal((await studyDb.reviewRoundProgress.get([newRoundProgress.roundId, newRoundProgress.questionId]))?.questionId, attemptQ2.id);
 
   const cascadeKeys = await deriveDirtyInstallKeys(projection([]), [changeSet([{ kind: "question.delete.cascade", questionId: "unsafe-cascade", deletedAt: "2026-08-30T00:00:02.000Z" }], 4)]);

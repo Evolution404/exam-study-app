@@ -88,7 +88,7 @@ const mutationKinds = new Set<ChangeSetKind>([
   "bankFolder.save", "bankFolder.delete", "question.upsert", "question.delete", "question.delete.cascade",
   "question.split", "question.import", "question.bulk.upsert", "question.bulk.delete", "membership.save",
   "membership.remove", "membership.bulk.save", "membership.bulk.remove", "image.asset.save", "image.asset.delete",
-  "attempt.create", "attempt.update", "attempt.delete", "practice.answer.submitted", "practice.answer.updated",
+  "attempt.create", "attempt.delete", "practice.answer.submitted",
   "practice.answer.deleted", "practice.run.saved", "practice.run.status.changed", "practice.run.deleted",
   "note.upserted", "note.deleted", "questionGroup.saved", "questionGroup.deleted", "review.round.saved",
   "review.round.completed", "review.round.archived",
@@ -127,9 +127,9 @@ function validateMutationShape(value: Record<string, unknown>): value is ChangeS
   if (value.kind === "membership.bulk.remove") return arrayOfStrings("keys");
   if (value.kind === "image.asset.save") return hasObject("asset");
   if (value.kind === "image.asset.delete") return hasString("assetId");
-  if (value.kind === "attempt.create" || value.kind === "attempt.update") return hasObject("attempt");
+  if (value.kind === "attempt.create") return hasObject("attempt");
   if (value.kind === "attempt.delete") return hasString("attemptId");
-  if (value.kind === "practice.answer.submitted" || value.kind === "practice.answer.updated") return hasObject("attempt") && hasObject("answer") && hasString("runId") && hasString("questionId");
+  if (value.kind === "practice.answer.submitted") return hasObject("attempt") && hasObject("answer") && hasString("runId") && hasString("questionId");
   if (value.kind === "practice.answer.deleted") return hasString("attemptId") && hasString("runId") && hasString("questionId");
   if (value.kind === "practice.run.saved" || value.kind === "practice.run.status.changed") return hasObject("run");
   if (value.kind === "practice.run.deleted") return hasString("runId");

@@ -33,7 +33,7 @@ const syncApplicationSource = await readFile(new URL("../../src/lib/sync/sync-ap
 const syncUploadSource = await readFile(new URL("../../src/lib/sync/sync-upload.ts", import.meta.url), "utf8");
 const imageCacheSource = await readFile(new URL("../../src/lib/sync/image-asset-cache.ts", import.meta.url), "utf8");
 const imagePackSource = await readFile(new URL("../../src/lib/sync/image-asset-pack.ts", import.meta.url), "utf8");
-assert.equal(SYNC_ASSET_PREFIX, "sync/v9/assets/", "Asset Pack root must stay inside the public v9 namespace");
+assert.equal(SYNC_ASSET_PREFIX, "sync/v10/assets/", "Asset Pack root must stay inside the current public namespace");
 assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: ImageCacheDownloadProgressCallback\)/, "sync facade must expose image cache progress");
 assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
 assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");
@@ -47,11 +47,6 @@ assert.match(imagePackSource, /client\.createGitBlob/, "Asset Pack blob creation
 assert.match(imagePackSource, /client\.readGitBranchSnapshot/, "Asset Pack branch snapshots must use the GitHub transport owner");
 assert.match(imagePackSource, /client\.commitGitTreeFastForward/, "Asset Pack publication CAS must use the GitHub transport owner");
 
-// The shared pool must preserve order, cap active work and stop claiming new
-// items after the first worker error. This protects import/export/image-cache
-// callers from turning one bad asset into an unbounded queue. The failure is
-// immediate so CI scheduler load cannot reorder millisecond timers and make
-// this contract test flaky.
 {
   let active = 0;
   let maximum = 0;
@@ -106,8 +101,6 @@ function adapterFor(
   };
 }
 
-// Pure attempt generation first applies the longest-edge limit and then lowers
-// quality before lowering dimensions.
 const attempts = buildOptimizationAttempts(4000, 2000, {
   maxDimension: 2048,
   maxAttempts: 20,
@@ -120,8 +113,6 @@ const boundedAttempts = buildOptimizationAttempts(4000, 3000, { maxAttempts: 10_
 assert.ok(boundedAttempts.length <= 300);
 assert.ok(new Set(boundedAttempts.map((attempt) => attempt.mimeType)).size >= 2);
 
-// A small first encode is returned directly and receives the digest of its
-// bytes, not of the source Blob.
 let disposed = 0;
 const direct = await optimizeImageBlob(source, {
   adapter: adapterFor({ width: 1600, height: 900 }, (options) => new Blob([new Uint8Array([9, 8, 7])], { type: options.mimeType }), () => {
@@ -148,7 +139,6 @@ await optimizeImageBlob(source, {
 });
 assert.equal(closed, 1);
 
-// Oversized output progressively lowers quality and eventually dimensions.
 const reductionCalls: EncodeImageOptions[] = [];
 const reduced = await optimizeImageBlob(source, {
   maxBytes: 500,
@@ -166,7 +156,6 @@ assert.ok(reductionCalls.some((call, index) => index > 0 && (
   || call.width < reductionCalls[index - 1].width
 )));
 
-// If WebP encoding is unavailable, opaque images use the JPEG fallback.
 const fallback = await optimizeImageBlob(source, {
   adapter: adapterFor({ width: 100, height: 100, hasAlpha: false }, (options) => (
     options.mimeType === "image/webp" ? null : new Blob([new Uint8Array([6])], { type: options.mimeType })
@@ -174,9 +163,6 @@ const fallback = await optimizeImageBlob(source, {
 });
 assert.equal(fallback.mimeType, "image/jpeg");
 
-// A large source still reaches a fallback when WebP is unavailable. Exercise
-// both browser-style null and thrown encoder failures; the first MIME must not
-// consume the independent JPEG/PNG budget.
 for (const unavailable of ["null", "throw"] as const) {
   const fallbackCalls: EncodeImageOptions[] = [];
   const largeFallback = await optimizeImageBlob(source, {
@@ -195,7 +181,6 @@ for (const unavailable of ["null", "throw"] as const) {
   assert.equal(fallbackCalls.filter((call) => call.mimeType === "image/webp").length, 1);
 }
 
-// An alpha image falls back to PNG rather than losing transparency.
 const alphaFallback = await optimizeImageBlob(source, {
   adapter: adapterFor({ width: 100, height: 100, hasAlpha: true }, (options) => (
     options.mimeType === "image/webp" ? null : new Blob([new Uint8Array([5])], { type: options.mimeType })
@@ -203,8 +188,6 @@ const alphaFallback = await optimizeImageBlob(source, {
 });
 assert.equal(alphaFallback.mimeType, "image/png");
 
-// Even the smallest encode cannot fit: the adapter is still released and the
-// user-facing error contains no local file path.
 let releasedAfterFailure = 0;
 await expectReject(() => optimizeImageBlob(source, {
   maxBytes: 20,
@@ -214,7 +197,6 @@ await expectReject(() => optimizeImageBlob(source, {
 }), /图片压缩后仍超过/);
 assert.equal(releasedAfterFailure, 1);
 
-// Identical optimised bytes are content-addressed to the same id.
 const stableAdapter = adapterFor({ width: 80, height: 80 }, () => new Blob([new Uint8Array([3, 1, 4, 1, 5])], { type: "image/webp" }));
 const [first, second] = await Promise.all([
   optimizeImageBlob(source, { adapter: stableAdapter }),
@@ -222,9 +204,6 @@ const [first, second] = await Promise.all([
 ]);
 assert.equal(first.id, second.id);
 
-// Asset Pack format keeps logical SHA-256 image identity while changing only
-// the physical Git storage unit. maxAssets=2 forces deterministic multi-pack
-// coverage without allocating multi-megabyte fixtures.
 async function packAsset(bytes: number[], mimeType: ImageAsset["mimeType"] = "image/png"): Promise<ImageAsset & { blob: Blob }> {
   const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
   return {

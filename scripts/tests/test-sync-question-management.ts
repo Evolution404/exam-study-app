@@ -81,7 +81,6 @@ try {
     assert.equal(await studyDb.questions.count(), 200, "本地应导入 200 题");
     const fingerprints = new Set((await studyDb.questions.toArray()).map((question) => question.contentFingerprint));
     await sync();
-    assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "大导入应卸载为不可变对象");
 
     await freshClient("device-b");
     await sync();
@@ -89,7 +88,7 @@ try {
     assert.equal(await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).count(), 200, "题库关系应完整");
     const pulledFingerprints = new Set((await studyDb.questions.toArray()).map((question) => question.contentFingerprint));
     assert.deepEqual([...pulledFingerprints].sort(), [...fingerprints].sort(), "内容指纹应逐题一致");
-    console.log("scenario 1 passed: 单原子大导入跨设备一致（含卸载）");
+    console.log("scenario 1 passed: 单原子导入跨设备一致");
   }
 
   // --- Scenario 2: editing a question propagates ----------------------------

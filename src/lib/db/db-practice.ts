@@ -2,7 +2,6 @@
  * Practice runs, review rounds, answer recording and statistics.
  */
 import {
-  datePart,
   studyDb,
   getDeviceId,
   makeId,
@@ -12,8 +11,7 @@ import {
 import type { PracticeAnswerInput, PracticeAnswer } from "./db-core";
 import { enqueueChangeSet } from "./db-change-sets";
 import { deriveRunQuestions, validatePracticeRunReferencesInTx } from "./db-practice-run-create";
-import { updatePracticeRunStatsInTx } from "./db-practice-stats";
-import { addAttemptToStats, addDailyStats, updateReviewRoundProgressForAttemptInTx } from "./db-attempt-projections";
+import { applyAttemptProjectionInTx, applyPracticeRunProjectionInTx } from "./projection-engine";
 import { withSyncLock } from "../sync/sync-lock";
 import { restrictPracticeRunMappings } from "../practice/practice-run-invariants";
 import { stableQuestionOptionIds } from "../question/question-utils";
@@ -64,7 +62,7 @@ export async function savePracticeRun(run: PracticeRun): Promise<PracticeRun> {
         throw new Error("完整练习保存不能创建已提交答案；已提交答案必须通过 attempt 写入。");
       }
     }
-    await updatePracticeRunStatsInTx(current, updated);
+    await applyPracticeRunProjectionInTx(current, updated);
     await putPracticeRunRecordInTx(updated);
     await studyDb.practiceRunSources.where("runId").equals(run.id).delete();
     await studyDb.practiceRunSources.bulkPut(updated.bankIds.map((bankId, position) => ({
@@ -137,7 +135,7 @@ export async function savePracticeProgress(run: PracticeRun): Promise<PracticeRu
       updatedAt: run.updatedAt || nowIso(),
       revision: current.revision + 1,
     };
-    await updatePracticeRunStatsInTx(current, updated);
+    await applyPracticeRunProjectionInTx(current, updated);
     await putPracticeRunRecordInTx(updated);
     return updated;
   }));
@@ -285,7 +283,7 @@ export async function setPracticeRunStatus(runId: string, status: PracticeRun["s
       abandonedAt: status === "abandoned" ? updatedAt : undefined,
       revision: current.revision + 1,
     });
-    await updatePracticeRunStatsInTx(current, updated);
+    await applyPracticeRunProjectionInTx(current, updated);
     await putPracticeRunRecordInTx(updated);
     await enqueueChangeSet([{ kind: "practice.run.status.changed", run: updated }], updatedAt);
     return updated;
@@ -396,17 +394,15 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
       draftSelected: undefined,
       draftResponse: undefined,
     });
-    await studyDb.questionProgress.put(addAttemptToStats(await studyDb.questionProgress.get(input.questionId), attempt));
-    await studyDb.questionDailyProgress.put(addDailyStats(await studyDb.questionDailyProgress.get([datePart(timestamp), input.questionId]), attempt));
-    await updatePracticeRunStatsInTx(run, nextRun);
+    await applyAttemptProjectionInTx(attempt);
+    await applyPracticeRunProjectionInTx(run, nextRun);
     await putPracticeRunRecordInTx(nextRun);
     if (reviewRoundId) {
-      await updateReviewRoundProgressForAttemptInTx(reviewRoundId, input.questionId, attempt);
       await autoCompleteRoundIfReadyInTx(reviewRoundId);
     }
     const completedRound = reviewRoundId ? await getReviewRound(reviewRoundId) : undefined;
     await enqueueChangeSet([
-      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId, ...(reviewRoundId ? { reviewRoundId } : {}) },
+      { kind: "practice.answer.submitted", attempt, answer, runId: input.runId, questionId: input.questionId },
       ...(completedRound?.status === "completed" ? [{ kind: "review.round.completed" as const, round: completedRound }] : []),
     ], timestamp);
     return { attempt, answer };

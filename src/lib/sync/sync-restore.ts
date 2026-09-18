@@ -6,6 +6,7 @@ import { downloadRemote } from "./sync-download";
 import { checkpointFromProjection, installProjection, projectionFromCheckpoint, replayInWireOrder, saveQueueBase } from "./sync-checkpoint-bridge";
 import { withSyncLock } from "./sync-lock";
 import { installFingerprint, pruneCommittedChangeSets } from "./sync-watermark";
+import { SYNC_FORMAT_VERSION } from "./sync-head-types";
 
 /**
  * Destructive recovery entry point. Full restore intentionally ignores the
@@ -21,7 +22,7 @@ export async function restoreFullHistoryFromGitHub(
   return withSyncLock(async () => {
     const client = remote(settings, token, options?.fetch, options?.transport);
     const read = await client.readHead();
-    if (!read.initialized) throw new Error("远端还没有 v9 数据。");
+    if (!read.initialized) throw new Error("远端还没有同步数据。");
 
     // Restore wipes the whole local change-set queue. Never silently discard
     // unsynced local edits; the same snapshot is checked again in the install
@@ -32,7 +33,7 @@ export async function restoreFullHistoryFromGitHub(
 
     const bands = { download: [6, 55] as const, merge: [55, 75] as const, install: [75, 92] as const, cache: [92, 98] as const };
     const progress = monotonicProgress(callback);
-    report(progress, "download", "正在从远端抓取完整 v9 数据", bandPercent(bands.download, 0.02), bands.download[1]);
+    report(progress, "download", "正在从远端抓取完整同步数据", bandPercent(bands.download, 0.02), bands.download[1]);
     // Explicit remote full restore deliberately ignores historySyncStart.
     const downloaded = await downloadRemote(
       client,
@@ -71,11 +72,11 @@ export async function restoreFullHistoryFromGitHub(
     await saveInstalledHead(settings, installFingerprint(read.cache));
     await saveInstalledCursors(settings, read.head.cursors);
     await pruneCommittedChangeSets(read.head.cursors);
-    report(callback, "complete", "v9 远端恢复完成", 100);
+    report(callback, "complete", "远端恢复完成", 100);
 
     return {
       pulled: downloaded.changes.length,
-      formatVersion: 9 as const,
+      formatVersion: SYNC_FORMAT_VERSION,
       counts: checkpoint.counts,
       deferred: 0,
       cachedAt: new Date().toISOString(),

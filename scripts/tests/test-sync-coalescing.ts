@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { createBank, createQuestion, studyDb, importQuestionBank, resetDatabase } from "../../src/lib/db/db";
 import { getSyncHotWindowState, syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
+import { SYNC_OBJECT_PREFIX } from "../../src/lib/sync/sync-head-types";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
 // Exercises the hot-window segment coalescer along two axes the naive
@@ -292,11 +293,11 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
   await sync();
 
   // One large import (>128 KB) becomes a single offloaded change-set: its
-  // segment carries only a stub pointing at sync/v9/objects/<sha>.json.
+  // segment carries only a stub pointing at the current immutable object namespace.
   const rows = Array.from({ length: 600 }, (_, index) => ({ stem: `卸载合并第 ${index + 1} 题：考点 ${index} 的详细描述与选项辨析。`, type: "单选", options: ["甲", "乙", "丙", "丁"], answer: "A" }));
   const bank = await importQuestionBank("offload-coalesce.json", rows);
   await sync();
-  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "大导入应卸载为不可变对象");
+  assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_OBJECT_PREFIX)), "大导入应卸载为不可变对象");
   const afterImport = await getSyncHotWindowState(settings);
   assert.equal(afterImport?.segmentCount, 1, "大导入应只占 1 个带 stub 的分段");
 
@@ -308,7 +309,7 @@ function summarize(traces: Trace[]): { coalescePoints: Trace[]; peak: number; fi
     if ((await sync()).coalesced) coalescedWithStub = true;
   }
   assert.ok(coalescedWithStub, "带 stub 的热窗口到达阈值应触发合并");
-  assert.ok(server.contentPaths().some((path) => path.startsWith("sync/v9/objects/")), "合并后不可变对象应仍然存在（内容寻址，不被删除）");
+  assert.ok(server.contentPaths().some((path) => path.startsWith(SYNC_OBJECT_PREFIX)), "合并后不可变对象应仍然存在（内容寻址，不被删除）");
 
   // The fresh device pulls the coalesced segments and must hydrate the stub.
   await freshClient("device-b");

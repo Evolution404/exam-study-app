@@ -2,21 +2,21 @@ import assert from "node:assert/strict";
 import { createGitHubTransport, GITHUB_RELAY_URL, GITHUB_WEB_RELAY_PATH, resolveGitHubApiBaseUrl } from "../../src/platform/github-transport";
 import { getGitHubLogin } from "../../src/lib/sync/sync-tools";
 import { remote } from "../../src/lib/sync/sync-context";
-import type { SyncHead } from "../../src/lib/sync/sync-head-types";
+import { SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_HEAD_PATH, type SyncHead } from "../../src/lib/sync/sync-head-types";
 
 const native = { platform: "ios" as const, native: true, ios: true };
 const web = { platform: "web" as const, native: false, ios: false };
 const calls: string[] = [];
 const head: SyncHead = {
-  formatVersion: 9,
+  formatVersion: SYNC_FORMAT_VERSION,
   vaultId: "owner/repo@main",
   generatedAt: "2026-08-22T00:00:00.000Z",
   generation: 0,
   metadata: { producer: "test", vaultId: "owner/repo@main" },
   checkpoint: {
-    path: "sync/v9/checkpoints/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
-    blobSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    path: `${SYNC_CHECKPOINT_PREFIX}${"a".repeat(64)}.json`,
+    blobSha: "a".repeat(40),
+    sha256: "a".repeat(64),
     size: 0,
     storedSize: 0,
   },
@@ -30,8 +30,8 @@ const fakeFetch: typeof fetch = async (input) => {
   calls.push(String(input));
   const url = new URL(String(input));
   if (url.pathname === "/user") return new Response(JSON.stringify({ login: "owner" }), { status: 200 });
-  if (url.pathname.endsWith("/contents/sync/v9/head.json")) {
-    return new Response(JSON.stringify({ type: "file", encoding: "base64", content: base64(headBytes), sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }), { status: 200, headers: { ETag: '"head"' } });
+  if (url.pathname.endsWith(`/contents/${SYNC_HEAD_PATH}`)) {
+    return new Response(JSON.stringify({ type: "file", encoding: "base64", content: base64(headBytes), sha: "b".repeat(40) }), { status: 200, headers: { ETag: '"head"' } });
   }
   return new Response("missing", { status: 404 });
 };

@@ -4,6 +4,7 @@
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
 import type { RestoreState } from "./db-core";
+import { rebuildProjectionsFromFacts } from "./projection-engine";
 import { decomposePracticeRun } from "./practice-run-store";
 
 export interface ChangeSetQueueGuard {
@@ -22,13 +23,13 @@ interface RestoreLocalCheckpointProgress {
 
 export interface RestoreLocalCheckpointOptions {
   /**
-   * When present, projection replacement is performed only if the complete
-   * queue still has exactly these rows.  The comparison happens in the same
-   * read-write transaction as the replacement, so a new local edit either
-   * wins before the restore (causing a safe no-op) or commits after it.
+   * When present, checkpoint replacement is performed only if the complete
+   * queue still has exactly these rows. The comparison happens in the same
+   * read-write transaction as canonical replacement, so a new local edit
+   * either wins before the restore (causing a safe no-op) or commits after it.
    */
   queueGuard?: readonly ChangeSetQueueGuard[];
-  /** Clear the queue as part of the guarded projection replacement. */
+  /** Clear the queue as part of the guarded canonical replacement. */
   clearChangeSets?: boolean;
   /** Fine-grained local write progress used by the sync UI on slower phones. */
   onProgress?: (progress: RestoreLocalCheckpointProgress) => void;
@@ -56,27 +57,26 @@ function restoreRowCount(state: RestoreState): number {
     state.memberships,
     state.imageAssets,
     state.attempts,
-    state.attemptStats,
-    state.attemptDailyStats,
     state.notes,
     state.practiceRuns,
-    state.practiceRunStats,
     state.questionGroups,
     state.reviewRounds,
-    state.reviewRoundProgress,
     state.tombstones,
   ].reduce((total, rows) => total + rows.length, 0);
 }
 
 /**
- * Replace every projection atomically. The `events` store stays dormant
- * (Phase 3) and pending change-sets are deliberately left in place: callers
- * clear `changeSets` separately when a remote tail is being replayed.
+ * Replace canonical checkpoint facts atomically, then deterministically rebuild
+ * every device-local projection from those facts. Projection rows contained in
+ * older checkpoint payloads are deliberately ignored: they are caches, not facts.
+ * Pending change-sets are left in place unless the guarded caller explicitly
+ * requests clearing them, and projection rebuild never emits a sync change set.
  */
 export async function restoreLocalCheckpoint(state: RestoreState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
   const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRun(run, state.attempts));
-  // imageAssets is reconciled in place instead of clear+rewrite. imageBlobs is
-  // a local-only cache and is never installed from checkpoint state.
+  // Projection tables are cleared in the canonical install transaction so no
+  // stale derived rows survive a successful restore. They are populated only
+  // from the already materialized canonical snapshot after that transaction commits.
   const replaceTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
@@ -85,7 +85,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
 
-  return studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets], async () => {
+  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets], async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -125,14 +125,13 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
         if (!queueMatches(current, options.queueGuard)) return false;
       }
 
-      // Clear replaceable canonical/projection tables. imageAssets is reconciled
-      // separately and imageBlobs stays local so cached bytes never round-trip
-      // through checkpoint JSON or JavaScript memory on ordinary sync.
       for (const table of replaceTables) {
         await table.clear();
         touched();
       }
 
+      // imageAssets is canonical descriptor data reconciled in place. imageBlobs
+      // is a local-only cache and never comes from checkpoint state.
       const existingAssetKeys = await studyDb.imageAssets.toCollection().primaryKeys();
       touched();
       const existingAssetIds = new Set(existingAssetKeys.filter((key): key is string => typeof key === "string"));
@@ -162,20 +161,10 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
       await writeChunks(state.questions, (chunk) => studyDb.questions.bulkPut(chunk), "写入题目");
       await writeChunks(state.memberships, (chunk) => studyDb.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");
       await writeChunks(state.attempts, (chunk) => studyDb.attempts.bulkPut(chunk), "写入作答记录");
-      await writeChunks(state.attemptStats, (chunk) => studyDb.questionProgress.bulkPut(chunk), "写入学习统计");
-      await writeChunks(state.attemptDailyStats, (chunk) => studyDb.questionDailyProgress.bulkPut(chunk), "写入每日统计");
       await writeChunks(state.notes, (chunk) => studyDb.notes.bulkPut(chunk), "写入解析笔记");
       await writeChunks(practiceRunBundles.map((bundle) => bundle.record), (chunk) => studyDb.practiceRuns.bulkPut(chunk), "写入练习记录");
       await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.sources), (chunk) => studyDb.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
       await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.items), (chunk) => studyDb.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
-      await writeChunks(state.practiceRunStats, (chunk) => studyDb.bankPracticeStats.bulkPut(chunk.map((stats) => ({
-        bankId: stats.bankId,
-        total: stats.total,
-        completed: stats.completed,
-        inProgress: stats.inProgress,
-        abandoned: stats.abandoned,
-        latestActivityAt: stats.latestUpdatedAt,
-      }))), "写入练习统计");
       await writeChunks(state.questionGroups.map((group) => ({
         id: group.id,
         name: group.name,
@@ -212,13 +201,11 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
         questionId,
         position,
       }))), (chunk) => studyDb.reviewRoundItems.bulkPut(chunk), "写入复习轮次题目关系");
-      await writeChunks(state.reviewRoundProgress, (chunk) => studyDb.reviewRoundProgress.bulkPut(chunk), "写入轮次进度");
       await writeChunks(state.tombstones, (chunk) => studyDb.tombstones.bulkPut(chunk), "写入删除标记");
       if (options.clearChangeSets) {
         await studyDb.changeSets.clear();
         touched();
       }
-      options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
       return true;
     } catch (error) {
       if (stalled) throw new Error("本机数据库写入长时间无响应，已安全取消本次写入。请保持应用在前台后重试同步。");
@@ -227,4 +214,10 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
       if (stallTimer !== undefined) clearTimeout(stallTimer);
     }
   });
+
+  if (!restored) return false;
+  options.onProgress?.({ completed: totalRows, total: totalRows, label: "重建本地学习统计" });
+  await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);
+  options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
+  return true;
 }

@@ -399,14 +399,14 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
             putFaultFired = true;
             return sendJson(res, 500, { message: "transient mock PUT failure" });
           }
-          if (logicalPath.startsWith("sync/v9/assets/")) {
+          if (/^sync\/v[0-9]+\/assets\//.test(logicalPath)) {
             stats.assetWrites += 1;
             inFlightAssetWrites += 1;
             stats.maxConcurrentAssetWrites = Math.max(stats.maxConcurrentAssetWrites, inFlightAssetWrites);
             if (assetWriteLatencyMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, assetWriteLatencyMs));
             inFlightAssetWrites -= 1;
           }
-          if (logicalPath.startsWith("sync/v9/objects/")) {
+          if (/^sync\/v[0-9]+\/objects\//.test(logicalPath)) {
             stats.objectWrites += 1;
             inFlightObjectWrites += 1;
             stats.maxConcurrentObjectWrites = Math.max(stats.maxConcurrentObjectWrites, inFlightObjectWrites);
@@ -417,11 +417,11 @@ export function startMockGitHubServer({ port = 0, hostname = "127.0.0.1", cas = 
           const buffer = Buffer.from(body.content, "base64");
           const sha = sha1Hex(buffer);
           const existed = paths.has(storageKey);
-          if (faults?.conflictHeadPutOnce && !putFaultFired && existed && /^sync\/v[789]\/head\.json$/.test(logicalPath)) {
+          if (faults?.conflictHeadPutOnce && !putFaultFired && existed && /^sync\/v[0-9]+\/head\.json$/.test(logicalPath)) {
             putFaultFired = true;
             return sendJson(res, 409, { message: "Conflict" });
           }
-          if (faults?.conflictHeadPutAlways && existed && /^sync\/v[789]\/head\.json$/.test(logicalPath)) {
+          if (faults?.conflictHeadPutAlways && existed && /^sync\/v[0-9]+\/head\.json$/.test(logicalPath)) {
             return sendJson(res, 409, { message: "Conflict" });
           }
           if (cas && existed) {

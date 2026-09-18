@@ -179,7 +179,7 @@ const empty: ChangeSetProjection = {
 }
 
 // ---------------------------------------------------------------------------
-// answer submitted / updated / deleted
+// answer submitted / immutable resubmission / deleted
 // ---------------------------------------------------------------------------
 {
   const base = structuredClone(empty);
@@ -199,11 +199,15 @@ const empty: ChangeSetProjection = {
     /已存在，提交必须使用新 id/,
   );
 
-  const updated = await reduce(after, { kind: "practice.answer.updated", attempt: { ...attempt, correct: false, selected: "B" }, answer: { ...answer, correct: false, selected: ["B"] }, runId: "r1", questionId: "q1" });
-  assert.equal(updated.attempts[0].correct, false);
+  const secondAttempt = { ...attempt, id: "a2", correct: false, selected: "B" };
+  const updated = await reduce(after, { kind: "practice.answer.submitted", attempt: secondAttempt, answer: { ...answer, eventId: "e2", correct: false, selected: ["B"] }, runId: "r1", questionId: "q1" });
+  assert.equal(updated.attempts.length, 2);
+  assert.equal(updated.attempts.find((item) => item.id === "a1")?.correct, true, "earlier immutable attempt must remain unchanged");
+  assert.equal(updated.attempts.find((item) => item.id === "a2")?.correct, false);
   assert.equal(updated.practiceRuns[0].answers.q1.correct, false);
 
-  const deleted = await reduce(updated, { kind: "practice.answer.deleted", attemptId: "a1", runId: "r1", questionId: "q1", deletedAt: AT });
+  const deletedLatest = await reduce(updated, { kind: "practice.answer.deleted", attemptId: "a2", runId: "r1", questionId: "q1", deletedAt: AT });
+  const deleted = await reduce(deletedLatest, { kind: "practice.answer.deleted", attemptId: "a1", runId: "r1", questionId: "q1", deletedAt: AT });
   assert.equal(deleted.attempts.length, 0);
   assert.equal(deleted.practiceRuns[0].answers.q1, undefined);
   assert.ok(deleted.tombstones.some((t) => t.entityType === "attempt" && t.entityId === "a1"));

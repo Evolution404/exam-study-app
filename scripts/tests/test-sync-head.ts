@@ -3,12 +3,12 @@ import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projecti
 import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryProjection, reconcileInterruptedClaims } from "../../src/lib/sync/sync-orchestrator-model";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { SYNC_ASSET_PREFIX, SYNC_CHECKPOINT_PREFIX, SYNC_HEAD_PATH, SYNC_MAX_HOT_BYTES, SYNC_OBJECT_PREFIX, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
+import { SYNC_ASSET_PREFIX, SYNC_CHECKPOINT_PREFIX, SYNC_FORMAT_VERSION, SYNC_HEAD_PATH, SYNC_MAX_HOT_BYTES, SYNC_OBJECT_PREFIX, SYNC_SEGMENT_PREFIX } from "../../src/lib/sync/sync-head-types";
 import { assertSyncPath, validateSyncHead, validateSyncDescriptor } from "../../src/lib/sync/sync-head-validation";
 import { appendSyncSegments, createSyncAppendPublicationPlan, createSyncCompactionPlan, createSyncObjectRef, createSyncPublicationPlan, encodeSyncEvent, orderSyncSegments, paginateSyncEvents, planSyncCompaction, replaySyncSegments } from "../../src/lib/sync/sync-head-operations";
 import type { SyncHead, SyncDescriptor, SyncSegmentDescriptor } from "../../src/lib/sync/sync-head-types";
 
-const digest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+const digest = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex");
 const sha1 = (digit: string) => digit.repeat(40);
 const bytes = (text: string) => new TextEncoder().encode(text);
 const descriptor = (prefix: string, content: string): SyncDescriptor => {
@@ -19,7 +19,7 @@ const vaultId = "vault:test-current";
 const createdAt = "2026-08-13T00:00:00.000Z";
 const checkpoint = descriptor(SYNC_CHECKPOINT_PREFIX, "initial checkpoint");
 const head: SyncHead = {
-  formatVersion: 9,
+  formatVersion: SYNC_FORMAT_VERSION,
   vaultId,
   generatedAt: createdAt,
   generation: 0,
@@ -33,7 +33,7 @@ assertSyncPath(SYNC_HEAD_PATH, "head");
 assertSyncPath(`${SYNC_ASSET_PREFIX}${digest("asset")}.webp`, "asset");
 assertSyncPath(`${SYNC_OBJECT_PREFIX}${digest("object")}.json`, "object");
 assertSyncPath(`${SYNC_SEGMENT_PREFIX}${digest("segment")}.json`, "segment");
-assert.throws(() => assertSyncPath("sync/v9/head.json", "object"), /mutable/);
+assert.throws(() => assertSyncPath(SYNC_HEAD_PATH, "object"), /mutable/);
 assert.throws(() => validateSyncHead({ ...head, vaultId: "" }), /vault identity/);
 assert.throws(() => validateSyncHead({ ...head, metadata: { ...head.metadata, vaultId: "other" } }), /does not match/);
 assert.throws(() => encodeSyncEvent({ text: "x".repeat(300_000) }), /immutable ref/);
@@ -73,9 +73,9 @@ assert.equal(compactedPublication.mode, "compaction");
 assert.deepEqual(compactedPublication.order, ["checkpoint", "objects", "segments", "head-cas"]);
 
 const replayInput = [
-  { generation: 2, ordinal: 0, path: "sync/v9/segments/ffff.json", events: ["g2"] },
-  { generation: 1, ordinal: 1, path: "sync/v9/segments/0000.json", events: ["g1b"] },
-  { generation: 1, ordinal: 0, path: "sync/v9/segments/aaaa.json", events: ["g1a"] },
+  { generation: 2, ordinal: 0, path: `${SYNC_SEGMENT_PREFIX}ffff.json`, events: ["g2"] },
+  { generation: 1, ordinal: 1, path: `${SYNC_SEGMENT_PREFIX}0000.json`, events: ["g1b"] },
+  { generation: 1, ordinal: 0, path: `${SYNC_SEGMENT_PREFIX}aaaa.json`, events: ["g1a"] },
 ];
 assert.deepEqual(replaySyncSegments(replayInput), ["g1a", "g1b", "g2"]);
 assert.deepEqual(orderSyncSegments(replayInput).map((item) => [item.generation, item.ordinal]), [[1, 0], [1, 1], [2, 0]]);
@@ -91,7 +91,7 @@ assert.ok(pages.length >= 1);
 assert.ok(pages.every((page) => page.size > 0 && page.count > 0));
 
 {
-  const base = { path: "sync/v9/checkpoints/" + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
+  const base = { path: SYNC_CHECKPOINT_PREFIX + "a".repeat(64) + ".json", blobSha: "b".repeat(40), sha256: "a".repeat(64), size: 100 };
   const withStored = { ...base, storedSize: 42 };
   assert.ok(validateSyncDescriptor(withStored, "checkpoint") === undefined, "storedSize 合法");
   let rejected = false;

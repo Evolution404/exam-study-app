@@ -1,19 +1,18 @@
 /**
- * Sync v9 transport contract.
+ * Current sync transport contract.
  *
- * The domain/database model uses version-neutral runtime names. The remote
- * wire protocol remains format 9: head, checkpoints, objects,
- * segments, assets and history all live below sync/v9 and head/segment
- * envelopes carry formatVersion 9.
+ * Domain/database names stay version-neutral. The remote wire protocol uses
+ * format 10: head, checkpoints, objects, segments, assets and history all live
+ * below sync/v10, and head/segment envelopes carry formatVersion 10.
  */
 
-export const SYNC_FORMAT_VERSION = 9 as const;
-export const SYNC_HEAD_PATH = "sync/v9/head.json";
-export const SYNC_CHECKPOINT_PREFIX = "sync/v9/checkpoints/";
-export const SYNC_OBJECT_PREFIX = "sync/v9/objects/";
-export const SYNC_HISTORY_PREFIX = "sync/v9/history/";
-export const SYNC_SEGMENT_PREFIX = "sync/v9/segments/";
-export const SYNC_ASSET_PREFIX = "sync/v9/assets/";
+export const SYNC_FORMAT_VERSION = 10 as const;
+export const SYNC_HEAD_PATH = "sync/v10/head.json";
+export const SYNC_CHECKPOINT_PREFIX = "sync/v10/checkpoints/";
+export const SYNC_OBJECT_PREFIX = "sync/v10/objects/";
+export const SYNC_HISTORY_PREFIX = "sync/v10/history/";
+export const SYNC_SEGMENT_PREFIX = "sync/v10/segments/";
+export const SYNC_ASSET_PREFIX = "sync/v10/assets/";
 
 /** The maximum encoded inline event. Larger payloads must be immutable refs. */
 export const SYNC_MAX_EVENT_BYTES = 256 * 1024;
@@ -49,7 +48,7 @@ export const SYNC_LIMITS = Object.freeze({
 export type SyncBytes = Uint8Array | ArrayBuffer | string;
 
 export interface SyncDescriptor {
-  /** Relative Git path in one of the immutable v9 namespaces. */
+  /** Relative Git path in one of the immutable current sync namespaces. */
   path: string;
   /** Git's SHA-1 blob id returned by the Contents API. */
   blobSha: string;
@@ -110,8 +109,8 @@ export interface SyncHead {
   checkpoint: SyncDescriptor | null;
   segments: SyncSegmentDescriptor[];
   cursors: Record<string, number>;
-  /** Per-device install watermarks for causally-stable tombstone GC.  Optional
-   *  until the first device reports (absent = every device unconfirmed). */
+  /** Per-device install watermarks for causally-stable tombstone GC. Optional
+   * until the first device reports (absent = every device unconfirmed). */
   devices?: Record<string, SyncDeviceWatermark>;
 }
 

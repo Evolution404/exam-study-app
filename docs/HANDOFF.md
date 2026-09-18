@@ -1,208 +1,266 @@
 # 项目交接文档
 
-> 更新时间：2026-09-17（Asia/Tokyo）
-> 项目：`/Users/zhangyuxi/Desktop/exam-study-app`
-> 接手前先完整阅读本文，并运行 `git status --short`、`git log -5 --oneline`、`npm run typecheck`。
+> 更新时间：2026-09-18（Asia/Tokyo）
+> 仓库：`Evolution404/exam-study-app`
+> 当前工作方式：只使用 GitHub / 云端环境；不要连接用户 Mac。
+> 完整数据库重构基线见 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`。
 
-> **当前工作面：PR #58 的 Phase 2 已完成收口，保持 Draft，禁止进入 Phase 3。** 实施分支 `refactor/database-facts-projections-20260917` 已完成 current schema/types、canonical facts 与关系化写路径、PracticeRun 正常化、图片 descriptor/blob cache 分离，以及 version-neutral 业务 API/type/file-name 清理。除非用户明确授权，不开始 Phase 3 projection engine，不合并、不发布、不执行 production remote cutover。
+## 0. 当前工作面
 
-> 2026-09-17 Bug / 性能审计记录见 `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`；后续又在 `audit/code-audit-20260917` 完成数据库写入竞态、删除引用完整性与 Bank Detail / Practice Detail 大历史读取优化。不要从 `main` 重复定位这些问题。
->
-> 2026-09-16 性能审计记录见 `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`。PR #55 已合并并发布，生产基线 merge commit 为 `694cb5ecb2edb4eab55da50eaa50af2640a61a61`。
+- Draft PR：#59 `refactor: rebuildable projections and canonical sync v10`
+- 分支：`refactor/database-projection-sync-v10-20260917`
+- Phase 0–2：PR #58 已完成并合并。
+- Phase 3–5：projection engine、targeted read-model、canonical-only checkpoint/history 已完成。
+- Phase 6：一次性真实生产 v9 → v10 转换已完成；先 dry-run，再 head-last cutover。
+- Phase 7：旧 runtime v9 行为、版本号式 runtime 命名和一次性 converter 工具已清理；runtime 只识别当前 v10。
+- Phase 8：生产 v10 cutover 已完成；`75d901b977802ca468671d340d8165b47f57719b` 已通过最终完整 CI。当前只剩本次交接文档提交后的 docs-only CI → PR #59 ready/merge → 正式发布/生产 smoke。
 
-## 0.5 Phase 2 收口状态
+用户已明确授权：完成后合并 PR #59 并发布。不要再重复请求 cutover / merge / release 授权。
 
-- PR #58 已完成 Phase 2：关系事实拆为 `questionGroupItems`、`reviewRoundBanks`、`reviewRoundItems`、`practiceRunSources`、`practiceRunItems`；`Attempt` 持有提交答案与复习轮次 provenance；`imageAssets` descriptor 与本地 `imageBlobs` cache 分离。
-- `PracticeRun` 主记录只保留会话元数据；已提交答案只以 `Attempt` 为事实，删除题库仍保留历史 run attribution snapshot。
-- 当前 Dexie schema 继续只有一个 `version(1)`；禁止 `version(2+)`、`.upgrade()`、旧 store、旧 API alias、双读/双写 compatibility layer。
-- `V7/v7/V8/v8` 业务 API、type、source filename 与旧 runtime/test 标签已清理；`scripts/tools/check-architecture.mjs` 负责阻止重新引入。真实 Sync v9 wire 继续保留。
-- iOS 原生偏好键已改为 version-neutral `CapacitorStorage.study-preferences`；同步 CI/package scripts 已切换到 version-neutral 名称。
-- PR CI 的主测试 job 直接执行 `make test`；Chromium/WebKit 浏览器 smoke、Sync storage CI、Governance Audit、PR Preview 都是 Phase 2 最终门禁的一部分。
-- 2026-09-17 Phase 2 代码验收基线 `1402459`：`make test`、Chromium、WebKit、Sync storage CI、Governance Audit、PR Preview 全部通过；依赖审计为 0 vulnerabilities。
-- **停止线：Phase 3 尚未开始。除非用户明确授权，不实现 projection engine 后续阶段，不合并 PR #58，不发布。**
+### 生产 cutover 事实基线
 
-## 1. 当前基线
+- 真实 dry-run：PASS，使用 App commit `e43a8d21978952d231e9b499b208f8a37ef0a7b6`。
+- 生产 v9 source head：generation 907，blob SHA `35666d08c74a272e307915c82a0a1402a5f4c104`。
+- v10 head 已发布：formatVersion 10，generation 1。
+- v10 checkpoint：`sync/v10/checkpoints/8638bea95c74872834527b4a5ba44282fcde9b7ddaba542091d5ed57bd00df3b.json`。
+- 转换事实：10 banks / 3 bankFolders / 4,117 questions / 4,410 memberships / 9,706 attempts / 914 notes / 96 practiceRuns / 255 practiceRunSources / 13,068 practiceRunItems / 12 questionGroups / 105 questionGroupItems / 623 tombstones。
+- 历史：4,367 archived attempts，345 hot change sets 均已纳入。
+- 图片：320 imageAssets，indexedAssets=320；4 shards，引用 blob SHA 已逐项核对。
+- v9 namespace/head 完整保留，不删除、不覆盖；新 runtime 不再读取它。
+- 一次性 converter / remote reader / shadow cutover / asset shadow 工具与对应测试、npm scripts 已在 cutover 后删除，避免长期兼容技术债。
 
-- 当前实施分支：`refactor/database-facts-projections-20260917`；Draft PR #58，base 为 `main`。Phase 2 已收口，Phase 3 未开始。远端：`https://github.com/Evolution404/exam-study-app.git`
-- 线上：<https://evolution404.github.io/exam-study-app/>
-- 技术栈：React 19、Vite 8、Dexie、PWA、GitHub Pages / Cloudflare Pages。
-- 公开客户端数据层：唯一 IndexedDB `shijuan-study`。所有客户端同步升级；schema 变更时清空本地数据并从远端重新同步，不保留旧 schema/旧命名空间迁移代码。
-- 公开同步协议：Sync v9，唯一可变入口 `sync/v9/head.json`；UI 只通过 `src/lib/sync/github-sync.ts` 门面访问同步。
-- 图片远端布局：`sync/v9/assets/index.json` + 4 个索引 shard + immutable Asset Pack；运行时不再使用逐图 `sync/v9/assets/<sha256>.<ext>` 布局。
-- Service Worker 缓存版本：`shijuan-v10`。
-- 支持平台：Desktop Web/PWA 与 Capacitor 8 + WKWebView iOS native App；iOS 复用同一 React/Dexie/Sync v9 业务代码，Bundle ID 固定为 `com.evolution404.shijuan`。
-- iOS 构建：`APP_TARGET=ios` 使用 `./` 相对资源基路径；native 不注册 Service Worker，Native HTTP 未启用，网络仍走 WKWebView `fetch` 兼容路径。
-- 页面已验收：整页切题动画、夜间输入框、快捷键、计算题、结果详情、解析自动保存、随机指定题数、静默同步、清除站点数据、热窗口可视化。
+### 本次真实数据暴露并修正的领域约束
 
-## 2. 目录结构
+`Attempt.runId` 是历史归属 ID，不是 live `PracticeRun` 外键。正式 `deletePracticeRun()` 语义是删除练习投影但保留全局 Attempt 学习历史，并写 practiceRun tombstone。checkpoint validator 已据此修正；Attempt → Question、PracticeRunSource/Item → live PracticeRun 等真实约束仍保持严格。
+
+## 1. 强制约束
+
+1. 测试先行，小 commit，单一主题，验证通过及时 push。
+2. 禁止 `git reset` / `git clean`。
+3. Dexie 只允许当前 `version(1)`；禁止 `version(2+)`、`.upgrade()`、migration chain。
+4. 所有客户端统一升级；本地数据可清空重新同步，不需要旧客户端兼容。
+5. 禁止旧 store、旧 API alias、runtime 双栈、fallback reader、双读双写 compatibility layer。
+6. canonical fact 只能有一个事实源；projection 必须可删除、可重建、不得同步。
+7. 已提交答案只以 `Attempt` 为事实；不得把 `PracticeRun` 恢复为 `answers/questionIds/questionTypes/optionOrders` 大对象双写模型。
+8. 不允许通过提高 baseline、放宽 architecture/performance guard 掩盖失败。
+9. 性能回退先找根因；不能为了“架构正确”接受 N+1、全表扫描或无关数据 materialize。
+10. 真实 Sync v9 → v10 只允许一次性 converter；禁止 v9/v10 runtime 双栈和长期兼容层。
+
+## 2. Phase 3 收口：统一 projection engine
+
+当前 local projections：
+
+- `questionProgress`
+- `questionDailyProgress`
+- `reviewRoundProgress`
+- `bankPracticeStats`
+
+它们全部是 device-local derived state，只能由 canonical facts 重建。
+
+已完成：
+
+- canonical facts → local projections 的统一 projection engine。
+- full rebuild / dirty incremental rebuild。
+- full 与 incremental differential 等价测试。
+- projection deletion + rebuild recovery。
+- idempotence。
+- rebuild sync-silence：重建 projection 不产生 change set。
+- restore/reconcile 使用已 materialize 的 canonical snapshot 直接批量重建，避免写完 canonical 后再逐行从 IndexedDB 读回。
+
+性能要求：
+
+- 10k attempts rebuild 已控制为“内存聚合 + 每个 projection table 批量写入”。
+- 禁止恢复逐 attempt `get/put` 的 IndexedDB N+1 路径。
+
+关键文件：
+
+- `src/lib/db/projection-engine.ts`
+- `src/lib/db/db-attempt-projections.ts`
+- `scripts/tests/test-projection-rebuild.ts`
+- `scripts/tests/test-projection-edge-cases.ts`
+
+## 3. Phase 4 收口：read-model / targeted indexes
+
+已完成主要热点：
+
+- Dashboard scope stats。
+- Bank Detail rolling/lifetime/round/recent history。
+- PracticeRun / Practice History 关键索引读取门禁。
+
+### Dashboard
+
+指定题集 rolling 不再：
 
 ```text
-src/app/
-  ui/          # 通用 UI：app-select, confirm-dialog, hint, modal-portal, scope-summary-chips,
-               # shortcut-setting, asset-image, math-text, note-markdown
-  practice/    # practice-setup, practice-history, review-round-manager,
-               # progress-scope-setting, use-smooth-progress
-  search/      # search-view, search-filter-drawer, quick-search
-  bank/        # bank-library-view, question-editor, question-detail,
-               # content-block-editor, content-block-renderer, excel-import, knowledge-view
-  sync/        # sync-view, sync-event-manager, sync-event-drawer, sync-hot-window
-  shell/       # 应用外壳：app-shell, navigation, topbar, helpers, views
-  hooks/       # use-app-environment
-  styles/      # components.css 只负责导入顺序；base/primitives/shared/shell/dashboard/search/
-               # bank/practice/preferences/responsive/dark-overrides 为拆分后的主样式域；另有
-               # theme-tokens, controls, content-blocks, review-scope, sync-events, hint
-src/lib/       # 领域逻辑：db / sync / question / io / practice
-src/platform/  # Web/iOS 平台适配：环境、运行时、transport、凭据、配置、生命周期、文件与反馈
-proxy/         # GitHub API 转发代理源码
-ios/           # Capacitor 生成的 iOS 原生壳（不承载业务页面）
-functions/     # 构建生成：functions/api-github/[[path]].js（不要手写，由 emit-pages-relay 生成）
-scripts/
-  tools/       # 构建/检查/生成工具
-  tests/       # 所有测试脚本
-src/types/     # 全局类型声明
-public/        # 静态资源与 PWA
-docs/          # 项目文档
+createdAt 时间窗全读
+→ JS filter(questionId)
 ```
 
-## 3. 数据模型与同步边界
+而是：
 
-- **开发阶段禁止历史兼容层**：Dexie 只允许一个 `version(1)` 当前 schema，禁止 `version(2+)`、`.upgrade()`、schema migration/compat 文件；同步只允许当前 v9 namespace；旧本地配置键/旧 DB 命名空间不得恢复。门禁位于 `scripts/tools/check-architecture.mjs`。除非用户明确改变策略，否则不要为了“兼容旧客户端”新增分支。
-
-- `Question` 是全局实体；题库归属通过 `BankQuestionMembership` 保存。
-- 删除题库只删除成员关系；无成员的题显示在“未归档题目”。
-- 进度口径：滚动 90 天、永久、30/90/180 天、自定义天数、命名轮次。
-- 一次提交只创建一条 `Attempt` canonical fact 并发出一条 `practice.answer.submitted`；`practiceRunItems` 只保存 `submittedAttemptId` 与必要 draft，已提交答案不再复制到 PracticeRun 大 Map。
-- 个人难度以有效作答时间、作答间隔和本机成熟历史校准；后台、编辑器、题目总览不计时，速度基线只吸收有效正确作答。未作答固定为 50。
-- `difficulty` 是个人掌握风险；“复习优先”排序使用独立 `reviewPriority`（个人难度 70% + 距上次作答风险 30%）。新轮次进度保存最近作答证据，与普通练习使用同一难度口径。
-- 图片为私有资产：逻辑身份固定为 `assetId = SHA-256(image bytes)`；本地只存 Blob，不保存公开 URL。
-- 图片远端物理存储只使用 Asset Pack：`sync/v9/assets/index.json` 只保存固定 4 个 shard descriptor；shard 保存 `assetId -> pack + offset/length + mime/size/dimensions`；Pack 目标约 8 MiB、最多 64 图，Pack 与 shard 都是内容寻址不可变 `.bin`。
-- 图片发布禁止恢复逐图 Contents PUT。一轮待发布图片先聚合 Pack，再通过 Git Data API 一次创建 pack/shard/index tree，只生成 1 个 Git commit + 1 次 heads ref fast-forward；请求数按 Pack/shard 数量增长，不按图片张数增长。
-- 旧逐图 `sync/v9/assets/<sha256>.<ext>` 不作为运行时兼容层。首次发现 Pack index 不存在时执行一次性迁移：优先使用本地 Blob；本地 Blob 缺失时只允许在迁移阶段从旧 Git blob 读取一次；新 Pack、shard、index 与旧单图路径删除必须在同一个 Git commit 中完成。迁移后本地 `remote` 仅可作为已经退役的迁移元数据被清理，运行时读取只走 Pack index。
-- Excel/zip 导入只物化题目实际引用的图片，并在导入完成时把全部图片逻辑描述写进同一个固定 `question.import` 事件；图片物理发布不会按图片上传完成顺序新增 change set。
-- 题库 Excel 导出必须从 UI `canonical.content/options` 读取富内容，并以 WPS `DISPIMG` + `xl/cellimages.xml` + `xl/media/*` 嵌入图片；导出先收集当前题库实际引用的 assetId，本地 Blob 缺失时通过 `syncApplication.downloadImageAssets(missingIds)` 一次批量解析 index/shard/unique packs，仍有缺图则中止导出，禁止逐图远端请求和静默生成纯文字文件。
-- 题库便携导出无图时生成普通 JSON；只要题干或选项引用图片，就必须生成 `bank.json + images/*` 的 ZIP，并保留原图字节与格式（包括 WebP），以保证内容寻址文件名可校验、可完整回导。任一原图缺失时中止导出，禁止生成不完整压缩包。
-- 全量图片缓存同样使用批量 Pack resolver：1 个 index、最多 4 个相关 shard、每个 unique Pack 最多读取一次；单图 UI 懒加载只是这一批量 resolver 的单 ID 包装。
-- 同步固定 head：`sync/v9/head.json`；检查点、分段、对象、历史与 Asset Pack 不可变对象均在 v9 namespace 下。
-- 会产生 change set 的领域写事务必须把 `syncMeta` 放进同一个 Dexie `rw` 事务；同步序号在当前事务内分配。禁止从领域写事务中另开 `syncMeta` 写事务，否则 Safari 会因 IndexedDB 写事务相互等待而卡住导入、作答等写操作。
-- 冷启动恢复同时下载检查点和热窗口分段，总并发上限保持为 6；检查点按响应流字节持续上报下载进度，全部下载完成后仍按检查点再分段的确定顺序安装。
-- `GitHubSettings.historySyncStart` 是设备本地的练习历史同步起点（`YYYY-MM-DD`）：题库内容始终完整同步，v9 历史索引按 `firstAt/lastAt` 跳过更早分块；本地缓存记录覆盖起点，配置变化必须重新安装相应窗口。远端历史不删除，扩大范围可重新补回。部分历史设备触发远端压实时必须另读完整投影生成检查点，禁止用局部投影覆盖远端档案。
-- head 使用 ETag/SHA CAS；冲突时拉取、合并后重试，不覆盖并发设备数据。Asset Pack 发布独立使用 branch ref 的 fast-forward 检查，并在并发推进时重读后重试，不强推。
-- UI/业务同步只通过 `sync-application.ts` / `sync-runtime.ts` 等公开边界进入同步层；业务 API/type/source filename 保持 version-neutral。远端 wire 仍明确为 Sync v9，`sync/v9/...` 与 `formatVersion: 9` 属于真实协议版本，不属于业务命名技术债。
-- 平台 transport 是同步网络的唯一适配入口：Cloudflare Pages 使用同源 `/api-github`，GitHub Pages 与 iOS 默认使用 `https://sync.980923.xyz`；iOS 允许用户显式配置自定义 Relay，但 Relay 失败不得静默直连 `https://api.github.com`。Sync v9 wire、head CAS、Asset Pack 和合并语义不因平台改变。
-- iOS 业务数据仍写唯一 `shijuan-study` IndexedDB（不换 SQLite）；GitHub Token 只进 Keychain，少量非秘密配置可镜像到 Preferences / UserDefaults，均不得进入 vault。原生生命周期、haptics、Filesystem 与 Share 通过 `src/platform/` adapter 接入。
-- GitHub API 代理源码在 `proxy/`；`functions/api-github/[[path]].js` 由构建自动生成，不手写。
-
-## 4. 关键文件
-
-- 数据模型：`src/lib/db/types.ts`, `src/lib/db/db-core.ts`, `src/lib/db/db.ts`, `src/lib/db/practice-run-store.ts`, `src/lib/db/review-round-store.ts`
-- 同步协议：`src/lib/sync/sync-head-types.ts`, `src/lib/sync/sync-codec.ts`, `src/lib/sync/sync-payload.ts`,
-  `src/lib/sync/change-set-types.ts`, `src/lib/sync/change-set-codec.ts`, `src/lib/sync/change-set-projection.ts`, `src/lib/sync/change-set-queue.ts`,
-  `src/lib/sync/github-remote.ts`, `src/lib/sync/github-sync.ts`, `src/lib/sync/sync-application.ts`, `src/lib/sync/sync-runtime.ts`
-- 图片 Pack：`src/lib/sync/image-asset-pack.ts`, `src/lib/sync/image-asset-cache.ts`, `src/lib/sync/sync-upload.ts`,
-  `scripts/tools/mock-github-server.mjs`, `scripts/tests/test-sync-mock-backend.ts`
-- 进度与轮次：`src/lib/practice/progress-scope.ts`, `src/app/practice/progress-scope-setting.tsx`,
-  `src/app/practice/review-round-manager.tsx`, `src/app/practice/practice-setup.tsx`
-- 难度与有效计时：`src/lib/practice/practice-metrics.ts`, `src/lib/practice/active-elapsed-time.ts`,
-  `src/app/shell/views/practice.tsx`
-- 富内容与图片：`src/lib/io/image-assets.ts`, `src/lib/io/image-dimensions.ts`,
-  `src/app/bank/content-block-editor.tsx`, `src/app/bank/content-block-renderer.tsx`, `src/app/ui/asset-image.tsx`
-- 导入导出：`src/lib/io/xlsx-import.ts`, `src/lib/io/xlsx-export.ts`, `src/lib/question/question-bank-file-import.ts`,
-  `src/lib/question/question-bank-export.ts`, `src/lib/question/question-bank-bundle.ts`, `src/app/bank/bank-library/bank-export-dialog.tsx`
-- CSS 架构：`src/app/styles/components.css`, `scripts/tools/check-css-architecture.mjs`, `scripts/tools/css-architecture-baseline.json`
-- Shell 边界：`src/app/shell/app-shell.tsx`, `src/app/shell/navigation.tsx`, `src/app/shell/topbar.tsx`
-
-## 5. 代理与部署
-
-- Pages Function 同源代理：Cloudflare Pages 默认 `同步中转地址 = /api-github`，源码 `proxy/pages-function.js`，构建生成 `functions/api-github/[[path]].js`。
-- 独立 Worker 跨域代理：GitHub Pages 默认 `同步中转地址 = https://sync.980923.xyz`，源码 `proxy/worker.js`，部署命令：
-  `npx wrangler deploy --config proxy/wrangler.toml`。
-- iOS native 与 GitHub Pages 共用 `https://sync.980923.xyz` 默认 Relay；同步设置仍允许可信的自定义 Relay。Native HTTP 未启用，WKWebView fetch 通过统一 transport 访问 Relay。
-- 两个代理共用 `proxy/github-relay-common.js`，剥除头清单、上游地址、`redirect: manual`、流式 body 与 `set-cookie` 处理必须保持一致。
-- Relay 不是通用 GitHub API 代理。Asset Pack 只新增严格白名单：branch ref/commit read、blob/tree/commit create、heads ref fast-forward PATCH；不得放宽成任意 `/git/*`。20 MiB 请求体上限继续生效。
-- GitHub Pages 只部署 `dist/`，不包含 Pages Function；Cloudflare Pages 部署 `dist/` + `functions/`。
-
-## 6. 架构约束
-
-`scripts/tools/check-architecture.mjs` 会检查：
-
-1. 公开页面只使用 `shijuan-study`，不导入旧 `lib/db.ts`。
-2. 公开同步只读写 `sync/v9/*`；运行时代码不得访问已退役的 `sync/v7/*`、`sync/v8/*` 远端命名空间。
-3. 页面不得重新使用 `Question.imageUrl` 或“图片地址”导入列。
-4. `practiceRuns` 是唯一持久化练习进度；不得恢复 active session 双写。
-5. 页面 CSS 使用主题令牌，不扩大硬编码颜色和 dark-mode 补丁预算。
-6. `tsconfig.json` 的 unused 检查必须保持开启。
-7. 修改前先看工作区，禁止 reset/checkout 覆盖用户或其他任务的改动。
-8. iOS native 不注册 Service Worker；业务层不得因为 native 环境复制一套题库、练习或同步实现。
-9. iOS Token 不落 `localStorage`；Keychain、Preferences、lifecycle、haptics、Filesystem、Share 只能经 `src/platform/` adapter 使用。
-10. Native HTTP 未启用；所有 GitHub 请求仍经统一 `GitHubTransport` 与默认/自定义 Relay，禁止错误时静默直连 GitHub。
-11. 图片运行时不得回退到逐图 `putImmutable` / `sync/v9/assets/<sha>.<ext>`；批量缓存和题库导出必须使用 Pack batch resolver。
-12. Asset Pack 根索引不得保存不断增长的全量 assetId 列表；根入口只能保存固定 shard 指针，避免把请求优化重新变成单文件无限增长问题。
-
-`scripts/tools/check-css-architecture.mjs` 会强制已拆分 CSS 文件存在、`components.css` 保持为纯导入入口、`:global()` 与 legacy token alias 保持为 0，并对总 CSS 体积、最大单文件、逐文件硬编码颜色、dark selector 与 `!important` 实施只降不升的基线棘轮。新增 CSS 文件默认不得带入这些历史债务。
-
-`scripts/tools/check-export-surface.mjs` 对 Knip unused exports/types 使用只降不升棘轮；当前基线为 unused exports 137、unused exported types 46，CI 会在数字下降时要求提交收紧后的新基线。
-
-`scripts/tools/check-no-native-tooltip-titles.mjs` 会检查 `src/` 中不得出现原生 `title=` 悬浮提示；统一使用 `src/app/ui/hint.tsx` 的 `Hint` 组件。
-
-## 7. 验证与发布
-
-常用命令：
-
-```bash
-make help                    # 全部命令
-make dev                     # 启动开发服务器
-make mock                    # 启动 mock GitHub 服务器
-make browser-install         # 安装项目专用 Playwright Chromium
-make test-fast               # 日常快测（不含构建）
-make test                    # 完整 CI（含构建，不含浏览器）
-make test-full               # 全量测试（含浏览器全部场景，默认 headless）
-make test-browser-visible    # 可见专用 Chromium 跑全部浏览器场景
-make test-browser-search     # 只跑搜索场景
-make release-check           # 发布预检：全量测试 + PWA smoke，不提交、不推送
-make release MSG="fix: ..." # 一键验证、提交、推送 main、等待 Actions 并核验线上版本
+```text
+readAttemptsForQuestionIdsInWindow(ids, from, to)
+→ [questionId+createdAt] compound index
 ```
 
-iOS 本地验证不依赖发布流程：
+性能门禁：加入同窗口 2,000 条无关 attempts 后，目标读取约 `2001 → 1` 行。
 
-```bash
-make ios-setup
-make ios-open
-make ios-run IOS_TARGET="你的模拟器或已连接设备名称"
-make ios-build-simulator
-make ios-ipa
-make verify-ios
-```
+### Bank Detail
 
-`ios-run` 要求显式 `IOS_TARGET`；`ios-build-simulator` 使用 `CODE_SIGNING_ALLOWED=NO`。首次 `ios-open` 后在 Xcode 选择自己的 Apple ID / Personal Team 并启用 Automatically manage signing。`make ios-ipa` 生成 `artifacts/ios/shijuan.ipa`，允许通过 `IOS_MARKETING_VERSION` 与 `IOS_BUILD_NUMBER` 覆盖并校验包内版本，供 SideStore 在设备端重新签名。
+rolling 统计按 `questionId + createdAt` 定向读取，不 materialize 同时间窗其他题目的 attempts。
 
-`make release` 会自动选择未占用的浏览器/PWA 测试端口，只暂存执行前展示的精确文件列表；若本地 `main` 落后远端、测试失败、部署失败或线上构建版本未更新，流程会停止并给出明确原因。常规发布优先使用该入口，不再手工拼接测试、提交、推送和部署检查命令。
+性能门禁：加入同窗口 2,000 条无关 attempts 后，目标读取约 `2003 → 3` 行。
 
-推送 `main` 会触发 `.github/workflows/deploy-pages.yml`。如果只需独立核验线上缓存，可运行：
+### UI/data-flow guard
 
-```bash
-curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-study-app/'
-curl -fsS -H 'Cache-Control: no-cache' 'https://evolution404.github.io/exam-study-app/sw.js'
-```
+`scripts/tests/test-ui-data-flow.ts` 已锁定：
 
-GitHub Actions 的发布顺序是“三端并行发布、统一验证”：公共 `build` 只安装依赖、构建并上传带 `current` 名称的产物；随后 GitHub Pages、Cloudflare Pages 与 `ios_release` 只依赖该公共构建，因此三路并行发布。同一提交的三端发布完成后，`fast-check`、`pwa_smoke` 与 `sidestore_smoke` 三个 job 并行验证。验证失败且当前 Pages 部署已成功时，工作流从 push 的 `github.event.before`（手动触发则使用 `HEAD^`）重新检出旧提交，注入旧提交 SHA 构建 `rollback` 产物并重新部署；如果构建或首次部署失败，则不会误触发回退。工作流仍保持 `pages` 并发组和 `cancel-in-progress: true`，旧任务不会覆盖新提交。
+- 指定题集必须调用 `readAttemptsForQuestionIdsInWindow(ids, from, to)`。
+- 必须使用 `[questionId+createdAt]`。
+- 禁止恢复 `rows.filter(row => idSet.has(row.questionId))` 的时间窗全量读取路径。
 
-Pages 发布链固定使用原生 Node 24 的 `actions/configure-pages@v6`、`actions/upload-pages-artifact@v5` 与 `actions/deploy-pages@v5`；当前部署和回退部署必须同步升级，禁止退回会触发 Node 20 弃用警告的旧主版本。
+`1fbe9ab` 已更新该契约；`ab85baf` 只修了测试文件自身的语法错误，没有改变查询策略。
 
-`ios_release` 在 `macos-15` Runner 上与两个网页目标并行，为同一提交生成无签名 IPA。版本固定为 `1.0.<main 提交数>`，构建号为提交数；随后创建不可变 GitHub Release，并发布 `shijuan.ipa` 与 `sidestore-source.json`。Cloudflare Pages Function 在 `learn.980923.xyz` 提供稳定反向代理：更新源 `https://learn.980923.xyz/sidestore/source.json`、IPA `https://learn.980923.xyz/sidestore/shijuan.ipa`。三端发布后，`sidestore_smoke` 必须从这两个公网端点读回当前版本，否则发布任务失败。SideStore 只需添加一次更新源，后续每次推送 `main` 都会自动出现新版。
+## 4. Phase 4 最终验证
 
-Cloudflare Pages 部署前会尽力记录当前 production deployment ID；IPA 发布前会记录此前最新的非草稿 Release 标签。三项发布后验证任一失败时，GitHub Pages 重建旧提交，Cloudflare 通过官方 `/deployments/{deployment_id}/rollback` API 恢复此前版本并清理边缘缓存，SideStore 则把 GitHub Release 的 `latest` 指针恢复到此前标签。失败 IPA 的不可变资产仍保留用于诊断，不会删除。Cloudflare 缺少凭据/旧 deployment ID 或首次 IPA 发布没有旧标签时，对应目标安全跳过回退，不影响其他目标的回退判断。
+`ab85bafad0ad33091c5004cce33274af34ea8cec`：
 
-## 8. 已知非阻断项
+- `make test`：PASS
+- Chromium browser smoke：PASS
+- WebKit browser smoke：PASS
+- Sync storage CI：PASS
+- Governance Audit：PASS
+- PR Preview：PASS
 
-- 构建已通过 vendor 分包将主入口控制在约 224 KiB，当前无 500 KiB 警告；后续若再增长，优先继续拆分大页面，不要只调高阈值。
-- PR CI 覆盖 Playwright Chromium 与 WebKit smoke；Firefox、HEIC/GIF/SVG、透明图片和极端设备存储配额仍需单独矩阵，Safari 真机仍不能由 WebKit smoke 完全替代。
-- 浏览器与 PWA 测试通过项目 Playwright 安装流程准备浏览器；不得恢复系统 Chrome 自动探测。`CHROME_PATH` 只允许作为显式调试覆盖，启动超时固定为 20 秒。
-- 浏览器 QA 默认 headless，截图仍输出到 `artifacts/browser-qa/`；需要肉眼观看时使用 `make test-browser-visible` 或 `BROWSER_HEADLESS=0`。
-- GitHub/Relay 首次 Pack 获取在中国大陆网络下仍取决于链路可达性；Pack 成功缓存后，同一运行时会按 pack SHA 复用内存缓存，图片 Blob 成功写入 Dexie 后答题不再访问 GitHub。
-- npm 安装当前仍报告 3 个 moderate severity vulnerabilities；本轮 Asset Pack 迁移没有把它们作为阻断项处理，不能宣称依赖安全审计已清零。
-- iOS Personal Team 签名、覆盖安装数据保持、深色模式、横竖屏、前后台 catch-up、文件 Share Sheet、真实 haptics 和多设备交叉同步需要连接 Xcode/真机按 `docs/TESTING.md` 手工检查；浏览器 e2e 不能替代它们。
-- SideStore IPA 由 GitHub Actions 无签名构建，设备端仍需 SideStore 与用户 Apple ID 完成重新签名；免费账号的签名有效期与可安装 App 数量限制不由本项目改变。
+不要重新处理已经完成的 Phase 0–4。
 
-## 9. 新任务第一步
+## 5. Phase 5 收口：canonical-only sync/checkpoint/history
 
-> 请先完整阅读 `docs/HANDOFF.md`，运行 `git status --short`、`git log -5 --oneline` 和 `npm run typecheck`。公开应用使用 v7 本地 DB / v9 远端 Sync；保持一题一次提交事件、全局题目/成员关系、默认滚动 90 天和本地 Blob 图片边界。图片远端只允许 `index → shard → immutable Pack`，不得恢复逐图远端路径或双栈兼容。若涉及 iOS，先确认 `make ios-build` 使用 `APP_TARGET=ios` 与 `./` 基路径，并确认 native 不注册 Service Worker、默认 Relay 为 `https://sync.980923.xyz`。
+目标已经落地：sync/checkpoint/history wire 只承载 canonical facts；projection/cache/read-model 不进入远端 payload。
+
+### 已完成
+
+- `sync-checkpoint-store` snapshot transaction 不再读取：
+  - `questionProgress`
+  - `questionDailyProgress`
+  - `bankPracticeStats`
+  - `reviewRoundProgress`
+  - `imageBlobs`
+- `SyncCheckpointState/Counts` 已改为 canonical fact 集合；validator 使用 exact-key contract，旧 derived 字段不能静默混入。
+- current checkpoint canonical facts 包括正常化关系：
+  - `practiceRuns`
+  - `practiceRunSources`
+  - `practiceRunItems`
+  - `questionGroups`
+  - `questionGroupItems`
+  - `reviewRounds`
+  - `reviewRoundBanks`
+  - `reviewRoundItems`
+- `Attempt.elapsedMs` 等提交事实继续由 canonical Attempt validator 校验；已删除旧 `recentOutcomes` projection checkpoint 断言。
+- history practice-run chunk 不再保存旧聚合 PracticeRun 大对象，改为：
+  - `PracticeRunRecord[]`
+  - `PracticeRunSource[]`
+  - `PracticeRunItem[]`
+- partial-history hydration 保证引用闭包：
+  - retained Attempt 会带入其 run；
+  - retained run 会带入对应 source/item；
+  - run item 的 `submittedAttemptId` 会带入被引用 Attempt。
+- history merge/filter 只处理 canonical facts，不重新生成旧 `bankIds/questionIds/answers/optionOrders` 聚合结构。
+- `test-sync-integrity` 已改为 canonical relation round-trip，并明确禁止 derived projection/cache 字段重新进入 wire。
+
+### 结构治理
+
+Phase 5 改造一度使 `sync-history.ts` 增长到 30,572 B，触发 code-size ratchet。没有提高 baseline，而是拆出 `src/lib/sync/sync-history-state.ts` 承担纯状态算法；主文件已降到 22,818 B，低于原 22,844 B 门禁。
+
+Export surface 同步收紧：
+
+- unused exports：`107 → 104`
+- unused exported types：`36 → 33`
+
+这两项只能继续下降，禁止反向抬高预算。
+
+### Phase 5 当前验证
+
+在 `bbd0c1c`：
+
+- 完整 Pull request CI：PASS
+  - `make test`：PASS
+  - Chromium browser smoke：PASS
+  - WebKit browser smoke：PASS
+- Sync storage CI：PASS
+- PR Preview：PASS
+- Governance：code-size / dependency audit / dead-code / export-surface 本体均 PASS；只要求把自动收紧后的 unused-type baseline `36 → 33` 提交。
+
+该 baseline 已在 `79e3237` 提交。确认最新 Governance 全绿后，Phase 5 可标记完成。
+
+## 6. Phase 6–8 收口
+
+Phase 6–8 已完成实现和生产 cutover。
+
+### 一次性转换
+
+- v9 reader/converter 仅在 `scripts/tools/` 隔离存在于实施阶段，runtime 从未 import。
+- 首次真实 dry-run 因 validator 错误要求 `Attempt.runId` 必须引用 live run 而 fail-closed；没有写 v10。
+- 核对正式删除语义后，补回归并修正 validator：已删除 PracticeRun 的 Attempt 仍是合法全局学习历史。
+- 修复后全 CI PASS，再次真实 dry-run PASS。
+- 正式 cutover 使用相同 App commit，先 stage/回读验证 immutable v10 数据和 Asset packs，最后 CAS 发布 `sync/v10/head.json`。
+- cutover 后再次核对 checkpoint / asset shard Git blob SHA 与 descriptor 一致。
+- 一次性转换代码已退役删除，不形成历史 compatibility layer。
+
+### Phase 7 技术债
+
+已完成：
+
+- runtime `sync/v9` 行为残留清零。
+- runtime sync protocol 常量统一由当前协议常量驱动；测试不再硬编码旧 namespace。
+- 旧 PracticeRun 大对象、derived wire、runtime v9 fallback/dual-read 均没有恢复。
+- converter/asset-shadow/remote-reader/shadow-cutover 一次性实施代码已在成功 cutover 后删除。
+- Dexie 仍只有 `version(1)`。
+
+### Phase 8 最终状态
+
+已完成：
+
+- `make test`：PASS（真实 cutover 前最终 runtime commit）。
+- Chromium browser smoke：PASS。
+- WebKit browser smoke：PASS。
+- Sync storage CI：PASS。
+- Governance Audit：PASS。
+- PR Preview：PASS。
+- 生产 dry-run：PASS。
+- 生产 v10 cutover：PASS。
+- v10 checkpoint / Asset index 引用完整性：PASS。
+- v9 备份 namespace：保留。
+
+最终代码/技术债清理 HEAD `75d901b977802ca468671d340d8165b47f57719b` 已全部通过：Pull request CI（含 Full make test）、Chromium、WebKit、Sync storage、Governance、PR Preview。剩余动作仅为：等待本次交接文档提交后的 docs-only CI → 将 PR #59 标记 ready → merge main → 触发正式发布并核对生产 smoke。
+
+## 8. 关键架构边界
+
+### Local database
+
+- 唯一 IndexedDB：`shijuan-study`。
+- 唯一 Dexie schema version：`version(1)`。
+- `Attempt` 是提交答案事实。
+- `practiceRunSources` / `practiceRunItems` 是正常化关系事实。
+- `imageAssets` 是 canonical descriptor；`imageBlobs` 是 local cache。
+
+### Sync
+
+当前生产事实已经是 Sync v10；`sync/v10/head.json` 已完成 head-last cutover。v9 namespace 仅作为不可变历史备份保留，新 runtime 不读取 v9。
+
+运行时代码不允许通过“为了兼容”同时支持 v9/v10。
+
+### Git / CI
+
+- PR #59 的 Phase 5–8、生产 cutover、converter 清理均已完成；`75d901b9` 已全门禁 PASS。不要再改运行时代码，除非新 docs-only CI 暴露真实问题；否则直接 ready/merge/release。
+- 每个阶段拆小 commit。
+- GitHub CI 是云端验证基线；不要连接用户 Mac。
+
+## 9. 相关文档
+
+- `AGENTS.md`
+- `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md`
+- `docs/HANDOFF-BUG-PERFORMANCE-AUDIT-2026-09-17.md`
+- `docs/HANDOFF-PERFORMANCE-AUDIT-2026-09-16.md`
+
+后续接手者先核对 PR #59 最新 HEAD / commits / CI / diff，再按本文当前阶段继续；不要以历史文档中的旧 HEAD、旧 projection-wire 设计或“Phase 3 未开始”描述覆盖当前实现。

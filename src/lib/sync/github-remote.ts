@@ -136,7 +136,7 @@ export class SyncImmutableConflictError extends Error {
   readonly path: string;
 
   constructor(path: string) {
-    super(`immutable v9 file content differs at ${path}`);
+    super(`immutable file content differs at ${path}`);
     this.name = "SyncImmutableConflictError";
     this.path = path;
   }
@@ -148,7 +148,7 @@ export class SyncBlobIntegrityError extends Error {
   readonly actual: number | string;
 
   constructor(reason: "size" | "sha256", expected: number | string, actual: number | string) {
-    super(reason === "size" ? `v9 blob size mismatch: expected ${expected}, received ${actual}` : `v9 blob sha256 mismatch: expected ${expected}, received ${actual}`);
+    super(reason === "size" ? `blob size mismatch: expected ${expected}, received ${actual}` : `blob sha256 mismatch: expected ${expected}, received ${actual}`);
     this.name = "SyncBlobIntegrityError";
     this.reason = reason;
     this.expected = expected;
@@ -199,7 +199,7 @@ export class GitHubRemote {
     if (!options || typeof options.owner !== "string" || options.owner.length === 0) throw new TypeError("GitHub owner is required");
     if (typeof options.repo !== "string" || options.repo.length === 0) throw new TypeError("GitHub repo is required");
     if (typeof options.token !== "string") throw new TypeError("GitHub token is required");
-    if (options.vaultId !== undefined && (typeof options.vaultId !== "string" || options.vaultId.length === 0)) throw new TypeError("v9 vaultId must be explicit when supplied");
+    if (options.vaultId !== undefined && (typeof options.vaultId !== "string" || options.vaultId.length === 0)) throw new TypeError("vaultId must be explicit when supplied");
     this.owner = options.owner;
     this.repo = options.repo;
     this.branch = options.branch || "main";
@@ -216,7 +216,7 @@ export class GitHubRemote {
   }
 
   private assertVault(head: SyncHead): void {
-    if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubRemoteError("vault identity", 409, "v9 head vault identity does not match this remote");
+    if (this.vaultId !== undefined && !githubVaultIdentitiesEqual(head.vaultId, this.vaultId)) throw new GitHubRemoteError("vault identity", 409, "head vault identity does not match this remote");
   }
 
   async request(
@@ -312,7 +312,7 @@ export class GitHubRemote {
     const response = await this.request(contentPath(this.owner, this.repo, path), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `sync(v9): gc ${path}`, sha: blobSha, branch: this.branch }),
+      body: JSON.stringify({ message: `sync: gc ${path}`, sha: blobSha, branch: this.branch }),
     });
     if (response.status === 404) return false;
     if (response.status === 409 || response.status === 422) return false;
@@ -349,7 +349,7 @@ export class GitHubRemote {
     validateSyncHead(head);
     this.assertVault(head);
     let expectedSha: string | undefined;
-    let message = "sync(v9): update head";
+    let message = "sync: update head";
     if (typeof expected === "string") expectedSha = expected;
     else if (expected && "head" in expected) expectedSha = "blobSha" in expected && typeof expected.blobSha === "string" ? expected.blobSha : undefined;
     else if (expected) { expectedSha = expected.expectedSha ?? expected.sha; if (expected.message) message = expected.message; }
@@ -424,7 +424,7 @@ export class GitHubRemote {
     const stored = isJsonSyncPath(input.path) ? await encodeSyncJsonBytes(content) : content;
     const response = await this.request(
       contentPath(this.owner, this.repo, input.path),
-      { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync(v9): add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) },
+      { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: input.message ?? `sync: add ${input.path}`, content: encodeBase64(stored), branch: this.branch }) },
       GITHUB_JSON_MEDIA_TYPE,
       { retry: true },
     );

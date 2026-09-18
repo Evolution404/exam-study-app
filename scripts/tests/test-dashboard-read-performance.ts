@@ -40,12 +40,19 @@ assert.equal(rolling.attempts.length, 3, "全题库滚动统计只应读取时�
 assert.equal(attemptReads, 3, "10,000 条窗口外 attempts 不得被 Dashboard materialize");
 assert.equal(rolling.roundProgress.length, 0, "非轮次统计不得读取 round progress");
 
+const sameWindowNoise = Array.from({ length: 2_000 }, (_, index) => attempt(
+  `same-window-noise-${index}`,
+  `noise-q-${index}`,
+  recentAt,
+));
+await studyDb.attempts.bulkPut(sameWindowNoise);
+
 attemptReads = 0;
 studyDb.attempts.hook("reading", attemptHook);
 const scopedRolling = await readDashboardScopedRows(["q-1"], { type: "rolling", days: 90 }, referenceTime, { allQuestions: false });
 studyDb.attempts.hook("reading").unsubscribe(attemptHook);
 assert.equal(scopedRolling.attempts.length, 1, "指定题集滚动统计只需要窗口内且命中的 attempts");
-assert.equal(attemptReads, 3, "指定题集滚动统计可扫描窗口内行，但不得 materialize 10,000 条窗口外历史");
+assert.equal(attemptReads, 1, "指定题集滚动统计不得 materialize 同窗口 2,000 条无关题目 attempts");
 
 const round = (id: string, roundId: string, questionId: string): ReviewRoundProgress => ({
   key: `${roundId}:${questionId}:${id}`,
@@ -131,4 +138,4 @@ assert.equal(lifetime.attemptStats.reduce((sum, row) => sum + row.total, 0), 63)
 assert.deepEqual(summarizeDashboardLifetimeStats(lifetime.attemptStats), { attempts: 63, correct: 57, lastAttemptAt: recentAt });
 
 await studyDb.close();
-console.log("dashboard read performance tests passed: rolling/round/scoped reads avoid unrelated history scans");
+console.log("dashboard read performance tests passed: rolling/round/scoped reads avoid unrelated same-window and historical scans");

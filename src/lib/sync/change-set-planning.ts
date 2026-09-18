@@ -59,10 +59,9 @@ function summarizeMutation(mutation: ChangeSetMutation): string {
     case "membership.bulk.remove": return `批量移除 ${mutation.keys.length} 条题库关系`;
     case "image.asset.save": return `保存图片资产 ${mutation.asset.id}`;
     case "image.asset.delete": return `删除图片资产 ${mutation.assetId}`;
-    case "attempt.create": case "attempt.update": return `保存作答记录 ${mutation.attempt.id}`;
+    case "attempt.create": return `保存作答记录 ${mutation.attempt.id}`;
     case "attempt.delete": return `删除作答记录 ${mutation.attemptId}`;
     case "practice.answer.submitted": return `提交练习答案 ${mutation.questionId}`;
-    case "practice.answer.updated": return `修改练习答案 ${mutation.questionId}`;
     case "practice.answer.deleted": return `删除练习答案 ${mutation.questionId}`;
     case "practice.run.saved": case "practice.run.status.changed": return `保存练习 ${mutation.run.id}`;
     case "practice.run.deleted": return `删除练习 ${mutation.runId}`;

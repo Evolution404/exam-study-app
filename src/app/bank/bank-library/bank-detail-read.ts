@@ -1,5 +1,6 @@
 import { studyDb } from "@/lib/db/db";
 import { listQuestionViewsForBank } from "@/lib/db/app-data";
+import { readAttemptsForQuestionIdsInWindow } from "@/lib/db/attempt-read";
 import { listRecentPracticeRunsForBank } from "@/lib/db/practice-run-read";
 import { normalizeProgressScope, progressScopeCutoff, type ProgressScope } from "@/lib/practice/progress-scope";
 import { toQuestionViewModel } from "@/app/bank/question-editor";
@@ -17,12 +18,11 @@ export async function readBankDetailDataset(
   const questionIdSet = new Set(questionIds);
   const normalizedScope = normalizeProgressScope(scope);
   const rollingAttempts = normalizedScope.type === "rolling" && questionIds.length
-    ? studyDb.attempts.where("createdAt").between(
+    ? readAttemptsForQuestionIdsInWindow(
+        questionIds,
         new Date(progressScopeCutoff(normalizedScope, referenceTime)!).toISOString(),
         new Date(referenceTime).toISOString(),
-        true,
-        true,
-      ).toArray().then((rows) => rows.filter((row) => questionIdSet.has(row.questionId)))
+      )
     : Promise.resolve([]);
   const roundRows = normalizedScope.type === "round" && questionIds.length
     ? studyDb.reviewRoundProgress.where("roundId").equals(normalizedScope.roundId).toArray()

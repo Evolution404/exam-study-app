@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { createBank, studyDb, resetDatabase } from "../../src/lib/db/db";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { SYNC_HEAD_PATH } from "../../src/lib/sync/sync-head-types";
 
 const memoryLocalStorage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -30,7 +31,7 @@ try {
   let conditionalHeadGets = 0;
   const fetchWrapper = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" || input instanceof URL ? String(input) : String((input as Request).url);
-    if (url.includes("/sync/v9/head.json") && (init?.method ?? "GET").toUpperCase() === "GET") {
+    if (url.includes(`/${SYNC_HEAD_PATH}`) && (init?.method ?? "GET").toUpperCase() === "GET") {
       headGets += 1;
       const headers = new Headers(init?.headers);
       if (headers.get("If-None-Match")) conditionalHeadGets += 1;

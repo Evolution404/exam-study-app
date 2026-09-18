@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import "fake-indexeddb/auto";
-import { createBank, createPracticeRun, createQuestion, studyDb, putImageAsset, resetDatabase } from "../../src/lib/db/db";
+import { createBank, createPracticeRun, createQuestion, deletePracticeRun, recordPracticeAnswer, studyDb, putImageAsset, resetDatabase } from "../../src/lib/db/db";
 import { isSyncCheckpoint, validateSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-validation";
 import { createSyncCheckpoint, encodeSyncCheckpoint, parseSyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-store";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint } from "../../src/lib/sync/sync-checkpoint-types";
@@ -89,7 +90,49 @@ await createQuestion(typeBank.id, {
   assert.throws(() => validateSyncCheckpoint(withBlob), /must not contain a Blob/);
 }
 
-// 7) run 内部映射只能引用 run.questionIds，禁止同步脏快照携带幽灵答案/题型/选项顺序。
+// 7) Phase 5：checkpoint 只能包含 canonical facts。任何本地 projection/cache 都不得进入 state/counts，
+// snapshot builder 也不能为了构建 wire 去读取 projection table。
+{
+  const current = await createSyncCheckpoint();
+  const stateKeys = new Set(Object.keys(current.state));
+  const countKeys = new Set(Object.keys(current.counts));
+  for (const retired of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
+    assert.equal(stateKeys.has(retired), false, `checkpoint state must not contain derived projection ${retired}`);
+    assert.equal(countKeys.has(retired), false, `checkpoint counts must not contain derived projection ${retired}`);
+  }
+  assert.equal(stateKeys.has("imageBlobs"), false, "checkpoint state must never contain local image blob cache");
+
+  const checkpointStoreSource = readFileSync(new URL("../../src/lib/sync/sync-checkpoint-store.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(checkpointStoreSource, /studyDb\.questionProgress|studyDb\.questionDailyProgress|studyDb\.bankPracticeStats|studyDb\.reviewRoundProgress/, "checkpoint snapshot must not read local projection tables");
+}
+
+// 8) Attempt.runId 是历史归属 ID，不是 live PracticeRun 外键。删除练习后全局作答历史必须保留，
+// 且 checkpoint validator / round-trip 必须接受这种正式业务状态。
+{
+  const historyBank = await createBank("删除练习保留作答历史");
+  const historyQuestion = await createQuestion(historyBank.id, {
+    type: "单选",
+    stem: "删除练习后仍保留作答历史",
+    options: ["甲", "乙"],
+    optionIds: ["history-a", "history-b"],
+    solution: { kind: "choice", correctOptionIds: ["history-a"] },
+  });
+  const historyRun = await createPracticeRun({ bankId: historyBank.id, questionIds: [historyQuestion.id] });
+  await recordPracticeAnswer({ runId: historyRun.id, questionId: historyQuestion.id, selected: "A", correct: true, elapsedMs: 120 });
+  assert.equal(await deletePracticeRun(historyRun.id), true);
+  assert.equal(await studyDb.practiceRuns.get(historyRun.id), undefined, "练习投影应已删除");
+  assert.equal(await studyDb.attempts.where("runId").equals(historyRun.id).count(), 1, "Attempt 必须作为全局学习历史保留");
+
+  const checkpoint = await createSyncCheckpoint();
+  assert.equal(checkpoint.state.practiceRuns.some((run) => run.id === historyRun.id), false);
+  assert.equal(checkpoint.state.attempts.some((attempt) => attempt.runId === historyRun.id), true);
+  assert.equal(checkpoint.state.tombstones.some((row) => row.entityType === "practiceRun" && row.entityId === historyRun.id), true);
+  validateSyncCheckpoint(checkpoint);
+  const parsed = parseSyncCheckpoint(encodeSyncCheckpoint(checkpoint));
+  assert.equal(parsed.state.attempts.some((attempt) => attempt.runId === historyRun.id), true, "历史归属 ID 必须 round-trip 保真");
+}
+
+// 9) Phase 5：关系事实保持正常化进入 checkpoint，不得重新拼回 PracticeRun/QuestionGroup/ReviewRound 大对象。
 {
   const runBank = await createBank("run结构校验");
   const runQuestion = await createQuestion(runBank.id, {
@@ -101,21 +144,17 @@ await createQuestion(typeBank.id, {
   });
   const run = await createPracticeRun({ bankId: runBank.id, questionIds: [runQuestion.id] });
   const current = await createSyncCheckpoint();
-  const target = current.state.practiceRuns.find((item) => item.id === run.id)!;
-  const answerInvalid = structuredClone(current);
-  answerInvalid.state.practiceRuns.find((item) => item.id === run.id)!.answers.question_missing = {
-    selected: ["A"], submitted: true, correct: true,
-  };
-  assert.throws(() => validateSyncCheckpoint(answerInvalid), /answers.*questionIds/, "checkpoint must reject answer keys outside run.questionIds");
+  const state = current.state as unknown as Record<string, unknown>;
+  assert.ok(Array.isArray(state.practiceRunSources), "checkpoint must carry canonical practiceRunSources");
+  assert.ok(Array.isArray(state.practiceRunItems), "checkpoint must carry canonical practiceRunItems");
+  assert.ok(Array.isArray(state.questionGroupItems), "checkpoint must carry canonical questionGroupItems");
+  assert.ok(Array.isArray(state.reviewRoundBanks), "checkpoint must carry canonical reviewRoundBanks");
+  assert.ok(Array.isArray(state.reviewRoundItems), "checkpoint must carry canonical reviewRoundItems");
 
-  const typeInvalid = structuredClone(current);
-  typeInvalid.state.practiceRuns.find((item) => item.id === run.id)!.questionTypes.question_missing = "单选";
-  assert.throws(() => validateSyncCheckpoint(typeInvalid), /questionTypes.*questionIds/, "checkpoint must reject questionTypes keys outside run.questionIds");
-
-  const orderInvalid = structuredClone(current);
-  orderInvalid.state.practiceRuns.find((item) => item.id === run.id)!.optionOrders.question_missing = [0, 1];
-  assert.throws(() => validateSyncCheckpoint(orderInvalid), /optionOrders.*questionIds/, "checkpoint must reject optionOrders keys outside run.questionIds");
-  assert.deepEqual(target.questionIds, [runQuestion.id]);
+  const target = (state.practiceRuns as Array<Record<string, unknown>>).find((item) => item.id === run.id)!;
+  for (const retired of ["bankIds", "questionIds", "questionTypes", "answers", "optionOrders"]) {
+    assert.equal(retired in target, false, `canonical practice run record must not reintroduce ${retired}`);
+  }
 }
 
 studyDb.close();

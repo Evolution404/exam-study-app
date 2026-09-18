@@ -254,7 +254,7 @@ export async function runManagementQA(page, mockServer) {
   await helpers.clickTextButton(page, "立即同步");
   await page.locator(".simple-dialog").filter({ hasText: "正在同步云端数据" }).waitFor({ state: "hidden", timeout: 20_000 }).catch(() => {});
   const syncToast = await page.locator(".toast").first().innerText().catch(() => "");
-  harness.assert.match(syncToast, /v9 同步完成/, "management events should sync successfully");
+  harness.assert.match(syncToast, /同步完成/, "management events should sync successfully");
   await helpers.capture(page, contextName, "events-synced");
 
   // 本次同步抽屉：搜索输入框必须无边框、聚焦只靠边框变色（统一输入框样式，避免内外两个矩形或聚焦光环）

@@ -95,27 +95,28 @@ if (!/syncWithGitHub/.test(syncFacade) || !/from ["']\.\/github-sync-engine["']/
 if (!/restoreFromGitHub/.test(syncFacade) || !/restoreFullHistoryFromGitHub/.test(syncFacade)) {
   fail("公开恢复入口必须仅通过稳定门面委托当前同步引擎");
 }
-if (!/SYNC_HEAD_PATH\s*=\s*["']sync\/v9\/head\.json["']/.test(syncHeadTypes)
-  || !/SYNC_CHECKPOINT_PREFIX\s*=\s*["']sync\/v9\/checkpoints\/["']/.test(syncHeadTypes)
-  || !/SYNC_SEGMENT_PREFIX\s*=\s*["']sync\/v9\/segments\/["']/.test(syncHeadTypes)
-  || !/SYNC_OBJECT_PREFIX\s*=\s*["']sync\/v9\/objects\/["']/.test(syncHeadTypes)
-  || !/SYNC_ASSET_PREFIX\s*=\s*["']sync\/v9\/assets\/["']/.test(syncHeadTypes)
-  || !/SYNC_FORMAT_VERSION\s*=\s*9\s+as\s+const/.test(syncHeadTypes)
+if (!/SYNC_HEAD_PATH\s*=\s*["']sync\/v10\/head\.json["']/.test(syncHeadTypes)
+  || !/SYNC_CHECKPOINT_PREFIX\s*=\s*["']sync\/v10\/checkpoints\/["']/.test(syncHeadTypes)
+  || !/SYNC_HISTORY_PREFIX\s*=\s*["']sync\/v10\/history\/["']/.test(syncHeadTypes)
+  || !/SYNC_SEGMENT_PREFIX\s*=\s*["']sync\/v10\/segments\/["']/.test(syncHeadTypes)
+  || !/SYNC_OBJECT_PREFIX\s*=\s*["']sync\/v10\/objects\/["']/.test(syncHeadTypes)
+  || !/SYNC_ASSET_PREFIX\s*=\s*["']sync\/v10\/assets\/["']/.test(syncHeadTypes)
+  || !/SYNC_FORMAT_VERSION\s*=\s*10\s+as\s+const/.test(syncHeadTypes)
   || !/GitHubRemote/.test(syncRemote) || !/syncWithGitHub/.test(syncRuntime)
   || !/SYNC_MAX_HOT_BYTES\s*=\s*4\s*\*\s*1024\s*\*\s*1024/.test(syncHeadTypes)
   || !/SYNC_CHECKPOINT_FORMAT\s*=\s*7/.test(syncLocalCheckpointTypes)
-  || !/REMOTE_HISTORY_FORMAT\s*=\s*9/.test(syncHistory)
+  || !/REMOTE_HISTORY_FORMAT\s*=\s*SYNC_FORMAT_VERSION/.test(syncHistory)
   || !/createRemoteHistoryCheckpoint/.test(syncHistory)
 ) {
-  fail("公开同步入口必须仅使用当前 v9 固定 head/热窗口 transport，并以 format 9 bounded checkpoint + history archive 写远端");
+  fail("公开同步入口必须仅使用当前 v10 固定 head/热窗口 transport，并以当前 bounded checkpoint + history archive 写远端");
 }
 
 const activeSyncSources = fs.readdirSync(path.join(root, "src/lib/sync"))
   .filter((file) => typeof file === "string" && file.endsWith(".ts"))
   .map((file) => ({ file, source: read(path.join("src/lib/sync", file)) }));
 for (const { file, source } of activeSyncSources) {
-  if (/sync\/v(?:[1-8])\//.test(source) || /migratedFrom/.test(source)) {
-    fail(`${file} 不得保留历史远端 namespace 或迁移来源元数据；生产同步只允许当前 v9`);
+  if (/sync\/v(?:[1-9])\//.test(source) || /\bv9\b/i.test(source) || /\bformatVersion\s*:\s*9\b/.test(source) || /migratedFrom/.test(source)) {
+    fail(`${file} 不得保留历史远端 namespace、v9 运行时标记或迁移来源元数据；生产同步只允许当前 v10`);
   }
 }
 
@@ -148,4 +149,4 @@ if (/rebuildAttemptStatsFromAttempts|study-stats-outcomes/.test(latestOnlySource
 if (/ImageAssetRemoteDescriptor|LEGACY_SINGLE_ASSET_PATH|hydrateLegacyAsset|migratedFrom/.test(latestOnlySources)) fail("客户端不得恢复旧图片布局或历史迁移来源兼容");
 if (/scopedStatsToLegacyAttemptStats/.test(latestOnlySources)) fail("客户端不得恢复旧统计 bridge 命名或兼容入口");
 
-console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务/测试命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v9 namespace/head/checkpoint。");
+console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务/测试命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v10 namespace/head/checkpoint。");

@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { createBank, studyDb, resetDatabase } from "../../src/lib/db/db";
 import { restoreLastRemoteCache, syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
+import { SYNC_FORMAT_VERSION } from "../../src/lib/sync/sync-head-types";
 
 const memoryLocalStorage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -15,7 +16,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const settings = { owner: "qa", repo: "restore-cursors-vault", branch: "main", apiBaseUrl: "" };
-const cursorsKey = "v9:sync:installed-cursors:qa/restore-cursors-vault@main";
+const cursorsKey = `v${SYNC_FORMAT_VERSION}:sync:installed-cursors:qa/restore-cursors-vault@main`;
 
 const server = await startMockGitHubServer({ cas: true });
 try {

@@ -56,8 +56,12 @@ export function addDailyStats(current: AttemptDailyStats | undefined, attempt: A
   };
 }
 
-export async function updateReviewRoundProgressForAttemptInTx(roundId: string, questionId: string, attempt: Attempt): Promise<void> {
-  const current = await studyDb.reviewRoundProgress.get([roundId, questionId]);
+export function addReviewRoundProgress(
+  current: ReviewRoundProgress | undefined,
+  roundId: string,
+  questionId: string,
+  attempt: Attempt,
+): ReviewRoundProgress {
   const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
@@ -65,7 +69,7 @@ export async function updateReviewRoundProgressForAttemptInTx(roundId: string, q
   for (let index = recentOutcomes.length - 1; index >= 0 && recentOutcomes[index].correct; index -= 1) currentCorrectStreak += 1;
   const first = !current || attempt.createdAt < current.firstAttemptAt;
   const hasBeenWrong = Boolean(current?.hasBeenWrong) || !attempt.correct;
-  const progress: ReviewRoundProgress = {
+  return {
     key: `${roundId}:${questionId}`,
     roundId,
     questionId,
@@ -82,5 +86,10 @@ export async function updateReviewRoundProgressForAttemptInTx(roundId: string, q
     correctStreakAfterWrong: hasBeenWrong ? currentCorrectStreak : 0,
     recentOutcomes,
   };
-  await studyDb.reviewRoundProgress.put(progress);
+}
+
+export async function updateReviewRoundProgressForAttemptInTx(roundId: string, questionId: string, attempt: Attempt): Promise<void> {
+  await studyDb.reviewRoundProgress.put(
+    addReviewRoundProgress(await studyDb.reviewRoundProgress.get([roundId, questionId]), roundId, questionId, attempt),
+  );
 }

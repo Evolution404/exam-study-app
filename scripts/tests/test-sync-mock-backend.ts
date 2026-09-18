@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import "fake-indexeddb/auto";
 import { createBank, createQuestion, studyDb, importQuestionBank, putImageAsset, resetDatabase } from "../../src/lib/db/db";
 import { syncWithGitHub } from "../../src/lib/sync/github-sync-engine";
-import { SYNC_ASSET_PREFIX } from "../../src/lib/sync/sync-head-types";
+import { SYNC_ASSET_PREFIX, SYNC_FORMAT_VERSION } from "../../src/lib/sync/sync-head-types";
 import { downloadImageAsset } from "../../src/lib/sync/image-asset-cache";
 import { startMockGitHubServer } from "../tools/mock-github-server.mjs";
 
@@ -19,7 +19,7 @@ try {
   const labels: string[] = [];
 
   const init = await syncWithGitHub(settings, "qa-token", (progress) => labels.push(progress.label));
-  assert.equal(init.formatVersion, 9, "同步协议版本应为 9");
+  assert.equal(init.formatVersion, SYNC_FORMAT_VERSION, "同步协议版本应与当前 transport 一致");
   assert.equal(init.remaining, 0, "初始化后应无待办");
 
   await createBank("同步后端契约测试题库");
