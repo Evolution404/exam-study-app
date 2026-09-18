@@ -13,6 +13,8 @@ import type {
   AttemptStats,
   BankPracticeStats,
   PracticeRun,
+  PracticeRunRecord,
+  PracticeRunSource,
   ReviewRoundProgress,
 } from "./types";
 
@@ -163,11 +165,7 @@ async function replaceProjectionRowsInTx(rows: ProjectionRows): Promise<void> {
  * canonical snapshot and then immediately materialize the same large tables
  * from IndexedDB again.
  */
-export async function rebuildProjectionsFromFacts(
-  attempts: readonly Attempt[],
-  runs: readonly PracticeRun[],
-): Promise<void> {
-  const rows = projectCanonicalFacts(attempts, runs);
+async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
   await studyDb.transaction(
     "rw",
     [
@@ -182,6 +180,57 @@ export async function rebuildProjectionsFromFacts(
       await clearProjectionRebuildPendingInTx();
     },
   );
+}
+
+export async function rebuildProjectionsFromFacts(
+  attempts: readonly Attempt[],
+  runs: readonly PracticeRun[],
+): Promise<void> {
+  await replaceProjectionRows(projectCanonicalFacts(attempts, runs));
+}
+
+/**
+ * Restore path for already-normalized canonical run facts. This avoids
+ * assembling PracticeRun aggregates only to derive bank-level run statistics.
+ */
+export async function rebuildProjectionsFromNormalizedFacts(
+  attempts: readonly Attempt[],
+  runRecords: readonly PracticeRunRecord[],
+  runSources: readonly PracticeRunSource[],
+): Promise<void> {
+  const attemptRows = projectCanonicalFacts(attempts, []);
+  const bankPracticeStats = new Map<string, BankPracticeStats>();
+  const bankIdsByRun = new Map<string, Set<string>>();
+  for (const source of runSources) {
+    let ids = bankIdsByRun.get(source.runId);
+    if (!ids) {
+      ids = new Set<string>();
+      bankIdsByRun.set(source.runId, ids);
+    }
+    ids.add(source.bankId);
+  }
+  for (const run of runRecords) {
+    for (const bankId of bankIdsByRun.get(run.id) ?? []) {
+      const current = bankPracticeStats.get(bankId) ?? {
+        bankId,
+        total: 0,
+        completed: 0,
+        inProgress: 0,
+        abandoned: 0,
+        latestActivityAt: "",
+      };
+      current.total += 1;
+      if (run.status === "completed") current.completed += 1;
+      else if (run.status === "abandoned") current.abandoned += 1;
+      else current.inProgress += 1;
+      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      bankPracticeStats.set(bankId, current);
+    }
+  }
+  await replaceProjectionRows({
+    ...attemptRows,
+    bankPracticeStats: [...bankPracticeStats.values()],
+  });
 }
 
 /**
