@@ -2,6 +2,7 @@ import { type ChangeSetMutation } from "./change-set-types";
 import { createChangeSet } from "./change-set-codec";
 import { dependentChangeSetIds } from "./change-set-planning";
 import { replayChangeSetBatch, type ChangeSetProjection } from "./change-set-projection";
+import { canonicalStateFromProjection } from "./sync-checkpoint-bridge";
 import { studyDb, restoreLocalCheckpoint, type ChangeSetQueueRecord } from "../db/db";
 import { assemblePracticeRunRecords } from "../db/practice-run-store";
 
@@ -73,7 +74,7 @@ async function rebuild(records: readonly ChangeSetQueueRecord[]): Promise<Change
 }
 
 async function install(projection: ChangeSetProjection): Promise<void> {
-  await restoreLocalCheckpoint({ ...projection, memberships: projection.memberships });
+  await restoreLocalCheckpoint(canonicalStateFromProjection(projection));
 }
 
 export async function discardManagedChangeSet(id: string, options: { cascadeDependents?: boolean } = {}): Promise<void> {
