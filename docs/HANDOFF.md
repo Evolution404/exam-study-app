@@ -13,7 +13,7 @@
 - Phase 3–5：projection engine、targeted read-model、canonical-only checkpoint/history 已完成。
 - Phase 6：一次性真实生产 v9 → v10 转换已完成；先 dry-run，再 head-last cutover。
 - Phase 7：旧 runtime v9 行为、版本号式 runtime 命名和一次性 converter 工具已清理；runtime 只识别当前 v10。
-- Phase 8：生产 v10 cutover 已完成；当前只剩最终 docs-only HEAD CI、PR #59 ready/merge 和正式发布/生产 smoke。
+- Phase 8：生产 v10 cutover 已完成；`75d901b977802ca468671d340d8165b47f57719b` 已通过最终完整 CI。当前只剩本次交接文档提交后的 docs-only CI → PR #59 ready/merge → 正式发布/生产 smoke。
 
 用户已明确授权：完成后合并 PR #59 并发布。不要再重复请求 cutover / merge / release 授权。
 
@@ -232,7 +232,7 @@ Phase 6–8 已完成实现和生产 cutover。
 - v10 checkpoint / Asset index 引用完整性：PASS。
 - v9 备份 namespace：保留。
 
-剩余动作仅为：本次 docs/retired-tool 清理后的最终 CI → 将 PR #59 标记 ready → merge main → 触发正式发布并核对生产 smoke。
+最终代码/技术债清理 HEAD `75d901b977802ca468671d340d8165b47f57719b` 已全部通过：Pull request CI（含 Full make test）、Chromium、WebKit、Sync storage、Governance、PR Preview。剩余动作仅为：等待本次交接文档提交后的 docs-only CI → 将 PR #59 标记 ready → merge main → 触发正式发布并核对生产 smoke。
 
 ## 8. 关键架构边界
 
@@ -252,7 +252,7 @@ Phase 6–8 已完成实现和生产 cutover。
 
 ### Git / CI
 
-- PR #59 的 Phase 5–8 与生产 cutover 已完成；待本次 docs/retired-tool 最终 CI 全绿后标记 ready 并合并。
+- PR #59 的 Phase 5–8、生产 cutover、converter 清理均已完成；`75d901b9` 已全门禁 PASS。不要再改运行时代码，除非新 docs-only CI 暴露真实问题；否则直接 ready/merge/release。
 - 每个阶段拆小 commit。
 - GitHub CI 是云端验证基线；不要连接用户 Mac。
 
