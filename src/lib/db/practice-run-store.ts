@@ -211,6 +211,11 @@ export async function putPracticeRunRecordInTx(run: PracticeRun): Promise<void> 
   await studyDb.practiceRuns.put(practiceRunRecord(run));
 }
 
+/** Persist already-normalized run metadata without hydrating child relations. */
+export async function putPracticeRunMetadataInTx(record: PracticeRunRecord): Promise<void> {
+  await studyDb.practiceRuns.put(record);
+}
+
 export async function deletePracticeRunBundleInTx(runId: string): Promise<void> {
   await Promise.all([
     studyDb.practiceRunSources.where("runId").equals(runId).delete(),
