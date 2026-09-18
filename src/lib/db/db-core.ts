@@ -101,7 +101,7 @@ export interface CreatePracticeRunInput {
   reviewRoundId?: string;
 }
 
-/** Complete projection shape accepted by the atomic restore helper. */
+/** Canonical normalized facts accepted by the atomic restore helper. */
 export interface RestoreState {
   banks: Bank[];
   bankFolders: BankFolder[];
@@ -110,9 +110,14 @@ export interface RestoreState {
   imageAssets: ImageAssetDescriptor[];
   attempts: Attempt[];
   notes: Note[];
-  practiceRuns: PracticeRun[];
-  questionGroups: QuestionGroup[];
-  reviewRounds: ReviewRound[];
+  practiceRuns: PracticeRunRecord[];
+  practiceRunSources: PracticeRunSource[];
+  practiceRunItems: PracticeRunItem[];
+  questionGroups: QuestionGroupRecord[];
+  questionGroupItems: QuestionGroupItem[];
+  reviewRounds: ReviewRoundRecord[];
+  reviewRoundBanks: ReviewRoundBank[];
+  reviewRoundItems: ReviewRoundItem[];
   tombstones: Tombstone[];
 }
 
