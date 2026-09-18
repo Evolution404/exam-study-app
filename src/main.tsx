@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { AppShell } from "./app/shell/app-shell";
 import { AppErrorBoundary, AppRecoveryScreen } from "./app/error-boundary";
 import { studyDbReady } from "./lib/db/db";
+import { ensureLocalProjectionsReady } from "./lib/db/projection-engine";
 import { platformRuntime, registerServiceWorker } from "./platform/runtime";
 import "./app/globals.css";
 // 标题衬线中文字体：构建时由 scripts/tools/subset-title-font.mjs 扫描静态文案自动子集化，
@@ -21,7 +22,7 @@ const platformRuntimeReady = platformRuntime.initialize();
 
 // registerServiceWorker preserves the existing `{ updateViaCache: "none" }`
 // contract for Web/PWA while runtime.ts gates native WKWebView.
-void studyDbReady.then(() => platformRuntimeReady).then((environment) => {
+void studyDbReady.then(() => ensureLocalProjectionsReady()).then(() => platformRuntimeReady).then((environment) => {
   // Native-only layout fixes need an explicit runtime marker. Keeping this on
   // <html> avoids user-agent sniffing and leaves Web/PWA geometry untouched.
   document.documentElement.dataset.platform = environment.platform;
