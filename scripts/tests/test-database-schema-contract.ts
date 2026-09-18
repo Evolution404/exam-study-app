@@ -112,7 +112,7 @@ const imageDbSource = await readFile(new URL("../../src/lib/db/db-images.ts", im
 assert.match(dbTypesSource, /export interface CanonicalState\s*\{/, "CanonicalState must be the single complete canonical fact envelope");
 assert.doesNotMatch(dbCoreSource, /export interface RestoreState\s*\{/, "RestoreState must be retired instead of remaining a second complete canonical state");
 
-const bankMatch = dbTypesSource.match(/export interface Bank\s+[^\{]*\{([\s\S]*?)\n\}/);
+const bankMatch = dbTypesSource.match(/export interface Bank\s+[^{]*[{]([\s\S]*?)\n[}]/);
 assert.ok(bankMatch, "Bank interface must remain discoverable");
 assert.doesNotMatch(bankMatch[1], /\bquestionCount\b/, "Bank.questionCount is derived and must not be canonical");
 
