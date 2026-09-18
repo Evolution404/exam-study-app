@@ -4,8 +4,8 @@
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
 import type { RestoreState } from "./db-core";
-import { rebuildProjectionsFromFacts } from "./projection-engine";
-import { decomposePracticeRun } from "./practice-run-store";
+import { markProjectionRebuildPendingInTx, rebuildProjectionsFromFacts } from "./projection-engine";
+import { decomposePracticeRuns } from "./practice-run-store";
 
 export interface ChangeSetQueueGuard {
   id: string;
@@ -73,7 +73,7 @@ function restoreRowCount(state: RestoreState): number {
  * requests clearing them, and projection rebuild never emits a sync change set.
  */
 export async function restoreLocalCheckpoint(state: RestoreState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
-  const practiceRunBundles = state.practiceRuns.map((run) => decomposePracticeRun(run, state.attempts));
+  const practiceRunBundles = decomposePracticeRuns(state.practiceRuns, state.attempts);
   // Projection tables are cleared in the canonical install transaction so no
   // stale derived rows survive a successful restore. They are populated only
   // from the already materialized canonical snapshot after that transaction commits.
@@ -85,7 +85,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
   ];
   const totalRows = Math.max(1, restoreRowCount(state));
 
-  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets], async () => {
+  const restored = await studyDb.transaction("rw", [...replaceTables, studyDb.imageAssets, studyDb.imageBlobs, studyDb.changeSets, studyDb.syncMeta], async () => {
     const transaction = Dexie.currentTransaction;
     let stalled = false;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -124,6 +124,8 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
         touched();
         if (!queueMatches(current, options.queueGuard)) return false;
       }
+      await markProjectionRebuildPendingInTx();
+      touched();
 
       for (const table of replaceTables) {
         await table.clear();
