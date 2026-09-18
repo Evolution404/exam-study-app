@@ -49,7 +49,8 @@ assert.doesNotMatch(practiceDatabase, /\.events\.put\(/, "answer submission must
 assert.match(dashboardController, /latestInProgressPracticeRun\(\)/, "home must use the indexed latest in-progress practiceRun read-model");
 assert.match(practiceRunRead, /where\("\[status\+activityAt\]"\)[\s\S]*?\.between\(\["in_progress", Dexie\.minKey\],[\s\S]*?\.last\(\)/, "latest in-progress practice lookup must use the compound status+activityAt index");
 assert.match(practiceController, /const run = runId \? await getPracticeRun\(runId\) : latestPracticeRun/, "every continue entry must resume the same hydrated practiceRun by id");
-assert.match(practiceController, /if \(changed\.answers !== current\.answers\) void savePracticeProgress\(next\)/, "question navigation must remain transient and not outrank synced answers");
+assert.doesNotMatch(practiceController, /function changeSession[\s\S]*?savePracticeProgress\(/, "question navigation must remain transient and must not write the whole practice run");
+assert.match(practiceController, /if \(!stamped\.submitted\) void savePracticeDraft\(current\.runId, questionId, stamped, updatedAt\)/, "only an unsubmitted answer draft may use the targeted draft writer");
 assert.match(practiceIntent, /localStorage/, "explicit pause suppression must survive a cold browser or WKWebView restart");
 assert.match(practiceIntent, /localStorage\.setItem\(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY, runId\)/, "pause intent must persist only the exact run id, not a second practice-session snapshot");
 assert.match(dashboardController, /latestPracticeRunLoaded/, "startup recovery must distinguish a completed practiceRuns query from its initial loading state");
