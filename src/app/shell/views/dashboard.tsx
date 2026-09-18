@@ -10,7 +10,7 @@ export function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeP
   groupSize: number;
   dailyGoalCount: number;
   dailyGoalAccuracy: number;
-  scopeProgress: { completed: number; total: number };
+  scopeProgress?: { completed: number; total: number };
   scopeLabel: string;
   scopeStats: { questions: number; attempts: number; correct: number; notes: number; bankCount: number; last?: string };
   stats: { todayAttempts: number; todayCorrect: number; pending: number };
@@ -28,7 +28,7 @@ export function Dashboard({ groupSize, dailyGoalCount, dailyGoalAccuracy, scopeP
   const answeredInRun = latestPracticeRun ? Object.values(latestPracticeRun.answers).filter((answer) => answer.submitted).length : 0;
   const resumeProgress = latestPracticeRun?.questionIds.length ? Math.round(answeredInRun / latestPracticeRun.questionIds.length * 100) : 0;
   return <>
-    <div className="home-heading"><h1>今日练习</h1><p>选择题库开始练习，或继续上次进度。</p>{selectedBanks.length > 0 && <div className="home-scope-summary"><ScopeSummaryChips total={scopeProgress.total} done={scopeProgress.completed} scopeLabel={scopeLabel} /></div>}</div>
+    <div className="home-heading"><h1>今日练习</h1><p>选择题库开始练习，或继续上次进度。</p>{selectedBanks.length > 0 && scopeProgress && <div className="home-scope-summary"><ScopeSummaryChips total={scopeProgress.total} done={scopeProgress.completed} scopeLabel={scopeLabel} /></div>}</div>
     {latestPracticeRun && <section className="resume-card"><span className="resume-mark"><Play size={21} /></span><div className="resume-copy"><small>继续上次练习</small><strong>{latestPracticeRun.bankName}</strong><p>{latestPracticeRun.modeLabel}</p></div><div className="resume-progress"><div><span><b>{answeredInRun}</b> / {latestPracticeRun.questionIds.length} 已作答</span><strong>{resumeProgress}%</strong></div><i aria-label={`练习进度 ${resumeProgress}%`}><b style={{ width: `${resumeProgress}%` }} /></i></div><div className="resume-card-actions"><button className="resume-continue" onClick={() => onResume(latestPracticeRun.id)}>继续练习<ChevronRight size={17} /></button><Hint label="放弃上次练习"><button className="resume-discard" aria-label="放弃上次练习" onClick={() => onDiscardResume(latestPracticeRun.id)}><X size={16} /></button></Hint></div></section>}
     {banks.length ? <section className="home-bank-scope"><div className="scope-heading"><div><span className="section-kicker">当前题库范围</span><h2>选择一个或多个题库</h2></div><small>可以暂不选择</small></div><div className={`home-bank-grid${banks.length === 1 ? " single-bank" : ""}`}>{banks.map((bank) => { const selected = selectedBankIds.includes(bank.id); return <button key={bank.id} aria-pressed={selected} className={selected ? "selected" : ""} onClick={() => onBankToggle(bank.id)}><span className="scope-check">{selected && <Check size={14} />}</span><div><strong>{bank.displayName || bank.name}</strong><small>{bank.questionCount.toLocaleString()} 题</small></div></button>; })}</div><div className="scope-footer"><p>{selectedBanks.length ? <>已选择 <strong>{selectedBanks.length}</strong> 个题库，共 <strong>{selectedQuestions.toLocaleString()}</strong> 题</> : "尚未选择练习题库，可以先查看题库或练习配置。"}</p><button className="primary" disabled={!selectedBankIds.length} onClick={onStart}><Brain size={18} />开始随机 {groupSize} 题</button></div></section> : <EmptyImport onImport={onImport} />}
     <section className="home-feature-grid">

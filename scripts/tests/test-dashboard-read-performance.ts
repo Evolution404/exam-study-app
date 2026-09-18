@@ -11,15 +11,22 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const dashboardOwnerSource = readFileSync(new URL("../../src/app/shell/use-dashboard-data.ts", import.meta.url), "utf8");
-assert.equal(
-  (dashboardOwnerSource.match(/bankQuestionMemberships\.where\("bankId"\)/g) ?? []).length,
-  1,
-  "Dashboard selected-bank scope must resolve memberships once for progress + stats",
+const progressQueryStart = dashboardOwnerSource.indexOf("const scopeProgressQuery = useLiveQuery");
+const statsQueryStart = dashboardOwnerSource.indexOf("const scopeStatsQuery = useLiveQuery");
+assert.ok(
+  progressQueryStart >= 0 && statsQueryStart > progressQueryStart,
+  "Dashboard top progress must own a lightweight live query independent from heavy scoped stats",
+);
+const progressQuerySource = dashboardOwnerSource.slice(progressQueryStart, statsQueryStart);
+assert.match(
+  progressQuerySource,
+  /bankQuestionMemberships\.where\("bankId"\)/,
+  "Dashboard top progress may pay one cheap membership lookup to avoid head-of-line blocking",
 );
 assert.doesNotMatch(
-  dashboardOwnerSource,
-  /const scopeProgress = useLiveQuery/,
-  "Dashboard progress must derive from the shared scoped query instead of owning a duplicate live query",
+  progressQuerySource,
+  /readDashboardScopedRows|studyDb\.attempts|studyDb\.notes/,
+  "Dashboard top progress must never wait for heavy scoped history reads",
 );
 
 await resetDatabase();
