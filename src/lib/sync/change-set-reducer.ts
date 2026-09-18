@@ -299,8 +299,8 @@ export function applyChangeSetToOwnedProjection(projection: ChangeSetProjection,
   const context = { createdAt: changeSet.createdAt, deviceId: changeSet.deviceId, eventId: changeSet.id, localSequence: changeSet.localSequence };
   // Mutations are intentionally kept in their supplied order: a createQuestion
   // batch may create a question before its membership/answer.
-  for (const mutation of changeSet.mutations) applyMutation(envelope, mutation, context);
-  return envelope;
+  for (const mutation of changeSet.mutations) applyMutation(envelope.projection, mutation, context);
+  return envelope.commit();
 }
 
 /** One recompute + one validation pass for a finished rebase/replay chain. */
