@@ -1,5 +1,4 @@
-import { studyDb, restoreLocalCheckpoint, type ChangeSetQueueRecord, type RestoreState } from "../db/db";
-import { assemblePracticeRunRecords } from "../db/practice-run-store";
+import { studyDb, restoreLocalCheckpoint, type ChangeSetQueueRecord } from "../db/db";
 import { SYNC_CHECKPOINT_FORMAT, type SyncCheckpoint, type SyncCheckpointCounts, type SyncCheckpointState } from "./sync-checkpoint-types";
 import { validateSyncCheckpoint } from "./sync-checkpoint-validation";
 
@@ -165,44 +164,5 @@ export function parseSyncCheckpoint(bytes: Uint8Array | string): SyncCheckpoint 
  */
 export async function applySyncCheckpoint(checkpoint: SyncCheckpoint): Promise<void> {
   validateSyncCheckpoint(checkpoint);
-  const state = checkpoint.state;
-  const practiceRuns = assemblePracticeRunRecords(
-    state.practiceRuns,
-    state.practiceRunSources,
-    state.practiceRunItems,
-    state.attempts,
-  );
-  const restoreState: RestoreState = {
-    banks: state.banks,
-    bankFolders: state.bankFolders,
-    questions: state.questions,
-    memberships: state.memberships,
-    imageAssets: state.imageAssets,
-    attempts: state.attempts,
-    notes: state.notes,
-    practiceRuns,
-    questionGroups: state.questionGroups.map((group) => ({
-      ...group,
-      items: state.questionGroupItems
-        .filter((item) => item.groupId === group.id)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => ({ questionId: item.questionId, note: item.note ?? "" })),
-    })),
-    reviewRounds: state.reviewRounds.map((round) => {
-      const finalQuestionIds = state.reviewRoundItems
-        .filter((item) => item.roundId === round.id)
-        .sort((left, right) => left.position - right.position)
-        .map((item) => item.questionId);
-      return {
-        ...round,
-        bankIds: state.reviewRoundBanks
-          .filter((bank) => bank.roundId === round.id)
-          .sort((left, right) => left.position - right.position)
-          .map((bank) => bank.bankId),
-        ...(finalQuestionIds.length ? { finalQuestionIds } : {}),
-      };
-    }),
-    tombstones: state.tombstones,
-  };
-  await restoreLocalCheckpoint(restoreState);
+  await restoreLocalCheckpoint(checkpoint.state);
 }
