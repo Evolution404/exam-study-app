@@ -4,8 +4,7 @@
 import Dexie from "dexie";
 import { studyDb } from "./db-core";
 import type { RestoreState } from "./db-core";
-import { markProjectionRebuildPendingInTx, rebuildProjectionsFromFacts } from "./projection-engine";
-import { decomposePracticeRuns } from "./practice-run-store";
+import { markProjectionRebuildPendingInTx, rebuildProjectionsFromNormalizedFacts } from "./projection-engine";
 
 export interface ChangeSetQueueGuard {
   id: string;
@@ -59,8 +58,13 @@ function restoreRowCount(state: RestoreState): number {
     state.attempts,
     state.notes,
     state.practiceRuns,
+    state.practiceRunSources,
+    state.practiceRunItems,
     state.questionGroups,
+    state.questionGroupItems,
     state.reviewRounds,
+    state.reviewRoundBanks,
+    state.reviewRoundItems,
     state.tombstones,
   ].reduce((total, rows) => total + rows.length, 0);
 }
@@ -73,7 +77,6 @@ function restoreRowCount(state: RestoreState): number {
  * requests clearing them, and projection rebuild never emits a sync change set.
  */
 export async function restoreLocalCheckpoint(state: RestoreState, options: RestoreLocalCheckpointOptions = {}): Promise<boolean> {
-  const practiceRunBundles = decomposePracticeRuns(state.practiceRuns, state.attempts);
   // Projection tables are cleared in the canonical install transaction so no
   // stale derived rows survive a successful restore. They are populated only
   // from the already materialized canonical snapshot after that transaction commits.
@@ -164,45 +167,14 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
       await writeChunks(state.memberships, (chunk) => studyDb.bankQuestionMemberships.bulkPut(chunk), "写入题库关系");
       await writeChunks(state.attempts, (chunk) => studyDb.attempts.bulkPut(chunk), "写入作答记录");
       await writeChunks(state.notes, (chunk) => studyDb.notes.bulkPut(chunk), "写入解析笔记");
-      await writeChunks(practiceRunBundles.map((bundle) => bundle.record), (chunk) => studyDb.practiceRuns.bulkPut(chunk), "写入练习记录");
-      await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.sources), (chunk) => studyDb.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
-      await writeChunks(practiceRunBundles.flatMap((bundle) => bundle.items), (chunk) => studyDb.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
-      await writeChunks(state.questionGroups.map((group) => ({
-        id: group.id,
-        name: group.name,
-        type: group.type,
-        description: group.description,
-        createdAt: group.createdAt,
-        updatedAt: group.updatedAt,
-        deviceId: group.deviceId,
-        ...(group.syncEventId !== undefined ? { syncEventId: group.syncEventId } : {}),
-      })), (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
-      await writeChunks(state.questionGroups.flatMap((group) => group.items.map((item, position) => ({
-        groupId: group.id,
-        questionId: item.questionId,
-        position,
-        ...(item.note ? { note: item.note } : {}),
-      }))), (chunk) => studyDb.questionGroupItems.bulkPut(chunk), "写入题组关系");
-      await writeChunks(state.reviewRounds.map((round) => ({
-        id: round.id,
-        name: round.name,
-        startedAt: round.startedAt,
-        status: round.status,
-        createdAt: round.createdAt,
-        updatedAt: round.updatedAt,
-        deviceId: round.deviceId,
-        ...(round.completedAt !== undefined ? { completedAt: round.completedAt } : {}),
-      })), (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");
-      await writeChunks(state.reviewRounds.flatMap((round) => round.bankIds.map((bankId, position) => ({
-        roundId: round.id,
-        bankId,
-        position,
-      }))), (chunk) => studyDb.reviewRoundBanks.bulkPut(chunk), "写入复习轮次题库关系");
-      await writeChunks(state.reviewRounds.flatMap((round) => (round.finalQuestionIds ?? []).map((questionId, position) => ({
-        roundId: round.id,
-        questionId,
-        position,
-      }))), (chunk) => studyDb.reviewRoundItems.bulkPut(chunk), "写入复习轮次题目关系");
+      await writeChunks(state.practiceRuns, (chunk) => studyDb.practiceRuns.bulkPut(chunk), "写入练习记录");
+      await writeChunks(state.practiceRunSources, (chunk) => studyDb.practiceRunSources.bulkPut(chunk), "写入练习来源关系");
+      await writeChunks(state.practiceRunItems, (chunk) => studyDb.practiceRunItems.bulkPut(chunk), "写入练习题目关系");
+      await writeChunks(state.questionGroups, (chunk) => studyDb.questionGroups.bulkPut(chunk), "写入题组");
+      await writeChunks(state.questionGroupItems, (chunk) => studyDb.questionGroupItems.bulkPut(chunk), "写入题组关系");
+      await writeChunks(state.reviewRounds, (chunk) => studyDb.reviewRounds.bulkPut(chunk), "写入复习轮次");
+      await writeChunks(state.reviewRoundBanks, (chunk) => studyDb.reviewRoundBanks.bulkPut(chunk), "写入复习轮次题库关系");
+      await writeChunks(state.reviewRoundItems, (chunk) => studyDb.reviewRoundItems.bulkPut(chunk), "写入复习轮次题目关系");
       await writeChunks(state.tombstones, (chunk) => studyDb.tombstones.bulkPut(chunk), "写入删除标记");
       if (options.clearChangeSets) {
         await studyDb.changeSets.clear();
@@ -219,7 +191,7 @@ export async function restoreLocalCheckpoint(state: RestoreState, options: Resto
 
   if (!restored) return false;
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "重建本地学习统计" });
-  await rebuildProjectionsFromFacts(state.attempts, state.practiceRuns);
+  await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
   return true;
 }
