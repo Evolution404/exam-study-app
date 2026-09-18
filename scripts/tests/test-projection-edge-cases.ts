@@ -3,7 +3,8 @@ import { reduceChangeSet, type ChangeSetProjection } from "../../src/lib/sync/ch
 import { normalizeProjection, runWithAnswer } from "../../src/lib/sync/change-set-projection-core";
 import { type ChangeSetMutation } from "../../src/lib/sync/change-set-types";
 import { createChangeSet } from "../../src/lib/sync/change-set-codec";
-import type { Bank, Question, PracticeRun, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/types";
+import type { Attempt, AttemptStats, Bank, Question, PracticeRun, ReviewRound, ReviewRoundProgress } from "../../src/lib/db/types";
+import { addAttemptToStats, addReviewRoundProgress } from "../../src/lib/db/db-attempt-projections";
 
 const AT = "2026-08-13T00:00:00.000Z";
 const device = "device-test";
@@ -254,6 +255,40 @@ const empty: ChangeSetProjection = {
       .then((change) => reduceChangeSet(completedRound, change)),
     /不是进行中状态/,
   );
+}
+
+// ---------------------------------------------------------------------------
+// exact streak counters must not be truncated by the 32-outcome display window
+// ---------------------------------------------------------------------------
+{
+  const attempt = (id: string, index: number, correct: boolean): Attempt => ({
+    id,
+    runId: "run-streak",
+    questionId: "q-streak",
+    selected: correct ? "A" : "B",
+    correct,
+    elapsedMs: 1,
+    createdAt: new Date(Date.parse(AT) + index * 1_000).toISOString(),
+    deviceId: device,
+  });
+
+  let stats: AttemptStats | undefined;
+  stats = addAttemptToStats(stats, attempt("wrong-0", 0, false));
+  for (let index = 1; index <= 64; index += 1) {
+    stats = addAttemptToStats(stats, attempt(`correct-${index}`, index, true));
+  }
+  assert.equal(stats.currentCorrectStreak, 64, "question currentCorrectStreak must stay exact beyond the 32-row recentOutcomes window");
+  assert.equal(stats.correctStreakAfterWrong, 64, "question correctStreakAfterWrong must stay exact beyond the 32-row recentOutcomes window");
+  assert.equal(stats.recentOutcomes.length, 32, "recentOutcomes remains a bounded display window");
+
+  let reviewProgress: ReviewRoundProgress | undefined;
+  reviewProgress = addReviewRoundProgress(reviewProgress, "round-streak", "q-streak", attempt("round-wrong-0", 0, false));
+  for (let index = 1; index <= 64; index += 1) {
+    reviewProgress = addReviewRoundProgress(reviewProgress, "round-streak", "q-streak", attempt(`round-correct-${index}`, index, true));
+  }
+  assert.equal(reviewProgress.currentCorrectStreak, 64, "review-round streak must stay exact beyond the 32-row recentOutcomes window");
+  assert.equal(reviewProgress.correctStreakAfterWrong, 64, "review-round streak-after-wrong must stay exact beyond the 32-row recentOutcomes window");
+  assert.equal(reviewProgress.recentOutcomes.length, 32, "review recentOutcomes remains a bounded display window");
 }
 
 console.log("projection edge-case tests passed");

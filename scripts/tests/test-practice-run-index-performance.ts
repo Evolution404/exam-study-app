@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import "fake-indexeddb/auto";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
-import { latestInProgressPracticeRun, listPracticeRunsForBank, listPracticeRunsForQuestionIds, readPracticeHistory } from "../../src/lib/db/practice-run-read";
+import { latestInProgressPracticeRun, listPracticeRunsForBank, listPracticeRunsForQuestionIds, listRecentPracticeRunsForBank, readPracticeHistory } from "../../src/lib/db/practice-run-read";
+import { updatePracticeRunStatsInTx } from "../../src/lib/db/db-practice-stats";
 import { decomposePracticeRun } from "../../src/lib/db/practice-run-store";
 import type { PracticeRunRecord, PracticeRun } from "../../src/lib/db/types";
 
@@ -74,6 +75,31 @@ const latest = await latestInProgressPracticeRun();
 studyDb.practiceRuns.hook("reading").unsubscribe(readHook);
 assert.equal(latest?.id, "active-1999", "compound status/update index must return the newest active run");
 assert.equal(rowsRead, 1, "latest active run lookup must materialize one row instead of sorting every active run");
+
+rowsRead = 0;
+studyDb.practiceRuns.hook("reading", readHook);
+const recentBankRuns = await listRecentPracticeRunsForBank("bank-target", 5);
+studyDb.practiceRuns.hook("reading").unsubscribe(readHook);
+assert.deepEqual(recentBankRuns.map((item) => item.id).sort(), ["target-bank", "target-shared"]);
+assert.equal(rowsRead, 2, "cold-bank recent lookup must materialize only target rows even when thousands of unrelated runs are newer");
+
+// Removing the newest run must make latestActivityAt exactly match the next
+// surviving run instead of leaving a stale high-water timestamp.
+const olderStatsRun = { ...run("stats-older", ["bank-stats"], ["stats-q-1"]), updatedAt: "2026-09-16T01:00:00.000Z" };
+const newerStatsRun = { ...run("stats-newer", ["bank-stats"], ["stats-q-2"]), updatedAt: "2026-09-16T02:00:00.000Z" };
+await studyDb.transaction("rw", studyDb.bankPracticeStats, async () => {
+  await updatePracticeRunStatsInTx(undefined, olderStatsRun);
+  await updatePracticeRunStatsInTx(undefined, newerStatsRun);
+});
+assert.equal((await studyDb.bankPracticeStats.get("bank-stats"))?.latestActivityAt, newerStatsRun.updatedAt);
+await studyDb.transaction("rw", studyDb.bankPracticeStats, async () => {
+  await updatePracticeRunStatsInTx(newerStatsRun, undefined);
+});
+assert.equal(
+  (await studyDb.bankPracticeStats.get("bank-stats"))?.latestActivityAt,
+  olderStatsRun.updatedAt,
+  "deleting the latest run must recompute bankPracticeStats.latestActivityAt from surviving canonical runs",
+);
 
 // History paging must use the canonical activityAt index on run metadata,
 // without a second activity table or full-history materialization.

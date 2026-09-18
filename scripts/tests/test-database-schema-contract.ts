@@ -18,6 +18,7 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
   },
   imageAssets: { primaryKey: "id", indexes: ["mimeType", "size"] },
   imageBlobs: { primaryKey: "assetId", indexes: ["cachedAt", "lastUsedAt"] },
+  practiceDrafts: { primaryKey: "[runId+questionId]", indexes: ["runId", "questionId"] },
   attempts: {
     primaryKey: "id",
     indexes: [
@@ -48,7 +49,9 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
     primaryKey: "[runId+questionId]",
     indexes: ["runId", "questionId", "submittedAttemptId", "[runId+position]"],
   },
+  bankQuestionStats: { primaryKey: "bankId", indexes: [] },
   bankPracticeStats: { primaryKey: "bankId", indexes: ["latestActivityAt"] },
+  bankPracticeRunIndex: { primaryKey: "[bankId+runId]", indexes: ["runId", "[bankId+activityAt]"] },
   questionGroups: { primaryKey: "id", indexes: ["type", "updatedAt"] },
   questionGroupItems: {
     primaryKey: "[groupId+questionId]",
@@ -99,32 +102,67 @@ for (const retiredStore of ["attemptStats", "attemptDailyStats", "practiceRunAct
 }
 
 const dbCoreSource = await readFile(new URL("../../src/lib/db/db-core.ts", import.meta.url), "utf8");
-const restoreStateMatch = dbCoreSource.match(/export interface RestoreState \{([\s\S]*?)\n\}/);
-assert.ok(restoreStateMatch, "RestoreState interface must remain discoverable");
+const dbTypesSource = await readFile(new URL("../../src/lib/db/types.ts", import.meta.url), "utf8");
+const reducerCoreSource = await readFile(new URL("../../src/lib/sync/change-set-projection-core.ts", import.meta.url), "utf8");
+const changeSetTypesSource = await readFile(new URL("../../src/lib/sync/change-set-types.ts", import.meta.url), "utf8");
+const dirtyInstallSource = await readFile(new URL("../../src/lib/sync/sync-dirty-install.ts", import.meta.url), "utf8");
+const projectionEngineSource = await readFile(new URL("../../src/lib/db/projection-engine.ts", import.meta.url), "utf8");
+
+assert.match(dbTypesSource, /export interface CanonicalState\s*\{/, "CanonicalState must be the single complete canonical fact envelope");
+assert.doesNotMatch(dbCoreSource, /export interface RestoreState\s*\{/, "RestoreState must be retired instead of remaining a second complete canonical state");
+
+const bankMatch = dbTypesSource.match(/export interface Bank\s+[^\{]*\{([\s\S]*?)\n\}/);
+assert.ok(bankMatch, "Bank interface must remain discoverable");
+assert.doesNotMatch(bankMatch[1], /\bquestionCount\b/, "Bank.questionCount is derived and must not be canonical");
+
+const runItemMatch = dbTypesSource.match(/export interface PracticeRunItem\s*\{([\s\S]*?)\n\}/);
+assert.ok(runItemMatch, "PracticeRunItem interface must remain discoverable");
+assert.doesNotMatch(runItemMatch[1], /\bdraftSelected\b|\bdraftResponse\b/, "practice drafts must not live in canonical PracticeRunItem rows");
+
+for (const explicitRecord of ["PracticeRunRecord", "QuestionGroupRecord", "ReviewRoundRecord"]) {
+  assert.doesNotMatch(
+    dbTypesSource,
+    new RegExp(`export type ${explicitRecord}\\s*=\\s*Omit<`),
+    `${explicitRecord} must be an explicit persisted record type, not an Omit-derived aggregate`,
+  );
+}
+
+const reducerStateMatch = reducerCoreSource.match(/export interface (?:CanonicalState|ChangeSetProjection)\s*\{([\s\S]*?)\n\}/);
+assert.ok(reducerStateMatch, "reducer state interface must remain discoverable");
 for (const derivedField of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
   assert.doesNotMatch(
-    restoreStateMatch[1],
+    reducerStateMatch[1],
     new RegExp(`\\b${derivedField}\\b`),
-    `RestoreState must not accept rebuildable projection field ${derivedField}`,
+    `reducer canonical state must not contain derived array ${derivedField}`,
   );
 }
-for (const canonicalRelation of [
-  "practiceRunSources",
-  "practiceRunItems",
-  "questionGroupItems",
-  "reviewRoundBanks",
-  "reviewRoundItems",
+
+for (const forbiddenPayload of [
+  /kind:\s*"practice\.run\.(?:saved|status\.changed)";\s*run:\s*PracticeRun\b/,
+  /kind:\s*"questionGroup\.saved";\s*group:\s*QuestionGroup\b/,
+  /kind:\s*"review\.round\.(?:saved|completed|archived)";\s*round:\s*ReviewRound\b/,
 ]) {
-  assert.match(
-    restoreStateMatch[1],
-    new RegExp(`\\b${canonicalRelation}\\b`),
-    `RestoreState must expose normalized canonical relation ${canonicalRelation}`,
-  );
+  assert.doesNotMatch(changeSetTypesSource, forbiddenPayload, "change-set relation mutations must carry normalized canonical records, not aggregate domain objects");
 }
+
+const dirtyKeysMatch = dirtyInstallSource.match(/export interface DirtyInstallKeys\s*\{([\s\S]*?)\n\}/);
+assert.ok(dirtyKeysMatch, "DirtyInstallKeys interface must remain discoverable");
+for (const derivedKey of ["attemptStats", "attemptDailyStats", "practiceRunStats", "reviewRoundProgress"]) {
+  assert.doesNotMatch(dirtyKeysMatch[1], new RegExp(`\\b${derivedKey}\\b`), `DirtyInstallKeys must not expose derived projection key ${derivedKey}`);
+}
+
+assert.match(projectionEngineSource, /PROJECTION_MODEL_REVISION/, "local projections need a model revision so algorithm changes force deterministic rebuilds");
 
 const checkpointStoreSource = await readFile(new URL("../../src/lib/sync/sync-checkpoint-store.ts", import.meta.url), "utf8");
 assert.doesNotMatch(checkpointStoreSource, /assemblePracticeRunRecords/, "checkpoint restore must not assemble normalized runs into aggregate PracticeRun objects");
 const restoreSource = await readFile(new URL("../../src/lib/db/db-restore.ts", import.meta.url), "utf8");
 assert.doesNotMatch(restoreSource, /decomposePracticeRuns/, "DB restore must write normalized PracticeRun facts directly");
 
-console.log("database next-schema contract passed");
+const wireSources = await Promise.all([
+  "../../src/lib/sync/change-set-types.ts",
+  "../../src/lib/sync/sync-checkpoint-types.ts",
+  "../../src/lib/sync/sync-history-state.ts",
+].map((path) => readFile(new URL(path, import.meta.url), "utf8")));
+assert.doesNotMatch(wireSources.join("\n"), /\bdraftSelected\b|\bdraftResponse\b/, "draft state must never enter change-set/checkpoint/history wire types");
+
+console.log("database hardening schema and ownership contracts passed");
