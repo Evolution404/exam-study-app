@@ -19,7 +19,7 @@ import { normalizeCanonicalStateForReplay, reduceChangeSet } from "../../src/lib
 
 const at = "2026-08-01T00:00:00.000Z";
 const deviceId = "device-test";
-const bank = (id: string, name = id): Bank => ({ id, name, sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId });
+const bank = (id: string, name = id): Bank => ({ id, name, sortOrder: 0, importedAt: at, updatedAt: at, deviceId });
 const question = (id: string): Question => ({
   id,
   type: "单选",
@@ -119,7 +119,7 @@ assert.equal(validateChangeSet(base), true);
 assert.equal(await verifyChangeSetDigest(base), true);
 assert.match(summarizeChangeSet(base), /批量操作/);
 state = reduceChangeSet(state, base);
-assert.equal(state.banks[0].questionCount, 1);
+assert.equal(state.memberships.filter((item) => item.bankId === "bank-1").length, 1);
 
 let imported = emptyState();
 imported = reduceChangeSet(imported, await cs([{
@@ -130,14 +130,14 @@ imported = reduceChangeSet(imported, await cs([{
 }]));
 imported = reduceChangeSet(imported, await cs([{
   kind: "question.import",
-  bank: { ...bank("import-bank", "导入题库（更新）"), questionCount: 2 },
+  bank: bank("import-bank", "导入题库（更新）"),
   questions: [question("shared-question"), question("new-question")],
   memberships: [membership("import-bank", "shared-question"), membership("import-bank", "new-question")],
 }]));
 assert.equal(imported.banks.length, 1);
 assert.equal(imported.questions.length, 2);
 assert.equal(imported.memberships.length, 2);
-assert.equal(imported.banks[0].questionCount, 2);
+assert.equal(imported.memberships.filter((item) => item.bankId === "import-bank").length, 2);
 
 state = reduceChangeSet(state, await cs([
   { kind: "bankFolder.save", folder },
@@ -236,6 +236,6 @@ assert.equal(danglingPlan.blockers.some((blocker) => blocker.code === "missing-d
 const claim = await createClaimedBatch("claim-1", [base]);
 await assert.rejects(() => assertClaimedBatchDigest({ ...claim, digest: "0".repeat(64) }, [base]), /mismatch/);
 assert.equal(await verifyChangeSetDigest({ ...base, digest: "0".repeat(64) }), false, "digest tamper rejected");
-assert.equal(normalizeCanonicalStateForReplay(state).banks[0].questionCount, state.banks[0].questionCount);
+assert.deepEqual(normalizeCanonicalStateForReplay(state).banks, state.banks);
 
 console.log("change-set tests passed: normalized mutations, canonical replay, conflicts, dependencies and digest claims");

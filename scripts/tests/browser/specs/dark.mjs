@@ -270,6 +270,10 @@ export async function runDarkModeAudit(page) {
   await helpers.capture(page, contextName, "search-detail-dark");
   await page.getByRole("dialog", { name: "题目详情" }).getByRole("button", { name: "关闭题目详情" }).click();
   await page.getByRole("dialog", { name: "题目详情" }).waitFor({ state: "hidden" });
+  await page.waitForFunction(() => {
+    const root = document.querySelector(".app-shell");
+    return root instanceof HTMLElement && !root.inert && root.getAttribute("aria-hidden") !== "true";
+  });
   await helpers.clickButton(page, "题库");
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
   const syncNav = page.locator(".sidebar nav").getByRole("button", { name: "同步", exact: true });

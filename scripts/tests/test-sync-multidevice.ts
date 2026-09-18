@@ -6,7 +6,7 @@ import { planSyncCompaction, replaySyncSegments } from "../../src/lib/sync/sync-
 import type { BankQuestionMembership, Bank, CanonicalState, Question } from "../../src/lib/db/types";
 
 const at = "2026-08-13T00:00:00.000Z";
-const bank: Bank = { id: "bank-1", name: "基础题库", sortOrder: 0, questionCount: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
+const bank: Bank = { id: "bank-1", name: "基础题库", sortOrder: 0, importedAt: at, updatedAt: at, deviceId: "seed" };
 const empty: CanonicalState = { banks: [bank], bankFolders: [], questions: [], memberships: [], imageAssets: [], attempts: [], notes: [], practiceRuns: [], practiceRunSources: [], practiceRunItems: [], questionGroups: [], questionGroupItems: [], reviewRounds: [], reviewRoundBanks: [], reviewRoundItems: [], tombstones: [] };
 
 function question(id: string, deviceId: string): Question {
@@ -30,8 +30,8 @@ let merged = structuredClone(empty);
 for (const change of wire) merged = reduceChangeSet(merged, change);
 assert.equal(merged.questions.length, 2);
 assert.equal(merged.memberships.length, 2);
-assert.equal(merged.banks.find((item) => item.id === "bank-a")?.questionCount, 1, "atomic import must preserve its bank and membership");
-assert.equal(merged.banks.find((item) => item.id === "bank-1")?.questionCount, 1, "question and membership must apply atomically");
+assert.equal(merged.memberships.filter((item) => item.bankId === "bank-a").length, 1, "atomic import must preserve its bank and membership");
+assert.equal(merged.memberships.filter((item) => item.bankId === "bank-1").length, 1, "question and membership must apply atomically");
 
 // Same-millisecond concurrent edits converge to the CAS/replay winner, never
 // wall-clock or path/hash order.
