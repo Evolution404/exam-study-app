@@ -64,6 +64,8 @@ type LookupCacheEntry = {
 };
 
 const idLookupCache = new WeakMap<object, LookupCacheEntry>();
+const keyLookupCache = new WeakMap<object, LookupCacheEntry>();
+const questionIdLookupCache = new WeakMap<object, LookupCacheEntry>();
 const copyOnWriteBacking = new WeakMap<object, () => unknown[]>();
 
 function lookupSource<T>(values: T[]): T[] {
@@ -71,27 +73,44 @@ function lookupSource<T>(values: T[]): T[] {
   return backing ? backing() as T[] : values;
 }
 
-function idIndexOf<T extends { id: string }>(values: T[], id: string): number {
+function stringIndexOf<T>(
+  values: T[],
+  key: string,
+  cache: WeakMap<object, LookupCacheEntry>,
+  keyOf: (value: T) => string,
+): number {
   const source = lookupSource(values);
-  let cached = idLookupCache.get(source);
+  let cached = cache.get(source);
   if (!cached || cached.length !== source.length) {
     cached = {
       length: source.length,
-      positions: new Map(source.map((value, index) => [value.id, index])),
+      positions: new Map(source.map((value, index) => [keyOf(value), index])),
     };
-    idLookupCache.set(source, cached);
+    cache.set(source, cached);
   }
-  let index = cached.positions.get(id);
+  let index = cached.positions.get(key);
   if (index === undefined) return -1;
-  if (source[index]?.id !== id) {
+  if (!source[index] || keyOf(source[index]) !== key) {
     cached = {
       length: source.length,
-      positions: new Map(source.map((value, position) => [value.id, position])),
+      positions: new Map(source.map((value, position) => [keyOf(value), position])),
     };
-    idLookupCache.set(source, cached);
-    index = cached.positions.get(id);
+    cache.set(source, cached);
+    index = cached.positions.get(key);
   }
   return index ?? -1;
+}
+
+function idIndexOf<T extends { id: string }>(values: T[], id: string): number {
+  return stringIndexOf(values, id, idLookupCache, (value) => value.id);
+}
+
+function keyIndexOf<T extends { key: string }>(values: T[], key: string): number {
+  return stringIndexOf(values, key, keyLookupCache, (value) => value.key);
+}
+
+function questionIdIndexOf<T extends { questionId: string }>(values: T[], questionId: string): number {
+  return stringIndexOf(values, questionId, questionIdLookupCache, (value) => value.questionId);
 }
 
 export function byId<T extends { id: string }>(values: T[], id: string): T | undefined {
@@ -202,8 +221,20 @@ export function removeById<T extends { id: string }>(values: T[], id: string, en
   return removed;
 }
 
+export function byKey<T extends { key: string }>(values: T[], key: string): T | undefined {
+  const source = lookupSource(values);
+  const index = keyIndexOf(values, key);
+  return index < 0 ? undefined : source[index];
+}
+
+export function byQuestionId<T extends { questionId: string }>(values: T[], questionId: string): T | undefined {
+  const source = lookupSource(values);
+  const index = questionIdIndexOf(values, questionId);
+  return index < 0 ? undefined : source[index];
+}
+
 export function removeMembership(projection: ChangeSetProjection, key: string): BankQuestionMembership {
-  const index = projection.memberships.findIndex((membership) => membership.key === key);
+  const index = keyIndexOf(projection.memberships, key);
   if (index < 0) fail(`题库关系 ${key} 不存在`);
   const [removed] = projection.memberships.splice(index, 1);
   return removed;
@@ -230,7 +261,7 @@ export function ensureFolder(projection: ChangeSetProjection, folderId: string):
 }
 
 export function ensureAsset(projection: ChangeSetProjection, assetId: string): ImageAsset {
-  const asset = projection.imageAssets.find((item) => item.id === assetId);
+  const asset = byId(projection.imageAssets, assetId);
   if (!asset) fail(`图片资产 ${assetId} 不存在`);
   return asset;
 }
@@ -240,7 +271,7 @@ export function ensureRound(projection: ChangeSetProjection, roundId: string): R
 }
 
 export function setByKey<T extends { key: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = values.findIndex((item) => item.key === value.key);
+  const index = keyIndexOf(values, value.key);
   if (index < 0) {
     if (!allowInsert) fail(`实体 ${value.key} 不存在`);
     values.push(clone(value));
@@ -248,25 +279,27 @@ export function setByKey<T extends { key: string }>(values: T[], value: T, allow
 }
 
 export function setByQuestionId(values: Note[], value: Note): void {
-  const index = values.findIndex((item) => item.questionId === value.questionId);
+  const index = questionIdIndexOf(values, value.questionId);
   if (index < 0) values.push(clone(value));
   else values[index] = clone(value);
 }
 
 export function putTombstone(projection: ChangeSetProjection, entityType: Tombstone["entityType"], entityId: string, deletedAt: string, deviceId: string, eventId: string, sequence: number): void {
   const key = `${entityType}:${entityId}`;
-  const old = projection.tombstones.find((item) => item.key === key);
+  const index = keyIndexOf(projection.tombstones, key);
+  const old = index >= 0 ? lookupSource(projection.tombstones)[index] : undefined;
   const next: Tombstone = { key, entityType, entityId, deletedAt, deviceId, eventId, sequence };
   if (!old) projection.tombstones.push(next);
-  else if (compareClock(next, old) > 0) projection.tombstones[projection.tombstones.indexOf(old)] = next;
+  else if (compareClock(next, old) > 0) projection.tombstones[index] = next;
 }
 
 export function removeTombstone(projection: ChangeSetProjection, type: string, id: string): void {
-  projection.tombstones = projection.tombstones.filter((item) => item.key !== `${type}:${id}`);
+  const index = keyIndexOf(projection.tombstones, `${type}:${id}`);
+  if (index >= 0) projection.tombstones.splice(index, 1);
 }
 
 export function rejectTombstoned(projection: ChangeSetProjection, type: string, id: string): void {
-  if (projection.tombstones.some((item) => item.key === `${type}:${id}`)) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
+  if (keyIndexOf(projection.tombstones, `${type}:${id}`) >= 0) fail(`${type} ${id} 已被删除，陈旧变更不能重新创建它`);
 }
 
 export function runBankIds(run: Pick<PracticeRun, "bankId" | "bankIds">): string[] {
