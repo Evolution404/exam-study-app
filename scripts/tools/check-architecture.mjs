@@ -149,4 +149,4 @@ if (/rebuildAttemptStatsFromAttempts|study-stats-outcomes/.test(latestOnlySource
 if (/ImageAssetRemoteDescriptor|LEGACY_SINGLE_ASSET_PATH|hydrateLegacyAsset|migratedFrom/.test(latestOnlySources)) fail("客户端不得恢复旧图片布局或历史迁移来源兼容");
 if (/scopedStatsToLegacyAttemptStats/.test(latestOnlySources)) fail("客户端不得恢复旧统计 bridge 命名或兼容入口");
 
-console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务/测试命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v10 namespace/head/checkpoint。");
+console.log("架构检查通过：version(1) 单一当前 schema、版本无关业务/测试命名、同步 application boundary 与主题令牌完整；公开同步仅写入 v11 namespace/head/checkpoint。");

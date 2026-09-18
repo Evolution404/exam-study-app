@@ -134,8 +134,7 @@ assert.match(metrics, /outcome\.correct && validBaselineElapsed/, "速度基线�
 assert.match(metrics, /export function calibrateDifficultyLearningRate/, "成熟本机历史应支持 Brier score 参数校准");
 assert.match(metrics, /const difficulty = difficultyFromOutcomes\(stats\.recentOutcomes\)/, "聚合读取只接受当前 outcomes 证据，不得回退旧聚合格式");
 assert.match(metrics, /if \(latest === null\) return 50;/, "未作答复习优先级必须保持默认 50");
-const derived = read("src/lib/sync/change-set-derived.ts");
-assert.match(derived, /recentOutcomes: ordered\.slice\(-32\)\.map\(\(attempt\) => \(\{ id: attempt\.id, createdAt: attempt\.createdAt, correct: attempt\.correct, elapsedMs:/, "同步派生链必须把作答时间写进 outcomes");
+assert.match(attemptProjections, /recentOutcomes[\s\S]*createdAt: attempt\.createdAt[\s\S]*elapsedMs: Math\.max\(0, attempt\.elapsedMs\)/, "本地投影链必须把作答时间写进 outcomes");
 const checkpoint = read("src/lib/sync/sync-checkpoint-validation.ts");
 assert.match(checkpoint, /assertSafeInt\(attempt\.elapsedMs/, "current canonical checkpoint must validate Attempt.elapsedMs");
 assert.doesNotMatch(checkpoint, /recentOutcomes/, "checkpoint validator must not validate derived recentOutcomes projections");

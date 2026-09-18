@@ -200,6 +200,25 @@ export async function runDarkModeAudit(page) {
     await auditVisibleTextContrast(page, nav, textOffenders);
   }
 
+  // 清除数据确认弹窗（历史回退点）：在复杂搜索详情弹窗前完成审计，
+  // 避免两段互不相关的路由/portal 生命周期互相干扰。
+  const syncNav = page.locator(".sidebar nav .desktop-sync-nav");
+  await syncNav.click();
+  await page.waitForFunction(() => document.querySelector(".sidebar nav button[aria-current='page']")?.textContent?.trim() === "同步");
+  await page.locator(".content .clear-data-card").waitFor({ state: "attached", timeout: 10_000 });
+  const clearCard = page.locator(".content .clear-data-card");
+  await clearCard.evaluate((element) => element.scrollIntoView({ block: "center" }));
+  const clearButton = clearCard.locator(".danger-button");
+  await clearButton.waitFor({ state: "visible", timeout: 10_000 });
+  harness.assert.match((await clearButton.innerText()).trim(), /清除数据/, "同步页必须保留清除数据入口");
+  await clearButton.click();
+  await page.locator(".confirm-dialog").waitFor({ state: "visible" });
+  await auditVisibleButtons(page, "清除数据弹窗", offenders);
+  await auditVisibleTextContrast(page, "清除数据弹窗", textOffenders);
+  await helpers.capture(page, contextName, "clear-data-dialog-dark");
+  await page.getByRole("button", { name: "取消" }).click();
+  await page.locator(".confirm-dialog").waitFor({ state: "hidden" });
+
   // 题库详情夜间层级：Hero 是深色 surface，主文字必须保持浅色；文件夹标签
   // 与题库说明同属辅助信息，禁止再回退成高饱和橙色。
   await helpers.clickButton(page, "题库");
@@ -274,29 +293,6 @@ export async function runDarkModeAudit(page) {
     const root = document.querySelector(".app-shell");
     return root instanceof HTMLElement && !root.inert && root.getAttribute("aria-hidden") !== "true";
   });
-  // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
-  // 直接从搜索页进入同步页；不要先切题库再立刻切同步，避免两次 route
-  // transition 的异步数据刷新互相竞争。
-  await helpers.clickButton(page, "同步");
-  await page.waitForFunction(() => document.querySelector(".sidebar nav button[aria-current='page']")?.textContent?.trim() === "同步");
-  await helpers.expectText(page, "GitHub 同步");
-  const clearCard = page.locator(".content .clear-data-card");
-  await clearCard.waitFor({ state: "attached", timeout: 10_000 });
-  // Chromium can defer layout for lower-page content until it is explicitly
-  // scrolled into view; scrolling the attached card avoids waiting on a
-  // descendant's pre-layout visibility while preserving the real UI path.
-  await clearCard.evaluate((element) => element.scrollIntoView({ block: "center" }));
-  const clearButton = clearCard.locator(".danger-button");
-  await clearButton.waitFor({ state: "visible", timeout: 10_000 });
-  harness.assert.match((await clearButton.innerText()).trim(), /清除数据/, "同步页必须保留清除数据入口");
-  await clearButton.click();
-  await page.locator(".confirm-dialog").waitFor({ state: "visible" });
-  await auditVisibleButtons(page, "清除数据弹窗", offenders);
-  await auditVisibleTextContrast(page, "清除数据弹窗", textOffenders);
-  await helpers.capture(page, contextName, "clear-data-dialog-dark");
-  await page.getByRole("button", { name: "取消" }).click();
-  await page.locator(".confirm-dialog").waitFor({ state: "hidden" });
-
   // 练习答题页（提交后还有结果操作按钮）。
   await helpers.clickButton(page, "练习");
   await helpers.expectText(page, "练习中心");
