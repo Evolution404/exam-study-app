@@ -38,6 +38,8 @@ assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: Image
 assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
 assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");
 assert.match(syncUploadSource, /publishImageAssetsAsPacks/, "sync upload must publish image packs instead of individual image files");
+assert.doesNotMatch(syncUploadSource, /imageBlobs\.bulkGet\(descriptors\.map/, "sync upload must not hydrate every local Blob before the remote index decides which assets are missing");
+assert.match(syncUploadSource, /imageBlobs\.get\(assetId\)/, "sync upload must provide an on-demand Blob loader for remotely missing assets");
 assert.doesNotMatch(syncUploadSource, /putImmutable\([\s\S]*sha256:\s*asset\.id/, "sync upload must not create one immutable Git file per image");
 assert.match(imageCacheSource, /readImageAssetsFromPacks/, "full image cache must batch by pack instead of requesting every image blob");
 assert.match(imagePackSource, /if \(assets\.every\(\(asset\) => isIndexed\(knownShards, asset\)\)\) return \[\];/, "idempotent pack publication must use the cached index fast path before Git ref reads");
@@ -224,6 +226,28 @@ const packFixtures = await Promise.all([
 ]);
 const directPack = await buildImageAssetPack(packFixtures.slice(0, 2));
 assert.equal(directPack.entries.length, 2, "direct builder must preserve both logical assets");
+
+const singleReadBlob = new Blob([new Uint8Array([9, 9, 9, 9])], { type: "image/png" });
+const singleReadId = await sha256Blob(singleReadBlob);
+const originalArrayBuffer = singleReadBlob.arrayBuffer.bind(singleReadBlob);
+let arrayBufferReads = 0;
+Object.defineProperty(singleReadBlob, "arrayBuffer", {
+  configurable: true,
+  value: async () => {
+    arrayBufferReads += 1;
+    return originalArrayBuffer();
+  },
+});
+await buildImageAssetPack([{
+  id: singleReadId,
+  mimeType: "image/png",
+  size: singleReadBlob.size,
+  width: 10,
+  height: 10,
+  blob: singleReadBlob,
+}]);
+assert.equal(arrayBufferReads, 1, "pack builder must read each pending Blob payload exactly once");
+
 const builtPacks = await buildImageAssetPacks(packFixtures, { maxAssets: 2 });
 assert.equal(builtPacks.length, 3, "five images with maxAssets=2 must become three immutable packs");
 assert.ok(builtPacks.every((pack) => pack.entries.length <= 2));
