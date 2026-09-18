@@ -255,28 +255,117 @@ export function runWithAnswer(run: PracticeRun, questionId: string, answer: Prac
   return { ...run, answers, updatedAt, revision, ...(submitted >= 0 ? { lastAnsweredIndex: submitted } : {}) };
 }
 
-/** Shallow replay envelope: a new projection object whose top-level arrays are
- *  fresh (pointer-copied) but whose elements are shared with the base until a
- *  mutation writes them.  Every mutation path writes either a whole array or a
- *  CLONED entity into a slot (see runWithAnswer for the one former exception),
- *  so the base projection is never observably mutated and a failed record can
- *  be rolled back by simply discarding its envelope. */
-export function shallowEnvelope(base: ChangeSetProjection): ChangeSetProjection {
+type CopyOnWriteArrayHandle<T> = {
+  proxy: T[];
+  current(): T[];
+};
+
+function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
+  let current = base;
+  let copied = false;
+  const ensureCopy = () => {
+    if (copied) return;
+    current = [...base];
+    copied = true;
+  };
+  const proxy = new Proxy(base, {
+    get(_target, property) {
+      return Reflect.get(current, property, proxy);
+    },
+    set(_target, property, value) {
+      ensureCopy();
+      return Reflect.set(current, property, value);
+    },
+    deleteProperty(_target, property) {
+      ensureCopy();
+      return Reflect.deleteProperty(current, property);
+    },
+    defineProperty(_target, property, descriptor) {
+      ensureCopy();
+      return Reflect.defineProperty(current, property, descriptor);
+    },
+    has(_target, property) {
+      return Reflect.has(current, property);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(current);
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      return Reflect.getOwnPropertyDescriptor(current, property);
+    },
+  }) as T[];
+  return { proxy, current: () => current };
+}
+
+function committedArray<T>(value: T[], handle: CopyOnWriteArrayHandle<T>): T[] {
+  return value === handle.proxy ? handle.current() : value;
+}
+
+/**
+ * Per-change replay envelope with table-level copy-on-write.
+ *
+ * Reads reuse the caller-owned projection arrays directly. The first write to
+ * a table clones only that one top-level array; tables untouched by the
+ * change-set keep reference identity. If a later mutation in the same
+ * change-set throws, discarding this envelope rolls back every write because
+ * the base arrays were never mutated.
+ */
+export function shallowEnvelope(base: ChangeSetProjection): {
+  projection: ChangeSetProjection;
+  commit(): ChangeSetProjection;
+} {
+  const banks = copyOnWriteArray(base.banks);
+  const bankFolders = copyOnWriteArray(base.bankFolders);
+  const questions = copyOnWriteArray(base.questions);
+  const memberships = copyOnWriteArray(base.memberships);
+  const imageAssets = copyOnWriteArray(base.imageAssets);
+  const attempts = copyOnWriteArray(base.attempts);
+  const attemptStats = copyOnWriteArray(base.attemptStats);
+  const attemptDailyStats = copyOnWriteArray(base.attemptDailyStats);
+  const notes = copyOnWriteArray(base.notes);
+  const practiceRuns = copyOnWriteArray(base.practiceRuns);
+  const practiceRunStats = copyOnWriteArray(base.practiceRunStats);
+  const questionGroups = copyOnWriteArray(base.questionGroups);
+  const reviewRounds = copyOnWriteArray(base.reviewRounds);
+  const reviewRoundProgress = copyOnWriteArray(base.reviewRoundProgress);
+  const tombstones = copyOnWriteArray(base.tombstones);
+
+  const projection: ChangeSetProjection = {
+    banks: banks.proxy,
+    bankFolders: bankFolders.proxy,
+    questions: questions.proxy,
+    memberships: memberships.proxy,
+    imageAssets: imageAssets.proxy,
+    attempts: attempts.proxy,
+    attemptStats: attemptStats.proxy,
+    attemptDailyStats: attemptDailyStats.proxy,
+    notes: notes.proxy,
+    practiceRuns: practiceRuns.proxy,
+    practiceRunStats: practiceRunStats.proxy,
+    questionGroups: questionGroups.proxy,
+    reviewRounds: reviewRounds.proxy,
+    reviewRoundProgress: reviewRoundProgress.proxy,
+    tombstones: tombstones.proxy,
+  };
+
   return {
-    banks: [...base.banks],
-    bankFolders: [...base.bankFolders],
-    questions: [...base.questions],
-    memberships: [...base.memberships],
-    imageAssets: [...base.imageAssets],
-    attempts: [...base.attempts],
-    attemptStats: [...base.attemptStats],
-    attemptDailyStats: [...base.attemptDailyStats],
-    notes: [...base.notes],
-    practiceRuns: [...base.practiceRuns],
-    practiceRunStats: [...base.practiceRunStats],
-    questionGroups: [...base.questionGroups],
-    reviewRounds: [...base.reviewRounds],
-    reviewRoundProgress: [...base.reviewRoundProgress],
-    tombstones: [...base.tombstones],
+    projection,
+    commit: () => ({
+      banks: committedArray(projection.banks, banks),
+      bankFolders: committedArray(projection.bankFolders, bankFolders),
+      questions: committedArray(projection.questions, questions),
+      memberships: committedArray(projection.memberships, memberships),
+      imageAssets: committedArray(projection.imageAssets, imageAssets),
+      attempts: committedArray(projection.attempts, attempts),
+      attemptStats: committedArray(projection.attemptStats, attemptStats),
+      attemptDailyStats: committedArray(projection.attemptDailyStats, attemptDailyStats),
+      notes: committedArray(projection.notes, notes),
+      practiceRuns: committedArray(projection.practiceRuns, practiceRuns),
+      practiceRunStats: committedArray(projection.practiceRunStats, practiceRunStats),
+      questionGroups: committedArray(projection.questionGroups, questionGroups),
+      reviewRounds: committedArray(projection.reviewRounds, reviewRounds),
+      reviewRoundProgress: committedArray(projection.reviewRoundProgress, reviewRoundProgress),
+      tombstones: committedArray(projection.tombstones, tombstones),
+    }),
   };
 }
