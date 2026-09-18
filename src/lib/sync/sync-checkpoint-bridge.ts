@@ -159,7 +159,7 @@ export function canonicalStateFromProjection(
     reviewRounds: rounds.records,
     reviewRoundBanks: rounds.banks,
     reviewRoundItems: rounds.items,
-    tombstones: structuredClone(tombstones),
+    tombstones: structuredClone([...tombstones]),
   };
 }
 
@@ -207,15 +207,5 @@ export async function installProjection(
     }) => void;
   },
 ): Promise<boolean> {
-  return reconcileProjection({
-    ...projection,
-    memberships: projection.memberships,
-    imageAssets: projection.imageAssets.map((asset) => ({
-      id: asset.id,
-      mimeType: asset.mimeType,
-      size: asset.size,
-      width: asset.width,
-      height: asset.height,
-    })),
-  }, options);
+  return reconcileProjection(canonicalStateFromProjection(projection), options);
 }
