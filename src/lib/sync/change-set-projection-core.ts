@@ -58,8 +58,46 @@ export function list<T>(value: readonly T[] | undefined): T[] {
   return value ? clone([...value]) : [];
 }
 
+type LookupCacheEntry = {
+  length: number;
+  positions: Map<string, number>;
+};
+
+const idLookupCache = new WeakMap<object, LookupCacheEntry>();
+const copyOnWriteBacking = new WeakMap<object, () => unknown[]>();
+
+function lookupSource<T>(values: T[]): T[] {
+  const backing = copyOnWriteBacking.get(values);
+  return backing ? backing() as T[] : values;
+}
+
+function idIndexOf<T extends { id: string }>(values: T[], id: string): number {
+  const source = lookupSource(values);
+  let cached = idLookupCache.get(source);
+  if (!cached || cached.length !== source.length) {
+    cached = {
+      length: source.length,
+      positions: new Map(source.map((value, index) => [value.id, index])),
+    };
+    idLookupCache.set(source, cached);
+  }
+  let index = cached.positions.get(id);
+  if (index === undefined) return -1;
+  if (source[index]?.id !== id) {
+    cached = {
+      length: source.length,
+      positions: new Map(source.map((value, position) => [value.id, position])),
+    };
+    idLookupCache.set(source, cached);
+    index = cached.positions.get(id);
+  }
+  return index ?? -1;
+}
+
 export function byId<T extends { id: string }>(values: T[], id: string): T | undefined {
-  return values.find((value) => value.id === id);
+  const source = lookupSource(values);
+  const index = idIndexOf(values, id);
+  return index < 0 ? undefined : source[index];
 }
 
 export function requireById<T extends { id: string }>(values: T[], id: string, entity: string): T {
@@ -150,7 +188,7 @@ export function normalizeProjection(input: ChangeSetProjectionInput): ChangeSetP
 }
 
 export function setById<T extends { id: string }>(values: T[], value: T, allowInsert = true): void {
-  const index = values.findIndex((item) => item.id === value.id);
+  const index = idIndexOf(values, value.id);
   if (index < 0) {
     if (!allowInsert) fail(`实体 ${value.id} 不存在`);
     values.push(clone(value));
@@ -158,7 +196,7 @@ export function setById<T extends { id: string }>(values: T[], value: T, allowIn
 }
 
 export function removeById<T extends { id: string }>(values: T[], id: string, entity: string): T {
-  const index = values.findIndex((item) => item.id === id);
+  const index = idIndexOf(values, id);
   if (index < 0) fail(`${entity} ${id} 不存在`);
   const [removed] = values.splice(index, 1);
   return removed;
@@ -294,6 +332,7 @@ function copyOnWriteArray<T>(base: T[]): CopyOnWriteArrayHandle<T> {
       return Reflect.getOwnPropertyDescriptor(current, property);
     },
   });
+  copyOnWriteBacking.set(proxy, () => current);
   return { proxy, current: () => current };
 }
 
