@@ -33,7 +33,7 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
     ],
   },
   questionProgress: { primaryKey: "questionId", indexes: ["latestAttemptAt"] },
-  questionDailyProgress: { primaryKey: "[date+questionId]", indexes: ["date", "questionId"] },
+  questionDailyProgress: { primaryKey: "[date+questionId]", indexes: ["date", "questionId", "[questionId+date]"] },
   notes: { primaryKey: "questionId", indexes: ["updatedAt"] },
   practiceRuns: {
     primaryKey: "id",
