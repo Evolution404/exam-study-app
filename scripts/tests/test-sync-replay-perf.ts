@@ -158,7 +158,32 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.equal(answerResult.attempts.length, 2_001);
 }
 
-// --- 3. poison-skip 与浅信封回滚安全 ---------------------------------------
+// --- 3. 稳定表 lookup index：重复 change-set 不得反复线性扫描 questions ------
+{
+  const base = bigProjection(2_000);
+  let questionElementReads = 0;
+  const trackedQuestions = new Proxy(base.questions, {
+    get(target, property, receiver) {
+      if (typeof property === "string" && /^\\d+$/.test(property)) questionElementReads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  base.questions = trackedQuestions;
+
+  let indexed = base;
+  for (let index = 0; index < 40; index += 1) {
+    indexed = applyChangeSetToOwnedProjection(indexed, await cs([
+      { kind: "note.upserted" as const, note: { questionId: "q-1999", content: `索引解析 ${index}`, revision: index + 1, updatedAt: at, deviceId } },
+    ]));
+  }
+  assert.ok(
+    questionElementReads <= 2_100,
+    `稳定 questions lookup 应只建立一次索引并 O(1) 复用，实际读取 ${questionElementReads} 个元素`,
+  );
+  assert.equal(indexed.notes.find((note) => note.questionId === "q-1999")?.content, "索引解析 39");
+}
+
+// --- 4. poison-skip 与浅信封回滚安全 ---------------------------------------
 {
   const base = bigProjection(50);
   const good = await cs([{ kind: "note.upserted" as const, note: { questionId: "q-1", content: "先写入", revision: 1, updatedAt: at, deviceId } }]);
@@ -176,14 +201,14 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.ok(!base.notes.some((note) => note.content === "毒后写入"), "基座投影不可被批量重放突变");
 }
 
-// --- 4. strict 模式 ---------------------------------------------------------
+// --- 5. strict 模式 ---------------------------------------------------------
 {
   const base = bigProjection(10);
   const poison = await cs([{ kind: "question.delete" as const, questionId: "missing", cascade: true, deletedAt: at }]);
   assert.throws(() => replayChangeSetBatch(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
 }
 
-// --- 5. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
+// --- 6. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
 // 编排器重写后的本地待上传归并路径：单次 caller-owned 投影上逐条浅信封应用，
 // 循环后统一派生+校验一次。必须与基准逐条 reduce（每条全量克隆+派生）等价，
 // 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
@@ -220,7 +245,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.equal(owned.questions.length, sequential.questions.length, "抛出后投影保持等价结果");
 }
 
-// --- 6. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
+// --- 7. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
 const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-engine");
 const server = await startMockGitHubServer();
