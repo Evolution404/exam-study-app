@@ -183,7 +183,40 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.equal(indexed.notes.find((note) => note.questionId === "q-1999")?.content, "索引解析 39");
 }
 
-// --- 4. poison-skip 与浅信封回滚安全 ---------------------------------------
+// --- 4. tombstone/key lookup index：稳定墓碑表不得反复 .some() 全扫 ----------
+{
+  const base = bigProjection(2_000);
+  base.tombstones = Array.from({ length: 2_000 }, (_, index) => ({
+    key: `question:deleted-${index}`,
+    entityType: "question" as const,
+    entityId: `deleted-${index}`,
+    deletedAt: at,
+    deviceId,
+    eventId: `tombstone-${index}`,
+    sequence: index + 1,
+  }));
+  let tombstoneElementReads = 0;
+  base.tombstones = new Proxy(base.tombstones, {
+    get(target, property, receiver) {
+      if (typeof property === "string" && /^\\d+$/.test(property)) tombstoneElementReads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  let indexed = base;
+  for (let index = 0; index < 40; index += 1) {
+    const original = indexed.questions.find((question) => question.id === "q-1999")!;
+    indexed = applyChangeSetToOwnedProjection(indexed, await cs([
+      { kind: "question.upsert" as const, question: { ...original, updatedAt: `2026-08-01T00:00:${String(index).padStart(2, "0")}.000Z` } },
+    ]));
+  }
+  assert.ok(
+    tombstoneElementReads <= 2_100,
+    `稳定 tombstone lookup 应只建立一次 key 索引并 O(1) 复用，实际读取 ${tombstoneElementReads} 个元素`,
+  );
+}
+
+// --- 5. poison-skip 与浅信封回滚安全 ---------------------------------------
 {
   const base = bigProjection(50);
   const good = await cs([{ kind: "note.upserted" as const, note: { questionId: "q-1", content: "先写入", revision: 1, updatedAt: at, deviceId } }]);
@@ -201,14 +234,14 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.ok(!base.notes.some((note) => note.content === "毒后写入"), "基座投影不可被批量重放突变");
 }
 
-// --- 5. strict 模式 ---------------------------------------------------------
+// --- 6. strict 模式 ---------------------------------------------------------
 {
   const base = bigProjection(10);
   const poison = await cs([{ kind: "question.delete" as const, questionId: "missing", cascade: true, deletedAt: at }]);
   assert.throws(() => replayChangeSetBatch(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
 }
 
-// --- 6. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
+// --- 7. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
 // 编排器重写后的本地待上传归并路径：单次 caller-owned 投影上逐条浅信封应用，
 // 循环后统一派生+校验一次。必须与基准逐条 reduce（每条全量克隆+派生）等价，
 // 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
@@ -245,7 +278,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.equal(owned.questions.length, sequential.questions.length, "抛出后投影保持等价结果");
 }
 
-// --- 7. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
+// --- 8. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
 const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-engine");
 const server = await startMockGitHubServer();
