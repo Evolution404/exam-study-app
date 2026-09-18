@@ -6,6 +6,8 @@
 >
 > 施工分支：`refactor/database-architecture-hardening-20260918`
 >
+> Draft PR：#62 `refactor: harden canonical database architecture`
+>
 > 本文是 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md` 完成后的下一阶段计划。旧文档保留为 Sync v10 / projection 正常化的历史实施基线；后续数据库架构工作以本文为准。
 >
 > 当前阶段只做方案冻结与 PR 建立；**不要在没有测试先行的情况下直接改 schema/wire，也不要连接用户 Mac。**
