@@ -253,7 +253,7 @@ await resetDatabase();
 
   // 重复导入同一文件：内容寻址去重，题数不变、资产不重复。
   const again = await importQuestionBankFile(new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: file.type }));
-  assert.equal(again.bank.questionCount, 3, "重复导入不应增加题目");
+  assert.equal((await studyDb.bankQuestionStats.get(again.bank.id))?.questionCount, 3, "重复导入不应增加题目");
   assert.equal((await studyDb.imageAssets.toArray()).length, 3, "重复导入不应重复物化资产");
   assert.equal(await studyDb.questions.count(), 3, "全局题目按指纹去重");
 
