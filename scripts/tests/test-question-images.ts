@@ -208,9 +208,9 @@ await resetDatabase();
 {
   const bytes = buildQuestionBankXlsx(imageQuestions, notes, images);
   const file = new File([toArrayBuffer(bytes)], "图片题库.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const { bank, type } = await importQuestionBankFile(file);
+  const { bank, importedCount, type } = await importQuestionBankFile(file);
   assert.equal(type, "xlsx");
-  assert.equal(bank.questionCount, 3, "三道题全部导入");
+  assert.equal(importedCount, 3, "三道题全部导入");
 
   const questions = await bankQuestions(bank.id);
   const byOrder = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
