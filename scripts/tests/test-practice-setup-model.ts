@@ -95,15 +95,15 @@ const componentSource = fs.readFileSync(new URL("../../src/app/practice/practice
 const readSource = fs.readFileSync(new URL("../../src/lib/db/practice-setup-read.ts", import.meta.url), "utf8");
 const sessionControllerSource = fs.readFileSync(new URL("../../src/app/shell/use-practice-session-controller.ts", import.meta.url), "utf8");
 const practiceStartDataSource = fs.readFileSync(new URL("../../src/app/shell/practice-start-data.ts", import.meta.url), "utf8");
-assert.match(componentSource, /readPracticeSetupDataset\(bankIds\)/, "Practice Setup 必须使用独立 canonical read-model");
+assert.match(componentSource, /readPracticeSetupDataset\(bankIds, effectiveScope, referenceTime\)/, "Practice Setup 必须使用带 scope 的独立 canonical read-model");
 assert.doesNotMatch(componentSource, /studyDb|attemptStats\.toArray\(\)|reviewRoundProgress\.toArray\(\)/, "Practice Setup React owner 不得直接扫描 IndexedDB 历史表");
 assert.match(readSource, /studyDb\.questionProgress\.bulkGet\(ids\)/, "Practice Setup questionProgress 必须按 questionId 主键定向读取");
-assert.match(readSource, /studyDb\.reviewRoundProgress\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup round progress 必须按 questionId 索引定向读取");
-assert.match(readSource, /studyDb\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\)/, "Practice Setup attempts 必须按 questionId 索引定向读取");
+assert.match(readSource, /studyDb\.reviewRoundProgress\.bulkGet\(ids\.map\(\(questionId\) => \[normalized\.roundId, questionId\]/, "Practice Setup round progress 必须按 roundId+questionId 复合主键精确读取");
+assert.match(readSource, /readAttemptsForQuestionIdsInWindow\(ids, from, to\)/, "Practice Setup rolling attempts 必须按 questionId+createdAt 时间窗口定向读取");
 assert.doesNotMatch(readSource, /studyDb\.(?:questionProgress|reviewRoundProgress|attempts)\.toArray\(\)/, "Practice Setup read-model 不得回退历史全表扫描");
 assert.match(sessionControllerSource, /preparePracticeStartQuestions\(questions, filter, preferences\)/, "开始练习筛选必须委托独立 read-model，避免 controller 重新承担历史扫描和大数组筛选");
-assert.match(practiceStartDataSource, /readPracticeSetupHistoryForQuestionIds\(questionIds, \{[\s\S]*includeAttempts: wrongRemovalStreak !== undefined && progressScope\.type !== "round"/, "练习启动 read-model 必须复用定向历史读取，并只在错题非轮次口径读取逐条 attempts");
-assert.match(readSource, /includeAttempts \? studyDb\.attempts\.where\("questionId"\)\.anyOf\(ids\)\.toArray\(\) : Promise\.resolve\(\[\]\)/, "普通开始练习路径必须能跳过 attempts materialization");
+assert.match(practiceStartDataSource, /readPracticeSetupScopedHistoryForQuestionIds\(questionIds, normalizedScope, referenceTime, \{[\s\S]*includeRollingAttempts: wrongRemovalStreak !== undefined/, "练习启动 read-model 必须复用 scope-aware 定向历史读取，并只在 rolling 错题口径读取逐条 attempts");
+assert.match(readSource, /normalized\.type === "lifetime" \|\| options\.includeRollingAttempts === false/, "lifetime 与非错题启动路径必须跳过 attempts materialization");
 assert.match(practiceStartDataSource, /readPracticeStartData\(questions\.map\(\(question\) => question\.id\)/, "练习启动筛选必须先缩小题目集合，再按候选题定向读取历史");
 assert.doesNotMatch(sessionControllerSource, /studyDb\.questionProgress\.toArray\(\)[\s\S]*studyDb\.reviewRoundProgress\.toArray\(\)[\s\S]*studyDb\.attempts\.toArray\(\)/, "开始练习不得恢复全量历史三表扫描");
 
