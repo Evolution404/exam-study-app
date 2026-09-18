@@ -6,38 +6,43 @@
 >
 > 当前工作方式：**只使用 GitHub / 云端环境；不要连接用户 Mac。**
 >
-> 当前 Draft PR：#62 `refactor: harden canonical database architecture`
+> PR：#62 `refactor: harden canonical database architecture`
 >
-> 当前分支：`refactor/database-architecture-hardening-20260918`
+> 分支：`refactor/database-architecture-hardening-20260918`
 >
-> 完整实施计划：`docs/DATABASE-ARCHITECTURE-HARDENING-PLAN-2026-09-18.md`
+> 完整实施记录：`docs/DATABASE-ARCHITECTURE-HARDENING-PLAN-2026-09-18.md`
 
 ## 0. 当前状态
 
-上一轮运行时热点/数据库安装边界优化已经在 PR #61 完成并合并：
+数据库架构 hardening Phase 0–9 已全部完成。
 
-- PR #61：`perf: remove runtime scaling hotspots`
-- 最终 HEAD：`c449a8563880661fb698220c587067722f53ade9`
-- merge commit：`5c83d6412a18c96594aa0c5a9295737cf1419290`
-- Pull request CI / Full make test / Chromium / WebKit / Sync storage / Governance / PR Preview：全部 PASS。
+生产 Sync v11 已于 2026-09-18 完成 head-last cutover并回读验证：
 
-PR #61 已完成：
+- 最终 cutover App SHA：`2c2523d43b3281b77e77b62955b53e4a1f10078a`
+- vault：`Evolution404/exam-study-vault@main`
+- v10 source head：`89df24b80a02392827f2c2771845904e04fe5f46`
+- v11 formatVersion：11
+- v11 generation：1
+- v11 checkpoint：`sync/v11/checkpoints/c27a6495dc4031909f1c3c66c78b31a7db254d65517bc0a5dab56f509c2480d6.json`
+- cutover workflow run：`35337199397`，SUCCESS
+- v10 namespace 保留为不可变回退基线，当前 runtime 不读取。
 
-- PracticeRun checkpoint/reconcile 批量拆解；
-- targeted draft / answer write；
-- projection crash recovery marker；
-- Practice Setup / Bank Detail / Dashboard targeted reads；
-- Bank Detail round/daily 精确查询；
-- pending queue O(P²) 清理；
-- image Blob lazy hydration；
-- reducer table-level copy-on-write + lookup index；
-- normalized restore/checkpoint/cache restore/reconcile 边界。
+真实生产转换事实：
 
-不要重新处理这些已完成内容。
+- 10 个题库
+- 4117 道题
+- 4410 条题库关系
+- 320 个图片资产
+- 9707 条作答
+- 914 条笔记
+- 96 个练习
+- 255 条练习来源关系
+- 13068 条练习题目关系
+- 12 个题组
+- 105 条题组关系
+- 623 条 tombstone
 
-## 1. PR #62 的目的
-
-本轮不是继续零散查询优化，而是把数据库架构彻底统一为：
+## 1. 本轮最终架构
 
 ```text
 CanonicalState
@@ -51,144 +56,70 @@ PracticeDrafts / ImageBlobs
   -> never sync
 ```
 
-深审已确认的核心问题：
+关键约束已经落实：
 
-1. `ChangeSetProjection` 仍同时包含 canonical、aggregate 和 derived arrays；
-2. change-set mutation 仍携带 aggregate PracticeRun / QuestionGroup / ReviewRound；
-3. `PracticeRunItem.draftSelected/draftResponse` 所有权错误，local draft 混在 canonical relation；
-4. `Bank.questionCount` 仍是可重建值，却被持久化/同步；
-5. dirty-install 仍残留 `attemptStats/attemptDailyStats/practiceRunStats/reviewRoundProgress` derived keys；
-6. canonical record type 仍依赖 UI aggregate type 的 `Omit<...>`；
-7. projection 只有 crash pending marker，没有 model revision；
-8. `bankPracticeStats.latestActivityAt` 删除最新 run 时增量更新不完全可逆；
-9. streak exact counter 与 32 条 `recentOutcomes` window 存在语义耦合风险；
-10. cold-bank recent runs 缺少 `[bankId+activityAt]` 本地索引 projection。
+1. `CanonicalState` 是唯一完整 canonical state；
+2. Bank 不再持久化/同步 `questionCount`；
+3. `PracticeRunItem` 不再保存 draft；
+4. `practiceDrafts`、`imageBlobs` 都是 local-only；
+5. reducer/change-set/checkpoint/history/reconcile 使用 normalized canonical records；
+6. projection 使用 `ProjectionImpact` dependency planner；
+7. projection model revision 已建立，可识别算法升级后的 stale projection；
+8. `bankPracticeRunIndex` 提供 `[bankId+activityAt]` 精确查询；
+9. 当前 runtime 只认 Sync v11；禁止 v10 fallback / dual read / dual write；
+10. Dexie 仍只有唯一当前 `version(1)`，禁止 migration chain。
 
-完整证据、目标 schema、阶段和验收标准全部写在新的 hardening plan 中；不要以旧的 2026-09-17 文档覆盖它。
+## 2. 本轮修复的重要问题
 
-## 2. 强制约束
+- 修复 `deleteBankWithExclusiveQuestions()` 父事务遗漏 `practiceDrafts`；
+- 修复 `setQuestionMemberships()` 父事务遗漏 `bankQuestionStats`；
+- 修复较早 `practice.answer.*` 回放覆盖已完成 run 生命周期状态的问题；
+- 修复 `bankPracticeStats.latestActivityAt` 删除最新 run 后不可逆；
+- exact streak 不再受 32 条 recentOutcomes 窗口截断；
+- recent bank practice runs 不再扫描全局 run；
+- canonical lookup cache 避免稳定 ID 重复全扫；
+- dirty incremental install、projection crash recovery、model revision rebuild 均已门禁；
+- 删除 dead `syncFiles` store 与旧 aggregate/兼容性残留。
 
-1. 测试先行；每个 Phase 先提交能让旧实现失败的 contract/correctness/performance test。
-2. 小 commit、单一主题、及时 push。
-3. 禁止 `git reset` / `git clean`。
-4. Dexie 继续只有当前唯一 `version(1)`。
-5. 禁止 `version(2+)`、`.upgrade()`、migration chain、旧 schema adapter。
-6. 所有客户端统一升级；本地 IndexedDB 可清空并从远端重建。
-7. 禁止 runtime sync 双栈、fallback、dual read/write compatibility。
-8. canonical fact 只能有一个 owner；projection/local transient/cache 不得进入 sync wire。
-9. 不允许提高性能/code-size/export/architecture baseline 掩盖失败。
-10. 不连接用户 Mac。
-11. PR #62 未经用户明确授权，不得 merge、release 或执行真实生产 sync cutover。
+## 3. 验收状态
 
-## 3. 当前生产同步事实
+切换前最终完整 CI 已通过：
 
-- 当前 production runtime：Sync v10。
-- v10 已完成生产 head-last cutover并稳定运行。
-- v9 namespace 保留为不可变历史备份，当前 runtime 不读取。
-- 下一轮如果 normalized mutation / Bank schema 改变 wire，计划使用一次性新 namespace cutover，而不是 runtime 双栈。
-- 真正 cutover 必须放在实现后期：先 dry-run + parity + 全 CI，之后再使用用户明确授权。
+- Governance Audit：PASS
+- Sync storage CI：PASS
+- PR Preview：PASS
+- Pull request CI：PASS
+- Chromium Browser smoke：PASS
+- WebKit Browser smoke：PASS
+- TypeScript typecheck：PASS
+- ESLint / Stylelint / dead-code：PASS
 
-## 4. Phase 顺序
+关键性能/正确性门禁：
 
-严格按以下顺序：
+- canonical replay：批量回放显著快于逐条回放，且稳定 lookup 不反复全扫；
+- 2000 questions / 10000 attempts incremental install：单题 dirty install 只写目标行；
+- 500-item run draft / answer：单题操作保持 targeted reads；
+- cold-bank recent history：只 materialize 请求页；
+- 10k/100k 级统计与搜索门禁通过；
+- multi-device / CAS / tombstone / compaction / restore / Safari IndexedDB 全通过。
 
-### Phase 0 — 契约冻结
+## 4. 后续规则
 
-只写测试/门禁，不先改实现：
+- 不要恢复 v10 runtime compatibility；v10 只作为远端不可变备份。
+- 不要增加 Dexie `version(2+)` 或 `.upgrade()`，除非用户明确改变当前开发阶段策略。
+- 不要把 derived/local-only 数据重新塞进 CanonicalState。
+- 不要提高性能、code-size、export 或 architecture baseline 来掩盖失败。
+- 继续测试先行、小 commit、及时 push。
+- 禁止连接用户 Mac，除非用户以后明确改变这一约束。
 
-- CanonicalState 单一事实 envelope；
-- reducer 禁止 derived arrays；
-- normalized mutation payload；
-- Bank canonical 禁止 questionCount；
-- PracticeRunItem canonical 禁止 draft；
-- DirtyInstallKeys 禁止 derived keys；
-- explicit canonical record types；
-- projection model revision；
-- latestActivityAt delete differential；
-- >32 streak exactness；
-- cold-bank recent runs performance；
-- schema exact contract。
+## 5. 当前剩余动作
 
-### Phase 1 — CanonicalState / 类型所有权
+当前 PR #62 只剩发布收尾：
 
-- explicit persisted record types；
-- 删除 persisted type 对 aggregate `Omit` 依赖；
-- checkpoint/restore/reconcile/reducer 收敛到 CanonicalState；
-- 删除 RestoreState 这种第二完整状态类型。
-
-### Phase 2 — canonical reducer / normalized change-set
-
-- 退役 ChangeSetProjection aggregate+derived 模型；
-- reducer 只处理 CanonicalState；
-- normalise run/group/round mutation bundle；
-- dirty install 只表达 canonical dirty keys。
-
-### Phase 3 — PracticeDrafts
-
-- 新增 local-only `practiceDrafts`；
-- PracticeRunItem 删除 draft 字段；
-- submit 同事务删除 draft；
-- hydration 只在 read-model overlay draft。
-
-### Phase 4 — Bank.questionCount 派生化
-
-- canonical Bank 删除 questionCount；
-- 新增 local `bankQuestionStats`；
-- 删除 refreshBankQuestionCountInTx / derived bank dirty closure。
-
-### Phase 5 — Projection dependency / correctness
-
-- ProjectionImpact planner；
-- projection model revision；
-- normalized full rebuild；
-- 修复 bankPracticeStats latestActivityAt；
-- exact streak 与 recentOutcomes 解耦。
-
-### Phase 6 — bankPracticeRunIndex
-
-- 新增 `[bankId+activityAt]` projection；
-- recent runs 精确索引读取；
-- cold-bank 大规模门禁。
-
-### Phase 7 — identity/cache/dead store cleanup
-
-- relation duplicate identity 审计；
-- local projection redundant key 清理；
-- `syncFiles` owner 审计；
-- imageBlobs wire guard；
-- unused aggregate helpers/types 清理。
-
-### Phase 8 — 新 wire dry-run
-
-只有本轮确实改变 wire 后执行；一次性工具隔离在 `scripts/tools/`。
-
-### Phase 9 — cutover/release
-
-仅用户明确授权后执行。
-
-## 5. 立即下一步
-
-下一个 AI 从 **Phase 0** 开始。
-
-先核对：
-
-- PR #62 最新 HEAD / CI；
-- `AGENTS.md`；
-- 本文；
-- `docs/DATABASE-ARCHITECTURE-HARDENING-PLAN-2026-09-18.md`；
-- `git status`（若未来恢复本地环境时仍禁止 reset/clean）。
-
-然后先新增 contract tests，不能直接重构实现。
-
-优先测试顺序：
-
-1. CanonicalState / reducer derived-state ban；
-2. Bank.questionCount canonical ban；
-3. draft wire ban；
-4. dirty-key derived ban；
-5. explicit persisted record type contract；
-6. bankPracticeStats delete-latest differential；
-7. 64+ streak exactness；
-8. cold-bank recent run materialization gate。
-
-Phase 0 红灯必须是预期架构红灯；不要通过放宽门禁让它变绿。
+1. 删除一次性 v10→v11 converter/test；
+2. 完整 CI 再跑一遍；
+3. PR Ready；
+4. merge main；
+5. 等待 GitHub Pages / Cloudflare / SideStore 自动发布；
+6. 执行发布后 smoke；
+7. 若全部成功，PR #62 与本轮数据库架构任务正式关闭。

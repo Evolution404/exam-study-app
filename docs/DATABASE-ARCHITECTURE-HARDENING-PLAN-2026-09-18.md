@@ -1,6 +1,6 @@
 # 数据库架构深度审计与下一阶段重构计划（2026-09-18）
 
-> 状态：**待实施**
+> 状态：**已完成并于 2026-09-18 完成生产 Sync v11 cutover，待 PR #62 合并发布**
 >
 > 基线：PR #61 已于 2026-09-18 合并，merge commit `5c83d6412a18c96594aa0c5a9295737cf1419290`。
 >
@@ -10,7 +10,7 @@
 >
 > 本文是 `docs/DATABASE-ARCHITECTURE-REFACTOR-PLAN-2026-09-17.md` 完成后的下一阶段计划。旧文档保留为 Sync v10 / projection 正常化的历史实施基线；后续数据库架构工作以本文为准。
 >
-> 当前阶段只做方案冻结与 PR 建立；**不要在没有测试先行的情况下直接改 schema/wire，也不要连接用户 Mac。**
+> 实施状态：Phase 0–9 已完成。生产 vault `Evolution404/exam-study-vault@main` 已从 Sync v10 head-last 切换到 Sync v11；v10 namespace 保留为不可变回退基线。仍禁止连接用户 Mac。
 
 ---
 
@@ -1598,3 +1598,78 @@ Local-only:
 > **远端同步、reducer、restore、reconcile 只认识 CanonicalState；所有统计、索引、草稿和 Blob 都是本地附属状态。**
 
 这就是下一阶段数据库重构的最终验收标准。
+
+
+---
+
+## 26. 实施完成记录
+
+完成时间：2026-09-18。
+
+### 26.1 Phase 0–9 状态
+
+- Phase 0：CanonicalState / schema / wire / projection ownership contract 已冻结并门禁化；
+- Phase 1：CanonicalState 成为唯一完整 canonical envelope，RestoreState 等第二状态模型已退役；
+- Phase 2：change-set/reducer 完成 normalized canonical-only 重构；
+- Phase 3：PracticeDrafts 已迁移为 local-only store，不进入 checkpoint/change-set/history；
+- Phase 4：Bank.questionCount 已从 canonical Bank 移除，改由 bankQuestionStats 本地投影维护；
+- Phase 5：ProjectionImpact dependency planner、projection model revision、可逆统计与 crash recovery 已完成；
+- Phase 6：bankPracticeRunIndex 已上线，题库最近练习查询改为 [bankId+activityAt] 精确索引；
+- Phase 7：dead store / relation identity / image cache ownership / export surface 已完成审计与清理；
+- Phase 8：真实生产 v10 → v11 dry-run 已通过；
+- Phase 9：生产 head-last cutover、回读校验、一次性 converter 清理已完成。
+
+### 26.2 生产 Sync v11 cutover 记录
+
+最终用于生产 cutover 的 App SHA：
+
+`2c2523d43b3281b77e77b62955b53e4a1f10078a`
+
+源 v10：
+
+- source head SHA：`89df24b80a02392827f2c2771845904e04fe5f46`
+- generation：2
+- v10 namespace 保留，不修改、不删除。
+
+目标 v11：
+
+- formatVersion：11
+- generation：1
+- checkpoint：`sync/v11/checkpoints/c27a6495dc4031909f1c3c66c78b31a7db254d65517bc0a5dab56f509c2480d6.json`
+- cutover workflow：run `35337199397`，结论 SUCCESS
+- cutoverPublished：true
+
+真实生产事实校验：
+
+- banks：10
+- bankFolders：3
+- questions：4117
+- memberships：4410
+- imageAssets：320
+- attempts：9707
+- notes：914
+- practiceRuns：96
+- practiceRunSources：255
+- practiceRunItems：13068
+- questionGroups：12
+- questionGroupItems：105
+- tombstones：623
+- 320 个图片索引全部回读通过。
+
+### 26.3 关键最终不变量
+
+```text
+CanonicalState
+  -> ChangeSet / Checkpoint / History / Reconcile
+  -> Projection Dependency Planner
+       -> Local Projections
+            -> UI Read Models
+
+PracticeDrafts / ImageBlobs
+  -> local only
+  -> never sync
+```
+
+运行时只认当前 Sync v11 namespace，不保留 v10 runtime reader/fallback/dual write。
+
+本轮一次性 v10→v11 converter 在 cutover 成功后删除；生产 v10 namespace 只作为不可变历史备份保留。
