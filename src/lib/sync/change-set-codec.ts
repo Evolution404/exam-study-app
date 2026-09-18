@@ -87,8 +87,7 @@ function normalizeMutation(mutation: ChangeSetMutation): ChangeSetMutation {
     value.banks = [...value.banks].sort((a, b) => a.position - b.position || a.bankId.localeCompare(b.bankId));
   }
   if ("items" in value && value.items) {
-    value.items = [...value.items].sort((a, b) => a.position - b.position
-      || ("questionId" in a && "questionId" in b ? a.questionId.localeCompare(b.questionId) : 0));
+    value.items.sort((a, b) => a.position - b.position || a.questionId.localeCompare(b.questionId));
   }
   return value;
 }

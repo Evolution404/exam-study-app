@@ -13,8 +13,7 @@ import { applyLearningMutation } from "./change-set-mutation-learning";
 function applyMutation(state: CanonicalState, mutation: ChangeSetMutation, context: MutationContext): void {
   if (applyEntityMutation(state, mutation, context)) return;
   if (applyLearningMutation(state, mutation, context)) return;
-  const exhaustive: never = mutation;
-  throw new Error(`unsupported canonical mutation: ${JSON.stringify(exhaustive)}`);
+  throw new Error(`unsupported canonical mutation: ${JSON.stringify(mutation)}`);
 }
 
 export function applyChangeSetToOwnedState(state: CanonicalState, changeSet: ChangeSet): CanonicalState {

@@ -1,8 +1,9 @@
-import { studyDb, type RestoreState } from "./db-core";
+import { studyDb } from "./db-core";
+import type { CanonicalState } from "./types";
 
 export interface ImageReconcilePlan {
-  updates: RestoreState["imageAssets"];
-  inserts: RestoreState["imageAssets"];
+  updates: CanonicalState["imageAssets"];
+  inserts: CanonicalState["imageAssets"];
   deletes: string[];
   scannedRows: number;
   comparedRows: number;
@@ -11,8 +12,8 @@ export interface ImageReconcilePlan {
 const IMAGE_PLAN_READ_BATCH_SIZE = 500;
 
 function sameDescriptor(
-  left: RestoreState["imageAssets"][number],
-  right: RestoreState["imageAssets"][number],
+  left: CanonicalState["imageAssets"][number],
+  right: CanonicalState["imageAssets"][number],
 ): boolean {
   return left.id === right.id
     && left.mimeType === right.mimeType
@@ -23,12 +24,12 @@ function sameDescriptor(
 
 export function directImagePlan(
   mode: "fresh" | "dirty",
-  incoming: RestoreState["imageAssets"],
+  incoming: CanonicalState["imageAssets"],
   dirtyKeys: readonly string[] | undefined,
 ): ImageReconcilePlan {
   const wanted = mode === "dirty" ? new Set(dirtyKeys ?? []) : undefined;
   const found = new Set<string>();
-  const inserts: RestoreState["imageAssets"] = [];
+  const inserts: CanonicalState["imageAssets"] = [];
   for (const asset of incoming) {
     if (wanted && !wanted.has(asset.id)) continue;
     if (found.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全${mode === "fresh" ? "首次安装" : "脏键同步"}。`);
@@ -44,7 +45,7 @@ export function directImagePlan(
   };
 }
 
-export async function planImageAssets(incoming: RestoreState["imageAssets"]): Promise<ImageReconcilePlan> {
+export async function planImageAssets(incoming: CanonicalState["imageAssets"]): Promise<ImageReconcilePlan> {
   const rawCurrentKeys = await studyDb.imageAssets.toCollection().primaryKeys();
   const currentKeys = rawCurrentKeys.map((key) => {
     if (typeof key !== "string") throw new Error("本机 imageAssets 存在非字符串主键，无法安全增量同步。");
@@ -52,9 +53,9 @@ export async function planImageAssets(incoming: RestoreState["imageAssets"]): Pr
   });
   const currentIds = new Set(currentKeys);
   const incomingIds = new Set<string>();
-  const updates: RestoreState["imageAssets"] = [];
-  const inserts: RestoreState["imageAssets"] = [];
-  const existing: RestoreState["imageAssets"] = [];
+  const updates: CanonicalState["imageAssets"] = [];
+  const inserts: CanonicalState["imageAssets"] = [];
+  const existing: CanonicalState["imageAssets"] = [];
   for (const asset of incoming) {
     if (incomingIds.has(asset.id)) throw new Error(`远端 imageAssets 存在重复主键 ${asset.id}，无法安全增量同步。`);
     incomingIds.add(asset.id);

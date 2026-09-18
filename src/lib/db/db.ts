@@ -19,7 +19,6 @@ export {
 export type {
   PracticeAnswer,
   QuestionDraft,
-  RestoreState,
 } from "./db-core";
 
 export {

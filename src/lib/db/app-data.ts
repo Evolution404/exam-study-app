@@ -1,8 +1,17 @@
 import { studyDb, getBankQuestionJoins } from "./db";
 import { getBankQuestionJoinsForBanks } from "./db-bank";
 import { deriveContentText, deriveSearchText, summarizeContent } from "../question/question-content";
-import type { BankQuestionMembership, Bank, Question } from "./types";
+import type { BankQuestionMembership, Bank, BankReadModel, Question } from "./types";
 export { questionAnswerText } from "../question/question-answer-text";
+
+export async function listBankReadModels(): Promise<BankReadModel[]> {
+  const [banks, stats] = await Promise.all([
+    studyDb.banks.orderBy("sortOrder").toArray(),
+    studyDb.bankQuestionStats.toArray(),
+  ]);
+  const countByBank = new Map(stats.map((row) => [row.bankId, row.questionCount]));
+  return banks.map((bank) => ({ ...bank, questionCount: countByBank.get(bank.id) ?? 0 }));
+}
 
 /**
  * A presentation-only join. Bank identity and ordering remain membership

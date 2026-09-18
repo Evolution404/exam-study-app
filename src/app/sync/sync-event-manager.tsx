@@ -121,8 +121,8 @@ function mutationSummary(mutation: ChangeSetMutation): string {
     case "membership.bulk.save": return `批量加入 ${mutation.memberships.length} 条题库关系`;
     case "membership.bulk.remove": return `批量移除 ${mutation.keys.length} 条题库关系`;
     case "note.upserted": return `更新题目 ${shortId(mutation.note.questionId)} 的个人解析`;
-    case "questionGroup.saved": return `保存题组「${mutation.group.name}」`;
-    case "review.round.saved": case "review.round.completed": case "review.round.archived": return `${kindLabels[mutation.kind]}「${mutation.round.name}」`;
+    case "questionGroup.saved": return `保存题组「${mutation.record.name}」`;
+    case "review.round.saved": case "review.round.completed": case "review.round.archived": return `${kindLabels[mutation.kind]}「${mutation.record.name}」`;
     default: return `${kindLabels[mutation.kind] ?? mutation.kind} · ${shortId(mutationEntityId(mutation) ?? mutation.kind)}`;
   }
 }

@@ -8,12 +8,12 @@ import { AppSelect } from "@/app/ui/app-select";
 import { ModalPortal } from "@/app/ui/modal-portal";
 import { ContentBlockRenderer } from "@/app/bank/content-block-renderer";
 import { loadImageAsset } from "@/app/bank/question-editor";
-import { addMembership, addMemberships, studyDb, setQuestionMemberships } from "@/lib/db/db";
-import { getQuestionView, listQuestionViewsAvailableFromOtherBanks, questionPlainView } from "@/lib/db/app-data";
-import type { Bank, QuestionType } from "@/lib/db/types";
+import { addMembership, addMemberships, setQuestionMemberships } from "@/lib/db/db";
+import { getQuestionView, listBankReadModels, listQuestionViewsAvailableFromOtherBanks, questionPlainView } from "@/lib/db/app-data";
+import type { BankReadModel as Bank, QuestionType } from "@/lib/db/types";
 import { QUESTION_TYPE_ORDER } from "@/types/types";
 
-function bankLabel(bank: Bank) {
+function bankLabel(bank: Pick<Bank, "name" | "displayName">) {
   return bank.displayName?.trim() || bank.name;
 }
 
@@ -27,7 +27,7 @@ export function QuestionMembershipDialog({ questionId, currentBankId, onClose, o
   const data = useLiveQuery(async () => {
     const [view, banks] = await Promise.all([
       getQuestionView(questionId, currentBankId),
-      studyDb.banks.orderBy("sortOrder").toArray(),
+      listBankReadModels(),
     ]);
     return { view, banks };
   }, [questionId, currentBankId]);
@@ -85,7 +85,7 @@ export function AddFromOtherBanksDialog({ bank, onClose, onAdded, onNotice }: {
 }) {
   const liveViews = useLiveQuery(() => listQuestionViewsAvailableFromOtherBanks(bank.id), [bank.id]);
   const views = useMemo(() => liveViews ?? [], [liveViews]);
-  const banks = useLiveQuery(() => studyDb.banks.orderBy("sortOrder").toArray(), [bank.id]) ?? [];
+  const banks = useLiveQuery(() => listBankReadModels(), [bank.id]) ?? [];
   const [query, setQuery] = useState("");
   const [sourceBankId, setSourceBankId] = useState("all");
   const [type, setType] = useState<"全部" | QuestionType>("全部");
@@ -148,7 +148,7 @@ export function BulkAddToBanksDialog({ currentBankId, questionIds, onClose, onAd
   onAdded: (count: number, bankCount: number) => void;
   onNotice: (message: string) => void;
 }) {
-  const banks = useLiveQuery(() => studyDb.banks.orderBy("sortOrder").toArray(), [currentBankId]) ?? [];
+  const banks = useLiveQuery(() => listBankReadModels(), [currentBankId]) ?? [];
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 

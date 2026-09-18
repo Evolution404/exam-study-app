@@ -436,13 +436,13 @@ export async function reconcileProjection(
     table: Table<T, [string, string]>,
     incoming: readonly T[],
     childId: (row: T) => string,
+    relationKeys: readonly string[],
   ): Promise<ReconcilePlan<T, [string, string]>> => {
     const primaryKeyOf = (row: T): [string, string] => [row.runId, childId(row)];
     if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.runId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const relationKeys = table === studyDb.practiceRunSources ? dirty?.practiceRunSources ?? [] : dirty?.practiceRunItems ?? [];
     const dirtyRunIds = [...new Set([
       ...(dirty?.practiceRuns ?? []),
       ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
@@ -462,8 +462,8 @@ export async function reconcileProjection(
       comparedRows: incomingRows.length,
     };
   };
-  const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId);
-  const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId);
+  const practiceRunSourcePlan = await makePracticeRelationPlan(studyDb.practiceRunSources, practiceRunSources, (row) => row.bankId, dirty?.practiceRunSources ?? []);
+  const practiceRunItemPlan = await makePracticeRelationPlan(studyDb.practiceRunItems, practiceRunItems, (row) => row.questionId, dirty?.practiceRunItems ?? []);
   const questionGroupRecords = state.questionGroups;
   const questionGroupItems = state.questionGroupItems;
   const groupPlan = await makePlan(studyDb.questionGroups, questionGroupRecords, (row) => row.id, dirty?.questionGroups);
@@ -511,13 +511,13 @@ export async function reconcileProjection(
     table: Table<T, [string, string]>,
     incoming: readonly T[],
     childId: (row: T) => string,
+    relationKeys: readonly string[],
   ): Promise<ReconcilePlan<T, [string, string]>> => {
     const primaryKeyOf = (row: T): [string, string] => [row.roundId, childId(row)];
     if (mode === "full") return planCompoundTable(table, incoming, primaryKeyOf);
     if (mode === "fresh") {
       return directCompoundPlan("fresh", table, incoming, primaryKeyOf, (row) => `${row.roundId}:${childId(row)}`, undefined, compoundKeyFromSyncKey);
     }
-    const relationKeys = table === studyDb.reviewRoundBanks ? dirty?.reviewRoundBanks ?? [] : dirty?.reviewRoundItems ?? [];
     const dirtyRoundIds = [...new Set([
       ...(dirty?.reviewRounds ?? []),
       ...relationKeys.map((key) => key.slice(0, key.indexOf(":"))).filter(Boolean),
@@ -537,8 +537,8 @@ export async function reconcileProjection(
       comparedRows: incomingRows.length,
     };
   };
-  const roundBankPlan = await makeRoundRelationPlan(studyDb.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId);
-  const roundItemPlan = await makeRoundRelationPlan(studyDb.reviewRoundItems, reviewRoundItems, (row) => row.questionId);
+  const roundBankPlan = await makeRoundRelationPlan(studyDb.reviewRoundBanks, reviewRoundBanks, (row) => row.bankId, dirty?.reviewRoundBanks ?? []);
+  const roundItemPlan = await makeRoundRelationPlan(studyDb.reviewRoundItems, reviewRoundItems, (row) => row.questionId, dirty?.reviewRoundItems ?? []);
   const tombstonePlan = await makePlan(studyDb.tombstones, state.tombstones, (row) => row.key, dirty?.tombstones);
   const imagePlan = mode === "full"
     ? await planImageAssetsTimed(state.imageAssets, options)

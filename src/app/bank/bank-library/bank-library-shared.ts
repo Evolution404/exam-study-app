@@ -13,7 +13,7 @@ export { isBankEnabled };
 
 export type BankQuickMode = "random30" | "sequential" | "randomAll" | "wrong" | "favorite" | "difficult";
 
-export function bankTitle(bank: Bank) { return bank.displayName?.trim() || bank.name; }
+export function bankTitle(bank: Pick<DbBank, "name" | "displayName">) { return bank.displayName?.trim() || bank.name; }
 export function fullDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)); }
 export function sortedBanks(banks: Bank[]) { return [...banks].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)); }
 

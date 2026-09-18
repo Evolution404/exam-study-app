@@ -42,7 +42,7 @@ export async function ensureChangeSetQueueBase(): Promise<void> {
     bankFolders,
     questions,
     memberships,
-    imageAssets: imageAssets.map(({ blob: _blob, ...asset }) => asset),
+    imageAssets,
     attempts,
     notes,
     practiceRuns,

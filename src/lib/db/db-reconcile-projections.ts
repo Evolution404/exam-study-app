@@ -75,7 +75,7 @@ export async function enrichProjectionImpactForDirtyInstall(
       .forEach((row) => impact.bankIds.add(row.bankId));
   }
 
-  const dirtyAttemptIds = dirty?.attempts ?? [];
+  const dirtyAttemptIds = [...(dirty?.attempts ?? [])];
   if (dirtyAttemptIds.length) {
     const currentAttempts = await studyDb.attempts.bulkGet(dirtyAttemptIds);
     currentAttempts
