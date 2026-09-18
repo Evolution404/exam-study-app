@@ -526,7 +526,7 @@ async function publishAttempt(
   const packByAsset = new Map<string, { descriptor: SyncDescriptor; entry: ImageAssetPackEntry }>();
   const treeMutations: GitHubTreeMutation[] = [];
 
-  // Group from descriptor sizes first, then validate/build/upload one bounded group at a time.
+  // Group descriptors before Blob hydration.
   for (const group of groupImageAssetsForPacks(pendingBase)) {
     const hydrated = await mapWithConcurrency(group, 6, (asset) => requireLocalPackAsset(asset, loadBlob));
     const pack = await buildImageAssetPack(hydrated);
