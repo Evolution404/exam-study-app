@@ -33,7 +33,7 @@ const syncApplicationSource = await readFile(new URL("../../src/lib/sync/sync-ap
 const syncUploadSource = await readFile(new URL("../../src/lib/sync/sync-upload.ts", import.meta.url), "utf8");
 const imageCacheSource = await readFile(new URL("../../src/lib/sync/image-asset-cache.ts", import.meta.url), "utf8");
 const imagePackSource = await readFile(new URL("../../src/lib/sync/image-asset-pack.ts", import.meta.url), "utf8");
-assert.equal(SYNC_ASSET_PREFIX, "sync/v10/assets/", "Asset Pack root must stay inside the current public namespace");
+assert.equal(SYNC_ASSET_PREFIX, "sync/v11/assets/", "Asset Pack root must stay inside the current public namespace");
 assert.match(syncApplicationSource, /downloadAllImageAssets\(onProgress\?: ImageCacheDownloadProgressCallback\)/, "sync facade must expose image cache progress");
 assert.match(imageCacheSettingSource, /role="progressbar"[^>]*aria-label="图片缓存进度"/, "image cache progress must be accessible");
 assert.match(imageCacheSettingSource, /正在并发下载图片/, "image cache UI must identify concurrent image download progress");

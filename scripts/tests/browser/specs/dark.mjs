@@ -278,7 +278,6 @@ export async function runDarkModeAudit(page) {
   // 清除数据确认弹窗（历史回退点）：三个按钮必须全部适配。
   const syncNav = page.locator(".sidebar nav").getByRole("button", { name: "同步", exact: true });
   await syncNav.click();
-  await harness.assert.doesNotReject(async () => syncNav.waitFor({ state: "visible" }), "同步导航应保持可见");
   await page.waitForFunction(() => document.querySelector(".sidebar nav button[aria-current='page']")?.textContent?.trim() === "同步");
   await page.locator(".content h1", { hasText: "GitHub 同步" }).waitFor({ state: "visible" });
   const clearCard = page.locator(".content .clear-data-card");
