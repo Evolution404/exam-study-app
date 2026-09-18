@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import "fake-indexeddb/auto";
 import { studyDb, resetDatabase } from "../../src/lib/db/db";
-import { decomposePracticeRun } from "../../src/lib/db/practice-run-store";
-import { installProjection } from "../../src/lib/sync/sync-checkpoint-bridge";
+import { installCanonicalState } from "../../src/lib/sync/sync-checkpoint-bridge";
 import { deriveDirtyInstallKeys } from "../../src/lib/sync/sync-dirty-install";
-import type { ChangeSetProjection } from "../../src/lib/sync/change-set-projection";
 import type { ChangeSetMutation, ChangeSet } from "../../src/lib/sync/change-set-types";
-import type { Question } from "../../src/lib/db/types";
+import type {
+  Bank,
+  CanonicalState,
+  ImageAssetDescriptor,
+  PracticeRunItem,
+  PracticeRunRecord,
+  PracticeRunSource,
+  Question,
+  ReviewRoundRecord,
+} from "../../src/lib/db/types";
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -17,13 +24,15 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
+const AT = "2026-08-30T00:00:00.000Z";
+
 function question(id: string, stem: string): Question {
   return {
     id,
     type: "单选",
     content: [{ id: `${id}-stem`, type: "text", text: stem }],
     options: ["甲", "乙"].map((text, index) => [{ id: `${id}-opt-${index}`, type: "text", text }]),
-    answer: "A",
+    solution: { kind: "choice", correctOptionIds: [`${id}-opt-0`] },
     tags: [],
     contentFingerprint: `fp-${id}-${stem}`,
     updatedAt: "2026-08-25T00:00:00.000Z",
@@ -31,7 +40,7 @@ function question(id: string, stem: string): Question {
   };
 }
 
-function projection(questions: Question[], imageAssets: ChangeSetProjection["imageAssets"] = []): ChangeSetProjection {
+function state(questions: Question[], imageAssets: ImageAssetDescriptor[] = []): CanonicalState {
   return {
     banks: [],
     bankFolders: [],
@@ -39,20 +48,24 @@ function projection(questions: Question[], imageAssets: ChangeSetProjection["ima
     memberships: [],
     imageAssets,
     attempts: [],
-    attemptStats: [],
-    attemptDailyStats: [],
     notes: [],
     practiceRuns: [],
-    practiceRunStats: [],
+    practiceRunSources: [],
+    practiceRunItems: [],
     questionGroups: [],
+    questionGroupItems: [],
     reviewRounds: [],
-    reviewRoundProgress: [],
+    reviewRoundBanks: [],
+    reviewRoundItems: [],
     tombstones: [],
   };
 }
 
-function benchmarkProjection(questionCount: number, attemptCount: number): ChangeSetProjection {
-  const questions = Array.from({ length: questionCount }, (_, index) => question(`bench-q-${index}`, `同步性能基准题目 ${index}：${"输电线路运行维护".repeat(4)}`));
+function benchmarkState(questionCount: number, attemptCount: number): CanonicalState {
+  const questions = Array.from(
+    { length: questionCount },
+    (_, index) => question(`bench-q-${index}`, `同步性能基准题目 ${index}：${"输电线路运行维护".repeat(4)}`),
+  );
   const attempts = Array.from({ length: attemptCount }, (_, index) => ({
     id: `bench-a-${index}`,
     runId: `bench-run-${Math.floor(index / 50)}`,
@@ -63,7 +76,7 @@ function benchmarkProjection(questionCount: number, attemptCount: number): Chang
     createdAt: new Date(Date.UTC(2026, 6, 1) + index * 1_000).toISOString(),
     deviceId: "device-benchmark",
   }));
-  return { ...projection(questions), attempts } as ChangeSetProjection;
+  return { ...state(questions), attempts };
 }
 
 function changeSet(mutations: ChangeSetMutation[], sequence = 1): ChangeSet {
@@ -72,7 +85,7 @@ function changeSet(mutations: ChangeSetMutation[], sequence = 1): ChangeSet {
     id: `dirty-${sequence}`,
     deviceId: "device-remote",
     localSequence: sequence,
-    createdAt: "2026-08-30T00:00:00.000Z",
+    createdAt: AT,
     kind: mutations.length === 1 ? mutations[0].kind : "batch",
     mutations,
     entityRefs: [],
@@ -97,42 +110,45 @@ studyDb.questions.clear = () => {
 };
 
 try {
-  const installed = await installProjection(projection([first, second]));
-  assert.equal(installed, true, "ordinary projection update should complete");
-  assert.equal(await studyDb.questions.count(), 2, "incremental install should persist the unseen question");
-  assert.equal(
-    questionClearCalls,
-    0,
-    "existing local projection must be reconciled in place; ordinary unseen delta must not clear and rebuild the questions store",
-  );
+  const installed = await installCanonicalState(state([first, second]));
+  assert.equal(installed, true);
+  assert.equal(await studyDb.questions.count(), 2);
+  assert.equal(questionClearCalls, 0, "ordinary canonical install must reconcile in place");
 
   const updatedFirst = question("q-1", "远端更新后的题目");
-  const reconciled = await installProjection(projection([updatedFirst]));
-  assert.equal(reconciled, true, "ordinary projection update/delete should complete");
-  assert.equal(await studyDb.questions.count(), 1, "incremental reconciliation should delete rows absent from the target projection");
-  assert.equal(await studyDb.questions.get("q-2"), undefined, "incremental reconciliation should delete the removed remote question");
-  assert.deepEqual((await studyDb.questions.get("q-1"))?.content, updatedFirst.content, "incremental reconciliation should update changed rows");
-  assert.equal(questionClearCalls, 0, "update/delete reconciliation must also avoid table.clear()");
+  const reconciled = await installCanonicalState(state([updatedFirst]));
+  assert.equal(reconciled, true);
+  assert.equal(await studyDb.questions.count(), 1);
+  assert.equal(await studyDb.questions.get("q-2"), undefined);
+  assert.deepEqual((await studyDb.questions.get("q-1"))?.content, updatedFirst.content);
+  assert.equal(questionClearCalls, 0);
 
   const reorderedFirst = {
     deviceId: updatedFirst.deviceId,
     updatedAt: updatedFirst.updatedAt,
     contentFingerprint: updatedFirst.contentFingerprint,
     tags: [...updatedFirst.tags],
-    answer: updatedFirst.answer,
+    solution: structuredClone(updatedFirst.solution),
     options: updatedFirst.options.map((option) => option.map((block) => ({ ...block }))),
     content: updatedFirst.content.map((block) => ({ ...block })),
     type: updatedFirst.type,
     id: updatedFirst.id,
   } as Question;
+
   let finalProgressLabel = "";
-  const noOp = await installProjection(projection([reorderedFirst]), {
+  const noOp = await installCanonicalState(state([reorderedFirst]), {
     onProgress: (progress) => { finalProgressLabel = progress.label; },
   });
-  assert.equal(noOp, true, "semantically identical projection should complete");
-  assert.equal(finalProgressLabel, "本机数据无需改写", "property-order-only differences must not create needless IndexedDB writes");
+  assert.equal(noOp, true);
+  assert.equal(finalProgressLabel, "本机数据无需改写", "property order must not generate writes");
 
-  const imageDescriptor = { id: "a".repeat(64), mimeType: "image/webp" as const, size: 4, width: 1, height: 1 };
+  const imageDescriptor: ImageAssetDescriptor = {
+    id: "a".repeat(64),
+    mimeType: "image/webp",
+    size: 4,
+    width: 1,
+    height: 1,
+  };
   await studyDb.transaction("rw", [studyDb.imageAssets, studyDb.imageBlobs], async () => {
     await studyDb.imageAssets.put(imageDescriptor);
     await studyDb.imageBlobs.put({ assetId: imageDescriptor.id, blob: new Blob(["img!"], { type: "image/webp" }) });
@@ -145,21 +161,21 @@ try {
   }) as typeof studyDb.imageAssets.bulkUpdate;
   try {
     let imageNoOpLabel = "";
-    const imageNoOp = await installProjection(projection([reorderedFirst], [imageDescriptor]), {
+    const imageNoOp = await installCanonicalState(state([reorderedFirst], [imageDescriptor]), {
       onProgress: (progress) => { imageNoOpLabel = progress.label; },
     });
     assert.equal(imageNoOp, true);
-    assert.equal(imageBulkUpdateRows, 0, "unchanged image descriptors must not generate IndexedDB writes");
-    assert.equal(imageNoOpLabel, "本机数据无需改写", "unchanged image descriptors must remain a true no-op");
-    assert.ok((await studyDb.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob, "no-op reconcile must preserve the cached Blob");
+    assert.equal(imageBulkUpdateRows, 0);
+    assert.equal(imageNoOpLabel, "本机数据无需改写");
+    assert.ok((await studyDb.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob);
 
     const changedDescriptor = { ...imageDescriptor, width: 2 };
-    await installProjection(projection([reorderedFirst], [changedDescriptor]));
-    assert.equal(imageBulkUpdateRows, 1, "a genuinely changed image descriptor must update exactly once");
+    await installCanonicalState(state([reorderedFirst], [changedDescriptor]));
+    assert.equal(imageBulkUpdateRows, 1);
     const changedImage = await studyDb.imageAssets.get(imageDescriptor.id);
     assert.equal(changedImage?.width, 2);
-    assert.ok((await studyDb.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob, "descriptor updates must preserve the cached Blob bytes");
-    assert.equal("blob" in (changedImage as Record<string, unknown>), false, "reconcile must never copy cache bytes back into imageAssets");
+    assert.ok((await studyDb.imageBlobs.get(imageDescriptor.id))?.blob instanceof Blob);
+    assert.equal("blob" in (changedImage as Record<string, unknown>), false);
   } finally {
     studyDb.imageAssets.bulkUpdate = originalImageBulkUpdate;
   }
@@ -172,41 +188,41 @@ try {
     return originalQuestionBulkGet(keys);
   }) as typeof studyDb.questions.bulkGet;
   try {
-    await installProjection(projection(manyQuestions));
+    await installCanonicalState(state(manyQuestions));
   } finally {
     studyDb.questions.bulkGet = originalQuestionBulkGet;
   }
-  assert.ok(questionBulkGetCalls >= 2, "large projection planning must compare rows in bounded bulkGet chunks rather than materializing the whole table");
+  assert.ok(questionBulkGetCalls >= 2, "full reconcile must compare large tables in bounded chunks");
 
-  // Representative local-install benchmark. Deterministic row-I/O assertions
-  // are the regression gate; timings remain diagnostic so CI runner variance
-  // cannot create false performance failures.
+  // Representative full/fresh/dirty install benchmark.
   await resetDatabase();
-  const benchmark = benchmarkProjection(2_000, 10_000);
-  const firstTimings: Array<Parameters<NonNullable<NonNullable<Parameters<typeof installProjection>[1]>["onTiming"]>>[0]> = [];
+  const benchmark = benchmarkState(2_000, 10_000);
+  type Timing = Parameters<NonNullable<NonNullable<Parameters<typeof installCanonicalState>[1]>["onTiming"]>>[0];
+  const firstTimings: Timing[] = [];
   let started = performance.now();
-  const firstBenchmarkInstall = await installProjection(benchmark, { onTiming: (timing) => firstTimings.push(timing) });
+  assert.equal(await installCanonicalState(benchmark, { onTiming: (timing) => firstTimings.push(timing) }), true);
   const firstDurationMs = elapsedMs(started);
-  assert.equal(firstBenchmarkInstall, true);
-  assert.ok(firstTimings.every((entry) => entry.mode === "fresh"), "empty database benchmark must use fresh-install mode");
+  assert.ok(firstTimings.every((entry) => entry.mode === "fresh"));
 
-  const noOpTimings: typeof firstTimings = [];
+  const noOpTimings: Timing[] = [];
   started = performance.now();
-  const benchmarkNoOp = await installProjection(benchmark, { onTiming: (timing) => noOpTimings.push(timing) });
+  assert.equal(await installCanonicalState(benchmark, { onTiming: (timing) => noOpTimings.push(timing) }), true);
   const noOpDurationMs = elapsedMs(started);
-  assert.equal(benchmarkNoOp, true);
   const noOpPlanRows = noOpTimings.filter((entry) => entry.phase === "plan").reduce((sum, entry) => sum + entry.scannedRows, 0);
   const noOpWriteRows = noOpTimings.filter((entry) => entry.phase === "write").reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
-  assert.ok(noOpPlanRows >= 2 * (benchmark.questions.length + benchmark.attempts.length), "full no-op baseline must expose the installed-table read/compare cost");
-  assert.equal(noOpWriteRows, 0, "semantic no-op benchmark must perform zero IndexedDB mutations");
+  assert.ok(noOpPlanRows >= 2 * (benchmark.questions.length + benchmark.attempts.length));
+  assert.equal(noOpWriteRows, 0);
 
   const deltaQuestions = [...benchmark.questions];
   deltaQuestions[deltaQuestions.length - 1] = question(deltaQuestions[deltaQuestions.length - 1].id, "仅修改一道题，用于验证 dirty-key 安装");
-  const deltaProjection = { ...benchmark, questions: deltaQuestions };
+  const deltaState = { ...benchmark, questions: deltaQuestions };
   const changedQuestion = deltaQuestions[deltaQuestions.length - 1];
-  const deltaKeys = await deriveDirtyInstallKeys(deltaProjection, [changeSet([{ kind: "question.upsert", question: changedQuestion }])]);
-  assert.ok(deltaKeys, "simple question upsert must be eligible for dirty install");
+  const deltaKeys = await deriveDirtyInstallKeys(deltaState, [changeSet([{ kind: "question.upsert", question: changedQuestion }])]);
+  assert.ok(deltaKeys);
   assert.deepEqual(deltaKeys.questions, [changedQuestion.id]);
+  assert.equal("attemptStats" in deltaKeys, false);
+  assert.equal("attemptDailyStats" in deltaKeys, false);
+  assert.equal("reviewRoundProgress" in deltaKeys, false);
 
   let dirtyQuestionBulkGetCalls = 0;
   let dirtyAttemptBulkGetCalls = 0;
@@ -220,11 +236,14 @@ try {
     dirtyAttemptBulkGetCalls += 1;
     return originalDirtyAttemptBulkGet(keys);
   }) as typeof studyDb.attempts.bulkGet;
-  const deltaTimings: typeof firstTimings = [];
+
+  const deltaTimings: Timing[] = [];
   started = performance.now();
   try {
-    const deltaInstalled = await installProjection(deltaProjection, { dirtyKeys: deltaKeys, onTiming: (timing) => deltaTimings.push(timing) });
-    assert.equal(deltaInstalled, true);
+    assert.equal(await installCanonicalState(deltaState, {
+      dirtyKeys: deltaKeys,
+      onTiming: (timing) => deltaTimings.push(timing),
+    }), true);
   } finally {
     studyDb.questions.bulkGet = originalDirtyQuestionBulkGet;
     studyDb.attempts.bulkGet = originalDirtyAttemptBulkGet;
@@ -232,18 +251,18 @@ try {
   const deltaDurationMs = elapsedMs(started);
   const deltaPlanRows = deltaTimings.filter((entry) => entry.phase === "plan").reduce((sum, entry) => sum + entry.scannedRows, 0);
   const deltaWriteRows = deltaTimings.filter((entry) => entry.phase === "write").reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
-  const dirtyQuestionWriteRows = deltaTimings.filter((entry) => entry.phase === "write" && entry.table === studyDb.questions.name).reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
-  const dirtyTombstoneDeleteRows = deltaTimings.filter((entry) => entry.phase === "write" && entry.table === studyDb.tombstones.name).reduce((sum, entry) => sum + entry.deleteRows, 0);
-  assert.ok(deltaTimings.every((entry) => entry.mode === "dirty"), "single-question delta must stay on dirty install mode");
-  assert.equal(deltaPlanRows, 0, "dirty installer must not scan installed IndexedDB tables");
-  assert.equal(dirtyQuestionBulkGetCalls, 0, "dirty question install must not bulkGet the full questions table");
-  assert.equal(dirtyAttemptBulkGetCalls, 0, "unrelated attempts must not be read for a question-only delta");
-  assert.equal(dirtyQuestionWriteRows, 1, "single-question dirty delta must write exactly one question row");
-  assert.equal(dirtyTombstoneDeleteRows, 1, "question upsert must explicitly mirror the reducer's tombstone clear");
-  assert.equal(deltaWriteRows, 2, "single-question dirty delta is one question put plus one idempotent tombstone clear");
+  const dirtyQuestionWriteRows = deltaTimings
+    .filter((entry) => entry.phase === "write" && entry.table === studyDb.questions.name)
+    .reduce((sum, entry) => sum + entry.putRows + entry.deleteRows, 0);
+  assert.ok(deltaTimings.every((entry) => entry.mode === "dirty"));
+  assert.equal(deltaPlanRows, 0);
+  assert.equal(dirtyQuestionBulkGetCalls, 0);
+  assert.equal(dirtyAttemptBulkGetCalls, 0);
+  assert.equal(dirtyQuestionWriteRows, 1);
+  assert.equal(deltaWriteRows, 2, "question put + idempotent question tombstone clear");
   assert.deepEqual((await studyDb.questions.get(changedQuestion.id))?.content, changedQuestion.content);
 
-  const phaseDuration = (entries: typeof firstTimings, phase: "plan" | "write") => entries
+  const phaseDuration = (entries: Timing[], phase: "plan" | "write") => entries
     .filter((entry) => entry.phase === phase)
     .reduce((sum, entry) => sum + entry.durationMs, 0);
   console.log("sync install benchmark", JSON.stringify({
@@ -253,22 +272,31 @@ try {
     oneQuestionDirty: { totalMs: Math.round(deltaDurationMs), planMs: Math.round(phaseDuration(deltaTimings, "plan")), writeMs: Math.round(phaseDuration(deltaTimings, "write")), scannedRows: deltaPlanRows, writtenRows: deltaWriteRows },
   }));
 
-  // Membership closure: moving one membership must include both affected bank
-  // rows so derived questionCount stays exact without a full table reconcile.
+  // Membership closure remains canonical-only. During Phase 4 banks are still
+  // dirtied solely to keep temporary canonical questionCount exact.
   await resetDatabase();
   const relationQuestion = question("rel-q", "题库关系闭包");
-  const bankA = { id: "bank-a", name: "A", description: "", color: "#000000", folderId: undefined, sortOrder: 0, questionCount: 1, createdAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", deviceId: "device-a" };
-  const bankB = { ...bankA, id: "bank-b", name: "B", sortOrder: 1, questionCount: 0 };
-  const oldMembership = { key: "bank-a:rel-q", bankId: "bank-a", questionId: "rel-q", sortOrder: 0, addedAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", deviceId: "device-a" };
+  const bankA: Bank = { id: "bank-a", name: "A", sortOrder: 0, questionCount: 1, importedAt: AT, updatedAt: AT, deviceId: "device-a" };
+  const bankB: Bank = { ...bankA, id: "bank-b", name: "B", sortOrder: 1, questionCount: 0 };
+  const oldMembership = { key: "bank-a:rel-q", bankId: "bank-a", questionId: "rel-q", sortOrder: 0, addedAt: AT, updatedAt: AT, deviceId: "device-a" };
   const newMembership = { ...oldMembership, key: "bank-b:rel-q", bankId: "bank-b", deviceId: "device-remote" };
   await studyDb.banks.bulkPut([bankA, bankB]);
   await studyDb.questions.put(relationQuestion);
   await studyDb.bankQuestionMemberships.put(oldMembership);
-  const relationTarget: ChangeSetProjection = {
-    ...projection([relationQuestion]),
+
+  const relationTarget: CanonicalState = {
+    ...state([relationQuestion]),
     banks: [{ ...bankA, questionCount: 0 }, { ...bankB, questionCount: 1 }],
     memberships: [newMembership],
-    tombstones: [{ key: oldMembership.key.startsWith("membership:") ? oldMembership.key : `membership:${oldMembership.key}`, entityType: "membership", entityId: oldMembership.key, deletedAt: "2026-08-30T00:00:01.000Z", deviceId: "device-remote", eventId: "dirty-rel", sequence: 2 }],
+    tombstones: [{
+      key: `membership:${oldMembership.key}`,
+      entityType: "membership",
+      entityId: oldMembership.key,
+      deletedAt: "2026-08-30T00:00:01.000Z",
+      deviceId: "device-remote",
+      eventId: "dirty-rel",
+      sequence: 2,
+    }],
   };
   const relationKeys = await deriveDirtyInstallKeys(relationTarget, [changeSet([
     { kind: "membership.remove", bankId: "bank-a", questionId: "rel-q", key: oldMembership.key, removedAt: "2026-08-30T00:00:01.000Z" },
@@ -277,75 +305,121 @@ try {
   assert.ok(relationKeys);
   assert.deepEqual(relationKeys.banks, ["bank-a", "bank-b"]);
   assert.deepEqual(relationKeys.memberships, ["bank-a:rel-q", "bank-b:rel-q"]);
-  assert.equal(await installProjection(relationTarget, { dirtyKeys: relationKeys }), true);
+  assert.equal(await installCanonicalState(relationTarget, { dirtyKeys: relationKeys }), true);
   assert.equal((await studyDb.banks.get("bank-a"))?.questionCount, 0);
   assert.equal((await studyDb.banks.get("bank-b"))?.questionCount, 1);
-  assert.equal(await studyDb.bankQuestionMemberships.get([oldMembership.bankId, oldMembership.questionId]), undefined);
-  assert.equal((await studyDb.bankQuestionMemberships.get([newMembership.bankId, newMembership.questionId]))?.bankId, "bank-b");
+  assert.equal(await studyDb.bankQuestionMemberships.get(["bank-a", "rel-q"]), undefined);
+  assert.equal((await studyDb.bankQuestionMemberships.get(["bank-b", "rel-q"]))?.bankId, "bank-b");
 
-  // Attempt closure: a new immutable attempt only dirties its own canonical key;
-  // local projections are rebuilt from the complete target facts, never trusted from wire arrays.
+  // Attempt closure: dirty keys contain only the new canonical Attempt.
+  // question/daily/round projections are rebuilt after canonical install.
   await resetDatabase();
   const attemptQ1 = question("attempt-q1", "作答闭包旧题");
   const attemptQ2 = question("attempt-q2", "作答闭包新题");
-  const attemptBank = { ...bankA, id: "attempt-bank", name: "Attempt", questionCount: 2 };
-  const round = { id: "round-1", name: "R", bankIds: [attemptBank.id], startedAt: "2026-08-30T00:00:00.000Z", status: "active" as const, createdAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", deviceId: "device-a" };
-  const run = { id: "run-1", bankId: attemptBank.id, bankIds: [attemptBank.id], bankName: "Attempt", mode: "sequential" as const, modeLabel: "练习", questionIds: [attemptQ1.id, attemptQ2.id], questionTypes: { [attemptQ1.id]: attemptQ1.type, [attemptQ2.id]: attemptQ2.type }, answers: {}, shuffleOptions: false, optionOrders: {}, startedAt: "2026-08-30T00:00:00.000Z", updatedAt: "2026-08-30T00:00:00.000Z", status: "in_progress" as const, revision: 0, reviewRoundId: round.id };
-  const oldAttempt = { id: "attempt-1", runId: run.id, questionId: attemptQ1.id, reviewRoundId: round.id, selected: "A", correct: false, elapsedMs: 1000, createdAt: "2026-08-30T00:00:01.000Z", deviceId: "device-a" };
-  const newAttempt = { ...oldAttempt, id: "attempt-2", questionId: attemptQ2.id, correct: true, createdAt: "2026-08-30T00:00:02.000Z", deviceId: "device-remote" };
-  const oldStats = { questionId: attemptQ1.id, total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 1000, firstAttemptAt: oldAttempt.createdAt, firstAttemptCorrect: false, latestAttemptAt: oldAttempt.createdAt, hasBeenWrong: true, correctStreakAfterWrong: 0, currentCorrectStreak: 0, recentOutcomes: [{ id: oldAttempt.id, createdAt: oldAttempt.createdAt, correct: false, elapsedMs: 1000 }] };
-  const newStats = { questionId: attemptQ2.id, total: 1, correct: 1, wrong: 0, giveUps: 0, totalElapsedMs: 1000, firstAttemptAt: newAttempt.createdAt, firstAttemptCorrect: true, latestAttemptAt: newAttempt.createdAt, hasBeenWrong: false, correctStreakAfterWrong: 0, currentCorrectStreak: 1, recentOutcomes: [{ id: newAttempt.id, createdAt: newAttempt.createdAt, correct: true, elapsedMs: 1000 }] };
-  const oldDaily = { key: `2026-08-30:${attemptQ1.id}`, date: "2026-08-30", questionId: attemptQ1.id, total: 1, correct: 0, wrong: 1, giveUps: 0, totalElapsedMs: 1000 };
-  const newDaily = { key: `2026-08-30:${attemptQ2.id}`, date: "2026-08-30", questionId: attemptQ2.id, total: 1, correct: 1, wrong: 0, giveUps: 0, totalElapsedMs: 1000 };
-  const oldRoundProgress = { key: `${round.id}:${attemptQ1.id}`, roundId: round.id, questionId: attemptQ1.id, attempts: 1, correct: 0, wrong: 1, firstAttemptAt: oldAttempt.createdAt, latestAttemptAt: oldAttempt.createdAt, giveUps: 0, totalElapsedMs: 1000, firstAttemptCorrect: false, hasBeenWrong: true, currentCorrectStreak: 0, correctStreakAfterWrong: 0, recentOutcomes: oldStats.recentOutcomes };
-  const newRoundProgress = { key: `${round.id}:${attemptQ2.id}`, roundId: round.id, questionId: attemptQ2.id, attempts: 1, correct: 1, wrong: 0, firstAttemptAt: newAttempt.createdAt, latestAttemptAt: newAttempt.createdAt, giveUps: 0, totalElapsedMs: 1000, firstAttemptCorrect: true, hasBeenWrong: false, currentCorrectStreak: 1, correctStreakAfterWrong: 0, recentOutcomes: newStats.recentOutcomes };
+  const attemptBank: Bank = { ...bankA, id: "attempt-bank", name: "Attempt", questionCount: 2 };
+  const roundRecord: ReviewRoundRecord = {
+    id: "round-1",
+    name: "R",
+    startedAt: AT,
+    status: "active",
+    createdAt: AT,
+    updatedAt: AT,
+    deviceId: "device-a",
+  };
+  const runRecord: PracticeRunRecord = {
+    id: "run-1",
+    mode: "sequential",
+    modeLabel: "练习",
+    shuffleOptions: false,
+    startedAt: AT,
+    updatedAt: AT,
+    status: "in_progress",
+    revision: 0,
+    bankNameSnapshot: "Attempt",
+    activityAt: AT,
+    reviewRoundId: roundRecord.id,
+  };
+  const runSource: PracticeRunSource = {
+    runId: runRecord.id,
+    bankId: attemptBank.id,
+    bankNameSnapshot: "Attempt",
+    position: 0,
+  };
+  const runItems: PracticeRunItem[] = [
+    { runId: runRecord.id, questionId: attemptQ1.id, position: 0, questionTypeSnapshot: attemptQ1.type, optionOrder: [] },
+    { runId: runRecord.id, questionId: attemptQ2.id, position: 1, questionTypeSnapshot: attemptQ2.type, optionOrder: [] },
+  ];
+  const oldAttempt = {
+    id: "attempt-1",
+    runId: runRecord.id,
+    questionId: attemptQ1.id,
+    reviewRoundId: roundRecord.id,
+    selected: "A",
+    correct: false,
+    elapsedMs: 1000,
+    createdAt: "2026-08-30T00:00:01.000Z",
+    deviceId: "device-a",
+  };
+  const newAttempt = {
+    ...oldAttempt,
+    id: "attempt-2",
+    questionId: attemptQ2.id,
+    correct: true,
+    createdAt: "2026-08-30T00:00:02.000Z",
+    deviceId: "device-remote",
+  };
+
   await studyDb.banks.put(attemptBank);
   await studyDb.questions.bulkPut([attemptQ1, attemptQ2]);
-  const runBundle = decomposePracticeRun(run, [oldAttempt]);
-  await studyDb.practiceRuns.put(runBundle.record);
-  await studyDb.practiceRunSources.bulkPut(runBundle.sources);
-  await studyDb.practiceRunItems.bulkPut(runBundle.items);
-  const { bankIds: _roundBankIds, finalQuestionIds: _roundItems, ...roundRecord } = round;
-  void _roundBankIds;
-  void _roundItems;
+  await studyDb.practiceRuns.put(runRecord);
+  await studyDb.practiceRunSources.put(runSource);
+  await studyDb.practiceRunItems.bulkPut(runItems);
   await studyDb.reviewRounds.put(roundRecord);
-  await studyDb.reviewRoundBanks.put({ roundId: round.id, bankId: attemptBank.id, position: 0 });
+  await studyDb.reviewRoundBanks.put({ roundId: roundRecord.id, bankId: attemptBank.id, position: 0 });
   await studyDb.attempts.put(oldAttempt);
-  await studyDb.questionProgress.put(oldStats);
-  await studyDb.questionDailyProgress.put(oldDaily);
-  await studyDb.reviewRoundProgress.put(oldRoundProgress);
-  const attemptTarget: ChangeSetProjection = {
-    ...projection([attemptQ1, attemptQ2]),
+
+  // Seed local projections from the old canonical facts.
+  const initialTarget: CanonicalState = {
+    ...state([attemptQ1, attemptQ2]),
     banks: [attemptBank],
-    attempts: [oldAttempt, newAttempt],
-    attemptStats: [oldStats, newStats],
-    attemptDailyStats: [oldDaily, newDaily],
-    practiceRuns: [run],
-    reviewRounds: [round],
-    reviewRoundProgress: [oldRoundProgress, newRoundProgress],
-  } as ChangeSetProjection;
+    attempts: [oldAttempt],
+    practiceRuns: [runRecord],
+    practiceRunSources: [runSource],
+    practiceRunItems: runItems,
+    reviewRounds: [roundRecord],
+    reviewRoundBanks: [{ roundId: roundRecord.id, bankId: attemptBank.id, position: 0 }],
+  };
+  await installCanonicalState(initialTarget);
+  assert.equal((await studyDb.questionProgress.get(attemptQ1.id))?.wrong, 1);
+
+  const attemptTarget: CanonicalState = { ...initialTarget, attempts: [oldAttempt, newAttempt] };
   const attemptKeys = await deriveDirtyInstallKeys(attemptTarget, [changeSet([{ kind: "attempt.create", attempt: newAttempt }], 3)]);
   assert.ok(attemptKeys);
   assert.deepEqual(attemptKeys.attempts, [newAttempt.id]);
-  assert.deepEqual(attemptKeys.attemptStats, [attemptQ2.id]);
-  assert.deepEqual(attemptKeys.attemptDailyStats, [newDaily.key]);
-  assert.deepEqual(attemptKeys.reviewRoundProgress, [newRoundProgress.key]);
-  assert.equal(await installProjection(attemptTarget, { dirtyKeys: attemptKeys }), true);
+  assert.equal("attemptStats" in attemptKeys, false);
+  assert.equal("attemptDailyStats" in attemptKeys, false);
+  assert.equal("reviewRoundProgress" in attemptKeys, false);
+
+  assert.equal(await installCanonicalState(attemptTarget, { dirtyKeys: attemptKeys }), true);
   assert.equal((await studyDb.attempts.get(oldAttempt.id))?.questionId, attemptQ1.id);
   assert.equal((await studyDb.attempts.get(newAttempt.id))?.questionId, attemptQ2.id);
   assert.equal((await studyDb.questionProgress.get(attemptQ1.id))?.wrong, 1);
   assert.equal((await studyDb.questionProgress.get(attemptQ2.id))?.correct, 1);
-  assert.equal((await studyDb.questionDailyProgress.get([oldDaily.date, oldDaily.questionId]))?.questionId, attemptQ1.id);
-  assert.equal((await studyDb.questionDailyProgress.get([newDaily.date, newDaily.questionId]))?.questionId, attemptQ2.id);
-  assert.equal((await studyDb.reviewRoundProgress.get([oldRoundProgress.roundId, oldRoundProgress.questionId]))?.questionId, attemptQ1.id);
-  assert.equal((await studyDb.reviewRoundProgress.get([newRoundProgress.roundId, newRoundProgress.questionId]))?.questionId, attemptQ2.id);
+  assert.equal((await studyDb.questionDailyProgress.get(["2026-08-30", attemptQ1.id]))?.questionId, attemptQ1.id);
+  assert.equal((await studyDb.questionDailyProgress.get(["2026-08-30", attemptQ2.id]))?.questionId, attemptQ2.id);
+  assert.equal((await studyDb.reviewRoundProgress.get([roundRecord.id, attemptQ1.id]))?.questionId, attemptQ1.id);
+  assert.equal((await studyDb.reviewRoundProgress.get([roundRecord.id, attemptQ2.id]))?.questionId, attemptQ2.id);
 
-  const cascadeKeys = await deriveDirtyInstallKeys(projection([]), [changeSet([{ kind: "question.delete.cascade", questionId: "unsafe-cascade", deletedAt: "2026-08-30T00:00:02.000Z" }], 4)]);
-  assert.equal(cascadeKeys, null, "question cascade must force the orchestrator back to full reconcile");
+  const cascadeKeys = await deriveDirtyInstallKeys(state([]), [changeSet([{
+    kind: "question.delete.cascade",
+    questionId: "unsafe-cascade",
+    deletedAt: "2026-08-30T00:00:02.000Z",
+  }], 4)]);
+  assert.equal(cascadeKeys, null, "question cascade must fall back to full canonical reconcile");
 } finally {
   studyDb.questions.clear = originalQuestionClear;
   await resetDatabase();
   studyDb.close();
 }
 
-console.log("iOS incremental install regression tests passed: full/fresh/dirty install modes, dirty closures and cascade fallback");
+console.log("iOS incremental canonical install regression tests passed");
