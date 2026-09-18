@@ -17,11 +17,6 @@ function relationId(...parts: string[]): string { return parts.join(":"); }
 
 export function normalizeCanonicalStateForReplay(input: CanonicalState): CanonicalState {
   const state = normalizeCanonicalState(input);
-  // questionCount remains a temporary canonical field until Phase 4 removes it.
-  const countByBank = new Map<string, number>();
-  for (const membership of state.memberships) countByBank.set(membership.bankId, (countByBank.get(membership.bankId) ?? 0) + 1);
-  state.banks = state.banks.map((bank) => ({ ...bank, questionCount: countByBank.get(bank.id) ?? 0 }));
-
   state.banks.sort((a,b)=>a.id.localeCompare(b.id));
   state.bankFolders.sort((a,b)=>a.id.localeCompare(b.id));
   state.questions.sort((a,b)=>a.id.localeCompare(b.id));
@@ -63,17 +58,12 @@ export function canonicalStateValidationIssues(input: CanonicalState): Canonical
   }
 
   const membershipKeys = new Set<string>();
-  const countByBank = new Map<string,number>();
   for (const row of state.memberships) {
     if (row.key !== membershipKey(row.bankId,row.questionId)) pushIssue(issues,`memberships.${row.key}`,"non-canonical key");
     if (membershipKeys.has(row.key)) pushIssue(issues,`memberships.${row.key}`,"duplicate membership");
     membershipKeys.add(row.key);
     if (!banks.has(row.bankId)) pushIssue(issues,`memberships.${row.key}.bankId`,"missing bank");
     if (!questions.has(row.questionId)) pushIssue(issues,`memberships.${row.key}.questionId`,"missing question");
-    countByBank.set(row.bankId,(countByBank.get(row.bankId)??0)+1);
-  }
-  for (const bank of state.banks) {
-    if (bank.questionCount !== (countByBank.get(bank.id)??0)) pushIssue(issues,`banks.${bank.id}.questionCount`,"count is stale");
   }
 
   const runIds = new Set(state.practiceRuns.map((row)=>row.id));

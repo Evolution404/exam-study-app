@@ -710,7 +710,7 @@ export async function reconcileProjection(
   const shouldRebuildProjections = rowOps > 0 || await localProjectionsNeedRebuild();
   if (shouldRebuildProjections) {
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "重建本地学习统计" });
-    await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
+    await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
     options.onProgress?.({ completed: totalOps, total: totalOps, label: "本机投影重建完成" });
   }
   return true;

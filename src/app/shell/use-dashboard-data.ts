@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { studyDb } from "@/lib/db/db";
+import { listBankReadModels, studyDb } from "@/lib/db/db";
 import { isBankEnabled } from "@/lib/db/types";
 import { calendarDate } from "@/lib/practice/practice-metrics";
 import { buildScopedQuestionStats, calculateProgressCompletion, normalizeProgressScope, progressScopeLabel, summarizeScopedQuestionStats } from "@/lib/practice/progress-scope";
@@ -14,7 +14,7 @@ import { summarizeDashboardRows } from "./shell-controller-model";
 export function useDashboardData(view: View, preferences: PracticePreferences) {
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>(loadSelectedBankIds);
   const bankRows = useLiveQuery(
-    async () => (await studyDb.banks.toArray()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)),
+    async () => (await listBankReadModels()).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || a.importedAt.localeCompare(b.importedAt)),
     [],
   );
   const banks = bankRows ?? [];

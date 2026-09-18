@@ -82,7 +82,7 @@ export async function restoreLocalCheckpoint(state: CanonicalState, options: Res
   // from the already materialized canonical snapshot after that transaction commits.
   const replaceTables = [
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
-    studyDb.attempts, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
+    studyDb.attempts, studyDb.bankQuestionStats, studyDb.questionProgress, studyDb.questionDailyProgress, studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems,
     studyDb.bankPracticeStats, studyDb.questionGroups, studyDb.questionGroupItems, studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.reviewRoundProgress,
     studyDb.tombstones,
   ];
@@ -202,7 +202,7 @@ export async function restoreLocalCheckpoint(state: CanonicalState, options: Res
 
   if (!restored) return false;
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "重建本地学习统计" });
-  await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources);
+  await rebuildProjectionsFromNormalizedFacts(state.attempts, state.practiceRuns, state.practiceRunSources, state.memberships);
   options.onProgress?.({ completed: totalRows, total: totalRows, label: "本机数据库写入完成" });
   return true;
 }

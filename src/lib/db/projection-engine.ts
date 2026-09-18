@@ -12,6 +12,8 @@ import type {
   AttemptDailyStats,
   AttemptStats,
   BankPracticeStats,
+  BankQuestionMembership,
+  BankQuestionStats,
   PracticeRun,
   PracticeRunRecord,
   PracticeRunSource,
@@ -56,6 +58,7 @@ function canonicalRunBankIds(run: PracticeRun): string[] {
 }
 
 interface ProjectionRows {
+  bankQuestionStats: BankQuestionStats[];
   questionProgress: AttemptStats[];
   questionDailyProgress: AttemptDailyStats[];
   bankPracticeStats: BankPracticeStats[];
@@ -70,7 +73,15 @@ interface ProjectionRows {
 function projectCanonicalFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
+  memberships: readonly BankQuestionMembership[] = [],
 ): ProjectionRows {
+  const bankQuestionStats = new Map<string, BankQuestionStats>();
+  for (const membership of memberships) {
+    const current = bankQuestionStats.get(membership.bankId) ?? { bankId: membership.bankId, questionCount: 0 };
+    current.questionCount += 1;
+    bankQuestionStats.set(membership.bankId, current);
+  }
+
   const questionProgress = new Map<string, AttemptStats>();
   const questionDailyProgress = new Map<string, AttemptDailyStats>();
   const reviewRoundProgress = new Map<string, ReviewRoundProgress>();
@@ -120,6 +131,7 @@ function projectCanonicalFacts(
   }
 
   return {
+    bankQuestionStats: [...bankQuestionStats.values()],
     questionProgress: [...questionProgress.values()],
     questionDailyProgress: [...questionDailyProgress.values()],
     bankPracticeStats: [...bankPracticeStats.values()],
@@ -146,12 +158,14 @@ export async function ensureLocalProjectionsReady(): Promise<void> {
 
 async function replaceProjectionRowsInTx(rows: ProjectionRows): Promise<void> {
   await Promise.all([
+    studyDb.bankQuestionStats.clear(),
     studyDb.questionProgress.clear(),
     studyDb.questionDailyProgress.clear(),
     studyDb.bankPracticeStats.clear(),
     studyDb.reviewRoundProgress.clear(),
   ]);
   await Promise.all([
+    rows.bankQuestionStats.length ? studyDb.bankQuestionStats.bulkPut(rows.bankQuestionStats) : Promise.resolve(),
     rows.questionProgress.length ? studyDb.questionProgress.bulkPut(rows.questionProgress) : Promise.resolve(),
     rows.questionDailyProgress.length ? studyDb.questionDailyProgress.bulkPut(rows.questionDailyProgress) : Promise.resolve(),
     rows.bankPracticeStats.length ? studyDb.bankPracticeStats.bulkPut(rows.bankPracticeStats) : Promise.resolve(),
@@ -169,6 +183,7 @@ async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
   await studyDb.transaction(
     "rw",
     [
+      studyDb.bankQuestionStats,
       studyDb.questionProgress,
       studyDb.questionDailyProgress,
       studyDb.bankPracticeStats,
@@ -185,8 +200,9 @@ async function replaceProjectionRows(rows: ProjectionRows): Promise<void> {
 export async function rebuildProjectionsFromFacts(
   attempts: readonly Attempt[],
   runs: readonly PracticeRun[],
+  memberships: readonly BankQuestionMembership[] = [],
 ): Promise<void> {
-  await replaceProjectionRows(projectCanonicalFacts(attempts, runs));
+  await replaceProjectionRows(projectCanonicalFacts(attempts, runs, memberships));
 }
 
 /**
@@ -197,8 +213,9 @@ export async function rebuildProjectionsFromNormalizedFacts(
   attempts: readonly Attempt[],
   runRecords: readonly PracticeRunRecord[],
   runSources: readonly PracticeRunSource[],
+  memberships: readonly BankQuestionMembership[],
 ): Promise<void> {
-  const attemptRows = projectCanonicalFacts(attempts, []);
+  const attemptRows = projectCanonicalFacts(attempts, [], memberships);
   const bankPracticeStats = new Map<string, BankPracticeStats>();
   const bankIdsByRun = new Map<string, Set<string>>();
   for (const source of runSources) {
@@ -245,9 +262,11 @@ export async function rebuildAllProjections(): Promise<void> {
     "rw",
     [
       studyDb.attempts,
+      studyDb.bankQuestionMemberships,
       studyDb.practiceRuns,
       studyDb.practiceRunSources,
       studyDb.practiceRunItems,
+      studyDb.bankQuestionStats,
       studyDb.questionProgress,
       studyDb.questionDailyProgress,
       studyDb.bankPracticeStats,
@@ -255,14 +274,15 @@ export async function rebuildAllProjections(): Promise<void> {
       studyDb.syncMeta,
     ],
     async () => {
-      const [attempts, records, sources, items] = await Promise.all([
+      const [attempts, memberships, records, sources, items] = await Promise.all([
         studyDb.attempts.toArray(),
+        studyDb.bankQuestionMemberships.toArray(),
         studyDb.practiceRuns.toArray(),
         studyDb.practiceRunSources.toArray(),
         studyDb.practiceRunItems.toArray(),
       ]);
       const runs = assemblePracticeRunRecords(records, sources, items, attempts);
-      await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs));
+      await replaceProjectionRowsInTx(projectCanonicalFacts(attempts, runs, memberships));
       await clearProjectionRebuildPendingInTx();
     },
   );

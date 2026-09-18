@@ -45,6 +45,7 @@ export {
   getBankQuestionJoins,
   getBankQuestions,
   getQuestionsForBanks,
+  listBankReadModels,
   deleteBank,
 } from "./db-bank";
 

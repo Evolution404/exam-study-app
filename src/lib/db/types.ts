@@ -24,10 +24,20 @@ export interface Bank {
   updatedAt?: string;
   deviceId?: string;
   syncEventId?: string;
-  questionCount: number;
   importedAt: string;
   /** Disabled banks stay synchronized/managed but are excluded from new study scopes. */
   enabled?: boolean;
+}
+
+/** Device-local projection derived from bankQuestionMemberships. */
+export interface BankQuestionStats {
+  bankId: string;
+  questionCount: number;
+}
+
+/** Presentation read model; never serialized to canonical sync state. */
+export interface BankReadModel extends Bank {
+  questionCount: number;
 }
 
 export function isBankEnabled(bank: Pick<Bank, "enabled">): boolean {

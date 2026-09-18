@@ -1,5 +1,5 @@
 import { deleteBankFolder as deleteBankFolderRecord, reorderBanks as reorderBankRecords, saveBankFolder as saveBankFolderRecord, updateBank } from "@/lib/db/db";
-import { isBankEnabled, type AttemptStats as DbAttemptStats, type BankFolder as DbBankFolder, type Bank as DbBank, type Note as DbNote, type PracticeRun as DbPracticeRun, type QuestionType as DbQuestionType } from "@/lib/db/types";
+import { isBankEnabled, type AttemptStats as DbAttemptStats, type BankFolder as DbBankFolder, type BankReadModel as DbBank, type Note as DbNote, type PracticeRun as DbPracticeRun, type QuestionType as DbQuestionType } from "@/lib/db/types";
 import type { QuestionViewModel } from "@/app/bank/question-editor";
 
 export type Bank = DbBank;

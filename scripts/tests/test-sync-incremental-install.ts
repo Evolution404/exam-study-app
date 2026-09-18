@@ -272,12 +272,12 @@ try {
     oneQuestionDirty: { totalMs: Math.round(deltaDurationMs), planMs: Math.round(phaseDuration(deltaTimings, "plan")), writeMs: Math.round(phaseDuration(deltaTimings, "write")), scannedRows: deltaPlanRows, writtenRows: deltaWriteRows },
   }));
 
-  // Membership closure remains canonical-only. During Phase 4 banks are still
-  // dirtied solely to keep temporary canonical questionCount exact.
+  // Membership closure remains canonical-only. Bank question counts are a
+  // device-local projection and must not expand relation dirtiness into banks.
   await resetDatabase();
   const relationQuestion = question("rel-q", "题库关系闭包");
-  const bankA: Bank = { id: "bank-a", name: "A", sortOrder: 0, questionCount: 1, importedAt: AT, updatedAt: AT, deviceId: "device-a" };
-  const bankB: Bank = { ...bankA, id: "bank-b", name: "B", sortOrder: 1, questionCount: 0 };
+  const bankA: Bank = { id: "bank-a", name: "A", sortOrder: 0, importedAt: AT, updatedAt: AT, deviceId: "device-a" };
+  const bankB: Bank = { ...bankA, id: "bank-b", name: "B", sortOrder: 1 };
   const oldMembership = { key: "bank-a:rel-q", bankId: "bank-a", questionId: "rel-q", sortOrder: 0, addedAt: AT, updatedAt: AT, deviceId: "device-a" };
   const newMembership = { ...oldMembership, key: "bank-b:rel-q", bankId: "bank-b", deviceId: "device-remote" };
   await studyDb.banks.bulkPut([bankA, bankB]);
@@ -286,7 +286,7 @@ try {
 
   const relationTarget: CanonicalState = {
     ...state([relationQuestion]),
-    banks: [{ ...bankA, questionCount: 0 }, { ...bankB, questionCount: 1 }],
+    banks: [bankA, bankB],
     memberships: [newMembership],
     tombstones: [{
       key: `membership:${oldMembership.key}`,
@@ -303,11 +303,11 @@ try {
     { kind: "membership.save", membership: newMembership },
   ], 2)]);
   assert.ok(relationKeys);
-  assert.deepEqual(relationKeys.banks, ["bank-a", "bank-b"]);
+  assert.deepEqual(relationKeys.banks, []);
   assert.deepEqual(relationKeys.memberships, ["bank-a:rel-q", "bank-b:rel-q"]);
   assert.equal(await installCanonicalState(relationTarget, { dirtyKeys: relationKeys }), true);
-  assert.equal((await studyDb.banks.get("bank-a"))?.questionCount, 0);
-  assert.equal((await studyDb.banks.get("bank-b"))?.questionCount, 1);
+  assert.equal((await studyDb.bankQuestionStats.get("bank-a"))?.questionCount ?? 0, 0);
+  assert.equal((await studyDb.bankQuestionStats.get("bank-b"))?.questionCount, 1);
   assert.equal(await studyDb.bankQuestionMemberships.get(["bank-a", "rel-q"]), undefined);
   assert.equal((await studyDb.bankQuestionMemberships.get(["bank-b", "rel-q"]))?.bankId, "bank-b");
 
@@ -316,7 +316,7 @@ try {
   await resetDatabase();
   const attemptQ1 = question("attempt-q1", "作答闭包旧题");
   const attemptQ2 = question("attempt-q2", "作答闭包新题");
-  const attemptBank: Bank = { ...bankA, id: "attempt-bank", name: "Attempt", questionCount: 2 };
+  const attemptBank: Bank = { ...bankA, id: "attempt-bank", name: "Attempt" };
   const roundRecord: ReviewRoundRecord = {
     id: "round-1",
     name: "R",

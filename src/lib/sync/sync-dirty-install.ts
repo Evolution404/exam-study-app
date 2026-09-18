@@ -91,13 +91,11 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       sets.tombstones.add(tombstoneKey("question", mutation.clone.id));
       mutation.memberships.forEach((membership) => {
         sets.memberships.add(membership.key);
-        sets.banks.add(membership.bankId);
       });
       for (const key of mutation.deletedMembershipKeys ?? []) {
         sets.memberships.add(key);
         sets.tombstones.add(tombstoneKey("membership", key));
-        const separator = key.indexOf(":");
-        if (separator > 0) sets.banks.add(key.slice(0, separator));
+        // Bank question counts are local projections; relation dirtiness is sufficient.
       }
       if (mutation.note) sets.notes.add(mutation.note.questionId);
       return true;
@@ -109,7 +107,6 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       });
       mutation.memberships.forEach((membership) => {
         sets.memberships.add(membership.key);
-        sets.banks.add(membership.bankId);
         sets.tombstones.add(tombstoneKey("membership", membership.key));
       });
       for (const asset of mutation.images ?? []) {
@@ -119,20 +116,17 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       return true;
     case "membership.save":
       sets.memberships.add(mutation.membership.key);
-      sets.banks.add(mutation.membership.bankId);
       sets.tombstones.add(tombstoneKey("membership", mutation.membership.key));
       return true;
     case "membership.remove": {
       const key = mutation.key ?? relationKey(mutation.bankId, mutation.questionId);
       sets.memberships.add(key);
-      sets.banks.add(mutation.bankId);
       sets.tombstones.add(tombstoneKey("membership", key));
       return true;
     }
     case "membership.bulk.save":
       mutation.memberships.forEach((membership) => {
         sets.memberships.add(membership.key);
-        sets.banks.add(membership.bankId);
         sets.tombstones.add(tombstoneKey("membership", membership.key));
       });
       return true;
@@ -140,10 +134,8 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
       mutation.keys.forEach((key) => {
         sets.memberships.add(key);
         sets.tombstones.add(tombstoneKey("membership", key));
-        const separator = key.indexOf(":");
-        if (separator > 0) sets.banks.add(key.slice(0, separator));
+        // Bank question counts are local projections; relation dirtiness is sufficient.
       });
-      if (mutation.bankId) sets.banks.add(mutation.bankId);
       return true;
     case "image.asset.save":
       sets.imageAssets.add(mutation.asset.id);

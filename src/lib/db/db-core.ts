@@ -14,6 +14,7 @@ import type {
   BankFolder,
   BankQuestionMembership,
   BankPracticeStats,
+  BankQuestionStats,
   Bank,
   ContentBlock,
   ImageAssetDescriptor,
@@ -235,6 +236,7 @@ class StudyDatabase extends Dexie {
   bankFolders!: EntityTable<BankFolder, "id">;
   questions!: EntityTable<Question, "id">;
   bankQuestionMemberships!: Table<BankQuestionMembership, [string, string]>;
+  bankQuestionStats!: EntityTable<BankQuestionStats, "bankId">;
   imageAssets!: EntityTable<ImageAssetDescriptor, "id">;
   imageBlobs!: EntityTable<ImageBlob, "assetId">;
   attempts!: EntityTable<Attempt, "id">;
@@ -266,6 +268,7 @@ class StudyDatabase extends Dexie {
       bankFolders: "id, sortOrder, updatedAt",
       questions: "id, contentFingerprint, type, updatedAt, *tags",
       bankQuestionMemberships: "[bankId+questionId], bankId, questionId, sortOrder, updatedAt, [bankId+sortOrder]",
+      bankQuestionStats: "bankId",
       imageAssets: "id, mimeType, size",
       imageBlobs: "assetId, cachedAt, lastUsedAt",
       attempts: "id, runId, questionId, reviewRoundId, sourceBankId, createdAt, deviceId, [questionId+createdAt], [runId+createdAt], [reviewRoundId+createdAt], [reviewRoundId+questionId+createdAt]",

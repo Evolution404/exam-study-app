@@ -20,7 +20,7 @@ const AT = "2026-08-13T00:00:00.000Z";
 const device = "device-test";
 let seq = 0;
 
-const bank = (id: string): Bank => ({ id, name: id, sortOrder: 0, questionCount: 0, importedAt: AT, updatedAt: AT, deviceId: device });
+const bank = (id: string): Bank => ({ id, name: id, sortOrder: 0, importedAt: AT, updatedAt: AT, deviceId: device });
 const question = (id: string): Question => ({
   id,
   type: "单选",
