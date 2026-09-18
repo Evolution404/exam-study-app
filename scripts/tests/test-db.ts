@@ -65,8 +65,8 @@ const source = [
 ];
 const importedA = await importQuestionBank("import-a.json", source);
 const importedB = await importQuestionBank("import-b.json", [source[0]]);
-assert.equal(importedA.questionCount, 2);
-assert.equal(importedB.questionCount, 1);
+assert.equal((await studyDb.bankQuestionStats.get(importedA.id))?.questionCount, 2);
+assert.equal((await studyDb.bankQuestionStats.get(importedB.id))?.questionCount, 1);
 const [shared] = await getQuestionsForBanks([importedA.id, importedB.id]);
 assert.ok(shared);
 assert.equal((await studyDb.questions.count()), 2, "shared content is globally deduplicated");
