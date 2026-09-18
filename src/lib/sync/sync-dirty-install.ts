@@ -205,18 +205,18 @@ function addMutationKeys(sets: DirtySets, mutation: ChangeSetMutation): boolean 
   }
 }
 
-export async function deriveDirtyInstallKeys(
+export function deriveDirtyInstallKeys(
   _target: CanonicalState,
   changes: readonly ChangeSet[],
 ): Promise<DirtyInstallKeys | null> {
-  if (!changes.length) return null;
+  if (!changes.length) return Promise.resolve(null);
   const sets = emptyDirtySets();
   for (const change of changes) {
     for (const mutation of change.mutations) {
-      if (!addMutationKeys(sets, mutation)) return null;
+      if (!addMutationKeys(sets, mutation)) return Promise.resolve(null);
     }
   }
   const result = {} as DirtyInstallKeys;
   for (const key of Object.keys(sets) as Array<keyof DirtyInstallKeys>) result[key] = [...sets[key]].sort();
-  return result;
+  return Promise.resolve(result);
 }

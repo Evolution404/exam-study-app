@@ -43,7 +43,7 @@ export async function restoreFullHistoryFromGitHub(
       {},
     );
     const projection = replayInWireOrder(
-      await canonicalStateFromCheckpoint(downloaded.checkpoint),
+      canonicalStateFromCheckpoint(downloaded.checkpoint),
       downloaded.changes,
       (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total : 1), bands.merge[1]),
     );

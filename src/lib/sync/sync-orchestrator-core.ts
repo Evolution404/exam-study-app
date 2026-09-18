@@ -98,7 +98,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
       report(progress, "download", label, bandPercent(bands.download, fraction), bands.download[1]);
     }, { historySyncStart });
     if (!downloadSteps) report(progress, "download", "热窗口没有新数据", bands.download[1], bands.download[1]);
-    const remoteReplay = replayRemoteResilient(await canonicalStateFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
+    const remoteReplay = replayRemoteResilient(canonicalStateFromCheckpoint(downloaded.checkpoint), downloaded.changes, (done, total) => report(progress, "merge", `正在回放远端变更（${done}/${total}）`, bandPercent(bands.merge, total ? done / total / 2 : 1), bands.merge[1]));
     let remoteProjection = filterCanonicalHistory(remoteReplay.state, historySyncStart);
     if (historySyncStart) {
       const activeRunRecords = await studyDb.practiceRuns.where("status").equals("in_progress").toArray();
@@ -322,7 +322,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
           if (historySyncStart) {
             report(progress, "compact", "正在读取完整远端历史以安全压实", bandPercent(bands.upload!, 0.42), bandPercent(bands.upload!, 0.62));
             const complete = await downloadRemote(client, read.head, undefined, undefined, {});
-            compactionBase = replayRemoteResilient(await canonicalStateFromCheckpoint(complete.checkpoint), complete.changes).state;
+            compactionBase = replayRemoteResilient(canonicalStateFromCheckpoint(complete.checkpoint), complete.changes).state;
           }
           compactionProjection = replayInWireOrder(compactionBase, claim.records);
         } catch (error) {

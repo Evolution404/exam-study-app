@@ -81,8 +81,8 @@ export async function updatePracticeRunStatsInTx(previous: PracticeRun | undefin
     const records = runIds.length ? await studyDb.practiceRuns.bulkGet(runIds) : [];
     const byId = new Map(
       records
-        .filter((record) => record !== undefined)
-        .map((record) => [record!.id, { status: record!.status, activityAt: record!.activityAt }]),
+        .filter((record): record is NonNullable<typeof record> => record !== undefined)
+        .map((record) => [record.id, { status: record.status, activityAt: record.activityAt }]),
     );
 
     if (previous && previousBankIds.includes(bankId)) byId.delete(previous.id);

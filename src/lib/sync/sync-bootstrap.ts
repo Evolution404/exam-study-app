@@ -38,7 +38,7 @@ export async function initializeSyncRemote(
 
   const localSnapshot = await createSyncCheckpointSnapshot();
   const historySyncStart = historySyncStartFor(settings);
-  const localProjection = filterCanonicalHistory(await canonicalStateFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
+  const localProjection = filterCanonicalHistory(canonicalStateFromCheckpoint(localSnapshot.checkpoint), historySyncStart);
   const localCheckpoint = await checkpointFromCanonicalState(localProjection, localSnapshot.checkpoint.cursors);
   const checkpoint = await createRemoteHistoryCheckpoint(client, localCheckpoint);
   const bytes = encodeRemoteHistoryCheckpoint(checkpoint);
