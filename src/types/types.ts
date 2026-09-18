@@ -230,11 +230,6 @@ export interface QuestionGroup {
   syncEventId?: string;
 }
 
-export interface SyncFile {
-  path: string;
-  sha: string;
-  appliedAt: string;
-}
 export type SyncEntityType = "bank" | "bankFolder" | "question" | "practiceRun" | "questionGroup";
 
 export interface SyncTombstone {

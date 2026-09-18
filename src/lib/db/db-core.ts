@@ -34,7 +34,6 @@ import type {
   ReviewRoundBank,
   ReviewRoundItem,
   ReviewRoundProgress,
-  SyncFile,
   SyncMeta,
   Tombstone,
 } from "./types";
@@ -257,7 +256,6 @@ class StudyDatabase extends Dexie {
   reviewRoundItems!: Table<ReviewRoundItem, [string, string]>;
   reviewRoundProgress!: Table<ReviewRoundProgress, [string, string]>;
   changeSets!: EntityTable<ChangeSetQueueRecord, "id">;
-  syncFiles!: EntityTable<SyncFile, "path">;
   tombstones!: EntityTable<Tombstone, "key">;
   syncMeta!: EntityTable<SyncMeta, "key">;
 
@@ -290,7 +288,6 @@ class StudyDatabase extends Dexie {
       reviewRoundItems: "[roundId+questionId], roundId, questionId, [roundId+position]",
       reviewRoundProgress: "[roundId+questionId], roundId, questionId, latestAttemptAt",
       changeSets: "id, state, createdAt, deviceId, localSequence, claimId, committedAt, [state+createdAt]",
-      syncFiles: "path, sha, appliedAt",
       tombstones: "key, entityType, entityId, deletedAt",
       syncMeta: "key, updatedAt",
     });

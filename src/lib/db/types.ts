@@ -7,7 +7,6 @@ import type {
   QuestionSolution,
   PracticeResponse,
   QuestionType as BaseQuestionType,
-  SyncFile as BaseSyncFile,
   SyncMeta as BaseSyncMeta,
   SyncTombstone as BaseSyncTombstone,
 } from "../../types/types";
@@ -57,7 +56,6 @@ export interface QuestionGroupRecord {
   deviceId: string;
   syncEventId?: string;
 }
-export type SyncFile = BaseSyncFile;
 export type SyncMeta = BaseSyncMeta;
 export interface Tombstone {
   key: string;

@@ -74,7 +74,6 @@ const NEXT_SCHEMA: Record<string, StoreContract> = {
     primaryKey: "id",
     indexes: ["state", "createdAt", "deviceId", "localSequence", "claimId", "committedAt", "[state+createdAt]"],
   },
-  syncFiles: { primaryKey: "path", indexes: ["sha", "appliedAt"] },
   tombstones: { primaryKey: "key", indexes: ["entityType", "entityId", "deletedAt"] },
   syncMeta: { primaryKey: "key", indexes: ["updatedAt"] },
 };
