@@ -18,6 +18,7 @@ import { stableQuestionOptionIds } from "../question/question-utils";
 import { getReviewRound, putReviewRoundInTx } from "./review-round-store";
 import {
   getPracticeRun,
+  putPracticeRunMetadataInTx,
   putPracticeRunRecordInTx,
 } from "./practice-run-store";
 import type {
@@ -118,7 +119,7 @@ export async function savePracticeDraft(
       // Draft edits are local navigation state, not submitted activity.
       // Preserve activityAt exactly: runActivityAt only advances on submitted
       // answers (or completion/abandon transitions).
-      await studyDb.practiceRuns.put({
+      await putPracticeRunMetadataInTx({
         ...record,
         updatedAt,
         revision: record.revision + 1,
@@ -428,7 +429,7 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     const activityAt = runRecord.status === "in_progress" && timestamp > runRecord.activityAt
       ? timestamp
       : runRecord.activityAt;
-    await studyDb.practiceRuns.put({
+    await putPracticeRunMetadataInTx({
       ...runRecord,
       updatedAt: timestamp,
       activityAt,
