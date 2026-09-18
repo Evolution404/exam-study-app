@@ -108,5 +108,23 @@ for (const derivedField of ["attemptStats", "attemptDailyStats", "practiceRunSta
     `RestoreState must not accept rebuildable projection field ${derivedField}`,
   );
 }
+for (const canonicalRelation of [
+  "practiceRunSources",
+  "practiceRunItems",
+  "questionGroupItems",
+  "reviewRoundBanks",
+  "reviewRoundItems",
+]) {
+  assert.match(
+    restoreStateMatch[1],
+    new RegExp(`\\b${canonicalRelation}\\b`),
+    `RestoreState must expose normalized canonical relation ${canonicalRelation}`,
+  );
+}
+
+const checkpointStoreSource = await readFile(new URL("../../src/lib/sync/sync-checkpoint-store.ts", import.meta.url), "utf8");
+assert.doesNotMatch(checkpointStoreSource, /assemblePracticeRunRecords/, "checkpoint restore must not assemble normalized runs into aggregate PracticeRun objects");
+const restoreSource = await readFile(new URL("../../src/lib/db/db-restore.ts", import.meta.url), "utf8");
+assert.doesNotMatch(restoreSource, /decomposePracticeRuns/, "DB restore must write normalized PracticeRun facts directly");
 
 console.log("database next-schema contract passed");
