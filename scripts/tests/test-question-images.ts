@@ -290,7 +290,7 @@ await resetDatabase();
   const { bank, type } = await importQuestionBankFile(file);
   assert.equal(type, "zip");
   assert.equal(bank.name, "压缩包题库", "题库名取自 bank.json 而非文件名");
-  assert.equal(bank.questionCount, 3);
+  assert.equal((await studyDb.bankQuestionStats.get(bank.id))?.questionCount, 3);
   const memberships = (await studyDb.bankQuestionMemberships.where("bankId").equals(bank.id).toArray()).sort((a, b) => a.sortOrder - b.sortOrder);
   const ordered = await studyDb.questions.bulkGet(memberships.map((membership) => membership.questionId));
   assert.deepEqual(

@@ -1,6 +1,6 @@
 import { studyDb, uniqueStrings } from "./db-core";
 import { runActivityAt } from "../practice/practice-metrics";
-import type { BankPracticeStats, PracticeRun } from "./types";
+import type { BankPracticeStats, PracticeRun, PracticeRunRecord, PracticeRunSource } from "./types";
 
 /** internal：练习 run 的题库归属，按 bankIds 优先回退到 bankId。 */
 function runBankIds(run: Pick<PracticeRun, "bankId" | "bankIds">): string[] {
@@ -34,6 +34,24 @@ function summarizeBankRuns(
     if (run.activityAt > stats.latestActivityAt) stats.latestActivityAt = run.activityAt;
   }
   return stats;
+}
+
+export async function updatePracticeRunActivityProjectionInTx(
+  run: Pick<PracticeRunRecord, "id" | "activityAt" | "status">,
+  sources: readonly PracticeRunSource[],
+): Promise<void> {
+  for (const bankId of uniqueStrings(sources.map((source) => source.bankId))) {
+    const stats = await studyDb.bankPracticeStats.get(bankId);
+    if (stats && run.activityAt > stats.latestActivityAt) {
+      await studyDb.bankPracticeStats.put({ ...stats, latestActivityAt: run.activityAt });
+    }
+    await studyDb.bankPracticeRunIndex.put({
+      bankId,
+      runId: run.id,
+      activityAt: run.activityAt,
+      status: run.status,
+    });
+  }
 }
 
 /**

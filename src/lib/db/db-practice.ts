@@ -12,6 +12,7 @@ import type { PracticeAnswerInput, PracticeAnswer } from "./db-core";
 import { enqueueChangeSet } from "./db-change-sets";
 import { deriveRunQuestions, validatePracticeRunReferencesInTx } from "./db-practice-run-create";
 import { applyAttemptProjectionInTx, applyPracticeRunProjectionInTx } from "./projection-engine";
+import { updatePracticeRunActivityProjectionInTx } from "./db-practice-stats";
 import { withSyncLock } from "../sync/sync-lock";
 import { restrictPracticeRunMappings } from "../practice/practice-run-invariants";
 import { stableQuestionOptionIds } from "../question/question-utils";
@@ -447,18 +448,7 @@ export async function recordPracticeAnswer(input: StructuredPracticeAnswerInput)
     };
     await putPracticeRunMetadataInTx(nextRunRecord);
     if (activityAt > runRecord.activityAt) {
-      for (const bankId of new Set(runSources.map((source) => source.bankId))) {
-        const stats = await studyDb.bankPracticeStats.get(bankId);
-        if (stats && activityAt > stats.latestActivityAt) {
-          await studyDb.bankPracticeStats.put({ ...stats, latestActivityAt: activityAt });
-        }
-        await studyDb.bankPracticeRunIndex.put({
-          bankId,
-          runId: runRecord.id,
-          activityAt,
-          status: runRecord.status,
-        });
-      }
+      await updatePracticeRunActivityProjectionInTx(nextRunRecord, runSources);
     }
     if (reviewRoundId) {
       await autoCompleteRoundIfReadyInTx(reviewRoundId);
