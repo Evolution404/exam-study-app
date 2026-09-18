@@ -124,7 +124,41 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   console.log(`replay perf passed: batch ${batchElapsed.toFixed(0)}ms vs sequential ${sequentialElapsed.toFixed(0)}ms（${(sequentialElapsed / batchElapsed).toFixed(1)}×）`);
 }
 
-// --- 2. poison-skip 与浅信封回滚安全 ---------------------------------------
+// --- 2. Copy-on-write envelope：只复制真正被当前 change-set 修改的表 ---------
+{
+  const base = bigProjection(2_000);
+  const noteChange = await cs([
+    { kind: "note.upserted" as const, note: { questionId: "q-1999", content: "只改解析", revision: 1, updatedAt: at, deviceId } },
+  ]);
+  const noteResult = applyChangeSetToOwnedProjection(base, noteChange);
+  assert.strictEqual(noteResult.questions, base.questions, "解析写入不得复制 questions");
+  assert.strictEqual(noteResult.memberships, base.memberships, "解析写入不得复制 memberships");
+  assert.strictEqual(noteResult.attempts, base.attempts, "解析写入不得复制 attempts");
+  assert.strictEqual(noteResult.practiceRuns, base.practiceRuns, "解析写入不得复制 practiceRuns");
+  assert.notStrictEqual(noteResult.notes, base.notes, "解析写入只允许复制 notes");
+  assert.equal(base.notes.length, 0, "copy-on-write 不得突变基座 notes");
+  assert.equal(noteResult.notes[0]?.content, "只改解析");
+
+  const answerChange = await cs([
+    {
+      kind: "practice.answer.submitted" as const,
+      runId: "run-1",
+      questionId: "q-1999",
+      attempt: { id: "cow-answer", runId: "run-1", questionId: "q-1999", selected: "A", correct: true, elapsedMs: 90, createdAt: at, deviceId },
+      answer: { selected: ["A"], submitted: true, correct: true, updatedAt: at, deviceId, eventId: "cow-answer-event" },
+    },
+  ]);
+  const answerResult = applyChangeSetToOwnedProjection(base, answerChange);
+  assert.strictEqual(answerResult.questions, base.questions, "单题答案不得复制 questions");
+  assert.strictEqual(answerResult.memberships, base.memberships, "单题答案不得复制 memberships");
+  assert.strictEqual(answerResult.notes, base.notes, "单题答案不得复制 notes");
+  assert.notStrictEqual(answerResult.attempts, base.attempts, "单题答案必须 copy-on-write attempts");
+  assert.notStrictEqual(answerResult.practiceRuns, base.practiceRuns, "单题答案必须 copy-on-write practiceRuns");
+  assert.equal(base.attempts.length, 2_000, "copy-on-write 不得向基座 attempts 追加记录");
+  assert.equal(answerResult.attempts.length, 2_001);
+}
+
+// --- 3. poison-skip 与浅信封回滚安全 ---------------------------------------
 {
   const base = bigProjection(50);
   const good = await cs([{ kind: "note.upserted" as const, note: { questionId: "q-1", content: "先写入", revision: 1, updatedAt: at, deviceId } }]);
@@ -142,14 +176,14 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.ok(!base.notes.some((note) => note.content === "毒后写入"), "基座投影不可被批量重放突变");
 }
 
-// --- 3. strict 模式 ---------------------------------------------------------
+// --- 4. strict 模式 ---------------------------------------------------------
 {
   const base = bigProjection(10);
   const poison = await cs([{ kind: "question.delete" as const, questionId: "missing", cascade: true, deletedAt: at }]);
   assert.throws(() => replayChangeSetBatch(base, [poison], undefined, { onConflict: "throw" }), /不存在/, "strict 模式应抛出首个失败");
 }
 
-// --- 4. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
+// --- 5. 本地归并等价：owned 投影逐条 apply + 一次 finalize ≡ 逐条 reduce ----
 // 编排器重写后的本地待上传归并路径：单次 caller-owned 投影上逐条浅信封应用，
 // 循环后统一派生+校验一次。必须与基准逐条 reduce（每条全量克隆+派生）等价，
 // 且毒记录失败时输入投影不被污染（信封丢弃回滚）。
@@ -186,7 +220,7 @@ function bigProjection(seedQuestions: number): ChangeSetProjection {
   assert.equal(owned.questions.length, sequential.questions.length, "抛出后投影保持等价结果");
 }
 
-// --- 5. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
+// --- 6. 队列删除（真实 IndexedDB + mock 后端）--------------------------------
 const { startMockGitHubServer } = await import("../tools/mock-github-server.mjs");
 const { syncWithGitHub } = await import("../../src/lib/sync/github-sync-engine");
 const server = await startMockGitHubServer();
