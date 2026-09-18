@@ -1,6 +1,6 @@
 import Dexie, { type IndexableType, type Table } from "dexie";
 import { studyDb } from "./db-core";
-import { rebuildProjectionsFromFacts } from "./projection-engine";
+import { markProjectionRebuildPendingInTx, rebuildProjectionsFromFacts } from "./projection-engine";
 import { decomposePracticeRuns } from "./practice-run-store";
 import { directImagePlan, planImageAssets, type ImageReconcilePlan } from "./db-reconcile-images";
 import type { RestoreState } from "./db-core";
@@ -596,7 +596,7 @@ export async function reconcileProjection(
     studyDb.banks, studyDb.bankFolders, studyDb.questions, studyDb.bankQuestionMemberships,
     studyDb.imageAssets, studyDb.imageBlobs, studyDb.attempts,
     studyDb.notes, studyDb.practiceRuns, studyDb.practiceRunSources, studyDb.practiceRunItems, studyDb.questionGroups, studyDb.questionGroupItems,
-    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets,
+    studyDb.reviewRounds, studyDb.reviewRoundBanks, studyDb.reviewRoundItems, studyDb.tombstones, studyDb.changeSets, studyDb.syncMeta,
   ];
 
   const reconciled = await studyDb.transaction("rw", transactionTables, async () => {
@@ -630,6 +630,7 @@ export async function reconcileProjection(
         if (!queueMatches(current, options.queueGuard)) return false;
       }
       if (mode === "fresh" && !await projectionIsEmpty()) return false;
+      if (rowOps > 0) await markProjectionRebuildPendingInTx();
 
       await applyPlan(studyDb.banks, bankPlan, { put: "更新题库", remove: "清理题库" }, progress, options, mode);
       await applyPlan(studyDb.bankFolders, folderPlan, { put: "更新文件夹", remove: "清理文件夹" }, progress, options, mode);
