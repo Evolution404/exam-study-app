@@ -56,7 +56,7 @@ import { offloadSyncEvents } from "./sync-payload";
 import { installFingerprint, projectionNeedsInstall, pruneCommittedChangeSets, publishDeviceWatermark } from "./sync-watermark";
 import { SYNC_ASSET_UPLOAD_CONCURRENCY, uploadedDescriptor, uploadPendingImageAssets } from "./sync-upload";
 import { changeSetOutsideHistoryRange, filterProjectionHistory, historySyncStartFor } from "./history-sync-range";
-import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryProjection, reconcileInterruptedClaims } from "./sync-orchestrator-model";
+import { assetUploadProgressLabel, formatTransferBytes, mergeActiveHistoryProjection, pendingQueueSnapshotChanged, reconcileInterruptedClaims } from "./sync-orchestrator-model";
 import { initializeSyncRemote } from "./sync-bootstrap";
 import { restoreFullHistoryFromGitHub } from "./sync-restore";
 
@@ -175,9 +175,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
         // 相同 digest 待同步，否则整轮重试（外层上限 4 次）。新到的记录忽略——
         // 与无让出时的表现一致。
         const currentPending = await listChangeSets(["pending"]);
-        const currentById = new Map(currentPending.map((record) => [record.id, record]));
-        const snapshotChanged = localPending.some((record) => currentById.get(record.id)?.digest !== record.digest);
-        if (snapshotChanged) continue;
+        if (pendingQueueSnapshotChanged(localPending, currentPending)) continue;
       }
       rebasedProjection = filterProjectionHistory(finalizeRebasedProjection(rebasedProjection), historySyncStart);
     }
@@ -210,8 +208,7 @@ async function syncWithGitHubInternal(settings: GitHubSettings, token: string, c
     // record edited while the projection was being rebuilt invalidates the
     // in-memory projection; retry instead of publishing a stale queue base.
     const currentPending = await listChangeSets(["pending"]);
-    const pendingChanged = localPending.some((record) => currentPending.find((current) => current.id === record.id)?.digest !== record.digest);
-    if (pendingChanged) continue;
+    if (pendingQueueSnapshotChanged(localPending, currentPending)) continue;
     const claim = await claimPendingChangeSets(localPending);
     if (claim.records.length !== localPending.length) {
       if (claim.records.length) await releaseChangeSetClaim(claim.claimId);
