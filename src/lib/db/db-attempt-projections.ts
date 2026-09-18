@@ -2,6 +2,46 @@ import { dailyStatsKey, datePart, studyDb } from "./db-core";
 import { attemptHasSelection } from "./practice-run-store";
 import type { AttemptDailyStats, AttemptStats, Attempt, ReviewRoundProgress } from "./types";
 
+function compareAttemptOrder(
+  left: Pick<Attempt, "createdAt" | "id">,
+  right: Pick<Attempt, "createdAt" | "id">,
+): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+export function attemptExtendsLatest(
+  current: Pick<AttemptStats | ReviewRoundProgress, "recentOutcomes" | "latestAttemptAt">,
+  attempt: Attempt,
+): boolean {
+  const latest = current.recentOutcomes.at(-1);
+  if (latest) return compareAttemptOrder(attempt, latest) >= 0;
+  return attempt.createdAt >= current.latestAttemptAt;
+}
+
+function tailCorrectStreak(outcomes: readonly { correct: boolean }[]): number {
+  let streak = 0;
+  for (let index = outcomes.length - 1; index >= 0 && outcomes[index].correct; index -= 1) streak += 1;
+  return streak;
+}
+
+export function rebuildAttemptStats(attempts: readonly Attempt[]): AttemptStats | undefined {
+  let stats: AttemptStats | undefined;
+  for (const attempt of [...attempts].sort(compareAttemptOrder)) stats = addAttemptToStats(stats, attempt);
+  return stats;
+}
+
+export function rebuildReviewRoundProgress(
+  roundId: string,
+  questionId: string,
+  attempts: readonly Attempt[],
+): ReviewRoundProgress | undefined {
+  let progress: ReviewRoundProgress | undefined;
+  for (const attempt of [...attempts].sort(compareAttemptOrder)) {
+    progress = addReviewRoundProgress(progress, roundId, questionId, attempt);
+  }
+  return progress;
+}
+
 export function addAttemptToStats(current: AttemptStats | undefined, attempt: Attempt): AttemptStats {
   if (!current) {
     return {
@@ -23,8 +63,9 @@ export function addAttemptToStats(current: AttemptStats | undefined, attempt: At
   const recentOutcomes = [...current.recentOutcomes, { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
-  let currentCorrectStreak = 0;
-  for (let index = recentOutcomes.length - 1; index >= 0 && recentOutcomes[index].correct; index -= 1) currentCorrectStreak += 1;
+  const currentCorrectStreak = attemptExtendsLatest(current, attempt)
+    ? attempt.correct ? current.currentCorrectStreak + 1 : 0
+    : tailCorrectStreak(recentOutcomes);
   const first = attempt.createdAt < current.firstAttemptAt;
   return {
     ...current,
@@ -65,8 +106,9 @@ export function addReviewRoundProgress(
   const recentOutcomes = [...(current ? current.recentOutcomes : []), { id: attempt.id, createdAt: attempt.createdAt, correct: attempt.correct, elapsedMs: Math.max(0, attempt.elapsedMs) }]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-32);
-  let currentCorrectStreak = 0;
-  for (let index = recentOutcomes.length - 1; index >= 0 && recentOutcomes[index].correct; index -= 1) currentCorrectStreak += 1;
+  const currentCorrectStreak = current && attemptExtendsLatest(current, attempt)
+    ? attempt.correct ? current.currentCorrectStreak + 1 : 0
+    : tailCorrectStreak(recentOutcomes);
   const first = !current || attempt.createdAt < current.firstAttemptAt;
   const hasBeenWrong = Boolean(current?.hasBeenWrong) || !attempt.correct;
   return {
@@ -89,7 +131,13 @@ export function addReviewRoundProgress(
 }
 
 export async function updateReviewRoundProgressForAttemptInTx(roundId: string, questionId: string, attempt: Attempt): Promise<void> {
-  await studyDb.reviewRoundProgress.put(
-    addReviewRoundProgress(await studyDb.reviewRoundProgress.get([roundId, questionId]), roundId, questionId, attempt),
-  );
+  const current = await studyDb.reviewRoundProgress.get([roundId, questionId]);
+  if (current && !attemptExtendsLatest(current, attempt)) {
+    const attempts = (await studyDb.attempts.where("questionId").equals(questionId).toArray())
+      .filter((row) => row.reviewRoundId === roundId);
+    const rebuilt = rebuildReviewRoundProgress(roundId, questionId, attempts);
+    if (rebuilt) await studyDb.reviewRoundProgress.put(rebuilt);
+    return;
+  }
+  await studyDb.reviewRoundProgress.put(addReviewRoundProgress(current, roundId, questionId, attempt));
 }

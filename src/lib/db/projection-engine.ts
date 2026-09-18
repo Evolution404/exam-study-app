@@ -3,9 +3,12 @@ import {
   addAttemptToStats,
   addDailyStats,
   addReviewRoundProgress,
+  attemptExtendsLatest,
+  rebuildAttemptStats,
   updateReviewRoundProgressForAttemptInTx,
 } from "./db-attempt-projections";
 import { updatePracticeRunStatsInTx } from "./db-practice-stats";
+import { runActivityAt } from "../practice/practice-metrics";
 import { assemblePracticeRunRecords } from "./practice-run-store";
 import type {
   Attempt,
@@ -27,9 +30,13 @@ const PROJECTION_REBUILD_PENDING_KEY = "projection:rebuild-pending";
  * Must run inside a transaction that includes the projection tables it writes.
  */
 export async function applyAttemptProjectionInTx(attempt: Attempt): Promise<void> {
-  await studyDb.questionProgress.put(
-    addAttemptToStats(await studyDb.questionProgress.get(attempt.questionId), attempt),
-  );
+  const current = await studyDb.questionProgress.get(attempt.questionId);
+  if (current && !attemptExtendsLatest(current, attempt)) {
+    const rebuilt = rebuildAttemptStats(await studyDb.attempts.where("questionId").equals(attempt.questionId).toArray());
+    if (rebuilt) await studyDb.questionProgress.put(rebuilt);
+  } else {
+    await studyDb.questionProgress.put(addAttemptToStats(current, attempt));
+  }
   await studyDb.questionDailyProgress.put(
     addDailyStats(
       await studyDb.questionDailyProgress.get([datePart(attempt.createdAt), attempt.questionId]),
@@ -125,7 +132,8 @@ function projectCanonicalFacts(
       if (run.status === "completed") current.completed += 1;
       else if (run.status === "abandoned") current.abandoned += 1;
       else current.inProgress += 1;
-      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      const activityAt = runActivityAt(run);
+      if (activityAt > current.latestActivityAt) current.latestActivityAt = activityAt;
       bankPracticeStats.set(bankId, current);
     }
   }
@@ -240,7 +248,7 @@ export async function rebuildProjectionsFromNormalizedFacts(
       if (run.status === "completed") current.completed += 1;
       else if (run.status === "abandoned") current.abandoned += 1;
       else current.inProgress += 1;
-      if (run.updatedAt > current.latestActivityAt) current.latestActivityAt = run.updatedAt;
+      if (run.activityAt > current.latestActivityAt) current.latestActivityAt = run.activityAt;
       bankPracticeStats.set(bankId, current);
     }
   }

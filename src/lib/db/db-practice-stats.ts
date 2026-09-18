@@ -1,31 +1,79 @@
 import { studyDb, uniqueStrings } from "./db-core";
-import type { PracticeRun } from "./types";
+import { runActivityAt } from "../practice/practice-metrics";
+import type { BankPracticeStats, PracticeRun } from "./types";
 
 /** internal：练习 run 的题库归属，按 bankIds 优先回退到 bankId。 */
 function runBankIds(run: Pick<PracticeRun, "bankId" | "bankIds">): string[] {
   return uniqueStrings(run.bankIds?.length ? run.bankIds : [run.bankId]);
 }
 
-/** internal：在事务内维护 device-local bankPracticeStats。 */
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((id) => rightSet.has(id));
+}
+
+function summarizeBankRuns(
+  bankId: string,
+  runs: readonly { status: PracticeRun["status"]; activityAt: string }[],
+): BankPracticeStats | undefined {
+  if (!runs.length) return undefined;
+  const stats: BankPracticeStats = {
+    bankId,
+    total: 0,
+    completed: 0,
+    inProgress: 0,
+    abandoned: 0,
+    latestActivityAt: "",
+  };
+  for (const run of runs) {
+    stats.total += 1;
+    if (run.status === "completed") stats.completed += 1;
+    else if (run.status === "abandoned") stats.abandoned += 1;
+    else stats.inProgress += 1;
+    if (run.activityAt > stats.latestActivityAt) stats.latestActivityAt = run.activityAt;
+  }
+  return stats;
+}
+
+/**
+ * Maintain bankPracticeStats from canonical run facts.
+ *
+ * The old implementation used irreversible arithmetic and could not lower
+ * latestActivityAt after deleting the newest run. Recompute only the affected
+ * banks, overlaying the pending transition because callers may invoke this
+ * before the run/source rows themselves are updated.
+ */
 export async function updatePracticeRunStatsInTx(previous: PracticeRun | undefined, next: PracticeRun | undefined): Promise<void> {
-  const bankIds = new Set([...runBankIds(previous ?? { bankId: "", bankIds: [] }), ...runBankIds(next ?? { bankId: "", bankIds: [] })]);
-  for (const bankId of bankIds) {
+  const previousBankIds = previous ? runBankIds(previous) : [];
+  const nextBankIds = next ? runBankIds(next) : [];
+  if (
+    previous
+    && next
+    && previous.status === next.status
+    && runActivityAt(previous) === runActivityAt(next)
+    && sameIds(previousBankIds, nextBankIds)
+  ) return;
+
+  const affectedBankIds = uniqueStrings([...previousBankIds, ...nextBankIds]);
+  for (const bankId of affectedBankIds) {
     if (!bankId) continue;
-    const current = await studyDb.bankPracticeStats.get(bankId) ?? { bankId, total: 0, completed: 0, inProgress: 0, abandoned: 0, latestActivityAt: "" };
-    if (previous && runBankIds(previous).includes(bankId)) {
-      current.total = Math.max(0, current.total - 1);
-      if (previous.status === "completed") current.completed = Math.max(0, current.completed - 1);
-      else if (previous.status === "abandoned") current.abandoned = Math.max(0, current.abandoned - 1);
-      else current.inProgress = Math.max(0, current.inProgress - 1);
+    const sourceRows = await studyDb.practiceRunSources.where("bankId").equals(bankId).toArray();
+    const runIds = uniqueStrings(sourceRows.map((row) => row.runId));
+    const records = runIds.length ? await studyDb.practiceRuns.bulkGet(runIds) : [];
+    const byId = new Map(
+      records
+        .filter((record) => record !== undefined)
+        .map((record) => [record!.id, { status: record!.status, activityAt: record!.activityAt }]),
+    );
+
+    if (previous && previousBankIds.includes(bankId)) byId.delete(previous.id);
+    if (next && nextBankIds.includes(bankId)) {
+      byId.set(next.id, { status: next.status, activityAt: runActivityAt(next) });
     }
-    if (next && runBankIds(next).includes(bankId)) {
-      current.total += 1;
-      if (next.status === "completed") current.completed += 1;
-      else if (next.status === "abandoned") current.abandoned += 1;
-      else current.inProgress += 1;
-      current.latestActivityAt = current.latestActivityAt > next.updatedAt ? current.latestActivityAt : next.updatedAt;
-    }
-    if (current.total) await studyDb.bankPracticeStats.put(current);
+
+    const exact = summarizeBankRuns(bankId, [...byId.values()]);
+    if (exact) await studyDb.bankPracticeStats.put(exact);
     else await studyDb.bankPracticeStats.delete(bankId);
   }
 }
