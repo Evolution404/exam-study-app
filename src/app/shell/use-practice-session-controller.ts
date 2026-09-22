@@ -29,6 +29,7 @@ import { getReviewRound } from "@/lib/db/review-round-store";
 interface PracticeSessionControllerOptions {
   view: View;
   setView: Dispatch<SetStateAction<View>>;
+  restoredFromPullRefresh: boolean;
   enabledBanks: Bank[];
   preferences: PracticePreferences;
   latestPracticeRun?: PracticeRun;
@@ -42,6 +43,7 @@ interface PracticeSessionControllerOptions {
 export function usePracticeSessionController({
   view,
   setView,
+  restoredFromPullRefresh,
   enabledBanks,
   preferences,
   latestPracticeRun,
@@ -66,12 +68,12 @@ export function usePracticeSessionController({
   useEffect(() => {
     if (startupAutoResumeHandled.current || !latestPracticeRunLoaded) return;
     startupAutoResumeHandled.current = true;
-    if (!latestPracticeRun || !latestPracticeRun.questionIds.length || viewRef.current !== "home" || practiceSessionRef.current || isPracticeAutoResumeSuppressed(latestPracticeRun.id)) return;
+    if (restoredFromPullRefresh || !latestPracticeRun || !latestPracticeRun.questionIds.length || viewRef.current !== "home" || practiceSessionRef.current || isPracticeAutoResumeSuppressed(latestPracticeRun.id)) return;
     const restored = activePracticeFromRun(latestPracticeRun);
     setPracticeSession(restored);
     selectBanksRef.current(restored.bankIds?.length ? restored.bankIds : [restored.bankId]);
     setView("practice");
-  }, [latestPracticeRun, latestPracticeRunLoaded, setView]);
+  }, [latestPracticeRun, latestPracticeRunLoaded, restoredFromPullRefresh, setView]);
 
   function changeSession(mutator: (session: ActivePractice) => ActivePractice) {
     setPracticeSession((current) => {
