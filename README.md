@@ -4,6 +4,8 @@
 
 线上地址：<https://evolution404.github.io/exam-study-app/>
 
+SideStore 订阅源：<https://learn.980923.xyz/sidestore/source.json>
+
 ## 支持平台
 
 - Desktop Web / PWA：GitHub Pages、Cloudflare Pages，以及本地浏览器开发环境。
@@ -50,7 +52,15 @@ npm test
 
 ## iOS 构建、SideStore 与签名
 
-iOS 工程固定 Bundle ID `com.evolution404.shijuan`，不把 Team ID、证书或 Apple ID 写入仓库。本地 Xcode 路径：
+iOS 工程固定 Bundle ID `com.evolution404.shijuan`，不把 Team ID、证书或 Apple ID 写入仓库。
+
+SideStore 添加软件源时使用：
+
+```text
+https://learn.980923.xyz/sidestore/source.json
+```
+
+本地 Xcode 路径：
 
 ```bash
 make ios-setup
