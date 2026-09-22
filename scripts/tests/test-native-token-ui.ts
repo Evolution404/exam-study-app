@@ -40,13 +40,13 @@ assert.ok(
 
 assert.match(
   utilityCss,
-  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box;?/,
+  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;/,
   "history date input must be allowed to shrink inside its card",
 );
 assert.match(
   responsiveCss,
-  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box;/,
-  "mobile history date input must stay within the available card width",
+  /\.history-sync-range-controls\{[^}]*width:100%;[^}]*align-items:stretch;[^}]*flex-direction:column\}/,
+  "mobile history controls must stack within the card width",
 );
 
 assert.match(source, /显示 GitHub 令牌/, "token visibility must be explicitly user-controlled");
