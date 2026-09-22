@@ -244,15 +244,18 @@ export async function runDesktop(page, mockServer) {
   harness.assert.equal(await historyStartInput.inputValue(), "", "all-history action clears the device lower bound");
   harness.assert.ok(await page.getByRole("button", { name: "清除数据" }).isVisible(), "desktop sync view must expose the site-data reset button");
   const settingsCard = page.locator(".settings-card").first();
-  const fields = settingsCard.locator("input");
-  await fields.nth(0).fill("visible-qa-owner");
-  await fields.nth(1).fill("visible-qa-repo");
-  await fields.nth(2).fill("main");
-  await fields.nth(3).fill("qa-token");
+  const ownerField = settingsCard.locator('input[name="github-username"]');
+  const tokenField = settingsCard.locator('input[name="github-token"]');
+  const repositoryField = settingsCard.locator('input[name="github-repository"]');
+  const branchField = settingsCard.locator('input[name="github-branch"]');
+  const relayField = settingsCard.locator('input[name="github-relay"]');
+  await ownerField.fill("visible-qa-owner");
+  await tokenField.fill("qa-token");
+  await repositoryField.fill("visible-qa-repo");
+  await branchField.fill("main");
   // The branch field must stay cleared while editing — Backspace used to snap
   // the value straight back to "main". The default is applied at sync time via
   // branch(), never while typing.
-  const branchField = fields.nth(2);
   // Refocusing an input drops the caret to the start; move it to the end so
   // Backspace actually deletes characters (the field is not being cleared).
   await branchField.focus();
@@ -267,7 +270,7 @@ export async function runDesktop(page, mockServer) {
   // 401 失败与自动同步触发都走真实本地 HTTP：把 unauthorized mock 的地址填进
   // 「同步中转地址」字段，而不是 page.route 拦截 —— 计数来自 mock 的请求统计。
   const failingServer = await harness.startMockGitHubServer({ faults: { unauthorized: true } });
-  await fields.nth(4).fill(failingServer.url);
+  await relayField.fill(failingServer.url);
   await helpers.capture(page, contextName, "sync-settings");
   await helpers.clickTextButton(page, "立即同步");
   await helpers.expectSyncFailureNotice(page);

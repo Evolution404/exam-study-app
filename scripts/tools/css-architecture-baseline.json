@@ -1,8 +1,8 @@
 {
-  "totalBytes": 301063,
+  "totalBytes": 300910,
   "maxFileBytes": 13741,
   "nonTokenHexColors": 0,
-  "totalDebtScore": 268702,
+  "totalDebtScore": 268549,
   "files": {
     "src/app/globals.css": {
       "bytes": 35,
@@ -167,7 +167,7 @@
       "important": 0
     },
     "src/app/styles/app-utility.css": {
-      "bytes": 8281,
+      "bytes": 8128,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
