@@ -51,7 +51,6 @@ function readRefreshNavigationSnapshot(): RefreshNavigationSnapshot | undefined 
       scrollTop: Number.isFinite(Number(value.scrollTop)) ? Math.max(0, Number(value.scrollTop)) : 0,
     };
   } catch {
-    window.sessionStorage.removeItem(REFRESH_NAVIGATION_KEY);
     return undefined;
   }
 }
@@ -180,6 +179,7 @@ export function useShellNavigationState() {
     openSearch,
     openMainView,
     prepareForReload,
+    restoredFromPullRefresh: Boolean(refreshSnapshot),
     resetAfterRestore,
   };
 }
