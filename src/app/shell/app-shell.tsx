@@ -42,6 +42,7 @@ export function AppShell() {
     workspaceRef,
     openSearch,
     openMainView,
+    prepareForReload,
     resetAfterRestore: resetNavigationAfterRestore,
   } = useShellNavigationState();
   const [notice, setNotice] = useState("");
@@ -185,7 +186,7 @@ export function AppShell() {
   return (
     <Tooltip.Provider delayDuration={250}>
     <main className={`app-shell font-${preferences.fontSize} transition-${preferences.questionTransition} transition-${practiceTransitionDirection < 0 ? "back" : "forward"}`}>
-      <PullToRefresh />
+      <PullToRefresh onBeforeReload={prepareForReload} />
       <ShellSidebar view={view} open={sidebarOpen} pending={stats.pending} onOpenView={openMainView} onClose={() => setSidebarOpen(false)} />
 
       <section ref={workspaceRef} className={`workspace ${view === "search" ? "view-search" : ""}`}>
