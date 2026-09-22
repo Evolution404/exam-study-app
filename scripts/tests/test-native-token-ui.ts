@@ -39,9 +39,19 @@ assert.ok(
 );
 
 assert.match(
+  source,
+  /起始日期<span className="history-date"><input type="date"/,
+  "history date input must use a wrapper so iOS WebKit does not size padding on the native date control",
+);
+assert.match(
   utilityCss,
-  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;/,
-  "history date input must be allowed to shrink inside its card",
+  /\.history-date\{[^}]*overflow:hidden;[^}]*padding:8px 10px;/,
+  "history date wrapper must own the visual padding and clipping",
+);
+assert.match(
+  utilityCss,
+  /\.history-date input\{[^}]*margin:0;[^}]*border:0;[^}]*padding:0;/,
+  "native date input must not carry padding or border on iOS WebKit",
 );
 assert.match(
   responsiveCss,
