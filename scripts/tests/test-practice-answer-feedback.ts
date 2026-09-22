@@ -112,6 +112,8 @@ assert.match(practiceController, /await getPracticeRun\(session\.runId\);[\s\S]*
 assert.match(practiceController, /activePracticeFromRun\(run, currentSession\.currentIndex\)/, "no new answers: keep the current question");
 assert.match(practiceController, /activePracticeFromRun\(run, Math\.max\(0, lastAnsweredIndex\)\)/, "new answers: jump to the last answered question");
 assert.match(practiceController, /isPracticeAutoResumeSuppressed\(latestPracticeRun\.id\)/, "startup auto-resume suppression must be scoped to the exact run id");
+assert.match(studyApp, /restoredFromPullRefresh,[\s\S]*?usePracticeSessionController/, "app shell must pass pull-refresh bootstrap intent into practice startup");
+assert.match(practiceController, /if \(restoredFromPullRefresh \|\| !latestPracticeRun/, "pull refresh must never be mistaken for a cold-launch practice auto-resume");
 assert.match(practiceController, /suppressPracticeAutoResumeForRun\(practiceSession\.runId\)/, "explicitly leaving practice must persist the exact run id as local navigation intent");
 assert.match(practiceController, /allowPracticeAutoResumeForRun\(run\.id\)/, "explicit start/resume must clear suppression for that run");
 assert.match(practiceIntent, /window\.localStorage\.setItem\(PRACTICE_AUTO_RESUME_SUPPRESSION_KEY, runId\)/, "pause intent must survive a cold browser/WKWebView restart");
