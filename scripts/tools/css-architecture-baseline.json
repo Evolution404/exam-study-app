@@ -47,7 +47,7 @@
       "important": 0
     },
     "src/app/styles/base.css": {
-      "bytes": 411,
+      "bytes": 381,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
@@ -167,7 +167,7 @@
       "important": 0
     },
     "src/app/styles/app-utility.css": {
-      "bytes": 8128,
+      "bytes": 8158,
       "hexColors": 0,
       "darkSelectors": 0,
       "important": 0
