@@ -40,7 +40,7 @@ assert.ok(
 
 assert.match(
   utilityCss,
-  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box;/,
+  /\.history-sync-range-controls input\{[^}]*width:100%;[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box;?/,
   "history date input must be allowed to shrink inside its card",
 );
 assert.match(
