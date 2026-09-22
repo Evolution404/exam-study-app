@@ -133,6 +133,61 @@ export async function runMobile(page, mockServer) {
   await helpers.capture(page, contextName, "practice-overview");
   await helpers.clickButton(page, "关闭题目总览");
   await helpers.capture(page, contextName, "practice");
+
+  // Regression: an in-progress run must not hijack a pull refresh performed
+  // from another page. The refresh should restore the visible non-practice
+  // route and leave resuming the run as an explicit user action.
+  await helpers.clickButton(page, "打开导航");
+  await helpers.clickButton(page, "题库");
+  await helpers.expectText(page, "题库管理");
+  harness.assert.equal(await page.locator(".question-card").count(), 0, "leaving practice through global navigation must show the requested page");
+  await page.evaluate(() => {
+    const workspace = document.querySelector(".workspace");
+    const target = document.querySelector(".bank-management-heading");
+    if (!(workspace instanceof HTMLElement) || !(target instanceof HTMLElement)) throw new Error("non-practice pull regression target missing");
+    document.body.dataset.nonPracticePullMarker = "before-reload";
+    workspace.scrollTop = 0;
+    const touch = (clientY) => ({
+      identifier: 2,
+      target,
+      clientX: 190,
+      clientY,
+      pageX: 190,
+      pageY: clientY,
+      screenX: 190,
+      screenY: clientY,
+      radiusX: 1,
+      radiusY: 1,
+      rotationAngle: 0,
+      force: 1,
+    });
+    const dispatch = (type, touches, changedTouches = touches) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        touches: { value: touches },
+        targetTouches: { value: touches },
+        changedTouches: { value: changedTouches },
+      });
+      target.dispatchEvent(event);
+    };
+    const start = touch(110);
+    const end = touch(310);
+    dispatch("touchstart", [start]);
+    dispatch("touchmove", [end]);
+    dispatch("touchend", [], [end]);
+  });
+  await page.waitForFunction(() => document.body.dataset.nonPracticePullMarker !== "before-reload", undefined, { timeout: 5_000 });
+  await page.locator(".app-shell").waitFor({ state: "visible" });
+  await helpers.expectText(page, "题库管理");
+  harness.assert.equal(await page.locator(".question-card").count(), 0, "pull refresh outside practice must not auto-open the in-progress exercise");
+  harness.assert.equal(await page.evaluate(() => performance.getEntriesByType("navigation")[0]?.type), "reload", "non-practice pull gesture must still perform a real page reload");
+  await helpers.clickButton(page, "打开导航");
+  await helpers.clickButton(page, "练习");
+  await helpers.expectText(page, "练习中心");
+  await helpers.clickTextButton(page, "继续练习");
+  await page.locator(".question-card").waitFor({ state: "visible" });
+  await helpers.waitForQuestion(page, 1, 5);
+
   await helpers.clickButton(page, "暂停并返回首页");
   await helpers.expectText(page, "继续上次练习");
   const resumeTone = await page.locator(".resume-copy strong").evaluate((element) => ({
