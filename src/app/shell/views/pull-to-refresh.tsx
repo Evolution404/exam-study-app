@@ -4,7 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { isNativeApp } from "@/platform/environment";
 import { updateServiceWorkerWithinTimeout } from "../helpers";
 
-export function PullToRefresh() {
+export function PullToRefresh({ onBeforeReload }: { onBeforeReload?: () => void }) {
   const native = isNativeApp();
   const [distance, setDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,6 +68,7 @@ export function PullToRefresh() {
         if (!disposed) {
           reset();
           setRefreshing(false);
+          onBeforeReload?.();
           window.location.reload();
         }
       }
@@ -84,7 +85,7 @@ export function PullToRefresh() {
       scroller.removeEventListener("touchend", handleEnd);
       scroller.removeEventListener("touchcancel", reset);
     };
-  }, [native]);
+  }, [native, onBeforeReload]);
 
   return <div role="status" aria-live="polite" className={`pull-refresh ${refreshing ? "refreshing" : ""} ${pulling ? "pulling" : ""} ${distance >= 64 ? "ready" : ""}`} style={{ transform: `translate(-50%, ${distance - 54}px)`, opacity: distance ? 1 : 0 }}><RefreshCw size={17} /><span>{refreshing ? "正在加载最新版…" : distance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>;
 }
