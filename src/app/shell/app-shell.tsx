@@ -43,6 +43,7 @@ export function AppShell() {
     openSearch,
     openMainView,
     prepareForReload,
+    restoredFromPullRefresh,
     resetAfterRestore: resetNavigationAfterRestore,
   } = useShellNavigationState();
   const [notice, setNotice] = useState("");
@@ -100,6 +101,7 @@ export function AppShell() {
   } = usePracticeSessionController({
     view,
     setView,
+    restoredFromPullRefresh,
     enabledBanks,
     preferences,
     latestPracticeRun,
